@@ -96,9 +96,11 @@ import {
   clampClassCount,
   createCategorizedStops,
   createGraduatedStops,
+  countCategorizedValues,
   getPropertyValues,
   isCategoricalProperty,
   isNumericProperty,
+  MAX_MANUAL_CATEGORIZED_VALUES,
   proportionalSizeBounds,
 } from "../../lib/vector-style-classification";
 import { buildStyleSuggestions, type StyleSuggestion } from "../../lib/style-suggestions";
@@ -580,8 +582,39 @@ function createDefaultStops(
   return styleValue(DEFAULT_LAYER_STYLE, "vectorStyleStops");
 }
 
+/**
+ * Count the distinct values a property offers as categorized stops, or 0 when
+ * that count is not known to be complete.
+ *
+ * A tiled source only exposes the features MapLibre has currently rendered, so
+ * its distinct values are a viewport sample that changes as the map pans. Add
+ * Vector Layer datasets are the exception: they render as tiles but their
+ * values come back complete from DuckDB, which is why the property-value
+ * loading effect keys on `metadata.sourceKind === "maplibre-gl-vector"` rather
+ * than on `layer.type`. Counts past the manual ceiling also report 0, so the
+ * panel never offers to render more category rows than it can.
+ */
+function completeCategorizedValueCount(
+  layer: GeoLibreLayer | undefined,
+  property: string,
+  loadedValues: unknown[] | undefined,
+): number {
+  if (!layer || !property) return 0;
+  const valuesAreSampled =
+    !layer.geojson &&
+    layer.metadata.sourceKind !== "maplibre-gl-vector" &&
+    (layer.type === "vector-tiles" || layer.type === "pmtiles" || layer.type === "mbtiles");
+  if (valuesAreSampled) return 0;
+  const count = countCategorizedValues(loadedValues ?? getPropertyValues(layer, property));
+  return count <= MAX_MANUAL_CATEGORIZED_VALUES ? count : 0;
+}
+
 function normalizeVectorStyleClassCount(mode: VectorStyleMode, value: number): number {
-  return clampClassCount(value, mode === "categorized" ? 1 : 2);
+  return clampClassCount(
+    value,
+    mode === "categorized" ? 1 : 2,
+    mode === "categorized" ? MAX_MANUAL_CATEGORIZED_VALUES : 12,
+  );
 }
 
 function defaultClassificationScheme(mode: VectorStyleMode): string {
@@ -1020,6 +1053,13 @@ export function StylePanel({
   const [draftVectorStyleClassCount, setDraftVectorStyleClassCount] = useState(
     DEFAULT_LAYER_STYLE.vectorStyleClassCount,
   );
+  // "All categories" is a draft-only selection: the applied style records the
+  // class count it resolved to, so the panel seeds this flag from that count and
+  // then keeps it as the source of truth. Re-deriving it from
+  // `classCount === categorizedValueCount` would confuse "All" with a literal
+  // count that happens to match, and the two behave differently once the
+  // attribute changes underneath them.
+  const [draftVectorStyleAllCategories, setDraftVectorStyleAllCategories] = useState(false);
   const [draftVectorStyleColorRamp, setDraftVectorStyleColorRamp] = useState(
     DEFAULT_LAYER_STYLE.vectorStyleColorRamp,
   );
@@ -1098,6 +1138,7 @@ export function StylePanel({
       setDraftVectorStyleMode(DEFAULT_LAYER_STYLE.vectorStyleMode);
       setDraftVectorStyleProperty(DEFAULT_LAYER_STYLE.vectorStyleProperty);
       setDraftVectorStyleClassCount(DEFAULT_LAYER_STYLE.vectorStyleClassCount);
+      setDraftVectorStyleAllCategories(false);
       setDraftVectorStyleColorRamp(DEFAULT_LAYER_STYLE.vectorStyleColorRamp);
       setDraftVectorStyleClassificationScheme(DEFAULT_LAYER_STYLE.vectorStyleClassificationScheme);
       setDraftVectorStyleStops(DEFAULT_LAYER_STYLE.vectorStyleStops);
@@ -1118,12 +1159,21 @@ export function StylePanel({
     setDraftHeightExpression(styleValue(layer.style, "extrusionHeightExpression"));
     const vectorStyleMode = styleValue(layer.style, "vectorStyleMode");
     setDraftVectorStyleMode(vectorStyleMode);
-    setDraftVectorStyleProperty(styleValue(layer.style, "vectorStyleProperty"));
-    setDraftVectorStyleClassCount(
-      normalizeVectorStyleClassCount(
-        vectorStyleMode,
-        styleValue(layer.style, "vectorStyleClassCount"),
-      ),
+    const vectorStyleProperty = styleValue(layer.style, "vectorStyleProperty");
+    setDraftVectorStyleProperty(vectorStyleProperty);
+    const vectorStyleClassCount = normalizeVectorStyleClassCount(
+      vectorStyleMode,
+      styleValue(layer.style, "vectorStyleClassCount"),
+    );
+    setDraftVectorStyleClassCount(vectorStyleClassCount);
+    // Values that load asynchronously are not available yet, so a re-opened
+    // panel recognizes "All" only for layers whose features are already in the
+    // store — elsewhere the resolved number stays selected until the user picks
+    // "All" again.
+    setDraftVectorStyleAllCategories(
+      vectorStyleMode === "categorized" &&
+        vectorStyleClassCount ===
+          completeCategorizedValueCount(layer, vectorStyleProperty, undefined),
     );
     setDraftVectorStyleColorRamp(styleValue(layer.style, "vectorStyleColorRamp"));
     setDraftVectorStyleClassificationScheme(
@@ -1455,6 +1505,48 @@ export function StylePanel({
   // hook order stays stable.
   const builderFeatures = useMemo(() => layer?.geojson?.features ?? [], [layer]);
   const builderFieldNames = useMemo(() => (layer ? getAttributePropertyNames(layer) : []), [layer]);
+  const countCompleteCategorizedValues = useCallback(
+    (property: string): number =>
+      completeCategorizedValueCount(
+        layer,
+        property,
+        layer && loadedVectorPropertyValues?.layerId === layer.id
+          ? loadedVectorPropertyValues.byProperty[property]
+          : undefined,
+      ),
+    // The count reads only these stable layer fields. Depending on the whole
+    // layer object would rescan every feature on any unrelated style edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      layer?.geojson,
+      layer?.id,
+      layer?.metadata.sourceKind,
+      layer?.type,
+      loadedVectorPropertyValues,
+    ],
+  );
+  const categorizedValueCount = useMemo(
+    () =>
+      draftVectorStyleMode === "categorized"
+        ? countCompleteCategorizedValues(draftVectorStyleProperty)
+        : 0,
+    [countCompleteCategorizedValues, draftVectorStyleMode, draftVectorStyleProperty],
+  );
+
+  // The distinct-value count can land after the attribute was picked (DuckDB
+  // loads values asynchronously), so reconcile the class count once it arrives:
+  // "All" follows the new attribute's count, an explicit count only shrinks to
+  // fit. Tracking the "All" selection as its own flag — rather than inferring it
+  // from `classCount === categorizedValueCount` — is what makes the two cases
+  // distinguishable when the counts happen to coincide.
+  useEffect(() => {
+    if (draftVectorStyleMode !== "categorized" || categorizedValueCount === 0) return;
+    setDraftVectorStyleClassCount((current) =>
+      draftVectorStyleAllCategories || current > categorizedValueCount
+        ? categorizedValueCount
+        : current,
+    );
+  }, [categorizedValueCount, draftVectorStyleAllCategories, draftVectorStyleMode]);
   // Zoom and variables snapshot the camera via getState() when the builder
   // opens instead of subscribing: the dialog is modal (the map cannot move
   // while it is open), and mapView subscriptions would re-render this whole
@@ -1760,6 +1852,7 @@ export function StylePanel({
     draftHeightExpression !== styleValue(style, "extrusionHeightExpression");
   const updateDraftVectorStyleMode = (mode: VectorStyleMode) => {
     setDraftVectorStyleMode(mode);
+    setDraftVectorStyleAllCategories(false);
     setVectorStyleError(null);
     if (mode === "graduated" || mode === "categorized") {
       const classCount = normalizeVectorStyleClassCount(mode, draftVectorStyleClassCount);
@@ -1786,18 +1879,31 @@ export function StylePanel({
     }
   };
   const updateDraftVectorStyleProperty = (property: string) => {
+    // The new attribute's count is 0 when its values have yet to load; keep the
+    // count within the plain options until then and let the reconcile effect
+    // above re-apply "All" once the real count arrives.
+    const nextCategoryCount =
+      draftVectorStyleMode === "categorized" ? countCompleteCategorizedValues(property) : 0;
+    const classCount =
+      nextCategoryCount > 0
+        ? draftVectorStyleAllCategories
+          ? nextCategoryCount
+          : Math.min(draftVectorStyleClassCount, nextCategoryCount)
+        : Math.min(draftVectorStyleClassCount, 12);
     setDraftVectorStyleProperty(property);
+    setDraftVectorStyleClassCount(classCount);
     regenerateDraftVectorStyleStops(
       draftVectorStyleMode,
       property,
-      draftVectorStyleClassCount,
+      classCount,
       draftVectorStyleColorRamp,
       draftVectorStyleClassificationScheme,
     );
   };
-  const updateDraftVectorStyleClassCount = (value: number) => {
+  const updateDraftVectorStyleClassCount = (value: number, allCategories = false) => {
     const classCount = normalizeVectorStyleClassCount(draftVectorStyleMode, value);
     setDraftVectorStyleClassCount(classCount);
+    setDraftVectorStyleAllCategories(allCategories);
     regenerateDraftVectorStyleStops(
       draftVectorStyleMode,
       draftVectorStyleProperty,
@@ -2060,7 +2166,10 @@ export function StylePanel({
   const vectorClassCountOptions = VECTOR_STYLE_CLASS_COUNTS.filter((classCount) =>
     draftVectorStyleMode === "categorized" ? true : classCount >= 2,
   );
-
+  // The "All (N)" option only renders while a complete count is known, so the
+  // selection falls back to the plain class count whenever it is not — keeping
+  // the controlled <select> value on an option that actually exists.
+  const allCategoriesSelected = draftVectorStyleAllCategories && categorizedValueCount > 0;
   // --- Rule-based renderer (immediate writes to style.vectorRules) ---
   const currentRules = styleValue(style, "vectorRules");
   const concreteRules = currentRules.filter((rule) => !rule.isElse);
@@ -2282,6 +2391,7 @@ export function StylePanel({
     setDraftVectorStyleMode(mode);
     setDraftVectorStyleProperty(property);
     setDraftVectorStyleClassCount(classCount);
+    setDraftVectorStyleAllCategories(false);
     setDraftVectorStyleClassificationScheme(classificationScheme);
     setDraftVectorStyleStops(stops);
     setVectorStyleError(null);
@@ -2387,14 +2497,33 @@ export function StylePanel({
             <Label htmlFor="vectorStyleClassCount">{t("style.symbology.classes")}</Label>
             <Select
               id="vectorStyleClassCount"
-              value={String(draftVectorStyleClassCount)}
-              onChange={(event) => updateDraftVectorStyleClassCount(Number(event.target.value))}
+              value={allCategoriesSelected ? "all" : String(draftVectorStyleClassCount)}
+              onChange={(event) =>
+                updateDraftVectorStyleClassCount(
+                  event.target.value === "all" ? categorizedValueCount : Number(event.target.value),
+                  event.target.value === "all",
+                )
+              }
             >
-              {vectorClassCountOptions.map((classCount) => (
-                <option key={classCount} value={classCount}>
-                  {classCount}
+              {vectorClassCountOptions
+                .filter(
+                  (classCount) => !(allCategoriesSelected && classCount === categorizedValueCount),
+                )
+                .map((classCount) => (
+                  <option key={classCount} value={classCount}>
+                    {classCount}
+                  </option>
+                ))}
+              {draftVectorStyleClassCount > 12 && !allCategoriesSelected && (
+                <option value={draftVectorStyleClassCount}>{draftVectorStyleClassCount}</option>
+              )}
+              {draftVectorStyleMode === "categorized" && categorizedValueCount > 0 && (
+                <option value="all">
+                  {t("style.symbology.allClasses", {
+                    total: categorizedValueCount,
+                  })}
                 </option>
-              ))}
+              )}
             </Select>
           </div>
           <div className="space-y-2">

@@ -1353,6 +1353,7 @@
     }
   },
   "kml": {
+    "importFailed": "KML/KMZ içe aktarılamadı.",
     "timeOverlayGroup": "Zaman kaplaması animasyonu"
   },
   "map": {
@@ -4039,6 +4040,7 @@
       "styleType": "Stil türü",
       "attribute": "Öznitelik",
       "classes": "Sınıflar",
+      "allClasses": "Tümü ({{total}})",
       "scheme": "Şema",
       "stops": "Duraklar",
       "categories": "Kategoriler",

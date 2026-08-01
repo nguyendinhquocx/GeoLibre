@@ -1315,6 +1315,7 @@
     }
   },
   "kml": {
+    "importFailed": "无法导入 KML/KMZ。",
     "timeOverlayGroup": "时间叠加动画"
   },
   "map": {
@@ -3972,6 +3973,7 @@
       "styleType": "样式类型",
       "attribute": "属性",
       "classes": "分类数",
+      "allClasses": "全部（{{total}}）",
       "scheme": "分级方案",
       "stops": "分级点",
       "categories": "类别",

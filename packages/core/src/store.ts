@@ -58,6 +58,10 @@ import {
   type StoryMap,
   type StyleLibraryEntry,
   type ProjectTemplateEntry,
+  type CommentAnchor,
+  type CommentAuthor,
+  type CommentReply,
+  type ProjectComment,
 } from "./types";
 import { hasSimpleStyleProperties } from "./vector-color";
 import {
@@ -249,6 +253,8 @@ export interface AppState {
   pointerCoords: [number, number] | null;
   /** Live GPS fix for the status bar, or null while GPS tracking is off. */
   gpsStatus: GpsStatusFix | null;
+  /** Anchored review comments on map points or features (issue #1518). */
+  comments: ProjectComment[];
   metadata: Record<string, unknown>;
   recentProjects: RecentProjectEntry[];
   attributeFilter: string;
@@ -478,8 +484,14 @@ export interface AppState {
 
   /** Append a new dashboard widget. */
   addWidget: (widget: DashboardWidget) => void;
-  /** Patch an existing dashboard widget by id (no-op if absent). */
+  /** Patch an existing dashboard widget by id (no-op if absent). Merges, so an
+   * omitted key keeps its current value; use replaceWidget to clear one. */
   updateWidget: (id: string, patch: Partial<Omit<DashboardWidget, "id">>) => void;
+  /** Swap an existing dashboard widget for a complete new record, keeping its
+   * id and position (no-op if absent). Unlike updateWidget this does not merge,
+   * so fields the caller omits are cleared — what the widget editor needs to
+   * persist an emptied title, color, prefix, or suffix. */
+  replaceWidget: (id: string, widget: Omit<DashboardWidget, "id">) => void;
   /** Remove a dashboard widget by id. */
   removeWidget: (id: string) => void;
   /** Move a widget to a new index, clamped into range, preserving the rest. */
@@ -561,6 +573,11 @@ export interface AppState {
   setLayerVirtualFields: (id: string, fields: LayerVirtualField[]) => void;
   reorderLayer: (id: string, direction: "up" | "down") => void;
   moveLayer: (id: string, targetIndex: number) => void;
+  moveLayersRelative: (
+    layerIds: string[],
+    targetLayerId: string,
+    position: "above" | "below",
+  ) => void;
   addGeoJsonLayer: (
     name: string,
     geojson: FeatureCollection,
@@ -614,8 +631,19 @@ export interface AppState {
     groupId: string | null,
     beforeLayerId?: string | null,
   ) => void;
+  moveLayersToGroup: (
+    layerIds: string[],
+    groupId: string | null,
+    beforeLayerId?: string | null,
+  ) => void;
   moveLayerGroupToGroup: (id: string, parentId: string | null) => void;
   reorderLayerGroup: (id: string, direction: "up" | "down") => void;
+
+  addComment: (comment: ProjectComment) => void;
+  replyToComment: (commentId: string, reply: CommentReply) => void;
+  toggleResolveComment: (commentId: string, resolved?: boolean) => void;
+  deleteComment: (commentId: string) => void;
+  setComments: (comments: ProjectComment[]) => void;
 }
 
 const MAX_RECENT_PROJECTS = 10;
@@ -719,6 +747,80 @@ function sameCamera(a: MapViewState, b: MapViewState): boolean {
   );
 }
 
+function removedLayerIdSet(layerIds: string | Iterable<string>): Set<string> {
+  if (typeof layerIds === "string") return new Set([layerIds]);
+  if (layerIds instanceof Set) return layerIds;
+  return new Set(layerIds);
+}
+
+/**
+ * Strip storymap chapter enter/exit opacity rows that reference any of the
+ * removed layer ids. Returns the same reference when nothing changes so
+ * callers can avoid unnecessary storymap churn.
+ */
+function scrubStorymapLayerRefs(
+  storymap: StoryMap | null,
+  layerIds: string | Iterable<string>,
+): StoryMap | null {
+  if (!storymap) return null;
+  const removed = removedLayerIdSet(layerIds);
+  if (removed.size === 0) return storymap;
+  let changed = false;
+  const chapters = storymap.chapters.map((chapter) => {
+    const onChapterEnter = chapter.onChapterEnter.filter((change) => !removed.has(change.layerId));
+    const onChapterExit = chapter.onChapterExit.filter((change) => !removed.has(change.layerId));
+    if (
+      onChapterEnter.length === chapter.onChapterEnter.length &&
+      onChapterExit.length === chapter.onChapterExit.length
+    ) {
+      return chapter;
+    }
+    changed = true;
+    return { ...chapter, onChapterEnter, onChapterExit };
+  });
+  return changed ? { ...storymap, chapters } : storymap;
+}
+
+/**
+ * Drop per-pane visibility overrides for removed layer ids so stale keys do
+ * not accumulate (or serialize) in secondary panes after deletion.
+ */
+function scrubSecondaryPaneLayerVisibility(
+  panes: SecondaryMapView[],
+  layerIds: string | Iterable<string>,
+): SecondaryMapView[] {
+  const removed = removedLayerIdSet(layerIds);
+  if (removed.size === 0) return panes;
+  let anyChanged = false;
+  const next = panes.map((pane) => {
+    let changed = false;
+    const layerVisibility: Record<string, boolean> = {};
+    for (const [id, visible] of Object.entries(pane.layerVisibility)) {
+      if (removed.has(id)) {
+        changed = true;
+        continue;
+      }
+      layerVisibility[id] = visible;
+    }
+    if (!changed) return pane;
+    anyChanged = true;
+    return { ...pane, layerVisibility };
+  });
+  return anyChanged ? next : panes;
+}
+
+/** Re-derive layers whose joins consumed any of the removed sources. */
+function cascadeJoinRefreshForRemoved(
+  layers: GeoLibreLayer[],
+  layerIds: string | Iterable<string>,
+): GeoLibreLayer[] {
+  let current = layers;
+  for (const id of removedLayerIdSet(layerIds)) {
+    current = cascadeLayerJoinRefresh(current, id);
+  }
+  return current;
+}
+
 /** Clamp a requested grid row/column count into the supported [1, MAX] range. */
 function clampGridDim(value: number): number {
   if (!Number.isFinite(value)) return 1;
@@ -768,6 +870,52 @@ function fitGrid(total: number, preferredCols: number): { rows: number; cols: nu
 
 /** Cancels the active history coalesce window (assigned by zundo's handleSet). */
 let cancelHistoryCoalesce: () => void = () => {};
+
+interface ProjectRestoreHistoryEntry {
+  before: GeoLibreProject;
+  beforePath: string | null;
+  after: GeoLibreProject;
+  afterPath: string | null;
+}
+
+let projectRestoreUndo: ProjectRestoreHistoryEntry | null = null;
+let projectRestoreRedo: ProjectRestoreHistoryEntry | null = null;
+let applyingProjectRestoreHistory = false;
+const projectRestoreHistoryListeners = new Set<() => void>();
+
+function notifyProjectRestoreHistory(): void {
+  projectRestoreHistoryListeners.forEach((listener) => listener());
+}
+
+export function subscribeProjectRestoreHistory(listener: () => void): () => void {
+  projectRestoreHistoryListeners.add(listener);
+  return () => projectRestoreHistoryListeners.delete(listener);
+}
+
+export function canUndoProjectRestore(): boolean {
+  return projectRestoreUndo !== null;
+}
+
+export function canRedoProjectRestore(): boolean {
+  return projectRestoreRedo !== null;
+}
+
+/**
+ * Register a whole-project restore as one undoable operation. The regular
+ * temporal history intentionally tracks only editing fields, while restoring a
+ * history snapshot also changes project metadata, camera, plugins, and other
+ * serialized state, so it needs a full canonical project pair.
+ */
+export function registerProjectRestoreHistory(
+  before: GeoLibreProject,
+  beforePath: string | null,
+  after: GeoLibreProject,
+  afterPath: string | null = null,
+): void {
+  projectRestoreUndo = { before, beforePath, after, afterPath };
+  projectRestoreRedo = null;
+  notifyProjectRestoreHistory();
+}
 
 /**
  * Drop the oldest undo snapshots once their combined feature payload exceeds the
@@ -820,6 +968,7 @@ export const useAppStore = create<AppState>()(
       identifyLayerId: null,
       pointerCoords: null,
       gpsStatus: null,
+      comments: [],
       metadata: {},
       recentProjects: [],
       attributeFilter: "",
@@ -863,6 +1012,43 @@ export const useAppStore = create<AppState>()(
 
       setPointerCoords: (coords) => set({ pointerCoords: coords }),
       setGpsStatus: (fix) => set({ gpsStatus: fix }),
+
+      addComment: (comment) =>
+        set((s) => {
+          // Ignore a duplicate id: the WebSocket relay echoes our own
+          // comment-mutation back to the sender, and a reconnect can replay
+          // recent history, so de-dupe defensively (mirrors addCollaborationChat).
+          if (s.comments.some((c) => c.id === comment.id)) return s;
+          return { comments: [...s.comments, comment], isDirty: true };
+        }),
+      replyToComment: (commentId, reply) =>
+        set((s) => {
+          let appended = false;
+          const nextComments = s.comments.map((c) => {
+            if (c.id !== commentId) return c;
+            if (c.replies.some((r) => r.id === reply.id)) return c;
+            appended = true;
+            return { ...c, replies: [...c.replies, reply] };
+          });
+          if (!appended) return s;
+          return { comments: nextComments, isDirty: true };
+        }),
+      toggleResolveComment: (commentId, resolved) =>
+        set((s) => ({
+          comments: s.comments.map((c) =>
+            c.id === commentId
+              ? { ...c, resolved: resolved !== undefined ? resolved : !c.resolved }
+              : c,
+          ),
+          isDirty: true,
+        })),
+      deleteComment: (commentId) =>
+        set((s) => ({
+          comments: s.comments.filter((c) => c.id !== commentId),
+          isDirty: true,
+        })),
+      setComments: (comments) => set({ comments, isDirty: true }),
+
       setCollaboration: (patch) =>
         set((s) => ({ collaboration: { ...s.collaboration, ...patch } })),
       // Add or remove a single remote participant's presence without rebuilding
@@ -1284,6 +1470,14 @@ export const useAppStore = create<AppState>()(
             isDirty: true,
           };
         }),
+      replaceWidget: (id, widget) =>
+        set((s) => {
+          if (!s.widgets.some((w) => w.id === id)) return s;
+          return {
+            widgets: s.widgets.map((w) => (w.id === id ? { ...widget, id } : w)),
+            isDirty: true,
+          };
+        }),
       removeWidget: (id) =>
         set((s) => ({
           widgets: s.widgets.filter((w) => w.id !== id),
@@ -1416,17 +1610,14 @@ export const useAppStore = create<AppState>()(
           // the source gone the join resolves to nothing, so its previously
           // materialized columns strip away instead of staying frozen (the
           // join definition itself stays, shown as missing in the Joins UI).
-          layers: cascadeLayerJoinRefresh(
+          layers: cascadeJoinRefreshForRemoved(
             s.layers.filter((l) => l.id !== id),
             id,
           ),
-          // Drop any per-pane visibility override for the removed layer so stale
-          // ids don't accumulate (and serialize) in secondary panes over time.
-          secondaryMapViews: s.secondaryMapViews.map((pane) => {
-            if (!(id in pane.layerVisibility)) return pane;
-            const { [id]: _removed, ...rest } = pane.layerVisibility;
-            return { ...pane, layerVisibility: rest };
-          }),
+          secondaryMapViews: scrubSecondaryPaneLayerVisibility(s.secondaryMapViews, id),
+          // Drop storymap chapter enter/exit opacity rows that pointed at the
+          // removed layer so they do not keep a dangling id across save/reload.
+          storymap: scrubStorymapLayerRefs(s.storymap, id),
           selectedLayerId:
             s.selectedLayerId === id
               ? (s.layers.find((l) => l.id !== id)?.id ?? null)
@@ -1551,6 +1742,36 @@ export const useAppStore = create<AppState>()(
             return s;
           }
           return { layers: next, isDirty: true };
+        }),
+
+      moveLayersRelative: (layerIds, targetLayerId, position) =>
+        set((s) => {
+          const requestedIds = new Set(layerIds);
+          if (requestedIds.has(targetLayerId)) return s;
+          const target = s.layers.find((layer) => layer.id === targetLayerId);
+          if (!target) return s;
+          const targetGroupId = target.groupId ?? null;
+          // This is a pure reorder — `groupId` is never touched — so a requested
+          // layer from another group can only be lifted out of its own block,
+          // and `normalizeGroupContiguity` would then drag that group's
+          // untouched members along to reunite it. Move only the layers that
+          // already sit in the target's group.
+          const moving = s.layers.filter(
+            (layer) => requestedIds.has(layer.id) && (layer.groupId ?? null) === targetGroupId,
+          );
+          if (moving.length === 0) return s;
+          const movingIds = new Set(moving.map((layer) => layer.id));
+          const without = s.layers.filter((layer) => !movingIds.has(layer.id));
+          const targetIndex = without.findIndex((layer) => layer.id === targetLayerId);
+          if (targetIndex < 0) return s;
+          // Store order is the reverse of panel display order, so "above" is
+          // immediately after the target in this array.
+          const insertIndex = position === "above" ? targetIndex + 1 : targetIndex;
+          const next = [...without];
+          next.splice(insertIndex, 0, ...moving);
+          const normalized = normalizeGroupContiguity(next);
+          if (normalized.every((layer, index) => layer.id === s.layers[index]?.id)) return s;
+          return { layers: normalized, isDirty: true };
         }),
 
       addGeoJsonLayer: (name, geojson, sourcePath, beforeLayerId = null) => {
@@ -1703,9 +1924,15 @@ export const useAppStore = create<AppState>()(
           const removedIds = new Set(
             s.layers.filter((l) => l.groupId && groupIds.has(l.groupId)).map((l) => l.id),
           );
-          const layers = removeChildren
+          let layers = removeChildren
             ? s.layers.filter((l) => !l.groupId || !groupIds.has(l.groupId))
             : s.layers.map((l) => (l.groupId === id ? { ...l, groupId: undefined } : l));
+          // Match removeLayer: refreshing joins and scrubbing secondary-pane /
+          // storymap refs for every deleted child so group delete cannot leave
+          // stale joined columns or dangling visibility overrides behind.
+          if (removeChildren && removedIds.size > 0) {
+            layers = cascadeJoinRefreshForRemoved(layers, removedIds);
+          }
           const selectionRemoved =
             removeChildren && s.selectedLayerId !== null && removedIds.has(s.selectedLayerId);
           return {
@@ -1713,6 +1940,10 @@ export const useAppStore = create<AppState>()(
             layerGroups: s.layerGroups
               .filter((g) => !groupIds.has(g.id))
               .map((g) => (g.parentId === id ? { ...g, parentId: removedGroup.parentId } : g)),
+            secondaryMapViews: removeChildren
+              ? scrubSecondaryPaneLayerVisibility(s.secondaryMapViews, removedIds)
+              : s.secondaryMapViews,
+            storymap: removeChildren ? scrubStorymapLayerRefs(s.storymap, removedIds) : s.storymap,
             selectedLayerId: selectionRemoved
               ? (layers[layers.length - 1]?.id ?? null)
               : s.selectedLayerId,
@@ -1758,32 +1989,44 @@ export const useAppStore = create<AppState>()(
         })),
 
       moveLayerToGroup: (layerId, groupId, beforeLayerId = null) =>
+        get().moveLayersToGroup([layerId], groupId, beforeLayerId),
+
+      moveLayersToGroup: (layerIds, groupId, beforeLayerId = null) =>
         set((s) => {
-          const current = s.layers.find((l) => l.id === layerId);
-          if (!current) return s;
           if (groupId && !s.layerGroups.some((g) => g.id === groupId)) return s;
-          const updated = { ...current, groupId: groupId ?? undefined };
-          const without = s.layers.filter((l) => l.id !== layerId);
+          const requestedIds = new Set(layerIds);
+          const moving = s.layers.filter(
+            (layer) =>
+              requestedIds.has(layer.id) &&
+              (beforeLayerId !== null || (layer.groupId ?? null) !== groupId),
+          );
+          if (moving.length === 0) return s;
+          const movingIds = new Set(moving.map((layer) => layer.id));
+          const without = s.layers.filter((layer) => !movingIds.has(layer.id));
+          const updated = moving.map((layer) => ({
+            ...layer,
+            groupId: groupId ?? undefined,
+          }));
           let index: number;
-          if (beforeLayerId) {
-            const at = without.findIndex((l) => l.id === beforeLayerId);
+          if (beforeLayerId && !movingIds.has(beforeLayerId)) {
+            const at = without.findIndex((layer) => layer.id === beforeLayerId);
             index = at < 0 ? without.length : at;
           } else if (groupId) {
-            // Append to the end of the target group's block (top of the group
-            // in the panel); fall back to the array end for an empty group.
             let last = -1;
-            without.forEach((l, i) => {
-              if (l.groupId === groupId) last = i;
+            without.forEach((layer, layerIndex) => {
+              if (layer.groupId === groupId) last = layerIndex;
             });
             index = last < 0 ? without.length : last + 1;
           } else {
             index = without.length;
           }
           const next = [...without];
-          next.splice(index, 0, updated);
+          next.splice(index, 0, ...updated);
           const normalized = normalizeGroupContiguity(next);
           const unchanged = normalized.every(
-            (l, i) => l.id === s.layers[i]?.id && l.groupId === s.layers[i]?.groupId,
+            (layer, layerIndex) =>
+              layer.id === s.layers[layerIndex]?.id &&
+              layer.groupId === s.layers[layerIndex]?.groupId,
           );
           if (unchanged) return s;
           return { layers: normalized, isDirty: true };
@@ -1960,6 +2203,7 @@ export const useAppStore = create<AppState>()(
         basemapVisible: s.basemapVisible,
         basemapOpacity: s.basemapOpacity,
         storymap: s.storymap,
+        comments: s.comments,
       }),
       // Records a history entry only when the tracked slice really changed.
       // Basemap fields compare with ===; `layers` is compared element-by-element
@@ -1970,12 +2214,14 @@ export const useAppStore = create<AppState>()(
       // new object, so real edits differ while an unchanged null stays equal.
       // `layerGroups` is compared ignoring `collapsed`, which is a UI preference
       // excluded from undo (see toggleLayerGroupCollapsed).
+      // `comments` is compared shallowly by reference.
       equality: (a, b) =>
         a.basemapStyleUrl === b.basemapStyleUrl &&
         a.basemapVisible === b.basemapVisible &&
         a.basemapOpacity === b.basemapOpacity &&
         a.storymap === b.storymap &&
         shallow(a.layers, b.layers) &&
+        shallow(a.comments, b.comments) &&
         layerGroupsEqualForHistory(a.layerGroups, b.layerGroups),
       limit: 100,
       // Group rapid bursts (slider drags) into one entry; window is 0 in tests.
@@ -1992,6 +2238,10 @@ export const useAppStore = create<AppState>()(
           const before = useAppStore.temporal.getState().pastStates;
           debounced(...args);
           if (useAppStore.temporal.getState().pastStates !== before) {
+            if (!applyingProjectRestoreHistory && projectRestoreRedo) {
+              projectRestoreRedo = null;
+              notifyProjectRestoreHistory();
+            }
             pruneHistoryBySize();
           }
         };
@@ -2066,6 +2316,25 @@ function finishHistoryStep(previousBasemapStyleUrl: string): void {
  */
 export function undo(): void {
   const temporal = useAppStore.temporal.getState();
+  if (temporal.pastStates.length === 0 && projectRestoreUndo) {
+    const entry = projectRestoreUndo;
+    applyingProjectRestoreHistory = true;
+    try {
+      useAppStore.getState().loadProject(entry.before, entry.beforePath, {
+        rememberRecent: false,
+        presenting: false,
+      });
+      projectRestoreUndo = null;
+      useAppStore.setState({ isDirty: true });
+      projectRestoreRedo = entry;
+      notifyProjectRestoreHistory();
+    } catch (error) {
+      console.error("Could not undo the project snapshot restore.", error);
+    } finally {
+      applyingProjectRestoreHistory = false;
+    }
+    return;
+  }
   if (temporal.pastStates.length === 0) return; // nothing to undo; stay clean
   cancelHistoryCoalesce(); // break any in-flight burst so the next edit records
   const previousBasemapStyleUrl = useAppStore.getState().basemapStyleUrl;
@@ -2076,6 +2345,25 @@ export function undo(): void {
 /** Step the history forward one entry and mark the project dirty. */
 export function redo(): void {
   const temporal = useAppStore.temporal.getState();
+  if (temporal.futureStates.length === 0 && projectRestoreRedo) {
+    const entry = projectRestoreRedo;
+    applyingProjectRestoreHistory = true;
+    try {
+      useAppStore.getState().loadProject(entry.after, entry.afterPath, {
+        rememberRecent: false,
+        presenting: false,
+      });
+      projectRestoreRedo = null;
+      useAppStore.setState({ isDirty: true });
+      projectRestoreUndo = entry;
+      notifyProjectRestoreHistory();
+    } catch (error) {
+      console.error("Could not redo the project snapshot restore.", error);
+    } finally {
+      applyingProjectRestoreHistory = false;
+    }
+    return;
+  }
   if (temporal.futureStates.length === 0) return; // nothing to redo; stay clean
   cancelHistoryCoalesce(); // break any in-flight burst so the next edit records
   const previousBasemapStyleUrl = useAppStore.getState().basemapStyleUrl;
@@ -2087,4 +2375,9 @@ export function redo(): void {
 export function clearHistory(): void {
   cancelHistoryCoalesce(); // reset any in-flight burst so the next edit records
   useAppStore.temporal.getState().clear();
+  if (!applyingProjectRestoreHistory) {
+    projectRestoreUndo = null;
+    projectRestoreRedo = null;
+    notifyProjectRestoreHistory();
+  }
 }

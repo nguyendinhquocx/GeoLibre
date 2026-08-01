@@ -838,6 +838,20 @@ export interface LayerVirtualField {
   errorCount?: number;
 }
 
+/** Persisted refresh policy and most recent synchronization result for a layer. */
+export interface LayerConnection {
+  /** Owning layer id. Repeated here so records remain self-describing when exported. */
+  layerId: string;
+  /** Automatic refresh cadence in seconds, or null for manual synchronization only. */
+  interval: number | null;
+  /** ISO timestamp of the most recent successful synchronization. */
+  lastSyncedAt: string | null;
+  /** Most recent synchronization error. Cleared by a successful synchronization. */
+  lastError: string | null;
+  /** Whether a failed synchronization retains the last good data or clears it. */
+  onFailure: "keep-last" | "clear";
+}
+
 export interface GeoLibreLayer {
   id: string;
   name: string;
@@ -889,6 +903,11 @@ export interface GeoLibreLayer {
    * as one block; see `@geolibre/core`'s `layer-groups` helpers.
    */
   groupId?: string;
+  /**
+   * Project-persisted connection policy for reloadable layers. Runtime timers
+   * are reconstructed from this record when a project opens.
+   */
+  connection?: LayerConnection;
 }
 
 /**
@@ -1531,7 +1550,9 @@ export type DashboardWidgetType =
   | "line"
   | "box"
   | "pie"
-  | "indicator";
+  | "indicator"
+  | "selector"
+  | "list";
 
 /** How a bar widget reduces its category groups. */
 export type DashboardWidgetAggregation = "count" | "sum" | "mean";
@@ -1578,6 +1599,16 @@ export interface DashboardWidget {
   prefix?: string;
   /** Indicator widget: optional suffix (e.g. " kg", " ha"). */
   suffix?: string;
+  /** Selector widget: whether multiple values can be picked (default false). */
+  multiple?: boolean;
+  /** List widget: columns to display. */
+  listFields?: string[];
+  /** List widget: field to sort by. */
+  sortBy?: string;
+  /** List widget: sort direction (default "desc"). */
+  sortDir?: "asc" | "desc";
+  /** List widget: max rows to show (default 20). */
+  limit?: number;
 }
 
 /** Aggregation functions for indicator widgets (issue #1381). Extends the bar
@@ -1729,7 +1760,35 @@ export interface GeoLibreProject {
    * library is persisted outside the project file and never serialized here.
    */
   styleLibrary?: StyleLibraryEntry[];
+  /** Anchored review comments on map points or features (issue #1518). */
+  comments?: ProjectComment[];
   metadata: Record<string, unknown>;
+}
+
+export type CommentAnchor =
+  | { type: "point"; lngLat: [number, number] }
+  | { type: "feature"; layerId: string; featureId: string | number; lngLat?: [number, number] };
+
+export interface CommentAuthor {
+  name: string;
+  color: string;
+}
+
+export interface CommentReply {
+  id: string;
+  author: CommentAuthor;
+  body: string;
+  createdAt: string;
+}
+
+export interface ProjectComment {
+  id: string;
+  anchor: CommentAnchor;
+  author: CommentAuthor;
+  body: string;
+  createdAt: string;
+  resolved: boolean;
+  replies: CommentReply[];
 }
 
 export interface RecentProjectEntry {

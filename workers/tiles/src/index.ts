@@ -35,6 +35,7 @@
 // forwards them unchanged. The reprojected WMS tiles are standard XYZ.
 
 import * as UPNG from "upng-js";
+import { fetchAllowlistedUpstream, HDX_CKAN_SEARCH_UPSTREAM } from "./allowlisted-fetch";
 import { remapRowsToMercator, tileGeoBounds, wmsBboxFor } from "./reproject";
 
 /** Allowlisted OpenPlanetaryMap tile datasets → their upstream base URL. */
@@ -76,6 +77,11 @@ const OAM_META_PARAMS = new Set([
 const OAM_CACHE_CONTROL = "public, max-age=120";
 // Upper bound on the forwarded `limit` (OAM's own page-size ceiling).
 const OAM_MAX_LIMIT = 100;
+
+// Public CKAN catalog search proxy. HDX's API has inconsistent browser CORS
+// behavior, so GeoLibre reads this fixed upstream through a named route.
+const CKAN_SEARCH_PATH = "/ckan/search";
+const CKAN_MAX_ROWS = 50;
 
 // Source Cooperative metadata proxy. `source.coop/api/v1` sends no CORS headers
 // at all, so a browser cannot read it; this route fetches it server-side and
@@ -275,10 +281,19 @@ async function resolveLatestBuildDate(): Promise<string> {
     // fetches next — so a later real range read could be served this 1-byte
     // body instead of its bytes. The resolved date is memoised in `latestCache`
     // already, so no edge cache is needed here.
-    const probe = await fetch(`${PMTILES_UPSTREAM}/${ymd}.pmtiles`, {
-      headers: { range: "bytes=0-0" },
-    });
-    if (probe.status === 206) {
+    const probe = await (async () => {
+      try {
+        return await fetchAllowlistedUpstream(`${PMTILES_UPSTREAM}/${ymd}.pmtiles`, {
+          headers: { range: "bytes=0-0" },
+        });
+      } catch (err) {
+        // A single day's probe must not abort the lookback — treat redirect/
+        // allowlist failures as a miss and try the previous day.
+        console.warn(`Protomaps build probe failed for ${ymd}: ${String(err)}`);
+        return null;
+      }
+    })();
+    if (probe?.status === 206) {
       latestCache = { date: ymd, at: now };
       return ymd;
     }
@@ -313,7 +328,7 @@ const NEGATIVE_CACHE_CONTROL = "public, max-age=300";
  * `.geolibre.app` etc. are matched with a leading dot so a look-alike apex like
  * `evilgeolibre.app` cannot pass as a subdomain.
  */
-function isAllowedOamOrigin(origin: string | null): boolean {
+function isAllowedProxyOrigin(origin: string | null): boolean {
   if (!origin) return false;
   let hostname: string;
   let protocol: string;
@@ -366,7 +381,7 @@ function sourceCoopUpstream(pathname: string): string | null {
  * dropping them keeps the cache key stable.
  */
 async function handleSourceCoop(request: Request, pathname: string): Promise<Response> {
-  if (!isAllowedOamOrigin(request.headers.get("origin"))) {
+  if (!isAllowedProxyOrigin(request.headers.get("origin"))) {
     return new Response("Forbidden", { status: 403, headers: CORS_HEADERS });
   }
   const upstream = sourceCoopUpstream(pathname);
@@ -375,7 +390,7 @@ async function handleSourceCoop(request: Request, pathname: string): Promise<Res
   }
   let originResponse: Response;
   try {
-    originResponse = await fetch(upstream, {
+    originResponse = await fetchAllowlistedUpstream(upstream, {
       // cacheEverything is required for Cloudflare to edge-cache a URL with no
       // static file extension (cacheTtl alone does not).
       cf: { cacheEverything: true, cacheTtl: 300 },
@@ -410,7 +425,7 @@ interface Env {}
  *
  * Unlike `/oam/meta`, this route is deliberately *not* origin-gated: the
  * Jupyter/embed builds run on arbitrary origins and legitimately need to extract
- * offline basemaps, so an `isAllowedOamOrigin`-style check would break them. The
+ * offline basemaps, so an `isAllowedProxyOrigin`-style check would break them. The
  * abuse surface is instead bounded by (a) the per-request range cap above — a
  * single request can't transfer more than a directory/tile-sized chunk — and
  * (b) Cloudflare's platform abuse detection plus any zone rate-limiting rule in
@@ -454,7 +469,7 @@ async function handlePmtilesRange(request: Request, name: string): Promise<Respo
     // effect on Enterprise plans (silently ignored otherwise), so we don't rely
     // on it. Without cacheEverything, Cloudflare doesn't edge-cache the 206 at
     // all; the upstream still serves range requests directly.
-    originResponse = await fetch(`${PMTILES_UPSTREAM}/${target}`, {
+    originResponse = await fetchAllowlistedUpstream(`${PMTILES_UPSTREAM}/${target}`, {
       headers: { range },
     });
   } catch {
@@ -512,6 +527,7 @@ export default {
           "  Reprojected WMS: /wms/<dataset>/<z>/<x>/<y>.png\n" +
           `    Datasets: ${Object.keys(WMS_DATASETS).join(", ")}\n` +
           "  OpenAerialMap search: /oam/meta?bbox=...&limit=...\n" +
+          "  CKAN search: /ckan/search?q=...&rows=...&start=...\n" +
           "  Source Cooperative metadata: /source-coop/products/... , /source-coop/feed\n" +
           "  GitHub repository file: /github-raw?url=https://github.com/.../raw/...\n" +
           "  PMTiles range proxy: /pmtiles/<name>.pmtiles (Range header required)\n",
@@ -528,12 +544,12 @@ export default {
     // fixed upstream and re-emit the JSON with CORS (see OAM_META_PATH above).
     if (url.pathname === OAM_META_PATH) {
       // Abuse guard: this is a wildcard-CORS proxy to a fixed upstream, so
-      // restrict it to GeoLibre's own origins (see isAllowedOamOrigin) — every
+      // restrict it to GeoLibre's own origins (see isAllowedProxyOrigin) — every
       // cross-origin `fetch()` from the app carries an Origin header. This stops
       // a third-party site from driving arbitrary OAM queries through the
       // Worker. It is not a rate limiter — per-client throttling belongs in a
       // Cloudflare rate-limiting rule in front of tiles.geolibre.app.
-      if (!isAllowedOamOrigin(request.headers.get("origin"))) {
+      if (!isAllowedProxyOrigin(request.headers.get("origin"))) {
         return new Response("Forbidden", { status: 403, headers: CORS_HEADERS });
       }
       const upstream = new URL(OAM_META_UPSTREAM);
@@ -552,7 +568,7 @@ export default {
       }
       let originResponse: Response;
       try {
-        originResponse = await fetch(upstream.toString(), {
+        originResponse = await fetchAllowlistedUpstream(upstream.toString(), {
           headers: { accept: "application/json" },
           // cacheEverything is required for Cloudflare to edge-cache a URL with
           // no static file extension (cacheTtl alone does not).
@@ -575,6 +591,43 @@ export default {
       });
     }
 
+    if (url.pathname === CKAN_SEARCH_PATH) {
+      if (!isAllowedProxyOrigin(request.headers.get("origin"))) {
+        return new Response("Forbidden", { status: 403, headers: CORS_HEADERS });
+      }
+      const upstream = new URL(HDX_CKAN_SEARCH_UPSTREAM);
+      const query = url.searchParams.get("q")?.trim().slice(0, 300);
+      if (!query) {
+        return new Response("Missing query", { status: 400, headers: CORS_HEADERS });
+      }
+      const rowsParam = url.searchParams.get("rows");
+      const requestedRows = rowsParam === null ? Number.NaN : Number(rowsParam);
+      const rows = Number.isFinite(requestedRows)
+        ? Math.min(Math.max(Math.trunc(requestedRows), 1), CKAN_MAX_ROWS)
+        : 20;
+      const startParam = url.searchParams.get("start");
+      const requestedStart = startParam === null ? Number.NaN : Number(startParam);
+      const start = Number.isFinite(requestedStart)
+        ? Math.min(Math.max(Math.trunc(requestedStart), 0), 10_000)
+        : 0;
+      upstream.searchParams.set("q", query);
+      upstream.searchParams.set("rows", String(rows));
+      upstream.searchParams.set("start", String(start));
+      let originResponse: Response;
+      try {
+        originResponse = await fetchAllowlistedUpstream(upstream.toString(), {
+          headers: { accept: "application/json" },
+          cf: { cacheEverything: true, cacheTtl: 120 },
+        });
+      } catch {
+        return new Response("Bad Gateway", { status: 502, headers: CORS_HEADERS });
+      }
+      const headers = new Headers(CORS_HEADERS);
+      headers.set("content-type", originResponse.headers.get("content-type") ?? "application/json");
+      headers.set("cache-control", originResponse.ok ? "public, max-age=120" : "no-store");
+      return new Response(originResponse.body, { status: originResponse.status, headers });
+    }
+
     // Source Cooperative metadata: source.coop sends no CORS headers, so the
     // web build reads it through here (see SOURCE_COOP_PREFIX above).
     if (url.pathname.startsWith(SOURCE_COOP_PREFIX)) {
@@ -582,7 +635,7 @@ export default {
     }
 
     if (url.pathname === GITHUB_RAW_PATH) {
-      if (!isAllowedOamOrigin(request.headers.get("origin"))) {
+      if (!isAllowedProxyOrigin(request.headers.get("origin"))) {
         return new Response("Forbidden", { status: 403, headers: CORS_HEADERS });
       }
       const source = url.searchParams.get("url");
@@ -662,7 +715,7 @@ export default {
     const upstream = `${base}/${z}/${x}/${y}.png`;
     let originResponse: Response;
     try {
-      originResponse = await fetch(upstream, {
+      originResponse = await fetchAllowlistedUpstream(upstream, {
         cf: { cacheEverything: true, cacheTtl: 86400 },
       });
     } catch {
@@ -740,7 +793,9 @@ async function handleWmsTile(
 
   let origin: Response;
   try {
-    origin = await fetch(wmsUrl, { cf: { cacheEverything: true, cacheTtl: 86400 } });
+    origin = await fetchAllowlistedUpstream(wmsUrl, {
+      cf: { cacheEverything: true, cacheTtl: 86400 },
+    });
   } catch {
     return new Response("Bad Gateway", { status: 502, headers: CORS_HEADERS });
   }

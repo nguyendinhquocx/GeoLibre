@@ -1353,6 +1353,7 @@
     }
   },
   "kml": {
+    "importFailed": "KML/KMZ आयात नहीं किया जा सका।",
     "timeOverlayGroup": "समय ओवरले एनिमेशन"
   },
   "map": {
@@ -4039,6 +4040,7 @@
       "styleType": "शैली प्रकार",
       "attribute": "एट्रिब्यूट",
       "classes": "वर्ग",
+      "allClasses": "सभी ({{total}})",
       "scheme": "योजना",
       "stops": "स्टॉप्स",
       "categories": "श्रेणियां",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { applyGroupEffects } from "@geolibre/core";
 import { strToU8, zipSync } from "fflate";
 import { DOMParser } from "linkedom";
 import {
@@ -237,7 +238,68 @@ describe("QGIS project import", () => {
     );
   });
 
-  it("normalizes Windows file URLs, query strings, and bare project names", () => {
+  it("preserves remote URL credentials when materializing GeoJSON", async () => {
+    const remote = importQgisProject(
+      projectXml({
+        dataSources: [
+          {
+            id: "roads",
+            name: "Remote",
+            source:
+              '"/vsicurl/https://example.com/roads.geojson?token=secret&amp;version=2"|layername=roads',
+          },
+        ],
+      }),
+      "/work/example.qgs",
+    );
+    const requested: string[] = [];
+    await materializeQgisRemoteLayers(remote, async (input) => {
+      requested.push(String(input));
+      return Response.json({ type: "FeatureCollection", features: [] });
+    });
+
+    assert.deepEqual(requested, ["https://example.com/roads.geojson?token=secret&version=2"]);
+  });
+
+  it("rejects UNC file URLs", () => {
+    const unc = importQgisProject(
+      projectXml({
+        dataSources: [
+          {
+            id: "cities",
+            name: "Network file URL",
+            source: "file://server/share/cities.gpkg",
+          },
+        ],
+      }),
+      "C:\\projects\\example.qgs",
+    );
+    assert.deepEqual(unc.project.layers, []);
+    assert.deepEqual(
+      unc.warnings.map((warning) => [warning.layerName, warning.reason]),
+      [["Network file URL", "network-path"]],
+    );
+  });
+
+  it("inherits visibility from unchecked parent groups", () => {
+    const xml = projectXml().replace(
+      'name="Transport" checked="Qt::Checked"',
+      'name="Transport" checked="Qt::Unchecked"',
+    );
+    const result = importQgisProject(xml, "/work/example.qgs");
+
+    assert.deepEqual(
+      result.project.layerGroups?.map((group) => [group.name, group.visible]),
+      [
+        ["Transport", false],
+        ["Places", false],
+      ],
+    );
+    const rendered = applyGroupEffects(result.project.layers, result.project.layerGroups ?? []);
+    assert.equal(rendered.find((layer) => layer.name === "Cities")?.visible, false);
+  });
+
+  it("normalizes Windows file URLs, query strings, encoded delimiters, and bare names", () => {
     const windows = importQgisProject(
       projectXml({
         dataSources: [
@@ -251,6 +313,26 @@ describe("QGIS project import", () => {
       "C:\\projects\\example.qgs",
     );
     assert.equal(windows.project.layers[0].sourcePath, "C:/data/points.csv");
+
+    const encoded = importQgisProject(
+      projectXml({
+        dataSources: [
+          { id: "roads", name: "Encoded delimiter", source: "file:///tmp/a%23b.geojson" },
+        ],
+      }),
+      "/work/example.qgs",
+    );
+    assert.equal(encoded.project.layers[0].sourcePath, "/tmp/a#b.geojson");
+
+    const malformed = importQgisProject(
+      projectXml({
+        dataSources: [
+          { id: "roads", name: "Malformed escape", source: "file://C:/data%zz/roads.geojson" },
+        ],
+      }),
+      "C:\\projects\\example.qgs",
+    );
+    assert.equal(malformed.project.layers[0].sourcePath, "C:/data%zz/roads.geojson");
 
     const browser = importQgisProject(
       projectXml({

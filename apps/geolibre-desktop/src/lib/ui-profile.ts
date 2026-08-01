@@ -182,6 +182,7 @@ export const PLUGIN_TIERS: Record<string, ComplexityTier> = {
   "maplibre-gl-nasa-earthdata": "advanced",
   "maplibre-gl-enviroatlas": "advanced",
   "maplibre-gl-national-map": "advanced",
+  "maplibre-gl-arcgis-hub": "advanced",
   "maplibre-gl-source-coop": "advanced",
   "maplibre-gl-huggingface": "advanced",
   "maplibre-gl-esri-wayback": "advanced",
@@ -254,6 +255,12 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     id: "project.openRecent",
     menuId: "project",
     labelKey: "toolbar.item.openRecent",
+    tier: "basic",
+  },
+  {
+    id: "project.history",
+    menuId: "project",
+    labelKey: "toolbar.item.projectHistoryEllipsis",
     tier: "basic",
   },
   {

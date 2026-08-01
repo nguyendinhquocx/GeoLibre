@@ -1353,6 +1353,7 @@
     }
   },
   "kml": {
+    "importFailed": "KML/KMZ-ის იმპორტი ვერ მოხერხდა.",
     "timeOverlayGroup": "დროითი გადაფენის ანიმაცია"
   },
   "map": {
@@ -4039,6 +4040,7 @@
       "styleType": "სტილის ტიპი",
       "attribute": "ატრიბუტი",
       "classes": "კლასები",
+      "allClasses": "ყველა ({{total}})",
       "scheme": "სქემა",
       "stops": "საფეხურები",
       "categories": "კატეგორიები",

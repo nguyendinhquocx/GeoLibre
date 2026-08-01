@@ -1429,6 +1429,7 @@
     }
   },
   "kml": {
+    "importFailed": "Не удалось импортировать KML/KMZ.",
     "timeOverlayGroup": "Анимация наложения по времени"
   },
   "map": {
@@ -4173,6 +4174,7 @@
       "styleType": "Тип стиля",
       "attribute": "Атрибут",
       "classes": "Классы",
+      "allClasses": "Все ({{total}})",
       "scheme": "Схема",
       "stops": "Границы",
       "categories": "Категории",

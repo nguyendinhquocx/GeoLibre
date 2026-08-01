@@ -1,3 +1,4 @@
+// @refresh reset
 import { useAppStore, type GeoLibreLayer } from "@geolibre/core";
 import type { FeatureCollection } from "geojson";
 import type { MapController, MapDiagnosticEvent } from "@geolibre/map";
@@ -31,6 +32,7 @@ import {
   setLocalRasterFileReader,
   setLocalRasterPicker,
   setNonTiledRasterHandler,
+  setKmlFileImportHandler,
   setTerrainMeasureLabels,
   setViewStateLabels,
   startLayerGeometryEdit,
@@ -52,8 +54,15 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { BROWSER_PANEL_ID, useRegisterBrowserPanel } from "../../hooks/useRegisterBrowserPanel";
+import { COMMENTS_PANEL_ID, useRegisterCommentsPanel } from "../../hooks/useRegisterCommentsPanel";
+import { CommentsPanel } from "../comments/CommentsPanel";
+import { CommentMapOverlay } from "../comments/CommentMapOverlay";
+import { useCommentTool } from "../comments/useCommentTool";
+import { AddCommentDialog } from "../comments/AddCommentDialog";
+import { openRightPanel } from "@geolibre/plugins";
 import { getIsMobileViewport } from "../../hooks/useIsMobileViewport";
 import { useProjectFileActions } from "../../hooks/useProjectFileActions";
+import { useProjectHistory } from "../../hooks/useProjectHistory";
 import {
   isRasterFileName,
   isTauri,
@@ -64,6 +73,7 @@ import {
   pickLocalRasterFiles,
   readRasterFileAtPath,
   isLoadedImageOverlay,
+  isLoadedKmlSuperOverlay,
   isLoadedModel,
   loadDroppedVectorFiles,
   loadDroppedVectorPaths,
@@ -92,6 +102,7 @@ import {
   useSwipeSplitViewExclusivity,
   useTimeSliderAutoClose,
 } from "../../hooks/usePlugins";
+import { registerKmlSuperOverlayProtocol } from "../../lib/kml-super-overlay";
 import { registerMbtilesProtocol } from "../../lib/mbtiles";
 import { hasReverseGeocodeConsent } from "../../lib/reverse-geocode-consent";
 import { hasKnowledgeCardConsent, recordKnowledgeCardConsent } from "../../lib/knowledge-consent";
@@ -148,6 +159,8 @@ import { StoryMapPresenter } from "../storymap/StoryMapPresenter";
 import { DiagnosticsDialog } from "./DiagnosticsDialog";
 import { FileNamePromptDialog } from "./FileNamePromptDialog";
 import { ProjectPluginTrustDialog } from "./ProjectPluginTrustDialog";
+import { ProjectHistoryDialog } from "./ProjectHistoryDialog";
+import { ProjectRecoveryDialog } from "./ProjectRecoveryDialog";
 import { StatusBar } from "./StatusBar";
 import { TopToolbar } from "./TopToolbar";
 import type { LayoutOptions } from "../../hooks/useLayoutOptions";
@@ -576,6 +589,8 @@ export function DesktopShell({
   const activeResizeCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => activeResizeCleanupRef.current?.(), []);
   const mapControllerRef = useRef<MapController | null>(null);
+  const projectHistory = useProjectHistory(mapControllerRef);
+  const [projectHistoryOpen, setProjectHistoryOpen] = useState(false);
   // The place shown in the Wikipedia knowledge card, or null when it is closed.
   // `pendingKnowledgePlace` holds the target while the one-time consent notice
   // is open, so it can be applied only after the user acknowledges it.
@@ -631,6 +646,7 @@ export function DesktopShell({
   const togglingGeometryEditRef = useRef(false);
   const addGeoJsonLayer = useAppStore((s) => s.addGeoJsonLayer);
   const addImageOverlayLayer = useAppStore((s) => s.addImageOverlayLayer);
+  const addTileLayer = useAppStore((s) => s.addTileLayer);
   const addLayerGroup = useAppStore((s) => s.addLayerGroup);
   const { isActive: isPluginActive, toggle: togglePlugin } = usePluginRegistry();
   const addLayer = useAppStore((s) => s.addLayer);
@@ -642,6 +658,7 @@ export function DesktopShell({
   // Register the Browser as a movable/dockable right panel; its body is portaled
   // into a dedicated content host (below) that the dock slots adopt.
   useRegisterBrowserPanel();
+  useRegisterCommentsPanel();
   // One shared project-file-actions instance for both the toolbar and the
   // Browser panel, so their "open recent" calls coordinate their aborts (two
   // instances would race). Lifted here for the same reason as `collaboration`.
@@ -677,11 +694,22 @@ export function DesktopShell({
     el.className = "contents";
     return el;
   });
+  // A third, dedicated host for the Comments panel's React portal.
+  const [commentsContentEl] = useState(() => {
+    const el = document.createElement("div");
+    el.className = "contents";
+    return el;
+  });
   const activePanelId = useRightPanelState().activeId;
   const activePanel = activePanelId ? getRightPanel(activePanelId) : undefined;
   // The dock slots adopt whichever host owns the active panel's content: the
-  // Browser's dedicated portal host, or the shared imperative plugin host.
-  const dockContentEl = activePanelId === BROWSER_PANEL_ID ? browserContentEl : pluginContentEl;
+  // Browser's dedicated portal host, the Comments dedicated portal host, or the shared imperative plugin host.
+  const dockContentEl =
+    activePanelId === BROWSER_PANEL_ID
+      ? browserContentEl
+      : activePanelId === COMMENTS_PANEL_ID
+        ? commentsContentEl
+        : pluginContentEl;
   // Render the active panel into the shared host once; re-run when its
   // registration is replaced (re-registration refresh) but not on dock/collapse
   // changes. Keyed on the render function identity so that a plugin
@@ -744,6 +772,8 @@ export function DesktopShell({
   // the Collaborate dialog and the on-canvas status badge share one socket, and
   // so the dialog stays mounted in toolbar-hidden layouts.
   const collaboration = useCollaboration(mapControllerRef);
+  const commentTool = useCommentTool({ mapControllerRef, collaboration });
+  const [showResolvedComments, setShowResolvedComments] = useState(false);
   const collaborateDialogOpen = useAppStore((s) => s.ui.collaborateDialogOpen);
   const setCollaborateDialogOpen = useAppStore((s) => s.setCollaborateDialogOpen);
   // When opened via a `?collab=<code>` share link, auto-open the Collaborate
@@ -937,6 +967,10 @@ export function DesktopShell({
   );
 
   useEffect(() => {
+    // Registered unconditionally, not on first import: a saved project's KML
+    // Super-Overlay tile URLs must resolve in a session that only reopens it,
+    // which is exactly when nothing has called registerKmlSuperOverlay yet.
+    void registerKmlSuperOverlayProtocol();
     if (isTauri()) {
       registerMbtilesProtocol();
       registerXyzTileProtocol();
@@ -1023,7 +1057,9 @@ export function DesktopShell({
         const cog = await convertGeoTiffToCog(bytes);
         // The cast is required: TS types Uint8Array as Uint8Array<ArrayBufferLike>,
         // which is not directly assignable to BlobPart's ArrayBufferView.
-        const file = new File([cog as BlobPart], name, { type: "image/tiff" });
+        const file = new File([cog as BlobPart], name, {
+          type: "image/tiff",
+        });
         await addRasterToMap(createAppAPI(mapControllerRef), file, { name });
         // Drop the failed layer only after the replacement is fully loaded, so
         // any failure above (conversion or re-add) leaves the original errored
@@ -1159,6 +1195,21 @@ export function DesktopShell({
       // group marker), so they can be gathered into one layer group afterward.
       const frameGroups = new Map<string, string[]>();
       for (const layer of importedLayers) {
+        if (isLoadedKmlSuperOverlay(layer)) {
+          lastLayerId = addTileLayer(layer.name || layerNameFromPath(layer.path), {
+            tiles: [layer.url],
+            type: "xyz",
+            tileSize: layer.tileSize,
+            bounds: layer.bounds,
+            minzoom: layer.minzoom,
+            maxzoom: layer.maxzoom,
+            metadata: {
+              sourceKind: "kml-super-overlay",
+              bounds: layer.bounds,
+            },
+          });
+          continue;
+        }
         // A KML/KMZ ground overlay becomes an image layer, not a vector one.
         if (isLoadedImageOverlay(layer)) {
           lastLayerId = addImageOverlayLayer(
@@ -1240,6 +1291,7 @@ export function DesktopShell({
     [
       addGeoJsonLayer,
       addImageOverlayLayer,
+      addTileLayer,
       addLayer,
       addLayerGroup,
       isPluginActive,
@@ -1247,6 +1299,33 @@ export function DesktopShell({
       t,
     ],
   );
+
+  useEffect(() => {
+    setKmlFileImportHandler(async (imports) => {
+      setDropError(null);
+      try {
+        const paths = imports
+          .map(({ sourcePath }) => sourcePath)
+          .filter((sourcePath): sourcePath is string => typeof sourcePath === "string");
+        // Prefer the filesystem paths the desktop picker reports: a Super-Overlay
+        // records its source in the tile URL so a saved project can re-read the
+        // pyramid, which a path-less browser File cannot support.
+        const layers =
+          paths.length === imports.length
+            ? await loadDroppedVectorPaths(paths, {
+                onLargeDataset: confirmLargeVectorDataset,
+              })
+            : await loadDroppedVectorFiles(
+                imports.map(({ file }) => file),
+                { onLargeDataset: confirmLargeVectorDataset },
+              );
+        addImportedVectorLayers(layers);
+      } catch (error) {
+        setDropError(error instanceof Error ? error.message : t("kml.importFailed"));
+      }
+    });
+    return () => setKmlFileImportHandler(null);
+  }, [addImportedVectorLayers, confirmLargeVectorDataset, t]);
 
   const addDroppedPhotos = useCallback(
     (result: GeotaggedPhotoResult | null): number => {
@@ -1875,6 +1954,11 @@ export function DesktopShell({
             collaboration={collaboration}
             projectFiles={projectFiles}
             onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+            onOpenProjectHistory={() => {
+              projectHistory.clearRestoreError();
+              void projectHistory.refresh();
+              setProjectHistoryOpen(true);
+            }}
             onToggleThemeMode={onToggleThemeMode}
             onOpenBasemapExtract={() => setBasemapExtractOpen(true)}
           />
@@ -1892,6 +1976,18 @@ export function DesktopShell({
                 onAddFilePath={addFilePath}
               />,
               browserContentEl,
+            )
+          : null}
+        {activePanelId === COMMENTS_PANEL_ID && !layoutOptions.panelsHidden
+          ? createPortal(
+              <CommentsPanel
+                mapControllerRef={mapControllerRef}
+                collaboration={collaboration}
+                onActivateCommentTool={commentTool.toggleTool}
+                isCommentToolActive={commentTool.isActive}
+                onShowResolvedChange={setShowResolvedComments}
+              />,
+              commentsContentEl,
             )
           : null}
         {/* Map-only / hidden-panels embeds show nothing but the map: skip the
@@ -2011,6 +2107,11 @@ export function DesktopShell({
                 onControllerReady={handleMapControllerReady}
               />
               <RemoteCursorsOverlay mapControllerRef={mapControllerRef} />
+              <CommentMapOverlay
+                mapControllerRef={mapControllerRef}
+                onSelectComment={() => openRightPanel(COMMENTS_PANEL_ID)}
+                showResolved={showResolvedComments}
+              />
               <MapContextMenu
                 mapControllerRef={mapControllerRef}
                 mapReadyGeneration={mapReadyGeneration}
@@ -2277,6 +2378,29 @@ export function DesktopShell({
         open={diagnosticsOpen}
         onOpenChange={setDiagnosticsOpen}
       />
+      <ProjectHistoryDialog
+        open={projectHistoryOpen}
+        onOpenChange={(open) => {
+          setProjectHistoryOpen(open);
+          if (!open) projectHistory.clearRestoreError();
+        }}
+        snapshots={projectHistory.snapshots}
+        restoreError={projectHistory.restoreError}
+        onRestore={projectHistory.restore}
+      />
+      <ProjectRecoveryDialog
+        snapshot={projectHistory.recoverySnapshot}
+        restoreError={projectHistory.restoreError}
+        onRestore={projectHistory.restore}
+        onDiscard={() => {
+          projectHistory.clearRestoreError();
+          projectHistory.discardRecovery();
+        }}
+        onDismiss={() => {
+          projectHistory.clearRestoreError();
+          projectHistory.dismissRecovery();
+        }}
+      />
       {/* Mounted in the always-rendered shell (not the toolbar) so the bookmark
           export name prompt works even when the toolbar is hidden (`?maponly`). */}
       <FileNamePromptDialog />
@@ -2295,7 +2419,9 @@ export function DesktopShell({
             const file = new File([bytes as BlobPart], fileName ?? `${name}.tif`, {
               type: "image/tiff",
             });
-            await addRasterToMap(createAppAPI(mapControllerRef), file, { name });
+            await addRasterToMap(createAppAPI(mapControllerRef), file, {
+              name,
+            });
           }}
         />
       </Suspense>
@@ -2362,6 +2488,13 @@ export function DesktopShell({
           {dropError ?? dropMessage}
         </div>
       ) : null}
+      {commentTool.pendingComment && (
+        <AddCommentDialog
+          pendingComment={commentTool.pendingComment}
+          onSubmit={commentTool.submitComment}
+          onCancel={commentTool.cancelPendingComment}
+        />
+      )}
     </div>
   );
 }

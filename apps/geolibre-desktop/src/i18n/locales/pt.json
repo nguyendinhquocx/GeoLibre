@@ -1353,6 +1353,7 @@
     }
   },
   "kml": {
+    "importFailed": "Não foi possível importar o KML/KMZ.",
     "timeOverlayGroup": "Animação de sobreposição temporal"
   },
   "map": {
@@ -4039,6 +4040,7 @@
       "styleType": "Tipo de estilo",
       "attribute": "Atributo",
       "classes": "Classes",
+      "allClasses": "Todas ({{total}})",
       "scheme": "Esquema",
       "stops": "Limites",
       "categories": "Categorias",

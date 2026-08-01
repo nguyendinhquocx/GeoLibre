@@ -233,6 +233,11 @@ export {
   openVectorLayerPanel,
   reloadVectorControlLayer,
   restoreVectorLayers,
+  setKmlFileImportHandler,
+  isKmlFileSelection,
+  routeKmlFileSelection,
+  type KmlFileImport,
+  type KmlFileImportHandler,
 } from "./plugins/maplibre-vector";
 // The rest of the raster-layer-sync / vector-layer-sync internals stay
 // unexported: the app drives the panels through the functions above, and the
@@ -391,6 +396,27 @@ export {
   type OpenAerialMapLabels,
 } from "./plugins/maplibre-openaerialmap";
 export {
+  ARCGIS_HUB_PLUGIN_ID,
+  DEFAULT_ARCGIS_HUB_LABELS,
+  maplibreArcGisHubPlugin,
+  setArcGisHubLabels,
+  type ArcGisHubLabels,
+} from "./plugins/maplibre-arcgis-hub";
+export {
+  ARCGIS_HUB_PAGE_URL,
+  ARCGIS_HUB_PORTAL_URL,
+  arcGisHubItemDataUrl,
+  arcGisHubItemPageUrl,
+  arcGisHubItemThumbnailUrl,
+  buildArcGisHubSearchUrl,
+  fetchFeatureServiceGeoJson,
+  itemBounds as arcGisHubItemBounds,
+  sanitizeArcGisHubSearchText,
+  searchArcGisHub,
+  type ArcGisHubItem,
+  type ArcGisHubSearchResult,
+} from "./plugins/arcgis-hub-api";
+export {
   buildSearchUrl,
   buildTitilerTemplate,
   OAM_DEFAULT_ENDPOINT,
@@ -440,6 +466,14 @@ export {
   setHuggingFaceLabels,
   type HuggingFaceLabels,
 } from "./plugins/maplibre-huggingface";
+export {
+  createGeoLensHostFetch,
+  defaultGeoLensFetch,
+  resetGeoLensFetch,
+  setGeoLensFetch,
+  type GeoLensFetch,
+  type GeoLensHttpResponse,
+} from "./plugins/geolens-api";
 export {
   DEFAULT_GEOLENS_LABELS,
   DEFAULT_GEOLENS_FEATURE_LIMIT,
@@ -660,6 +694,14 @@ export {
   type TileSampleStyle,
 } from "./plugins/time-slider-tile-sample";
 export { WEB_SERVICE_PLUGIN_IDS } from "./plugins/web-service-sync";
+export {
+  CKAN_PLUGIN_ID,
+  SOCRATA_PLUGIN_ID,
+  maplibreCkanPlugin,
+  maplibreSocrataPlugin,
+  setOpenDataCatalogLabels,
+  type OpenDataCatalogLabels,
+} from "./plugins/maplibre-open-data-catalogs";
 export {
   DEFAULT_ROUTE_ANIMATION_SETTINGS,
   ROUTE_ANIM_SPEED_MAX,

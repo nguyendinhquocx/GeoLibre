@@ -1315,6 +1315,7 @@
     }
   },
   "kml": {
+    "importFailed": "Tidak dapat mengimpor KML/KMZ.",
     "timeOverlayGroup": "Animasi overlay waktu"
   },
   "map": {
@@ -3972,6 +3973,7 @@
       "styleType": "Jenis gaya",
       "attribute": "Atribut",
       "classes": "Kelas",
+      "allClasses": "Semua ({{total}})",
       "scheme": "Skema",
       "stops": "Titik henti",
       "categories": "Kategori",
