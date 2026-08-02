@@ -2,6 +2,7 @@ import { DEFAULT_LAYER_STYLE, type GeoLibreLayer, useAppStore } from "@geolibre/
 import type { Feature, FeatureCollection, Position } from "geojson";
 import maplibregl from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibreMapControlPosition, GeoLibrePlugin } from "../types";
+import { ANNOTATIONS_PLUGIN_ID } from "../plugin-ids";
 
 /**
  * Annotation layer plugin: lightweight cartographic decoration (free text,
@@ -75,8 +76,10 @@ let activeTextInput: HTMLInputElement | null = null;
 // Idempotent finisher for the open text input (commits or discards once).
 let finishTextInput: ((save: boolean) => void) | null = null;
 
+export { ANNOTATIONS_PLUGIN_ID };
+
 export const maplibreAnnotationsPlugin: GeoLibrePlugin = {
-  id: "maplibre-gl-annotations",
+  id: ANNOTATIONS_PLUGIN_ID,
   name: "Annotations",
   version: "0.1.0",
   activate: (app: GeoLibreAppAPI) => {
@@ -100,7 +103,7 @@ export const maplibreAnnotationsPlugin: GeoLibrePlugin = {
       unregisterRightPanelDisposer = app.registerRightPanel({
         id: "geolibre-elements-panel",
         title: () => labels.elementsPanelTitle || "Elements",
-        dock: "right-of-style",
+        dock: "replace-style",
         render: (container) => renderElementsPanel(container),
       });
     }

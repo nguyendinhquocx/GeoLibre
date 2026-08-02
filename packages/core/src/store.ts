@@ -63,6 +63,12 @@ import {
   type CommentReply,
   type ProjectComment,
 } from "./types";
+import {
+  removedLayerIdSet,
+  scrubWidgetsForRemovedLayers,
+  scrubCommentsForRemovedLayers,
+  scrubLegendForRemovedLayers,
+} from "./layer-ref-scrub";
 import { hasSimpleStyleProperties } from "./vector-color";
 import {
   applyCopiedLayerStyle,
@@ -745,12 +751,6 @@ function sameCamera(a: MapViewState, b: MapViewState): boolean {
     a.bearing === b.bearing &&
     a.pitch === b.pitch
   );
-}
-
-function removedLayerIdSet(layerIds: string | Iterable<string>): Set<string> {
-  if (typeof layerIds === "string") return new Set([layerIds]);
-  if (layerIds instanceof Set) return layerIds;
-  return new Set(layerIds);
 }
 
 /**
@@ -1618,6 +1618,9 @@ export const useAppStore = create<AppState>()(
           // Drop storymap chapter enter/exit opacity rows that pointed at the
           // removed layer so they do not keep a dangling id across save/reload.
           storymap: scrubStorymapLayerRefs(s.storymap, id),
+          widgets: scrubWidgetsForRemovedLayers(s.widgets, id),
+          comments: scrubCommentsForRemovedLayers(s.comments, id),
+          legend: scrubLegendForRemovedLayers(s.legend, id),
           selectedLayerId:
             s.selectedLayerId === id
               ? (s.layers.find((l) => l.id !== id)?.id ?? null)
@@ -1625,6 +1628,15 @@ export const useAppStore = create<AppState>()(
           selectedFeatureId: s.selectedLayerId === id ? null : s.selectedFeatureId,
           selectedFeatureIds: s.selectedLayerId === id ? [] : s.selectedFeatureIds,
           identifyLayerId: s.identifyLayerId === id ? null : s.identifyLayerId,
+          ui: {
+            ...s.ui,
+            selectByExpressionLayerId:
+              s.ui.selectByExpressionLayerId === id ? null : s.ui.selectByExpressionLayerId,
+            selectByLocationLayerId:
+              s.ui.selectByLocationLayerId === id ? null : s.ui.selectByLocationLayerId,
+            loadEditorFeaturesLayerId:
+              s.ui.loadEditorFeaturesLayerId === id ? null : s.ui.loadEditorFeaturesLayerId,
+          },
           isDirty: true,
         })),
 
@@ -1944,6 +1956,13 @@ export const useAppStore = create<AppState>()(
               ? scrubSecondaryPaneLayerVisibility(s.secondaryMapViews, removedIds)
               : s.secondaryMapViews,
             storymap: removeChildren ? scrubStorymapLayerRefs(s.storymap, removedIds) : s.storymap,
+            widgets: removeChildren
+              ? scrubWidgetsForRemovedLayers(s.widgets, removedIds)
+              : s.widgets,
+            comments: removeChildren
+              ? scrubCommentsForRemovedLayers(s.comments, removedIds)
+              : s.comments,
+            legend: removeChildren ? scrubLegendForRemovedLayers(s.legend, removedIds) : s.legend,
             selectedLayerId: selectionRemoved
               ? (layers[layers.length - 1]?.id ?? null)
               : s.selectedLayerId,
@@ -1953,6 +1972,26 @@ export const useAppStore = create<AppState>()(
               s.identifyLayerId !== null && removedIds.has(s.identifyLayerId)
                 ? null
                 : s.identifyLayerId,
+            ui: removeChildren
+              ? {
+                  ...s.ui,
+                  selectByExpressionLayerId:
+                    s.ui.selectByExpressionLayerId !== null &&
+                    removedIds.has(s.ui.selectByExpressionLayerId)
+                      ? null
+                      : s.ui.selectByExpressionLayerId,
+                  selectByLocationLayerId:
+                    s.ui.selectByLocationLayerId !== null &&
+                    removedIds.has(s.ui.selectByLocationLayerId)
+                      ? null
+                      : s.ui.selectByLocationLayerId,
+                  loadEditorFeaturesLayerId:
+                    s.ui.loadEditorFeaturesLayerId !== null &&
+                    removedIds.has(s.ui.loadEditorFeaturesLayerId)
+                      ? null
+                      : s.ui.loadEditorFeaturesLayerId,
+                }
+              : s.ui,
             isDirty: true,
           };
         }),
@@ -2129,6 +2168,8 @@ export const useAppStore = create<AppState>()(
             selectByExpressionLayerId: null,
             selectByLocationOpen: false,
             selectByLocationLayerId: null,
+            loadEditorFeaturesOpen: false,
+            loadEditorFeaturesLayerId: null,
           },
         }));
         clearHistory();
@@ -2180,6 +2221,8 @@ export const useAppStore = create<AppState>()(
             selectByExpressionLayerId: null,
             selectByLocationOpen: false,
             selectByLocationLayerId: null,
+            loadEditorFeaturesOpen: false,
+            loadEditorFeaturesLayerId: null,
           },
         }));
         clearHistory();

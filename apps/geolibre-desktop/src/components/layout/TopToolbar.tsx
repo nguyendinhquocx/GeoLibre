@@ -131,7 +131,7 @@ import { HelpMenu } from "./toolbar/HelpMenu";
 import { OsmPbfDialogs } from "./toolbar/OsmPbfDialogs";
 import { PluginsMenu } from "./toolbar/PluginsMenu";
 import { PluginToolbarMenus } from "./toolbar/PluginToolbarMenus";
-import { ProcessingMenu } from "./toolbar/ProcessingMenu";
+import { EARTH_ENGINE_AVAILABLE, ProcessingMenu } from "./toolbar/ProcessingMenu";
 import { ProjectFileDialogs } from "./toolbar/ProjectFileDialogs";
 import { ProjectMenu } from "./toolbar/ProjectMenu";
 import { googleEarthUrl, googleMapsUrl } from "../../lib/external-map-links";
@@ -173,6 +173,7 @@ interface TopToolbarProps {
   // Opens the Offline Basemap Extract panel, mounted in DesktopShell over the
   // map so it can stay non-modal (the map is interactive for drawing a bbox).
   onOpenBasemapExtract: () => void;
+  viewer?: boolean;
 }
 
 export function TopToolbar({
@@ -189,6 +190,7 @@ export function TopToolbar({
   onOpenProjectHistory,
   onToggleThemeMode,
   onOpenBasemapExtract,
+  viewer = false,
 }: TopToolbarProps) {
   const { t, i18n } = useTranslation();
   // The reverse-geocode plugin lives in the framework-agnostic plugins package
@@ -1199,12 +1201,21 @@ export function TopToolbar({
       group: t("toolbar.commandGroup.processing"),
       run: handleOpenPlanetaryComputer,
     },
-    {
-      id: "proc.earth-engine",
-      title: t("toolbar.command.earthEngine"),
-      group: t("toolbar.commandGroup.processing"),
-      run: panels.earthEngine.toggle,
-    },
+    // Earth Engine sign-in needs the Rust loopback OAuth listener, which the
+    // Apple App Store builds (Mac App Store and iOS) compile out so the app
+    // claims no `com.apple.security.network.server` entitlement. Shares the
+    // ProcessingMenu gate's module-level constant rather than recomputing it in
+    // this array, which is rebuilt on every render.
+    ...(EARTH_ENGINE_AVAILABLE
+      ? [
+          {
+            id: "proc.earth-engine",
+            title: t("toolbar.command.earthEngine"),
+            group: t("toolbar.commandGroup.processing"),
+            run: panels.earthEngine.toggle,
+          },
+        ]
+      : []),
     // Controls
     ...MAP_CONTROL_ITEMS.map((control) => ({
       id: `control.${control.id}`,
@@ -1480,10 +1491,27 @@ export function TopToolbar({
     },
   ];
 
+  // The viewer preset hides every authoring menu, so the surfaces that reach
+  // those commands without a menu go with them: the command palette
+  // (Ctrl/Cmd+K) and the cheat sheet (?) are not mounted, and the Help menu
+  // drops its entries for them (see `viewer` on HelpMenu). Otherwise a
+  // `layout=viewer` embed would still answer Ctrl+N with "New Project", or
+  // overwrite the host's project on Ctrl+S — exactly what the read-only chrome
+  // promises it cannot do.
+  //
+  // The shortcut layer is narrowed rather than switched off, because the View
+  // menu *does* stay visible in this mode: `view.*` is camera and theme work
+  // only, so dropping its keys would leave those items clickable but silently
+  // keyless. Every command carrying a `shortcut` is either `view.*` or
+  // `project.*`, so this is the whole authoring keyboard surface.
+  const shortcutCommands = useMemo(
+    () => (viewer ? commands.filter((command) => command.id.startsWith("view.")) : commands),
+    [commands, viewer],
+  );
   useGlobalShortcuts({
-    commands,
-    onOpenPalette: () => setCommandPaletteOpen(true),
-    onOpenShortcuts: () => setShortcutsOpen(true),
+    commands: shortcutCommands,
+    onOpenPalette: viewer ? undefined : () => setCommandPaletteOpen(true),
+    onOpenShortcuts: viewer ? undefined : () => setShortcutsOpen(true),
   });
 
   const toolbarButtonSize = compact ? "icon" : "sm";
@@ -1523,7 +1551,7 @@ export function TopToolbar({
         <Map className="h-4 w-4" />
         {showProjectInfo ? <span className="hidden sm:inline">{appTitle}</span> : null}
       </span>
-      {isMenuVisible(uiProfile, "project") && (
+      {!viewer && isMenuVisible(uiProfile, "project") && (
         <ProjectMenu
           chrome={chrome}
           collaborationEnabled={collaboration.enabled}
@@ -1532,6 +1560,7 @@ export function TopToolbar({
           onOpenFromUrl={() => projectFiles.setProjectUrlDialogOpen(true)}
           onOpenGallery={() => setGalleryDialogOpen(true)}
           onImportQgisProject={() => void projectFiles.handleImportQgisProject()}
+          onImportArcgisProject={() => void projectFiles.handleImportArcgisProject()}
           onOpenRecent={(path) => {
             void projectFiles.handleOpenRecent(path).then((error) => {
               if (error) projectFiles.setActionError(error);
@@ -1549,7 +1578,7 @@ export function TopToolbar({
           onOpenOfflineBasemap={onOpenBasemapExtract}
         />
       )}
-      {isMenuVisible(uiProfile, "edit") && (
+      {!viewer && isMenuVisible(uiProfile, "edit") && (
         <EditMenu chrome={chrome} mapControllerRef={mapControllerRef} />
       )}
       {isMenuVisible(uiProfile, "view") && (
@@ -1593,7 +1622,7 @@ export function TopToolbar({
         onSaveCurrentProject={projectFiles.handleSave}
         onProjectCreated={resetRuntimeControlsForNewProject}
       />
-      {isMenuVisible(uiProfile, "addData") && (
+      {!viewer && isMenuVisible(uiProfile, "addData") && (
         <AddDataMenu
           chrome={chrome}
           addLayer={addLayer}
@@ -1606,7 +1635,7 @@ export function TopToolbar({
           onOpenOsmPbfDialog={() => osmPbf.setDialogOpen(true)}
         />
       )}
-      {isMenuVisible(uiProfile, "processing") && (
+      {!viewer && isMenuVisible(uiProfile, "processing") && (
         <ProcessingMenu
           chrome={chrome}
           earthEnginePanel={panels.earthEngine}
@@ -1618,6 +1647,7 @@ export function TopToolbar({
       {isMenuVisible(uiProfile, "controls") && (
         <ControlsMenu
           chrome={chrome}
+          viewer={viewer}
           controlsVisible={controlsVisible}
           panels={panels}
           effectsActive={isActive(EFFECTS_PLUGIN_ID)}
@@ -1642,7 +1672,7 @@ export function TopToolbar({
           onOpenRecordVideo={() => setRecordVideoOpen(true)}
         />
       )}
-      {isMenuVisible(uiProfile, "plugins") && (
+      {!viewer && isMenuVisible(uiProfile, "plugins") && (
         <PluginsMenu
           chrome={chrome}
           appApi={appApi}
@@ -1657,18 +1687,20 @@ export function TopToolbar({
       {/* Top-level toolbar menus registered by built-in plugins via
           app.registerToolbarMenu(); external plugin menus render after Help
           (below). Renders nothing when none exist. */}
-      <PluginToolbarMenus chrome={chrome} placement="builtin" />
-      <SettingsDialog
-        buttonClassName={toolbarButtonClass}
-        buttonSize={toolbarButtonSize}
-        iconClassName={toolbarIconClassName}
-        mapControllerRef={mapControllerRef}
-        showLabels={showLabels}
-        onOpenManagePlugins={() => setManagePluginsOpen(true)}
-        profilePlugins={profilePlugins}
-        themeMode={themeMode}
-        onToggleThemeMode={onToggleThemeMode}
-      />
+      {!viewer ? <PluginToolbarMenus chrome={chrome} placement="builtin" /> : null}
+      {!viewer ? (
+        <SettingsDialog
+          buttonClassName={toolbarButtonClass}
+          buttonSize={toolbarButtonSize}
+          iconClassName={toolbarIconClassName}
+          mapControllerRef={mapControllerRef}
+          showLabels={showLabels}
+          onOpenManagePlugins={() => setManagePluginsOpen(true)}
+          profilePlugins={profilePlugins}
+          themeMode={themeMode}
+          onToggleThemeMode={onToggleThemeMode}
+        />
+      ) : null}
       {/* No plugin marketplace in the Mac App Store build (all its entry
           points are hidden too; this keeps the install surface out of the
           bundle). */}
@@ -1684,16 +1716,24 @@ export function TopToolbar({
         onOpenChange={setPrintLayoutOpen}
         mapControllerRef={mapControllerRef}
       />
-      <FieldCollectionDialog
-        open={fieldCollectionOpen}
-        onOpenChange={setFieldCollectionOpen}
-        mapControllerRef={mapControllerRef}
-      />
-      <GpsTrackingDialog
-        open={gpsTrackingOpen}
-        onOpenChange={setGpsTrackingOpen}
-        mapControllerRef={mapControllerRef}
-      />
+      {/* Field Collection and GPS Tracking add features and layers to the
+          project, so they follow the Controls menu entries that open them out
+          of the read-only viewer preset. Record Tour and Record Video below
+          only read the map, so they stay. */}
+      {!viewer && (
+        <FieldCollectionDialog
+          open={fieldCollectionOpen}
+          onOpenChange={setFieldCollectionOpen}
+          mapControllerRef={mapControllerRef}
+        />
+      )}
+      {!viewer && (
+        <GpsTrackingDialog
+          open={gpsTrackingOpen}
+          onOpenChange={setGpsTrackingOpen}
+          mapControllerRef={mapControllerRef}
+        />
+      )}
       <RecordTourDialog
         open={recordTourOpen}
         onOpenChange={setRecordTourOpen}
@@ -1748,6 +1788,7 @@ export function TopToolbar({
       {isMenuVisible(uiProfile, "help") && (
         <HelpMenu
           chrome={chrome}
+          viewer={viewer}
           diagnosticsErrorCount={diagnosticsErrorCount}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -1761,7 +1802,7 @@ export function TopToolbar({
       )}
       {/* External plugin toolbar menus render after Help so third-party menus
           sit at the end of the banner, past the built-in menus. */}
-      <PluginToolbarMenus chrome={chrome} placement="external" />
+      {!viewer ? <PluginToolbarMenus chrome={chrome} placement="external" /> : null}
       <AddDataDialog
         kind={addDataKind}
         mapControllerRef={mapControllerRef}
@@ -1795,16 +1836,20 @@ export function TopToolbar({
         renderTrigger={false}
         onOpenChange={setAboutOpen}
       />
-      <CommandPalette
-        open={commandPaletteOpen}
-        commands={commands}
-        onOpenChange={setCommandPaletteOpen}
-      />
-      <KeyboardShortcutsDialog
-        open={shortcutsOpen}
-        commands={commands}
-        onOpenChange={setShortcutsOpen}
-      />
+      {!viewer && (
+        <CommandPalette
+          open={commandPaletteOpen}
+          commands={commands}
+          onOpenChange={setCommandPaletteOpen}
+        />
+      )}
+      {!viewer && (
+        <KeyboardShortcutsDialog
+          open={shortcutsOpen}
+          commands={commands}
+          onOpenChange={setShortcutsOpen}
+        />
+      )}
       <div className="ms-auto flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         <Button
           aria-label={

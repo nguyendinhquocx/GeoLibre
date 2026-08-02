@@ -2505,6 +2505,20 @@ export async function openQgisProjectFile(): Promise<{
   return { data: result.data, path: result.path };
 }
 
+/** Pick an ArcGIS Pro project/map and return its raw bytes for the CIM converter. */
+export async function openArcgisProjectFile(): Promise<{
+  data: ArrayBuffer;
+  path: string;
+} | null> {
+  const result = await openLocalDataFileWithFallback({
+    filters: [{ name: "ArcGIS Pro Project", extensions: ["aprx", "mapx"] }],
+    accept: ".aprx,.mapx",
+    readBinary: true,
+  });
+  if (!result?.data) return null;
+  return { data: result.data, path: result.path };
+}
+
 /**
  * Thrown when a recent project is permanently gone (HTTP 404/410 or a local
  * file that no longer exists), signalling the caller that the entry can be
@@ -2835,14 +2849,22 @@ export function loadDroppedRasterFiles(droppedFiles: FileList | File[]): Dropped
  */
 export async function loadDroppedRasterPaths(
   paths: string[],
-  options?: { qgisProjectPath?: string },
+  options?: {
+    /**
+     * The project file the raster paths came from, when they were read out of
+     * an imported project rather than picked directly. Accepts QGIS
+     * (`.qgs`/`.qgz`) and ArcGIS Pro (`.aprx`/`.mapx`); the Rust side grants
+     * the asset scope only because the user selected that project themselves.
+     */
+    importProjectPath?: string;
+  },
 ): Promise<DroppedRaster[]> {
   const rasterPaths = paths.filter(isRasterFileName);
   await Promise.all(
     rasterPaths.map((path) =>
       invoke("allow_raster_asset", {
         path,
-        ...(options?.qgisProjectPath ? { qgisProjectPath: options.qgisProjectPath } : {}),
+        ...(options?.importProjectPath ? { importProjectPath: options.importProjectPath } : {}),
       }),
     ),
   );
