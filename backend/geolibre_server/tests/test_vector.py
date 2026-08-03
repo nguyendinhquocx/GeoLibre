@@ -316,6 +316,53 @@ def test_write_geopackage_rejects_unknown_layer(tmp_path) -> None:
 
 
 @requires_geopandas
+def test_write_geopackage_rejects_aspatial_layer(tmp_path, monkeypatch) -> None:
+    import geopandas as gpd
+    import pandas as pd
+
+    src = tmp_path / "layer.gpkg"
+    gpd.GeoDataFrame.from_features(_edited("a")["features"], crs="EPSG:4326").to_file(
+        src, layer="places", driver="GPKG"
+    )
+
+    def mock_list_layers(_path: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"name": ["places", "aspatial_data"], "geometry_type": ["Polygon", None]}
+        )
+
+    monkeypatch.setattr(gpd, "list_layers", mock_list_layers)
+
+    with pytest.raises(HTTPException) as exc:
+        vector_write(WriteVectorRequest(path=str(src), geojson=_edited("b"), layer="aspatial_data"))
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Layer 'aspatial_data' is an aspatial table and cannot be written"
+
+
+@requires_geopandas
+def test_write_geopackage_rejects_aspatial_only_file(tmp_path, monkeypatch) -> None:
+    # With no layer specified there is nothing to auto-select: every table is
+    # aspatial, so the write is refused rather than silently handing OGR the
+    # first (aspatial) table.
+    import geopandas as gpd
+    import pandas as pd
+
+    src = tmp_path / "attrs.gpkg"
+    gpd.GeoDataFrame.from_features(_edited("a")["features"], crs="EPSG:4326").to_file(
+        src, layer="places", driver="GPKG"
+    )
+
+    def mock_list_layers(_path: str) -> pd.DataFrame:
+        return pd.DataFrame({"name": ["aspatial_data"], "geometry_type": [None]})
+
+    monkeypatch.setattr(gpd, "list_layers", mock_list_layers)
+
+    with pytest.raises(HTTPException) as exc:
+        vector_write(WriteVectorRequest(path=str(src), geojson=_edited("b")))
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "No feature layer to write in attrs.gpkg"
+
+
+@requires_geopandas
 def test_write_geopackage_defaults_to_first_feature_layer(tmp_path) -> None:
     # With no layer specified, write-back targets the first feature layer, the
     # same layer the reader loads — leaving later layers untouched.
