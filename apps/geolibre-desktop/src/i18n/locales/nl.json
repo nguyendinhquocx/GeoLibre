@@ -743,7 +743,8 @@
       "errorMaxFeatures": "Voer voor het maximale aantal features een waarde van 1 of hoger in.",
       "errorBbox": "Voer het begrenzingskader in als ‘west,zuid,oost,noord’.",
       "errorNoFeatures": "Deze collectie leverde geen features op."
-    }
+    },
+    "nonGeographicCoordinates": "De coördinaten in {{names}} zijn geen lengte-/breedtegraad, dus er wordt niets op de kaart getekend. Het CRS klopt niet — herprojecteer de gegevens (of corrigeer de .prj) en laad ze opnieuw."
   },
   "offline": {
     "title": "Offline gebied downloaden",
@@ -2234,8 +2235,6 @@
       "grid": "Regelmatig raster",
       "voronoi": "Voronoi / Delaunay",
       "cellSectors": "Dekkingsgebied zendmast",
-      "h3Grid": "H3-raster maken",
-      "h3BinPoints": "Punten binnen in H3",
       "trajectorySpeed": "Trajectsnelheid",
       "detectStops": "Stops detecteren",
       "spaceTimeProximity": "Ruimte-tijdnabijheid",

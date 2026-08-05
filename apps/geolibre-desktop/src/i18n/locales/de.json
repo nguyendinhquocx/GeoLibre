@@ -743,7 +743,8 @@
       "errorMaxFeatures": "Geben Sie für die maximale Objektanzahl einen Wert von 1 oder mehr ein.",
       "errorBbox": "Geben Sie den Begrenzungsrahmen als „West,Süd,Ost,Nord“ an.",
       "errorNoFeatures": "Diese Collection hat keine Objekte zurückgegeben."
-    }
+    },
+    "nonGeographicCoordinates": "Die Koordinaten in {{names}} sind keine geografische Länge/Breite, daher wird nichts auf der Karte gezeichnet. Das CRS ist falsch angegeben — projizieren Sie die Daten um (oder korrigieren Sie die .prj) und laden Sie sie erneut."
   },
   "offline": {
     "title": "Offline-Bereich herunterladen",
@@ -2234,8 +2235,6 @@
       "grid": "Regelmäßiges Raster",
       "voronoi": "Voronoi / Delaunay",
       "cellSectors": "Mobilfunkzellen-Abdeckung",
-      "h3Grid": "H3-Raster erstellen",
-      "h3BinPoints": "Punkte zu H3 binnen",
       "trajectorySpeed": "Trajektoriengeschwindigkeit",
       "detectStops": "Stopps erkennen",
       "spaceTimeProximity": "Raum-Zeit-Nähe",

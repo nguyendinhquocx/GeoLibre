@@ -3,6 +3,7 @@ import {
   detachProjectCopy,
   projectFromStore,
   redactProjectCredentials,
+  excludeHiddenFieldsFromProject,
   serializeProject,
   useAppStore,
   type GeoLibreLayer,
@@ -843,13 +844,18 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     // them. Make keeping them an explicit choice and use the same central
     // redaction pass as every external egress.
     let contentToSave = content;
-    const redacted = redactProjectCredentials(project);
+    const projectToEgress = excludeHiddenFieldsFromProject(project);
+    const redacted = redactProjectCredentials(projectToEgress);
     if (redacted.redactedPaths.length > 0) {
       const choice = await askStripCredentials(redacted.redactedCount);
       if (choice === "cancel") return false;
       if (choice === "strip") {
         contentToSave = serializeProject(redacted.project);
+      } else {
+        contentToSave = serializeProject(projectToEgress);
       }
+    } else {
+      contentToSave = serializeProject(projectToEgress);
     }
     // Projects opened from a URL have no writable path, so both Save and
     // Save As fall back to the save dialog for them.

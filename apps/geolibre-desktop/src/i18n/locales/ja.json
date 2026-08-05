@@ -723,7 +723,8 @@
       "errorMaxFeatures": "最大フィーチャ数には1以上の値を入力してください。",
       "errorBbox": "バウンディングボックスを「西,南,東,北」の形式で入力してください。",
       "errorNoFeatures": "このコレクションはフィーチャを返しませんでした。"
-    }
+    },
+    "nonGeographicCoordinates": "{{names}} の座標は経緯度ではないため、地図には何も描画されません。CRS が誤って記録されています — データを再投影する（または .prj を修正する）と読み込み直してください。"
   },
   "offline": {
     "title": "オフラインエリアをダウンロード",
@@ -2191,8 +2192,6 @@
       "grid": "正方格子",
       "voronoi": "ボロノイ / ドロネー",
       "cellSectors": "セルサイトのカバレッジ",
-      "h3Grid": "H3グリッドを作成",
-      "h3BinPoints": "ポイントをH3にビン化",
       "trajectorySpeed": "軌跡速度",
       "detectStops": "停止を検出",
       "spaceTimeProximity": "時空間近接",

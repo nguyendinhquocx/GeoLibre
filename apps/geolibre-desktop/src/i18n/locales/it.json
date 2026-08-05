@@ -743,7 +743,8 @@
       "errorMaxFeatures": "Inserisci un numero massimo di elementi pari a 1 o superiore.",
       "errorBbox": "Inserisci il rettangolo di delimitazione come «ovest,sud,est,nord».",
       "errorNoFeatures": "Questa collection non ha restituito alcun elemento."
-    }
+    },
+    "nonGeographicCoordinates": "Le coordinate in {{names}} non sono longitudine/latitudine, quindi non verrà disegnato nulla sulla mappa. Il CRS è errato: riproietta i dati (o correggi il .prj) e ricaricali."
   },
   "offline": {
     "title": "Scarica area offline",
@@ -2234,8 +2235,6 @@
       "grid": "Griglia regolare",
       "voronoi": "Voronoi / Delaunay",
       "cellSectors": "Copertura delle celle radio",
-      "h3Grid": "Crea griglia H3",
-      "h3BinPoints": "Assegna punti a celle H3",
       "trajectorySpeed": "Velocità di traiettoria",
       "detectStops": "Rileva soste",
       "spaceTimeProximity": "Prossimità spazio-temporale",

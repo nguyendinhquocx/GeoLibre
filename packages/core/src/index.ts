@@ -130,3 +130,4 @@ export {
   redactUrlCredentials,
   type CredentialRedactionResult,
 } from "./credentials";
+export { excludeHiddenFieldsFromGeojson, excludeHiddenFieldsFromProject } from "./visibility";

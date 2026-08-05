@@ -723,7 +723,8 @@
       "errorMaxFeatures": "Masukkan nilai jumlah fitur maksimum 1 atau lebih.",
       "errorBbox": "Masukkan kotak pembatas sebagai \"barat,selatan,timur,utara\".",
       "errorNoFeatures": "Koleksi ini tidak mengembalikan fitur apa pun."
-    }
+    },
+    "nonGeographicCoordinates": "Koordinat pada {{names}} bukan bujur/lintang, sehingga tidak ada yang digambar di peta. CRS salah — proyeksikan ulang data (atau perbaiki .prj-nya) lalu muat kembali."
   },
   "offline": {
     "title": "Unduh Area Offline",
@@ -2191,8 +2192,6 @@
       "grid": "Grid teratur",
       "voronoi": "Voronoi / Delaunay",
       "cellSectors": "Cakupan sel BTS",
-      "h3Grid": "Buat grid H3",
-      "h3BinPoints": "Bin titik ke H3",
       "trajectorySpeed": "Kecepatan lintasan",
       "detectStops": "Deteksi pemberhentian",
       "spaceTimeProximity": "Kedekatan ruang-waktu",

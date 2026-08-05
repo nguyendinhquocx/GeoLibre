@@ -743,7 +743,8 @@
       "errorMaxFeatures": "Introduzca un máximo de entidades de 1 o más.",
       "errorBbox": "Introduzca el cuadro delimitador como «oeste,sur,este,norte».",
       "errorNoFeatures": "Esta colección no devolvió ninguna entidad."
-    }
+    },
+    "nonGeographicCoordinates": "Las coordenadas de {{names}} no son de longitud/latitud, por lo que no se dibujará nada en el mapa. El CRS está mal declarado: reproyecte los datos (o corrija su .prj) y vuelva a cargarlos."
   },
   "offline": {
     "title": "Descargar área sin conexión",
@@ -2234,8 +2235,6 @@
       "grid": "Cuadrícula regular",
       "voronoi": "Voronoi / Delaunay",
       "cellSectors": "Cobertura de sitios celulares",
-      "h3Grid": "Crear cuadrícula H3",
-      "h3BinPoints": "Agrupar puntos en H3",
       "trajectorySpeed": "Velocidad de trayectoria",
       "detectStops": "Detectar paradas",
       "spaceTimeProximity": "Proximidad espacio-temporal",

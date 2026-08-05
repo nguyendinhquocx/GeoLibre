@@ -1,5 +1,6 @@
 import {
   DEFAULT_PROJECT_NAME,
+  excludeHiddenFieldsFromProject,
   redactProjectCredentials,
   serializeProject,
   useAppStore,
@@ -2002,7 +2003,7 @@ export function TopToolbar({
           // Shared projects are opened on another machine where the local files
           // don't exist, so always embed the vector data (never file references).
           const { project, defaultProjectName } = await projectFiles.buildEmbeddedProject(title);
-          const redacted = redactProjectCredentials(project);
+          const redacted = redactProjectCredentials(excludeHiddenFieldsFromProject(project));
           // Strip path separators, control chars, and other characters that are
           // illegal in filenames so the server gets a predictable name.
           const safeName = defaultProjectName.replace(
