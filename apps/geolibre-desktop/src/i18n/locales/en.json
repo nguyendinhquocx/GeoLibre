@@ -303,7 +303,7 @@
       },
       "arcgis": {
         "label": "Add ArcGIS Layer",
-        "description": "Add an ArcGIS FeatureServer layer, VectorTileServer layer, or portal item."
+        "description": "Add an ArcGIS FeatureServer, VectorTileServer, MapServer, or ImageServer layer, or a portal item."
       },
       "postgres": {
         "label": "Add PostgreSQL Layer",
@@ -469,14 +469,33 @@
       "defaultName": "ArcGIS Layer",
       "sampleFeatureLabel": "US major cities (feature)",
       "sampleVectorTileLabel": "Santa Monica parcels (vector tiles)",
+      "sampleMapServiceLabel": "US boundaries (map service)",
+      "sampleImageServiceLabel": "USGS 3DEP hillshade (image service)",
       "featureLayer": "Feature layer",
       "vectorTileLayer": "Vector tile layer",
+      "mapServiceLayer": "Map service",
+      "imageServiceLayer": "Image service",
       "portalItemId": "Portal item ID",
       "featureUrlPlaceholder": "https://services.arcgis.com/.../FeatureServer/0",
       "vectorTileUrlPlaceholder": "https://.../arcgis/rest/services/.../VectorTileServer",
+      "mapServiceUrlPlaceholder": "https://.../arcgis/rest/services/.../MapServer",
+      "imageServiceUrlPlaceholder": "https://.../arcgis/rest/services/.../ImageServer",
+      "sublayers": "Sublayers",
+      "sublayersPlaceholder": "All visible sublayers",
+      "sublayersHint": "Optional comma-separated sublayer ids, for example 0,2,5. Selecting sublayers draws the service dynamically instead of using its cached tiles.",
+      "renderingRule": "Rendering rule",
+      "renderingRulePlaceholder": "{\"rasterFunction\":\"Hillshade\"}",
+      "renderingRuleHint": "Optional raster function JSON applied by the service. A rendering rule draws the service dynamically instead of using its cached tiles.",
       "portalUrl": "Portal URL",
       "portalUrlPlaceholder": "https://www.arcgis.com/sharing/rest",
-      "accessToken": "Access token"
+      "accessToken": "Access token",
+      "pageSize": "Records per request",
+      "pageSizePlaceholder": "Auto",
+      "maxFeatures": "Maximum features",
+      "maxFeaturesPlaceholder": "All",
+      "pagingHint": "Feature layers download in pages. Lower the records per request if the service times out.",
+      "loadingProgress": "Loaded {{loaded}} of {{total}} features…",
+      "loadingProgressUnknown": "Loaded {{loaded}} features…"
     },
     "gpx": {
       "defaultName": "GPX Layer",
@@ -2172,6 +2191,7 @@
       "rasterShape": "Read {{width}}×{{height}} raster with {{bands}} band(s)",
       "wroteCog": "Wrote a tiled COG with overviews ({{compression}})",
       "notAGeoTiff": "This file is not a readable GeoTIFF. In the browser, Raster to COG reads GeoTIFF only; other formats need the desktop app.",
+      "rasterTooLargeForBrowser": "In the browser this decodes the whole raster in WebAssembly, which is limited to about 4 GB, so this one does not fit. Convert it with the GeoLibre desktop app, or build the COG beforehand with gdal_translate or rio-cogeo.",
       "zoomRangeError": "Zoom levels must satisfy 0 ≤ min ≤ max ≤ {{max}}.",
       "colormap": "Colormap",
       "resampling": "Resampling",

@@ -30,6 +30,9 @@ import {
   supportsBridgedOpacity,
   useAppStore,
   excludeHiddenFieldsFromGeojson,
+  layerGroupDepth,
+  layerGroupMoveability,
+  layerPanelGroupHeaders,
 } from "@geolibre/core";
 import type { EllipsoidId, GeoLibreLayer, LayerGroup } from "@geolibre/core";
 import type { FeatureCollection } from "geojson";
@@ -221,7 +224,7 @@ import {
 } from "../../lib/postgis-connections";
 import { IS_MAS_BUILD } from "../../lib/build-flags";
 import { isTauri } from "../../lib/is-tauri";
-import { getNetcdfImageSource } from "../../lib/netcdf-image-symbology";
+import { getNetcdfLayerState } from "../../lib/netcdf-image-symbology";
 import { BasemapPickerDialog } from "./BasemapPickerDialog";
 import { LayerPanelPlaceSearch } from "./LayerPanelPlaceSearch";
 import { LayerSwatchIcon } from "./LayerSwatchIcon";
@@ -584,11 +587,13 @@ function hasNativeIdentifyLayers(layer: GeoLibreLayer): boolean {
   // registered by a plugin, but its values are held in memory and read directly
   // by useNetcdfIdentify. Named here rather than given a synthetic
   // `nativeLayerIds`, which would make layer-sync treat it as plugin-owned and
-  // stop drawing it. Gated on the grid actually being retained: an RGB
-  // composite shares the source kind but registers none, and a reload drops it,
-  // and offering Identify that answers nothing is worse than not offering it.
+  // stop drawing it. Gated on the grids actually being retained — a project
+  // reload drops them — since offering Identify that answers nothing is worse
+  // than not offering it. Deliberately the layer state rather than
+  // `getNetcdfImageSource`, which is null for an RGB composite: that has no
+  // colormap to re-apply but does have three channels a click can read.
   if (layer.metadata.sourceKind === NETCDF_IMAGE_SOURCE_KIND) {
-    return getNetcdfImageSource(layer.id) !== null;
+    return getNetcdfLayerState(layer.id) !== null;
   }
 
   return Array.isArray(layer.metadata.nativeLayerIds) && layer.metadata.nativeLayerIds.length > 0;
@@ -882,19 +887,7 @@ export function LayerPanel({
     [layerGroups],
   );
   const groupDepth = useCallback(
-    (group: LayerGroup) => {
-      let depth = 0;
-      let parentId = group.parentId;
-      const visited = new Set([group.id]);
-      while (parentId && !visited.has(parentId)) {
-        visited.add(parentId);
-        const parent = groupById.get(parentId);
-        if (!parent) break;
-        depth += 1;
-        parentId = parent.parentId;
-      }
-      return depth;
-    },
+    (group: LayerGroup) => layerGroupDepth(group, groupById),
     [groupById],
   );
   const hasCollapsedAncestor = useCallback(
@@ -927,59 +920,19 @@ export function LayerPanel({
       }),
     [groupById, layerGroups],
   );
-  const firstMemberIdByGroup = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const layer of visibleLayers) {
-      if (layer.groupId && !map.has(layer.groupId)) {
-        map.set(layer.groupId, layer.id);
-      }
-    }
-    return map;
-  }, [visibleLayers]);
-  const descendantLayerAnchorByGroup = useMemo(() => {
-    const result = new Map<string, string>();
-    const displayGroupIds = visibleLayers
-      .map((layer) => layer.groupId)
-      .filter((id): id is string => Boolean(id && groupById.has(id)));
-    for (const group of layerGroups) {
-      if (firstMemberIdByGroup.has(group.id)) continue;
-      const anchor = displayGroupIds.find((candidateId) => {
-        let parentId = groupById.get(candidateId)?.parentId;
-        const visited = new Set<string>();
-        while (parentId && !visited.has(parentId)) {
-          if (parentId === group.id) return true;
-          visited.add(parentId);
-          parentId = groupById.get(parentId)?.parentId;
-        }
-        return false;
-      });
-      if (anchor) result.set(group.id, anchor);
-    }
-    return result;
-  }, [firstMemberIdByGroup, groupById, layerGroups, visibleLayers]);
-  const organizerHeadersByAnchor = useMemo(() => {
-    const result = new Map<string, LayerGroup[]>();
-    for (const group of layerGroups) {
-      const anchor = descendantLayerAnchorByGroup.get(group.id);
-      if (!anchor) continue;
-      const headers = result.get(anchor) ?? [];
-      headers.push(group);
-      result.set(anchor, headers);
-    }
-    for (const headers of result.values()) {
-      headers.sort((a, b) => groupDepth(a) - groupDepth(b));
-    }
-    return result;
-  }, [descendantLayerAnchorByGroup, groupDepth, layerGroups]);
-  // Empty folders have no member to anchor them, so they render pinned at the
-  // top of the panel where they are easy to drop layers into.
-  const emptyGroups = useMemo(
-    () =>
-      layerGroups.filter(
-        (group) =>
-          !firstMemberIdByGroup.has(group.id) && !descendantLayerAnchorByGroup.has(group.id),
-      ),
-    [descendantLayerAnchorByGroup, firstMemberIdByGroup, layerGroups],
+  // Every group header — the group a row belongs to, the organizers above it
+  // whose layers all live in child groups, and the folders holding no layer at
+  // all — comes from one core walk, anchored to the layer row it is drawn
+  // above. Deriving them together is what keeps a nested folder below the
+  // parent it sits in, and lets an empty folder keep its spot relative to its
+  // siblings when one of them gains a layer (GeoLibre#1739).
+  const groupHeaders = useMemo(
+    () => layerPanelGroupHeaders(layers, layerGroups),
+    [layers, layerGroups],
+  );
+  const groupMoveability = useMemo(
+    () => layerGroupMoveability(layers, layerGroups),
+    [layers, layerGroups],
   );
   // Resize the metadata dialog from its bottom-end grip. The dialog is centred
   // via a -50% transform, so each edge moves by half the size change; growing
@@ -2581,8 +2534,7 @@ export function LayerPanel({
   const renderGroupHeader = (group: LayerGroup) => {
     if (hasCollapsedAncestor(group)) return null;
     const isDropTarget = dropTargetGroupId === group.id;
-    const canReorderGroup =
-      firstMemberIdByGroup.has(group.id) || descendantLayerAnchorByGroup.has(group.id);
+    const moveability = groupMoveability.get(group.id);
     const moveTargets = groupMoveTargets(group);
     return (
       <div
@@ -2744,7 +2696,7 @@ export function LayerPanel({
                   menu on select; only the rename item above keeps it, so the
                   menu's close does not race its input autofocus. */}
               <DropdownMenuItem
-                disabled={!canReorderGroup}
+                disabled={!moveability?.up}
                 onSelect={() => {
                   reorderLayerGroup(group.id, "up");
                 }}
@@ -2753,7 +2705,7 @@ export function LayerPanel({
                 {t("layers.moveGroupUp")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={!canReorderGroup}
+                disabled={!moveability?.down}
                 onSelect={() => {
                   reorderLayerGroup(group.id, "down");
                 }}
@@ -2943,12 +2895,8 @@ export function LayerPanel({
               {isBeginnerProfile ? t("layers.emptyBeginner") : t("layers.empty")}
             </p>
           )}
-          {emptyGroups.map((group) => (
-            <Fragment key={group.id}>{renderGroupHeader(group)}</Fragment>
-          ))}
           {visibleLayers.map((layer, displayIndex) => {
             const group = layer.groupId ? groupById.get(layer.groupId) : undefined;
-            const isFirstOfGroup = group ? firstMemberIdByGroup.get(group.id) === layer.id : false;
             const groupCollapsed = group?.collapsed ?? false;
             const groupAncestorCollapsed = group ? hasCollapsedAncestor(group) : false;
             // When an ancestor group is hidden, a layer whose own visibility
@@ -3111,14 +3059,9 @@ export function LayerPanel({
             const moveIds = selectedMoveIds(layer.id);
             return (
               <Fragment key={layer.id}>
-                {isFirstOfGroup &&
-                  group &&
-                  organizerHeadersByAnchor
-                    .get(group.id)
-                    ?.map((organizer) => (
-                      <Fragment key={organizer.id}>{renderGroupHeader(organizer)}</Fragment>
-                    ))}
-                {isFirstOfGroup && group && renderGroupHeader(group)}
+                {groupHeaders.aboveLayer.get(layer.id)?.map((header) => (
+                  <Fragment key={header.id}>{renderGroupHeader(header)}</Fragment>
+                ))}
                 {!groupCollapsed && !groupAncestorCollapsed && (
                   <div
                     data-layer-card=""
@@ -4022,6 +3965,11 @@ export function LayerPanel({
               </Fragment>
             );
           })}
+          {/* Headers placed below the last layer row: the panel has no layer
+              left to anchor them above. */}
+          {groupHeaders.bottom.map((group) => (
+            <Fragment key={group.id}>{renderGroupHeader(group)}</Fragment>
+          ))}
           <div
             data-layer-card=""
             className={`rounded-md border p-2 transition-colors ${

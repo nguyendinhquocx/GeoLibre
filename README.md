@@ -14,6 +14,7 @@
 [![FlatPark](https://img.shields.io/badge/FlatPark-GeoLibre-4A90D9?logo=flatpak)](https://flatpark.org/apps/app.geolibre.GeoLibre/)
 [![image](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20785400.svg)](https://doi.org/10.5281/zenodo.20785400)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/opengeos/GeoLibre)
 
 A free and open-source, lightweight, cloud-native GIS platform for visualizing, exploring, and analyzing geospatial data. It runs everywhere you do, in the web browser, on the desktop, on mobile, and inside Jupyter notebooks, all while keeping your data local and private.
 
@@ -151,9 +152,19 @@ Full documentation, including the User Guide and Tutorials, is published at
   - [Roadmap](docs/roadmap.md)
   - [Contributing](docs/contributing.md)
   - [How to Cite](docs/citation.md)
+  - [Become a Sponsor](docs/sponsor.md)
 
 Contributions are welcome. See the [Contributing](docs/contributing.md) guide
 for the development setup, repository layout, and quality gate.
+
+## Sponsor
+
+GeoLibre is free and open source, and stays that way. If it is useful to you or your team, sponsorship is the most direct way to keep development, hosting, and cross-platform distribution going.
+
+- [**GitHub Sponsors**](https://github.com/sponsors/giswqs) - monthly or one-time, billed through your GitHub account.
+- [**Buy Me a Coffee**](https://buymeacoffee.com/giswqs) - a quick one-off contribution, no account required.
+
+See the [Become a Sponsor](https://geolibre.app/sponsor/) page for what sponsorship supports and for other, free ways to help.
 
 ## Acknowledgements
 

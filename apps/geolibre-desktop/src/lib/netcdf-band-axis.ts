@@ -40,11 +40,42 @@ const MICROMETRE_UNITS = new Set([
   "micrometres",
 ]);
 
+/**
+ * A coordinate as it reads in a label: two decimals, or as it stands when it is
+ * whole. Shared by every label below so a wavelength cannot come out to one
+ * precision in the band picker and another in the identify popup.
+ */
+function roundedCoordinate(coordinate: number): string {
+  return Number.isInteger(coordinate) ? String(coordinate) : coordinate.toFixed(2);
+}
+
 /** `"650.41 nm (bands 47)"` — the coordinate value first, then where it sits. */
 export function axisOptionLabel(axis: LocalNetcdfAxis, coordinate: number, index: number): string {
-  const rounded = Number.isInteger(coordinate) ? String(coordinate) : coordinate.toFixed(2);
+  const rounded = roundedCoordinate(coordinate);
   const measure = axis.units ? `${rounded} ${axis.units}` : rounded;
   return `${measure} (${axis.name} ${index})`;
+}
+
+/**
+ * `"650.41 nm"` — just the band's measure, for places where the axis and the
+ * channel it feeds are already named around it (the identify popup's red/green/
+ * blue rows, the Style panel's band summary). Shorter than {@link bandLabel} on
+ * purpose: those sit inside a row that is already a label.
+ *
+ * An axis with no coordinate values, or none at this index, has no measure to
+ * show, so it falls back to naming the position — the only thing known about it.
+ *
+ * @param axis - The band axis.
+ * @param index - The band's position along it.
+ * @returns The coordinate with its units, or `"bands 47"`.
+ */
+export function bandMeasure(axis: LocalNetcdfAxis, index: number): string {
+  const coordinate = axis.values?.[index];
+  if (coordinate === undefined) return `${axis.name} ${index}`;
+  const rounded = roundedCoordinate(coordinate);
+  // Without units the bare number reads as nothing in particular, so keep the
+  // axis name in front of it rather than showing a naked "47".
+  return axis.units ? `${rounded} ${axis.units}` : `${axis.name} ${rounded}`;
 }
 
 /** How one band index should read in a picker, whatever the axis carries. */

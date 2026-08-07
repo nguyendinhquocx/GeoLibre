@@ -2082,17 +2082,48 @@ export function gridPixelAt(grid: LocalNetcdfGrid, lng: number, lat: number): Gr
     (lng < 0 ? nearestIndex(grid.lon, lng + 360) : nearestIndex(grid.lon, lng - 360));
   if (row === null || column === null) return null;
 
-  const raw = Number(grid.values[row * grid.nx + column]);
-  const fill = typeof grid.fillValue === "number" ? grid.fillValue : null;
-  const missing = !Number.isFinite(raw) || (fill !== null && raw === fill);
-  const value = missing ? null : raw * (grid.scaleFactor ?? 1) + (grid.addOffset ?? 0);
   return {
     row,
     column,
     lng: Number(grid.lon[column]),
     lat: Number(grid.lat[row]),
-    value: value !== null && Number.isFinite(value) ? value : null,
+    value: gridValueAt(grid, row, column),
   };
+}
+
+/**
+ * One cell's value in physical units, with the grid's packing applied.
+ *
+ * Split out of {@link gridPixelAt} for the caller that has already located the
+ * cell and wants the same reading from a *second* grid: the channels of an RGB
+ * composite share one geometry, so the coordinate search runs once and this
+ * reads the other two channels straight off the index.
+ *
+ * @param grid - The retained slice.
+ * @param row - Row into its y extent.
+ * @param column - Column into its x extent.
+ * @returns The value, or null when the cell is fill/nodata or out of range.
+ */
+export function gridValueAt(grid: LocalNetcdfGrid, row: number, column: number): number | null {
+  // A cell located on one grid is only addressable on another that shares its
+  // shape. Without this a column past the row's width would silently fold into
+  // the next row and report a real value from the wrong place — worse than the
+  // documented miss, because nothing about the reading looks wrong.
+  if (
+    !Number.isInteger(row) ||
+    !Number.isInteger(column) ||
+    row < 0 ||
+    row >= grid.ny ||
+    column < 0 ||
+    column >= grid.nx
+  ) {
+    return null;
+  }
+  const raw = Number(grid.values[row * grid.nx + column]);
+  const fill = typeof grid.fillValue === "number" ? grid.fillValue : null;
+  if (!Number.isFinite(raw) || (fill !== null && raw === fill)) return null;
+  const value = raw * (grid.scaleFactor ?? 1) + (grid.addOffset ?? 0);
+  return Number.isFinite(value) ? value : null;
 }
 
 /**

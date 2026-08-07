@@ -167,8 +167,9 @@ Other parameters control the toolbar, panels, and theme. See [Embedding & Sharin
 
 GeoLibre is **stable and in active development**, with regular releases on
 [GitHub](https://github.com/opengeos/GeoLibre/releases). For the complete,
-current inventory see [Features](features.md); for the full release history and
-what comes next, see the [Roadmap](roadmap.md).
+current inventory see [Features](features.md); for how GeoLibre compares to
+QGIS, ArcGIS, Felt, and kepler.gl, see the [Comparison](comparison.md); for the
+full release history and what comes next, see the [Roadmap](roadmap.md).
 
 ### What ships today
 
@@ -202,3 +203,11 @@ widget that cross-filters the other widgets, and
 [NMEA receiver support](user-guide/map-controls.md#gps-tracking) in GPS Tracking.
 
 The [roadmap](roadmap.md) tracks every release, version by version.
+
+## Support GeoLibre
+
+GeoLibre is free and open source, and stays that way. If it is useful to you or
+your team, [becoming a sponsor](sponsor.md) — through
+[GitHub Sponsors](https://github.com/sponsors/giswqs) or
+[Buy Me a Coffee](https://buymeacoffee.com/giswqs) — is the most direct way to
+keep development, hosting, and app-store distribution going.
