@@ -32,9 +32,9 @@ name: PR preview deploy
 #   CLOUDFLARE_ACCOUNT_ID
 #   PREVIEW_DEPLOY_TOKEN   - fine-grained PAT scoped to opengeos/pages-preview
 #                            only, with Contents: Read and write + Pages: Read.
-#                            Pages read is required by the publication verifier
-#                            below; without it the poll cannot match a build to
-#                            the deployed commit.
+#                            Pages read is required by wait-for-pages-deployment
+#                            below; without it the poll never sees a build and
+#                            the job times out with a misleading error.
 
 on:
   workflow_run:
@@ -234,11 +234,7 @@ jobs:
           # which is empty here.
           deploy-commit-message: Deploy preview for PR ${{ needs.resolve.outputs.number }} 🛫
           remove-commit-message: Remove preview for PR ${{ needs.resolve.outputs.number }} 🛬
-          # The action waits for a build of this exact commit. This shared Pages
-          # repository can coalesce pushes, so that exact build may never exist
-          # even though a later descendant build publishes the preview. Our
-          # verifier below handles that case without the redundant wait.
-          wait-for-pages-deployment: false
+          wait-for-pages-deployment: true
           comment: false
 
       - name: Comment GitHub Pages preview status
@@ -258,10 +254,7 @@ jobs:
             const demo = succeeded
               ? `${pagesUrl}${pagesUrl.endsWith('/') ? '' : '/'}demo/`
               : 'Unavailable';
-            const propagation = succeeded && process.env.PAGES_AVAILABLE === 'false'
-              ? `\n\n> [!NOTE]\n> GitHub Pages built this preview successfully, but its serving edge returned HTTP ${process.env.PAGES_UNAVAILABLE_CODE} when checked. The links may still be propagating.`
-              : '';
-            const body = `${marker}\n### 🔍 GitHub Pages PR preview\n\n| Item | Value |\n| --- | --- |\n| Site | ${site} |\n| Demo app | ${demo} |\n| Commit | \`${process.env.HEAD_SHA.slice(0, 7)}\` |${propagation}`;
+            const body = `${marker}\n### 🔍 GitHub Pages PR preview\n\n| Item | Value |\n| --- | --- |\n| Site | ${site} |\n| Demo app | ${demo} |\n| Commit | \`${process.env.HEAD_SHA.slice(0, 7)}\` |`;
             const { owner, repo } = context.repo;
             const issue_number = Number(process.env.PR_NUMBER);
             const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
