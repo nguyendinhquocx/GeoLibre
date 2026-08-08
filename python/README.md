@@ -86,8 +86,60 @@ m.to_project()["mapView"]["center"]
 | `set_center_zoom(lng, lat, zoom=None)` | Alias of `set_center` (leafmap compatibility). |
 | `zoom_to_bounds(bounds)` / `zoom_to_layer(layer)` | Fit the view to bounds or a layer id/name/handle. |
 | `layer_names` / `find_layer(name)` / `set_layer_visibility` / `set_layer_opacity` | Inspect and update layers conveniently. |
-| `remove_layer(layer_id)` / `clear_layers()` | Remove layers. |
+| `rename_layer` / `move_layer` / `duplicate_layer` / `show_layer` / `hide_layer` | Manage layers by id, name, or `Layer` handle. |
+| `layer_properties(layer)` / `column_values(layer, column)` / `describe()` | Inspect inlined data and summarize a project without a browser round trip. |
+| `remove_layer(layer_id)` / `clear_layers()` | Remove one layer by id, name, or handle, or remove all layers. |
+| `center` / `zoom` / `bearing` / `pitch` / `basemap` / `name` | Read persisted project and camera state; `name` is writable. |
+| `set_zoom` / `set_bearing` / `set_pitch` / `fit_project_bounds` | Persist camera changes without requiring the widget to be displayed. |
+| `list_whitebox_tools()` / `run_whitebox_tool(id, parameters)` | Discover and run bundled Whitebox tools locally via browser WASM. |
 | `to_project()` / `load_project(src)` / `save_project(path)` | Project I/O. |
+
+Layer handles provide the same operations in an object-oriented form:
+
+```python
+m.add_geojson("https://example.com/roads.geojson", name="Roads")
+
+roads = m.find_layer("Roads")  # None when no layer has that name
+roads.opacity = 0.6
+roads.set_style(lineColor="#e63946", lineWidth=3)
+roads.move(0)
+
+print(roads.properties())      # sampled values for every property
+print(roads.column("highway")) # one value per feature
+roads_copy = roads.duplicate(name="Roads (proposed)")
+```
+
+Run a Whitebox tool against a map layer (the map must be displayed first):
+
+```python
+dem = m.get_layer(m.add_raster("https://example.com/dem.tif", name="DEM"))
+result = m.run_whitebox_tool("slope", {"input": dem, "units": "degrees"})
+slope = m.get_layer(result["resultLayerIds"][0])
+```
+
+For headless authoring and scripts that do not need a widget, commonly used
+project utilities are available directly from the top-level package:
+
+```python
+from geolibre import (
+    basemap_catalog,
+    builtin_legend_names,
+    color_ramp_names,
+    describe_project,
+    load_project,
+    save_project,
+)
+
+project = load_project("my-map.geolibre.json")
+print(describe_project(project))
+save_project("copy.geolibre.json", project)
+```
+
+These are the lossless file primitives: unlike `Map.save_project`, the top-level
+`save_project` writes the project **verbatim**, credentials included, so that
+editing a project in place cannot strip your own API keys out of it. Pass a
+project through `geolibre.project.redact_credentials` first if the file is going
+anywhere untrusted, or use `Map.save_project`, which redacts by default.
 
 ## Notes
 

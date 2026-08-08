@@ -4,6 +4,7 @@
 [![GeoLibre shared project](https://img.shields.io/badge/GeoLibre-share-green.svg)](https://share.geolibre.app)
 [![GeoLibre plugins](https://img.shields.io/badge/GeoLibre-plugins-green.svg)](https://plugins.geolibre.app)
 [![image](https://img.shields.io/pypi/v/geolibre.svg)](https://pypi.python.org/pypi/geolibre)
+[![R package](https://img.shields.io/badge/R-package-276DC3?logo=r&logoColor=white)](https://r.geolibre.app/)
 [![image](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/opengeos/GeoLibre/blob/main/python/examples/getting-started.ipynb)
 [![image](https://img.shields.io/conda/vn/conda-forge/geolibre.svg)](https://anaconda.org/conda-forge/geolibre)
 [![Conda Recipe](https://img.shields.io/badge/recipe-geolibre-green.svg)](https://github.com/conda-forge/geolibre-feedstock)
@@ -54,6 +55,20 @@ conda install -c conda-forge geolibre
 ```
 
 See the [Python Package](python.md) reference to get started.
+
+### In R
+
+The [`geolibre`](r.md) R package embeds GeoLibre as an interactive HTML widget
+in RStudio, Quarto, R Markdown, and Shiny. Install the development release from
+GitHub:
+
+```r
+install.packages("pak")
+pak::pak("opengeos/geolibre-r")
+```
+
+[Read the R package guide](r.md){ .md-button .md-button--primary }
+[Try the interactive example](https://r.geolibre.app/articles/interactive-map.html){ .md-button }
 
 ### On Android
 

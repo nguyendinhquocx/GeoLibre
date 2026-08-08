@@ -60,9 +60,9 @@ import { prepareFillPattern } from "./fill-patterns";
 import { prepareLineDecoration } from "./line-decorations";
 import {
   KML_ICON_URL_PROPERTY,
+  markerImageValue,
   markerIconSizeValue,
   prepareKmlFeatureIcons,
-  prepareMarker,
 } from "./markers";
 import { isPlaceholderLayer } from "./placeholders";
 import {
@@ -1636,9 +1636,9 @@ function syncVectorControlPointSymbology(
 
   const circleSpec = getStyleLayerSpec(map, circleNativeId);
   ensureGeneratedImageHandler(map);
-  const markerImageId = prepareMarker(layer.style);
+  const markerImage = markerImageValue(layer.style);
 
-  if (markerImageId && circleSpec) {
+  if (markerImage && circleSpec) {
     // Reuse the control's own base filter (the tracked base when Time-Slider /
     // rule extras are active, so they never nest) combined with the current
     // extras, mirroring applyExternalNativeFeatureFilters.
@@ -1662,7 +1662,7 @@ function syncVectorControlPointSymbology(
         // on the update path (ensureLayer only diffs keys that exist).
         filter: filter ?? undefined,
         layout: {
-          "icon-image": markerImageId,
+          "icon-image": markerImage as PropertyValueSpecification<string>,
           "icon-size": markerIconSizeValue(layer.style) as PropertyValueSpecification<number>,
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
@@ -1920,8 +1920,10 @@ function applyVectorDataRenderLayers(
   // a generated image id.
   ensureGeneratedImageHandler(map);
   const fillPatternId = prepareFillPattern(layer.style);
-  const markerImageId = prepareMarker(layer.style);
-  const kmlIconImage = prepareKmlFeatureIcons(layer.geojson!, markerImageId ?? "");
+  // markerImageValue resolves the same base marker internally, so it is null
+  // exactly when no marker applies — no separate prepareMarker call is needed.
+  const markerImage = markerImageValue(layer.style);
+  const kmlIconImage = prepareKmlFeatureIcons(layer.geojson!, markerImage ?? "");
   // Derived companion symbology (inverted mask, geometry generator, dedup
   // labels) is built from the raw features, so no MapLibre filter applies to
   // it. While a Time Slider window or a rule-based visibility filter is
@@ -2213,7 +2215,7 @@ function applyVectorDataRenderLayers(
       layer,
       hasTextMarkers ? nonTextMarkerPointFilter : pointGeometryFilter,
     );
-    if (markerImageId || kmlIconImage) {
+    if (markerImage || kmlIconImage) {
       removeIfExists(map, circleLayerId(layer.id));
       ensureLayer(
         map,
@@ -2225,7 +2227,7 @@ function applyVectorDataRenderLayers(
           ...styleLayerZoomRange(layer.style),
           filter: pointFilter,
           layout: {
-            "icon-image": (kmlIconImage ?? markerImageId) as string,
+            "icon-image": (kmlIconImage ?? markerImage) as PropertyValueSpecification<string>,
             // The sprite is baked at its display size, so icon-size stays 1
             // unless proportional sizing scales it per feature.
             "icon-size": (kmlIconImage
@@ -2239,7 +2241,7 @@ function applyVectorDataRenderLayers(
         },
         beforeId,
       );
-      if (kmlIconImage && !markerImageId) {
+      if (kmlIconImage && !markerImage) {
         // Features without a KML icon still use the ordinary circle renderer.
         ensureLayer(
           map,

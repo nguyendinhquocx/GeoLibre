@@ -27,6 +27,7 @@ import {
   reattachSun,
   reattachRouteAnimation,
   reattachFlightSimulator,
+  restoreArcGISViewportLayers,
   restoreRasterLayers,
   restoreThreeDTilesLayers,
   restoreVectorLayers,
@@ -865,6 +866,10 @@ export function DesktopShell({
   useNetcdfIdentify(mapControllerRef, mapReadyGeneration);
   const [layerPanelWidth, setLayerPanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelWidth, setStylePanelWidth] = useState(initialSidePanelWidth);
+  const [stylePanelOpenRequest, setStylePanelOpenRequest] = useState(0);
+  const openStylePanel = useCallback(() => {
+    setStylePanelOpenRequest((request) => request + 1);
+  }, []);
   const [notebookPanelWidth, setNotebookPanelWidth] = useState(DEFAULT_NOTEBOOK_PANEL_WIDTH);
   // Opening the notebook (Processing → Jupyter Notebook) splits the workspace
   // 50/50 between the map and the notebook: we size the notebook to half of the
@@ -1150,6 +1155,9 @@ export function DesktopShell({
     restoreRasterLayers(appAPI);
     restorePlanetaryComputerLayers(appAPI);
     restoreVectorLayers(appAPI);
+    // Re-bind saved ArcGIS feature layers to the viewport. Without this a
+    // reopened project's layer stays frozen on the extent it was saved with.
+    restoreArcGISViewportLayers(appAPI);
     // Re-stream saved LiDAR (COPC) point clouds. A `lidar-url` layer restores
     // into the store as inert metadata; the point cloud is loaded by the LiDAR
     // control, not the store, so without this the layer shows in the panel but
@@ -2223,7 +2231,9 @@ export function DesktopShell({
                   // On a phone-width viewport both start collapsed (panels overlay
                   // there), matching the mobile "panels default collapsed" behavior.
                   initialBuiltinExpanded={
-                    replaceLayersPanelId === BROWSER_PANEL_ID && !getIsMobileViewport()
+                    replaceLayersPanelId === BROWSER_PANEL_ID &&
+                    !getIsMobileViewport() &&
+                    !layoutOptions.panelsCollapsed
                   }
                   // The story-map presentation is the only standalone Layers
                   // autoCollapse trigger (the notebook collapses Style, not Layers).
@@ -2238,6 +2248,9 @@ export function DesktopShell({
                       onMaterializeDuckDBLayer={handleMaterializeDuckDBLayer}
                       onOpenRasterStylePanel={() =>
                         openRasterLayerPanel(createAppAPI(mapControllerRef))
+                      }
+                      onOpenStylePanel={
+                        layoutOptions.stylePanelVisible ? openStylePanel : undefined
                       }
                       onOpenRasterSubset={setRasterSubsetLayer}
                       collapsed={collapsed}
@@ -2262,8 +2275,13 @@ export function DesktopShell({
                     onOpenRasterStylePanel={() =>
                       openRasterLayerPanel(createAppAPI(mapControllerRef))
                     }
+                    onOpenStylePanel={layoutOptions.stylePanelVisible ? openStylePanel : undefined}
                     onOpenRasterSubset={setRasterSubsetLayer}
-                    autoCollapse={storymapPresenting || autoCollapsedPanel === "layers"}
+                    autoCollapse={
+                      storymapPresenting ||
+                      layoutOptions.panelsCollapsed ||
+                      autoCollapsedPanel === "layers"
+                    }
                   />
                 )}
               </SectionErrorBoundary>
@@ -2483,6 +2501,7 @@ export function DesktopShell({
                     <StylePanel
                       mapControllerRef={mapControllerRef}
                       onResizeStart={startStylePanelResize}
+                      openRequest={stylePanelOpenRequest}
                       collapsed={collapsed}
                       onCollapsedChange={onCollapsedChange}
                       // Controlled mode ignores autoCollapse for collapsing (the
@@ -2503,8 +2522,12 @@ export function DesktopShell({
                 <StylePanel
                   mapControllerRef={mapControllerRef}
                   onResizeStart={startStylePanelResize}
+                  openRequest={stylePanelOpenRequest}
                   autoCollapse={
-                    notebookOpen || storymapPresenting || autoCollapsedPanel === "style"
+                    notebookOpen ||
+                    storymapPresenting ||
+                    layoutOptions.panelsCollapsed ||
+                    autoCollapsedPanel === "style"
                   }
                 />
               </SectionErrorBoundary>

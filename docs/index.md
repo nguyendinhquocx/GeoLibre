@@ -86,6 +86,12 @@ Embed the full GeoLibre app in a Jupyter notebook with the [`geolibre`](python.m
 </div>
 
 <div class="feature-card" markdown>
+### R, Quarto, and Shiny
+
+Build interactive maps in RStudio, Quarto, R Markdown, and Shiny with the [`geolibre`](r.md) R package. Add GeoJSON, `sf` objects, and remote rasters, control the camera, and exchange portable `.geolibre.json` projects with the web and desktop applications.
+</div>
+
+<div class="feature-card" markdown>
 ### AI Assistant
 
 Chat with your data: a natural-language [assistant](user-guide/ai-assistant.md) that turns plain-English requests into GeoLibre operations — Spatial SQL, symbology, add or remove data, and map control — applied through the app so they stay auditable and undoable. Provider-pluggable (Google Gemini, Anthropic, OpenAI) with your own API key, disabled until configured.
@@ -145,6 +151,9 @@ https://web.geolibre.app/?url=https://share.geolibre.app/giswqs/3d-tiles.geolibr
 ```
 
 Use `toolbar=icons` when you only want icon-only toolbar buttons. `panels=hidden`, `panels=hide`, `panels=off`, and `hidePanels=true` are accepted aliases for hiding panels.
+
+Use `panels=collapsed` to keep the Layers and Style icon rails visible while
+starting both panels collapsed.
 
 For a fully chrome-free, map-only embed, add `&maponly` to hide the toolbar menu, all panels, and the status bar:
 

@@ -115,9 +115,19 @@ def save_project(path: str | Path, project: dict[str, Any]) -> Path:
     can approach ``MAX_PROJECT_BYTES``, and the MCP server rewrites the whole
     file on every edit, so a truncating write is a real way to lose work.
 
+    Note:
+        This writes *verbatim*, credentials included. It is the lossless
+        primitive the MCP server round-trips a user's own project file through,
+        where stripping an API key on every small edit would quietly destroy the
+        file's usefulness. :meth:`geolibre.Map.save_project` is the counterpart
+        for producing a file to share: it redacts unless
+        ``keep_credentials=True``. Run a project through
+        :func:`geolibre.project.redact_credentials` before calling this if the
+        result is going anywhere untrusted.
+
     Args:
         path: Destination path.
-        project: The project dict to serialize.
+        project: The project dict to serialize, written as given.
 
     Returns:
         The resolved path written to.
@@ -220,7 +230,10 @@ def layer_summary(layer: dict[str, Any]) -> dict[str, Any]:
     """Summarize one layer for display, omitting any inlined data.
 
     A GeoJSON layer's ``geojson`` blob can be tens of megabytes, so it is
-    reported as a feature count rather than echoed back.
+    reported as a feature count rather than echoed back. The source URL is
+    reported with its credentials stripped: a summary exists to be shown, and
+    both callers show it somewhere untrusted (a notebook cell that gets
+    committed, an MCP tool result that goes to a model client).
 
     Args:
         layer: A layer dict.
@@ -239,7 +252,7 @@ def layer_summary(layer: dict[str, Any]) -> dict[str, Any]:
     if isinstance(source, dict):
         url = source.get("url") or (source.get("tiles") or [None])[0]
         if url:
-            summary["source"] = url
+            summary["source"] = _project.redact_url(str(url))
     geojson = layer.get("geojson")
     if isinstance(geojson, dict):
         features = geojson.get("features")
@@ -256,6 +269,9 @@ def layer_summary(layer: dict[str, Any]) -> dict[str, Any]:
 
 def describe_project(project: dict[str, Any]) -> dict[str, Any]:
     """Summarize a project: its camera, basemap, layers, and map controls.
+
+    URLs come back with their credentials stripped, as in :func:`layer_summary`;
+    several basemap providers put an API key in the style URL itself.
 
     Args:
         project: The project dict.
@@ -279,11 +295,14 @@ def describe_project(project: dict[str, Any]) -> dict[str, Any]:
             components = settings.get(_project.COMPONENTS_PLUGIN_ID)
             if isinstance(components, dict):
                 controls.extend(key for key in ("legend", "colorbar") if key in components)
+    basemap_url = project.get("basemapStyleUrl")
     return {
         "name": project.get("name"),
         "version": project.get("version"),
         "mapView": project.get("mapView"),
-        "basemapStyleUrl": project.get("basemapStyleUrl"),
+        "basemapStyleUrl": (
+            _project.redact_url(str(basemap_url)) if basemap_url is not None else basemap_url
+        ),
         "layerCount": len(layers_of(project)),
         "layers": [layer_summary(layer) for layer in layers_of(project) if isinstance(layer, dict)],
         "mapControls": controls,
