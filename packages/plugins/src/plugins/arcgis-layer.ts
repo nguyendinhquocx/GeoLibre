@@ -43,6 +43,7 @@ export function parseArcGISLayerType(
  */
 export const ARCGIS_MAP_SERVICE_SOURCE_KIND = "arcgis-map-service";
 export const ARCGIS_IMAGE_SERVICE_SOURCE_KIND = "arcgis-image-service";
+export const ARCGIS_MAP_SERVICE_URL_ERROR = "Enter an ArcGIS MapServer URL.";
 
 /** Tile size requested from `/export` and `/exportImage`, in pixels. */
 const ARCGIS_EXPORT_TILE_SIZE = 256;
@@ -184,10 +185,21 @@ interface ArcGISServiceInfo {
  */
 interface ArcGISImageProducingServiceInfo extends ArcGISServiceInfo {
   copyrightText?: string;
+  layers?: Array<{
+    defaultVisibility?: boolean;
+    id?: number;
+    subLayerIds?: number[] | null;
+  }>;
   mapName?: string;
   name?: string;
   singleFusedMapCache?: boolean;
   tileInfo?: ArcGISTileInfo;
+}
+
+/** One selectable layer advertised by an ArcGIS MapServer. */
+export interface ArcGISMapServiceSublayer {
+  id: number;
+  name: string;
 }
 
 interface ArcGISTileInfo {
@@ -303,6 +315,37 @@ export async function addArcGISLayer(
   store.addLayer(layer, options.beforeLayerId);
   if (bounds && options.zoomTo !== false) app.fitBounds?.(bounds);
   return id;
+}
+
+/**
+ * Retrieve the named layer catalog exposed by an ArcGIS MapServer.
+ *
+ * Group layers are included because ArcGIS accepts their ids in the dynamic
+ * export `layers=show:` parameter and selecting one is a convenient way to
+ * draw all of its descendants.
+ */
+export async function fetchArcGISMapServiceSublayers(params: {
+  url: string;
+  token?: string;
+  signal?: AbortSignal;
+}): Promise<ArcGISMapServiceSublayer[]> {
+  const { serviceUrl } = resolveArcGISImageServiceUrl(params.url, "map-service");
+  const json = await fetchArcGISJson<{ layers?: unknown[] }>(
+    serviceUrl,
+    { layerType: "map-service", sourceType: "url", token: params.token },
+    undefined,
+    params.signal,
+  );
+  return Array.isArray(json.layers)
+    ? json.layers.filter(
+        (layer): layer is ArcGISMapServiceSublayer =>
+          typeof layer === "object" &&
+          layer !== null &&
+          Number.isSafeInteger((layer as Partial<ArcGISMapServiceSublayer>).id) &&
+          ((layer as Partial<ArcGISMapServiceSublayer>).id ?? -1) >= 0 &&
+          typeof (layer as Partial<ArcGISMapServiceSublayer>).name === "string",
+      )
+    : [];
 }
 
 function ensureArcGISStoreCleanup(): void {
@@ -912,7 +955,11 @@ async function addArcGISImageServiceLayer(
         token,
       });
 
-  const bounds = arcgisExtentToBounds(info.fullExtent ?? info.initialExtent ?? info.extent);
+  const bounds =
+    arcgisExtentToBounds(info.fullExtent ?? info.initialExtent ?? info.extent) ??
+    (options.layerType === "map-service"
+      ? await resolveArcGISMapServiceBounds(serviceUrl, info, options, sublayers)
+      : undefined);
   const attribution = info.copyrightText?.trim() || undefined;
   const id = createArcGISLayerId();
   const layer: GeoLibreLayer = {
@@ -959,6 +1006,68 @@ async function addArcGISImageServiceLayer(
 }
 
 /**
+ * Ask selected MapServer layers to project their data extents to WGS84.
+ *
+ * ArcGIS services frequently publish in a local projected CRS whose WKID is
+ * not built into the browser. The server already owns the datum transform, so
+ * `/query?returnExtentOnly=true&outSR=4326` is both more reliable and much
+ * cheaper than downloading features merely to derive a camera target.
+ */
+async function resolveArcGISMapServiceBounds(
+  serviceUrl: string,
+  info: ArcGISImageProducingServiceInfo,
+  options: ArcGISLayerOptions,
+  sublayers: string | undefined,
+): Promise<[number, number, number, number] | undefined> {
+  const requestedIds = sublayers?.split(",").map(Number);
+  const ids =
+    requestedIds ??
+    (info.layers ?? [])
+      .filter(
+        (layer) =>
+          layer.defaultVisibility !== false &&
+          (!Array.isArray(layer.subLayerIds) || layer.subLayerIds.length === 0),
+      )
+      .map((layer) => layer.id)
+      .filter((id): id is number => Number.isSafeInteger(id) && (id ?? -1) >= 0);
+  if (ids.length === 0) return undefined;
+
+  const extents: Array<[number, number, number, number]> = [];
+  // Keep request pressure modest for public ArcGIS servers with many layers.
+  for (let index = 0; index < ids.length; index += 6) {
+    const batch = await Promise.allSettled(
+      ids.slice(index, index + 6).map(async (id) => {
+        const queryUrl = appendArcGISParams(`${serviceUrl}/${id}/query`, {
+          f: "json",
+          outSR: "4326",
+          returnExtentOnly: "true",
+          where: "1=1",
+        });
+        const result = await fetchArcGISJson<{ extent?: ArcGISExtent }>(
+          queryUrl,
+          options,
+          undefined,
+        );
+        return arcgisExtentToBounds(result.extent);
+      }),
+    );
+    for (const result of batch) {
+      if (result.status === "fulfilled" && result.value) extents.push(result.value);
+    }
+  }
+  if (extents.length === 0) return undefined;
+  return extents.reduce<[number, number, number, number]>(
+    (union, bounds) => [
+      Math.min(union[0], bounds[0]),
+      Math.min(union[1], bounds[1]),
+      Math.max(union[2], bounds[2]),
+      Math.max(union[3], bounds[3]),
+    ],
+    [...extents[0]],
+  );
+}
+
+/**
  * Validate a MapServer/ImageServer URL and split off a trailing sublayer id.
  *
  * `/export` and `/exportImage` live on the service root, so a URL that points at
@@ -986,7 +1095,7 @@ function resolveArcGISImageServiceUrl(
 
   const match = /^(.*\/MapServer)(?:\/(\d+))?$/i.exec(url);
   if (!match) {
-    throw new Error("Enter an ArcGIS MapServer URL.");
+    throw new Error(ARCGIS_MAP_SERVICE_URL_ERROR);
   }
   return { serviceUrl: match[1], ...(match[2] ? { sublayers: match[2] } : {}) };
 }
@@ -1751,12 +1860,14 @@ async function fetchArcGISJson<T>(
   url: string,
   options: ArcGISLayerOptions,
   cause: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(
     appendArcGISParams(url, {
       f: "json",
       token: options.token?.trim(),
     }),
+    { signal },
   );
   if (!response.ok) {
     throw new Error(`ArcGIS service request failed with ${response.status}.`, {

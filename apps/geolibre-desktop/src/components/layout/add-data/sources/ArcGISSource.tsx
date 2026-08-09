@@ -1,11 +1,15 @@
 import {
   addArcGISLayer,
+  ARCGIS_MAP_SERVICE_URL_ERROR,
+  fetchArcGISMapServiceSublayers,
   parseArcGISLayerType,
   type ArcGISLayerType,
+  type ArcGISMapServiceSublayer,
   type ArcGISSourceType,
 } from "@geolibre/plugins";
-import { Input, Label, Select } from "@geolibre/ui";
-import { useState } from "react";
+import { Button, Input, Label, Select } from "@geolibre/ui";
+import { ListTree, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createAppAPI } from "../../../../hooks/usePlugins";
 import { DEFAULT_ARCGIS_URLS } from "../constants";
@@ -47,8 +51,66 @@ export function ArcGISSource() {
   const [arcgisPageSize, setArcgisPageSize] = useState("");
   const [arcgisMaxFeatures, setArcgisMaxFeatures] = useState("");
   const [arcgisSublayers, setArcgisSublayers] = useState("");
+  const [sublayerOptions, setSublayerOptions] = useState<ArcGISMapServiceSublayer[]>([]);
+  const [isRetrievingSublayers, setIsRetrievingSublayers] = useState(false);
+  const [sublayerError, setSublayerError] = useState<string | null>(null);
+  const retrieveAbortRef = useRef<AbortController | null>(null);
+  const retrievedSublayerUrlRef = useRef<string | null>(null);
   const [arcgisRenderingRule, setArcgisRenderingRule] = useState("");
   const [progress, setProgress] = useState<{ loaded: number; total: number | null } | null>(null);
+
+  useEffect(() => () => retrieveAbortRef.current?.abort(), []);
+
+  const resetSublayerCatalog = (clearSelection = false) => {
+    retrieveAbortRef.current?.abort();
+    retrieveAbortRef.current = null;
+    retrievedSublayerUrlRef.current = null;
+    setSublayerOptions([]);
+    setSublayerError(null);
+    setIsRetrievingSublayers(false);
+    if (clearSelection) setArcgisSublayers("");
+  };
+
+  const handleRetrieveSublayers = async () => {
+    resetSublayerCatalog();
+    const controller = new AbortController();
+    retrieveAbortRef.current = controller;
+    setIsRetrievingSublayers(true);
+    setSublayerError(null);
+    try {
+      const layers = await fetchArcGISMapServiceSublayers({
+        url: arcgisUrl,
+        token: arcgisAccessToken || undefined,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setSublayerOptions(layers);
+      retrievedSublayerUrlRef.current = arcgisUrl.trim();
+      if (layers.length === 0) setSublayerError(t("addData.arcgis.noSublayersFound"));
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setSublayerOptions([]);
+      setSublayerError(
+        error instanceof Error && error.message === ARCGIS_MAP_SERVICE_URL_ERROR
+          ? t("addData.arcgis.errorMapServiceUrl")
+          : error instanceof Error
+            ? error.message
+            : t("addData.arcgis.retrieveError"),
+      );
+    } finally {
+      if (!controller.signal.aborted) setIsRetrievingSublayers(false);
+    }
+  };
+
+  const selectedSublayerIds = new Set(
+    arcgisSublayers.split(/[\s,]+/).filter((id) => /^\d+$/.test(id)),
+  );
+  const toggleSublayer = (id: number, selected: boolean) => {
+    const next = new Set(selectedSublayerIds);
+    if (selected) next.add(String(id));
+    else next.delete(String(id));
+    setArcgisSublayers([...next].sort((a, b) => Number(a) - Number(b)).join(","));
+  };
 
   // The access token is intentionally excluded from saved fields — credentials
   // must not be persisted to the shared, exportable service library.
@@ -65,6 +127,7 @@ export function ArcGISSource() {
   });
 
   const applyFields = (fields: ServiceFields) => {
+    resetSublayerCatalog(true);
     setArcgisLayerType(parseArcGISLayerType(serviceFieldString(fields, "layerType")));
     setArcgisSourceType(
       serviceFieldString(fields, "sourceType") === "portal-item" ? "portal-item" : "url",
@@ -82,6 +145,7 @@ export function ArcGISSource() {
   };
 
   const handleArcgisLayerTypeChange = (nextLayerType: ArcGISLayerType) => {
+    resetSublayerCatalog();
     const currentUrl = arcgisUrl.trim();
     setArcgisLayerType(nextLayerType);
     // Keep a loaded sample URL in sync with the layer type, but leave an
@@ -159,7 +223,10 @@ export function ArcGISSource() {
             <Select
               id="arcgis-source-type"
               value={arcgisSourceType}
-              onChange={(event) => setArcgisSourceType(event.target.value as ArcGISSourceType)}
+              onChange={(event) => {
+                resetSublayerCatalog();
+                setArcgisSourceType(event.target.value as ArcGISSourceType);
+              }}
             >
               <option value="url">{t("addData.common.serviceUrl")}</option>
               <option value="portal-item">{t("addData.arcgis.portalItemId")}</option>
@@ -173,7 +240,14 @@ export function ArcGISSource() {
               id="arcgis-url"
               placeholder={t(URL_PLACEHOLDER_KEYS[arcgisLayerType])}
               value={arcgisUrl}
-              onChange={(event) => setArcgisUrl(event.target.value)}
+              onChange={(event) => {
+                const nextUrl = event.target.value;
+                const clearSelection =
+                  retrievedSublayerUrlRef.current !== null &&
+                  nextUrl.trim() !== retrievedSublayerUrlRef.current;
+                resetSublayerCatalog(clearSelection);
+                setArcgisUrl(nextUrl);
+              }}
             />
           </div>
         ) : (
@@ -203,7 +277,10 @@ export function ArcGISSource() {
             autoComplete="off"
             placeholder={t("addData.common.optional")}
             value={arcgisAccessToken}
-            onChange={(event) => setArcgisAccessToken(event.target.value)}
+            onChange={(event) => {
+              resetSublayerCatalog();
+              setArcgisAccessToken(event.target.value);
+            }}
           />
         </div>
         {arcgisLayerType === "feature" ? (
@@ -242,12 +319,52 @@ export function ArcGISSource() {
         {arcgisLayerType === "map-service" ? (
           <div className="space-y-1.5">
             <Label htmlFor="arcgis-sublayers">{t("addData.arcgis.sublayers")}</Label>
-            <Input
-              id="arcgis-sublayers"
-              placeholder={t("addData.arcgis.sublayersPlaceholder")}
-              value={arcgisSublayers}
-              onChange={(event) => setArcgisSublayers(event.target.value)}
-            />
+            <div className="flex gap-2">
+              <Input
+                id="arcgis-sublayers"
+                placeholder={t("addData.arcgis.sublayersPlaceholder")}
+                value={arcgisSublayers}
+                onChange={(event) => setArcgisSublayers(event.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={isRetrievingSublayers || arcgisSourceType !== "url" || !arcgisUrl.trim()}
+                onClick={handleRetrieveSublayers}
+              >
+                {isRetrievingSublayers ? (
+                  <Loader2 className="me-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ListTree className="me-2 h-3.5 w-3.5" />
+                )}
+                {isRetrievingSublayers
+                  ? t("addData.arcgis.retrievingSublayers")
+                  : t("addData.arcgis.retrieveSublayers")}
+              </Button>
+            </div>
+            {sublayerError ? <p className="text-xs text-destructive">{sublayerError}</p> : null}
+            {sublayerOptions.length > 0 ? (
+              <fieldset className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                <legend className="sr-only">{t("addData.arcgis.availableSublayers")}</legend>
+                {sublayerOptions.map((layer) => (
+                  <label
+                    key={layer.id}
+                    className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 text-sm hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-primary"
+                      checked={selectedSublayerIds.has(String(layer.id))}
+                      onChange={(event) => toggleSublayer(layer.id, event.target.checked)}
+                    />
+                    <span>
+                      {layer.name} <span className="text-muted-foreground">({layer.id})</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
             <p className="text-xs text-muted-foreground">{t("addData.arcgis.sublayersHint")}</p>
           </div>
         ) : null}

@@ -143,6 +143,35 @@ anywhere untrusted, or use `Map.save_project`, which redacts by default.
 
 ## Notes
 
+- **marimo** can render the anywidget, but its browser may not be able to reach
+  GeoLibre's random localhost port. If the iframe reports
+  `127.0.0.1 refused to connect`, select the hosted app before displaying the
+  map:
+
+  ```python
+  from geolibre import Map
+
+  m = Map(center=(-100, 40), zoom=4)
+  m._app_url = "https://web.geolibre.app/"
+  m.add_basemap("dark")
+  m.add_vector(
+      "https://data.source.coop/giswqs/opengeos/world_cities.geojson",
+      name="World cities",
+  )
+  m
+  ```
+
+  Set `_app_url` before returning `m` from the cell. With the hosted app, use
+  hosted URLs for rasters and other browser-loaded sources; it cannot access
+  files served from the kernel's temporary localhost server. Local GeoJSON,
+  CSV, and vector files that are read in Python and inlined still work. The
+  example uses `add_vector()` so the browser, rather than Python, fetches the
+  remote GeoJSON URL.
+
+  **Privacy:** The widget sends its synchronized project, including any inlined
+  local data, to the origin in `_app_url` through `window.postMessage`. Use only
+  a trusted app URL, or host the GeoLibre app yourself, when working with
+  sensitive data.
 - The bundled app is served from a localhost HTTP server, so the interactive
   widget works in local Jupyter and VS Code directly. **Google Colab** routes
   through its built-in port proxy automatically. On **JupyterHub** (including

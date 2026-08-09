@@ -2,7 +2,7 @@
 import { useAppStore, type GeoLibreLayer } from "@geolibre/core";
 import type { FeatureCollection } from "geojson";
 import type { MapController, MapDiagnosticEvent } from "@geolibre/map";
-import { MapCanvas, setExternalDeckLayerOrderHandler } from "@geolibre/map";
+import { getLayerBounds, MapCanvas, setExternalDeckLayerOrderHandler } from "@geolibre/map";
 import { useTranslation } from "react-i18next";
 import {
   addRasterToMap,
@@ -107,6 +107,7 @@ import {
   useSwipeSplitViewExclusivity,
   useTimeSliderAutoClose,
 } from "../../hooks/usePlugins";
+import type { DataUrlLoadState } from "../../hooks/useDataUrlLoader";
 import { registerKmlSuperOverlayProtocol } from "../../lib/kml-super-overlay";
 import { registerMbtilesProtocol } from "../../lib/mbtiles";
 import { hasReverseGeocodeConsent } from "../../lib/reverse-geocode-consent";
@@ -483,8 +484,10 @@ const PythonConsolePanel = lazy(() =>
 interface DesktopShellProps {
   layoutOptions: LayoutOptions;
   projectUrlLoadState?: ProjectUrlLoadState;
+  dataUrlLoadState?: DataUrlLoadState;
   themeMode: ThemeMode;
   onToggleThemeMode: () => void;
+  onMapReady?: (app: ReturnType<typeof createAppAPI>) => void;
 }
 
 function hasDroppedFiles(event: DragEvent<HTMLElement>): boolean {
@@ -536,8 +539,10 @@ type ShellStyle = CSSProperties &
 export function DesktopShell({
   layoutOptions,
   projectUrlLoadState,
+  dataUrlLoadState,
   themeMode,
   onToggleThemeMode,
+  onMapReady,
 }: DesktopShellProps) {
   const { t } = useTranslation();
   const shellRef = useRef<HTMLDivElement>(null);
@@ -600,6 +605,30 @@ export function DesktopShell({
   const activeResizeCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => activeResizeCleanupRef.current?.(), []);
   const mapControllerRef = useRef<MapController | null>(null);
+
+  // Frame the GeoJSON layers a `?data=` deep link added. Only those are listed:
+  // the raster, PMTiles, and GeoParquet loaders move the camera themselves. The
+  // extent comes from the store's own GeoJSON, which is already in memory by the
+  // time the hook publishes the ids, so this needs no wait for layer sync.
+  useEffect(() => {
+    const fitLayerIds = dataUrlLoadState?.fitLayerIds;
+    if (dataUrlLoadState?.status !== "loaded" || !fitLayerIds?.length) return;
+    const controller = mapControllerRef.current;
+    if (!controller) return;
+    const bounds = useAppStore
+      .getState()
+      .layers.filter((layer) => fitLayerIds.includes(layer.id))
+      .map(getLayerBounds)
+      .filter((value) => value !== null);
+    if (!bounds.length) return;
+    controller.fitBounds([
+      Math.min(...bounds.map((value) => value[0])),
+      Math.min(...bounds.map((value) => value[1])),
+      Math.max(...bounds.map((value) => value[2])),
+      Math.max(...bounds.map((value) => value[3])),
+    ]);
+  }, [dataUrlLoadState?.fitLayerIds, dataUrlLoadState?.status]);
+
   const projectHistory = useProjectHistory(mapControllerRef);
   const [projectHistoryOpen, setProjectHistoryOpen] = useState(false);
   // The place shown in the Wikipedia knowledge card, or null when it is closed.
@@ -1236,7 +1265,8 @@ export function DesktopShell({
 
   const handleMapControllerReady = useCallback(() => {
     setMapReadyGeneration((generation) => generation + 1);
-  }, []);
+    onMapReady?.(createAppAPI(mapControllerRef));
+  }, [onMapReady]);
 
   // Keep the on-map compass (reset pitch/bearing) control's tooltip translated.
   // Re-runs when the controller (re)initialises (mapReadyGeneration) and on
@@ -2723,6 +2753,18 @@ export function DesktopShell({
           className="pointer-events-none absolute left-1/2 top-14 z-50 max-w-[min(90vw,32rem)] -translate-x-1/2 rounded-md border bg-background px-3 py-2 text-center text-sm text-destructive shadow-lg"
         >
           {projectUrlLoadState.error}
+        </div>
+      ) : null}
+      {dataUrlLoadState?.error ? (
+        // A link can carry both `url=` and `data=`, and both loaders can fail.
+        // Drop below the project banner so neither message is covered.
+        <div
+          aria-live="assertive"
+          className={`pointer-events-none absolute left-1/2 z-50 max-w-[min(90vw,32rem)] -translate-x-1/2 rounded-md border bg-background px-3 py-2 text-center text-sm text-destructive shadow-lg ${
+            projectUrlLoadState?.error ? "top-28" : "top-14"
+          }`}
+        >
+          {dataUrlLoadState.error}
         </div>
       ) : null}
       {crsWarning ? (
