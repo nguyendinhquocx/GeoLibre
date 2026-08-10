@@ -1185,6 +1185,23 @@ export interface MapPreferences {
    * `"imperial"` for feet/miles or `"nautical"` for nautical miles.
    */
   scaleUnit: MapScaleUnit;
+  /**
+   * Whether the status bar resolves and shows the ground elevation under the
+   * pointer (issue #1813). **Defaults to `false`**: with 3D terrain off the
+   * lookup falls back to the public Open-Meteo service, so hovering would send
+   * coordinates off the device for a readout the user never asked for. Toggled
+   * from Controls -> Elevation.
+   */
+  showPointerElevation: boolean;
+  /**
+   * Notation the status bar reports the pointer coordinate in: `"dd"` decimal
+   * degrees (default), `"dms"` degrees/minutes/seconds, `"ddm"` degrees and
+   * decimal minutes, or `"utm"` zone easting/northing. Stored as a string
+   * rather than a union so `@geolibre/core` does not have to depend on the
+   * formatter, which lives with the app's DMS helpers and the Gridlines
+   * plugin's UTM projection; the app normalises unknown values to `"dd"`.
+   */
+  coordinateFormat: string;
 }
 
 export interface RuntimeEnvironmentVariable {
@@ -1249,6 +1266,10 @@ export const DEFAULT_PROJECT_PREFERENCES: ProjectPreferences = {
     projection: "globe",
     ellipsoidId: "earth",
     scaleUnit: "metric",
+    // Off by default: turning it on can send pointer coordinates to a public
+    // elevation service, which should be an explicit choice.
+    showPointerElevation: false,
+    coordinateFormat: "dd",
   },
   environmentVariables: [],
   geocoding: {

@@ -320,3 +320,17 @@ export {
   type ExtractWmsSubsetOptions,
   type ExtractXyzTileSubsetOptions,
 } from "./raster-subset";
+
+export {
+  assembleTerrainDem,
+  computeViewshed,
+  computeViewshedAsync,
+  decodeTerrariumElevation,
+  viewshedToRgba,
+  MAX_VIEWSHED_RADIUS_METERS,
+  MIN_VIEWSHED_RADIUS_METERS,
+  type AssembleTerrainDemOptions,
+  type TerrainDem,
+  type ViewshedObserver,
+  type ViewshedResult,
+} from "./terrain-viewshed";

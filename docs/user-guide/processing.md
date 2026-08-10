@@ -11,6 +11,9 @@ The **Processing** menu collects GeoLibre's analysis and conversion tools: vecto
 
 **Processing → Vector** opens the Vector tools dialog. Pick a tool from the list, choose the input layer and parameters, select an engine, then **Run**. Output appears as a new layer.
 
+!!! tip "Skipping the dialog"
+    Several of these are also one click away from the **Quick analysis** submenu. Right-clicking the map runs a buffer or a drive- or walk-time isochrone on the clicked point; the submenu on a layer row runs a buffer, centroids, convex hull, or bounding box over the whole layer. See [Right-click quick actions](map-controls.md#right-click-quick-actions).
+
 **Geometry**
 
 | Tool | Description |

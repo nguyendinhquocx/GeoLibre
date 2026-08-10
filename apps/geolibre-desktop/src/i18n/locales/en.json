@@ -184,7 +184,22 @@
     "elevationRange": "Min / max elevation",
     "meanSlope": "Mean slope",
     "computing": "Computing terrain…",
-    "partialData": "Some samples had no terrain data"
+    "partialData": "Some samples had no terrain data",
+    "heading": "Heading",
+    "finalHeading": "Final heading"
+  },
+  "statusBar": {
+    "elevation": "Elev",
+    "elevationLong": "Elevation",
+    "cameraAltitude": "Eye alt",
+    "cameraAltitudeLong": "Camera altitude above sea level",
+    "coordinateFormat": {
+      "dd": "Decimal degrees",
+      "dms": "Degrees, minutes, seconds",
+      "ddm": "Degrees, decimal minutes",
+      "utm": "UTM (zone, easting/northing)"
+    },
+    "coordinateFormatHint": "Coordinate format: {{format}}. Click to switch."
   },
   "fileNamePrompt": {
     "title": "Save file as",
@@ -1211,7 +1226,29 @@
     "sharing": "Sharing…",
     "errorFallback": "Could not share the project.",
     "usernameRequired": "Set a username on your {{shareHost}} account before sharing. Open your account settings to choose one, then try again.",
-    "openAccountSettings": "Open account settings"
+    "openAccountSettings": "Open account settings",
+    "readinessChecking": "Checking whether recipients can load your data…",
+    "readinessUnavailable": "The data source check could not run.",
+    "readinessAllReachable_one": "{{count}} data source looks reachable for recipients.",
+    "readinessAllReachable_other": "All {{count}} data sources look reachable for recipients.",
+    "readinessTitle": "Some data may not load for recipients",
+    "readinessNote": "This does not block sharing. Recipients open the project in a browser, where these sources can behave differently than they do for you.",
+    "readinessTruncated_one": "Only {{count}} source was checked.",
+    "readinessTruncated_other": "Only the first {{count}} sources were checked.",
+    "readinessBasemapLabel": "Basemap",
+    "readinessPluginLabel": "Plugin",
+    "readinessReasonCredentialStripped": "Uses a credential that is removed when sharing.",
+    "readinessReasonAuthRequired": "The service refused a request without credentials.",
+    "readinessReasonCors": "A browser cannot fetch this host: it sends no cross-origin headers, or it is unreachable.",
+    "readinessReasonNotFound": "The service answered not found, so the link may have expired or moved.",
+    "readinessReasonLocalFile": "Points at a file on your machine.",
+    "readinessReasonPrivateHost": "Points at a private or local network address.",
+    "readinessReasonNoSource": "Has no source a recipient could open.",
+    "readinessReasonUnchecked": "Could not be checked.",
+    "readinessAdviceCredential": "Make the service public, or tell recipients to supply their own credential.",
+    "readinessAdviceCors": "It still loads in the desktop app, but not in the browser viewer.",
+    "readinessAdviceNotFound": "Update or replace this layer's source before sharing.",
+    "readinessAdviceLocal": "Convert it to a hosted source, or expect recipients to see an empty layer."
   },
   "gallery": {
     "title": "Project gallery",
@@ -1692,8 +1729,13 @@
     "unit": {
       "meters": "m",
       "kilometers": "km",
-      "miles": "mi"
-    }
+      "miles": "mi",
+      "feet": "ft"
+    },
+    "viewshedHere": "Viewshed from here ({{radius}})",
+    "viewshedLayerName": "Viewshed ({{radius}})",
+    "viewshedToolName": "Viewshed",
+    "viewshedNoResult": "No visible area could be computed here."
   },
   "knowledgeCard": {
     "title": "Place info",
@@ -1737,7 +1779,8 @@
       "geocoding": "Geocoding",
       "ai": "AI Providers",
       "environment": "Environment",
-      "updates": "Updates"
+      "updates": "Updates",
+      "startup": "Startup"
     },
     "menu": {
       "mapPreferences": "Map Preferences",
@@ -1765,6 +1808,23 @@
         "major": "Major releases only"
       }
     },
+    "startup": {
+      "title": "Startup project",
+      "description": "Choose the workspace GeoLibre opens when the native app starts.",
+      "mode": {
+        "default": "Open the default workspace",
+        "last": "Reopen the last project",
+        "specific": "Open a specific project"
+      },
+      "modeHint": {
+        "default": "Start with a new, untitled project.",
+        "last": "Open the most recently used local project."
+      },
+      "chooseProject": "Choose Project",
+      "noProjectSelected": "No project selected",
+      "selectError": "The selected project could not be read.",
+      "loadWarning": "The startup project is unavailable. GeoLibre opened the default workspace instead."
+    },
     "map": {
       "constraintsTitle": "Map constraints",
       "restrictBounds": "Restrict map bounds",
@@ -1786,7 +1846,9 @@
       "scaleUnitImperial": "Imperial (ft / mi)",
       "scaleUnitNautical": "Nautical (nmi)",
       "scaleUnitHint": "Choose the units shown on the scale bar at the bottom of the map.",
-      "errorBoundsUnavailable": "The map bounds are not available yet."
+      "errorBoundsUnavailable": "The map bounds are not available yet.",
+      "coordinateFormat": "Coordinate format",
+      "coordinateFormatHint": "Notation the status bar reports the pointer coordinate in. Click the coordinates in the status bar to switch notation."
     },
     "layout": {
       "title": "Layout",
@@ -2488,6 +2550,8 @@
       "atmosphereEnabled": "Enabled",
       "spinGlobe": "Spinning Globe",
       "graticule": "Gridlines",
+      "pointerElevation": "Elevation",
+      "pointerElevationHint": "Show ground elevation under the pointer in the status bar. Without 3D terrain this looks up a public elevation service.",
       "weather": "Weather",
       "weatherTooltip": "Overlay near-realtime weather layers you can animate.",
       "weatherPlay": "Play animation",
@@ -2569,6 +2633,7 @@
       "embedVectorTitle": "Embed local vector data?",
       "embedVectorDesc": "This project has {{count}} local vector layer(s) loaded from your computer. The browser cannot re-read them when the project is reopened, so their data must be embedded in the project file to be restored. Embedding adds about {{size}} to the file.",
       "embedVectorDescDesktop": "This project has {{count}} local vector layer(s) loaded from your computer. Embed their data to make the project self-contained (adds about {{size}}), or save file references that reload from disk when the project is reopened. References keep the file small but break if a source file is later moved or deleted.",
+      "embedVectorLargeWarning": "Embedding about {{size}} makes a very large project file. Reopening it may be slow or fail outright, because every feature has to be parsed and held in memory at once. For data this size, convert the layers to PMTiles or FlatGeobuf and add them as remote layers instead of embedding them.",
       "embedVectorEmbedButton": "Embed data",
       "embedVectorReferenceButton": "Save file references",
       "embedVectorSkipButton": "Save without data",
@@ -2608,7 +2673,9 @@
       "loadingOsmPbfDesc": "Parsing the file and converting features to GeoJSON. This runs in the background and may take a moment for large extracts.",
       "loadingOsmPbfProgress": "Converting features to GeoJSON… {{processed}} of {{total}} OSM entities processed.",
       "projectName": "Project name",
-      "storymapEllipsis": "Story Map..."
+      "storymapEllipsis": "Story Map...",
+      "pointerElevationNoticeTitle": "Elevation uses a public elevation service",
+      "pointerElevationNoticeDesc": "The status bar's elevation readout is resolved from the map's own 3D terrain when that is enabled, which sends nothing anywhere. Without 3D terrain it falls back to the public Open-Meteo elevation API, and the coordinates under your pointer leave your device for those requests."
     },
     "plugin": {
       "maplibre-gl-annotations": "Annotations",
@@ -2682,6 +2749,7 @@
       "couldNotOpenRecentProject": "Could not open the recent project.",
       "couldNotLoadRecentProject": "Could not load the recent project.",
       "couldNotSaveProject": "Could not save the project.",
+      "projectTooLargeToSave": "This project is too large to save. Convert its embedded vector data to PMTiles or FlatGeobuf and add those as remote layers instead of embedding the features.",
       "couldNotExportHtml": "Could not export the project to HTML.",
       "osmPbfNoFeatures": "No point, line, or polygon features were found in this OSM PBF file.",
       "couldNotLoadOsmPbf": "Could not load the OSM PBF file.",
@@ -5139,7 +5207,8 @@
     "noValues": "No values to chart for these pixels.",
     "exportPng": "PNG",
     "exportCsv": "CSV",
-    "exportError": "Could not export the chart."
+    "exportError": "Could not export the chart.",
+    "rasterFallbackName": "Raster"
   },
   "netcdfIdentify": {
     "noData": "no data",
@@ -5399,6 +5468,45 @@
     "postShortcutTooltip": "Post Comment ({{shortcut}})",
     "confirmDelete": "Are you sure you want to delete this comment thread?",
     "sessionDisconnected": "Session disconnected.",
-    "defaultAuthorName": "Author"
+    "defaultAuthorName": "Author",
+    "addComment": "Add Comment",
+    "addCommentTooltip": "Place a new review comment on the map",
+    "yourNamePlaceholder": "Your name…",
+    "saveName": "Save name",
+    "noNameSet": "No name set — comments will show as \"{{name}}\"",
+    "changeNameTooltip": "Change name",
+    "setYourName": "Set your name",
+    "changeName": "Change Name",
+    "postingAs": "Posting as <strong>{{name}}</strong>",
+    "copy": "Copy",
+    "startLiveSession": "Start Live Session",
+    "starting": "Starting…",
+    "sessionCodePlaceholder": "ENTER SESSION CODE",
+    "connect": "Connect",
+    "joining": "Joining…",
+    "liveSync": "Live Sync ({{count}} online)",
+    "offlineWorkspace": "Offline / Private Workspace",
+    "disconnect": "Disconnect",
+    "joinFailed": "Failed to join session.",
+    "startFailed": "Failed to start session.",
+    "filterOpen": "Open ({{count}})",
+    "filterResolved": "Resolved ({{count}})",
+    "filterAll": "All ({{count}})",
+    "emptyOpen": "No open comments",
+    "emptyResolved": "No resolved comments",
+    "emptyHint": "Click \"Add Comment\" above and select any location or feature on the map to drop a review note.",
+    "resolvedBadge": "Resolved",
+    "zoomToLocation": "Zoom to location",
+    "markResolved": "Mark as resolved",
+    "reopenThread": "Reopen comment thread",
+    "deleteThread": "Delete comment thread",
+    "anchorFeature": "Feature #{{id}} ({{layer}})",
+    "anchorPoint": "Point ({{coords}})",
+    "anchorMap": "Map",
+    "anchoredToFeature": "Anchored to Feature #{{id}} ({{layer}})",
+    "anchoredToPoint": "Anchored to ({{coords}})",
+    "mapPoint": "Map Point",
+    "reply": "Reply",
+    "replyPlaceholder": "Write a reply..."
   }
 }

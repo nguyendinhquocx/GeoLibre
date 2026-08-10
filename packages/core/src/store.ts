@@ -262,6 +262,22 @@ export interface AppState {
   selectedFeatureIds: string[];
   identifyLayerId: string | null;
   pointerCoords: [number, number] | null;
+  /**
+   * Ground elevation in true metres under the pointer, for the status bar
+   * (issue #1813). Null when it cannot be resolved — the pointer is off the
+   * map, terrain is off and the remote lookup has not answered (or failed), or
+   * the active body is not Earth. Set alongside `pointerCoords` by MapCanvas,
+   * which owns the map instance the terrain sample comes from.
+   */
+  pointerElevation: number | null;
+  /**
+   * Camera height above sea level in metres — Google Earth Pro's "Eye alt"
+   * (issue #1816). Derived from the camera, so deliberately *not* part of
+   * `mapView`: that shape is persisted into the project file, and a stored
+   * altitude could only drift from the center/zoom/pitch it is computed from.
+   * Null before the map loads, or when MapLibre cannot report it.
+   */
+  cameraAltitude: number | null;
   /** Live GPS fix for the status bar, or null while GPS tracking is off. */
   gpsStatus: GpsStatusFix | null;
   /** Anchored review comments on map points or features (issue #1518). */
@@ -342,6 +358,8 @@ export interface AppState {
   };
 
   setPointerCoords: (coords: [number, number] | null) => void;
+  setPointerElevation: (elevation: number | null) => void;
+  setCameraAltitude: (altitude: number | null) => void;
   setGpsStatus: (fix: GpsStatusFix | null) => void;
   setCollaboration: (patch: Partial<CollaborationState>) => void;
   updateCollaborationPresence: (clientId: string, presence: CollaborationPresence | null) => void;
@@ -980,6 +998,8 @@ export const useAppStore = create<AppState>()(
       selectedFeatureIds: [],
       identifyLayerId: null,
       pointerCoords: null,
+      pointerElevation: null,
+      cameraAltitude: null,
       gpsStatus: null,
       comments: [],
       metadata: {},
@@ -1023,7 +1043,10 @@ export const useAppStore = create<AppState>()(
         collaborateDialogOpen: false,
       },
 
-      setPointerCoords: (coords) => set({ pointerCoords: coords }),
+      setPointerCoords: (coords) =>
+        set(coords ? { pointerCoords: coords } : { pointerCoords: null, pointerElevation: null }),
+      setPointerElevation: (elevation) => set({ pointerElevation: elevation }),
+      setCameraAltitude: (altitude) => set({ cameraAltitude: altitude }),
       setGpsStatus: (fix) => set({ gpsStatus: fix }),
 
       addComment: (comment) =>
@@ -2149,6 +2172,8 @@ export const useAppStore = create<AppState>()(
           // paste in the new one would apply an orphaned entry.
           copiedLayerStyle: null,
           pointerCoords: null,
+          pointerElevation: null,
+          cameraAltitude: null,
           attributeFilter: "",
           // Don't carry an active story presentation into a different project.
           ui: {
@@ -2200,6 +2225,13 @@ export const useAppStore = create<AppState>()(
           // The copied style names a layer from the previous project, so a
           // paste in the loaded one would apply an orphaned entry.
           copiedLayerStyle: null,
+          // Ephemeral readouts describe the previous project's map. The
+          // elevation and altitude especially: a project that switches to a
+          // planetary body would otherwise keep showing Earth-scaled values
+          // until the next hover or camera move.
+          pointerCoords: null,
+          pointerElevation: null,
+          cameraAltitude: null,
           // Present a bundled story on load; otherwise drop any presentation
           // carried over from the previous project.
           ui: {

@@ -184,7 +184,22 @@
     "elevationRange": "کمینه / بیشینهٔ ارتفاع",
     "meanSlope": "شیب میانگین",
     "computing": "در حال محاسبهٔ زمین…",
-    "partialData": "برخی نمونه‌ها دادهٔ زمین نداشتند"
+    "partialData": "برخی نمونه‌ها دادهٔ زمین نداشتند",
+    "heading": "سمت",
+    "finalHeading": "سمت نهایی"
+  },
+  "statusBar": {
+    "elevation": "ارتفاع",
+    "elevationLong": "ارتفاع",
+    "cameraAltitude": "ارتفاع دید",
+    "cameraAltitudeLong": "ارتفاع دوربین از سطح دریا",
+    "coordinateFormat": {
+      "dd": "درجه اعشاری",
+      "dms": "درجه، دقیقه، ثانیه",
+      "ddm": "درجه، دقیقه اعشاری",
+      "utm": "UTM (زون، شرق/شمال)"
+    },
+    "coordinateFormatHint": "قالب مختصات: {{format}}. برای تغییر کلیک کنید."
   },
   "fileNamePrompt": {
     "title": "ذخیرهٔ فایل با نام",
@@ -483,6 +498,12 @@
       "sublayers": "زیرلایه‌ها",
       "sublayersPlaceholder": "همهٔ زیرلایه‌های نمایان",
       "sublayersHint": "شناسه‌های اختیاری زیرلایه‌ها، جداشده با کاما، برای نمونه 0,2,5. انتخاب زیرلایه‌ها سرویس را به‌جای استفاده از کاشی‌های ذخیره‌شده‌اش به‌صورت پویا ترسیم می‌کند.",
+      "retrieveSublayers": "مرور لایه‌ها",
+      "retrievingSublayers": "در حال دریافت...",
+      "availableSublayers": "زیرلایه‌های در دسترس",
+      "noSublayersFound": "این سرویس نقشه هیچ لایه‌ای اعلام نکرد.",
+      "retrieveError": "دریافت لایه‌های سرویس نقشه ممکن نشد.",
+      "errorMapServiceUrl": "یک نشانی ArcGIS MapServer وارد کنید.",
       "renderingRule": "قاعدهٔ رندر",
       "renderingRulePlaceholder": "{\"rasterFunction\":\"Hillshade\"}",
       "renderingRuleHint": "JSON اختیاری یک تابع رستری که سرویس اعمال می‌کند. قاعدهٔ رندر سرویس را به‌جای استفاده از کاشی‌های ذخیره‌شده‌اش به‌صورت پویا ترسیم می‌کند.",
@@ -1205,7 +1226,29 @@
     "sharing": "در حال هم‌رسانی…",
     "errorFallback": "هم‌رسانی پروژه ممکن نشد.",
     "usernameRequired": "پیش از هم‌رسانی، برای حساب {{shareHost}} خود یک نام کاربری تعیین کنید. تنظیمات حساب خود را باز کنید، یکی برگزینید و دوباره تلاش کنید.",
-    "openAccountSettings": "باز کردن تنظیمات حساب"
+    "openAccountSettings": "باز کردن تنظیمات حساب",
+    "readinessChecking": "در حال بررسی اینکه گیرندگان می‌توانند داده‌های شما را بارگیری کنند یا نه…",
+    "readinessUnavailable": "بررسی منابع داده انجام نشد.",
+    "readinessAllReachable_one": "{{count}} منبع داده برای گیرندگان در دسترس به نظر می‌رسد.",
+    "readinessAllReachable_other": "{{count}} منبع داده برای گیرندگان در دسترس به نظر می‌رسند.",
+    "readinessTitle": "ممکن است برخی داده‌ها برای گیرندگان بارگیری نشوند",
+    "readinessNote": "این کار جلوی هم‌رسانی را نمی‌گیرد. گیرندگان پروژه را در یک مرورگر باز می‌کنند، جایی که این منابع می‌توانند رفتاری متفاوت از آنچه نزد شما دارند نشان دهند.",
+    "readinessTruncated_one": "تنها {{count}} منبع بررسی شد.",
+    "readinessTruncated_other": "تنها {{count}} منبع نخست بررسی شدند.",
+    "readinessBasemapLabel": "نقشهٔ پایه",
+    "readinessPluginLabel": "افزونه",
+    "readinessReasonCredentialStripped": "از اعتبارنامه‌ای استفاده می‌کند که هنگام هم‌رسانی حذف می‌شود.",
+    "readinessReasonAuthRequired": "سرویس، درخواست بدون اعتبارنامه را رد کرد.",
+    "readinessReasonCors": "مرورگر نمی‌تواند از این میزبان داده بگیرد: هیچ سرآیند میان‌مبدأ نمی‌فرستد، یا در دسترس نیست.",
+    "readinessReasonNotFound": "سرویس پاسخ «یافت نشد» داد، پس ممکن است پیوند منقضی یا جابه‌جا شده باشد.",
+    "readinessReasonLocalFile": "به فایلی روی دستگاه شما اشاره می‌کند.",
+    "readinessReasonPrivateHost": "به یک نشانی شبکهٔ خصوصی یا محلی اشاره می‌کند.",
+    "readinessReasonNoSource": "منبعی ندارد که گیرنده بتواند باز کند.",
+    "readinessReasonUnchecked": "امکان بررسی آن نبود.",
+    "readinessAdviceCredential": "سرویس را عمومی کنید، یا به گیرندگان بگویید اعتبارنامهٔ خودشان را بدهند.",
+    "readinessAdviceCors": "هنوز در برنامهٔ دسکتاپ بارگیری می‌شود، اما در نمایشگر مرورگر نه.",
+    "readinessAdviceNotFound": "پیش از هم‌رسانی، منبع این لایه را به‌روز یا جایگزین کنید.",
+    "readinessAdviceLocal": "آن را به یک منبع میزبانی‌شده تبدیل کنید، یا انتظار داشته باشید گیرندگان لایه‌ای خالی ببینند."
   },
   "gallery": {
     "title": "نگارخانهٔ پروژه‌ها",
@@ -1686,8 +1729,13 @@
     "unit": {
       "meters": "متر",
       "kilometers": "کیلومتر",
-      "miles": "مایل"
-    }
+      "miles": "مایل",
+      "feet": "فوت"
+    },
+    "viewshedHere": "حوزه دید از اینجا ({{radius}})",
+    "viewshedLayerName": "حوزه دید ({{radius}})",
+    "viewshedToolName": "حوزه دید",
+    "viewshedNoResult": "محاسبه ناحیه قابل مشاهده در اینجا ممکن نشد."
   },
   "knowledgeCard": {
     "title": "اطلاعات مکان",
@@ -1731,7 +1779,8 @@
       "geocoding": "مکان‌یابی",
       "ai": "ارائه‌دهندگان هوش مصنوعی",
       "environment": "محیط",
-      "updates": "به‌روزرسانی‌ها"
+      "updates": "به‌روزرسانی‌ها",
+      "startup": "آغاز"
     },
     "menu": {
       "mapPreferences": "ترجیحات نقشه",
@@ -1759,6 +1808,23 @@
         "major": "تنها انتشارهای عمده"
       }
     },
+    "startup": {
+      "title": "پروژهٔ آغازین",
+      "description": "فضای کاری‌ای را که GeoLibre هنگام آغاز برنامهٔ بومی باز می‌کند برگزینید.",
+      "mode": {
+        "default": "گشودن فضای کاری پیش‌فرض",
+        "last": "گشودن دوبارهٔ آخرین پروژه",
+        "specific": "گشودن یک پروژهٔ مشخص"
+      },
+      "modeHint": {
+        "default": "با یک پروژهٔ تازه و بی‌نام آغاز کنید.",
+        "last": "آخرین پروژهٔ محلی به‌کاررفته گشوده می‌شود."
+      },
+      "chooseProject": "گزینش پروژه",
+      "noProjectSelected": "هیچ پروژه‌ای انتخاب نشده است",
+      "selectError": "پروژهٔ برگزیده خوانده نشد.",
+      "loadWarning": "پروژهٔ آغازین در دسترس نیست. GeoLibre به‌جای آن فضای کاری پیش‌فرض را گشود."
+    },
     "map": {
       "constraintsTitle": "قیدهای نقشه",
       "restrictBounds": "محدود کردن کران‌های نقشه",
@@ -1780,7 +1846,9 @@
       "scaleUnitImperial": "امپریال (فوت / مایل)",
       "scaleUnitNautical": "دریایی (مایل دریایی)",
       "scaleUnitHint": "یکاهای نمایش‌یافته روی مقیاس‌نمای پایین نقشه را برگزینید.",
-      "errorBoundsUnavailable": "کران‌های نقشه هنوز در دسترس نیستند."
+      "errorBoundsUnavailable": "کران‌های نقشه هنوز در دسترس نیستند.",
+      "coordinateFormat": "قالب مختصات",
+      "coordinateFormatHint": "نمادگذاری که نوار وضعیت مختصات نشانگر را با آن نمایش می‌دهد. برای تغییر نمادگذاری روی مختصات در نوار وضعیت کلیک کنید."
     },
     "layout": {
       "title": "چیدمان",
@@ -2482,6 +2550,8 @@
       "atmosphereEnabled": "فعال",
       "spinGlobe": "کرهٔ چرخان",
       "graticule": "خطوط شبکه",
+      "pointerElevation": "ارتفاع",
+      "pointerElevationHint": "نمایش ارتفاع زمین زیر نشانگر در نوار وضعیت. در نبود زمین سه‌بعدی از یک سرویس عمومی ارتفاع استفاده می‌شود.",
       "weather": "آب‌وهوا",
       "weatherTooltip": "لایه‌های آب‌وهوای نزدیک به بی‌درنگ را روپوش کنید و پویانمایی کنید.",
       "weatherPlay": "پخش پویانمایی",
@@ -2563,6 +2633,7 @@
       "embedVectorTitle": "دادهٔ برداری محلی جاسازی شود؟",
       "embedVectorDesc": "این پروژه {{count}} لایهٔ برداری محلی دارد که از رایانهٔ شما بارگیری شده است. مرورگر هنگام باز شدن دوبارهٔ پروژه نمی‌تواند آن‌ها را دوباره بخواند، پس برای بازیابی باید داده‌شان در فایل پروژه جاسازی شود. جاسازی حدود {{size}} به فایل می‌افزاید.",
       "embedVectorDescDesktop": "این پروژه {{count}} لایهٔ برداری محلی دارد که از رایانهٔ شما بارگیری شده است. داده‌شان را جاسازی کنید تا پروژه خودبسنده شود (حدود {{size}} می‌افزاید)، یا ارجاع‌های فایل را ذخیره کنید تا هنگام باز شدن دوبارهٔ پروژه از دیسک بارگیری شوند. ارجاع‌ها فایل را کوچک نگه می‌دارند اما اگر فایل مبدأ بعداً جابه‌جا یا حذف شود می‌شکنند.",
+      "embedVectorLargeWarning": "جاسازی حدود {{size}} یک فایل پروژهٔ بسیار بزرگ می‌سازد. بازکردن دوبارهٔ آن ممکن است کند باشد یا کاملاً شکست بخورد، چون همهٔ عارضه‌ها باید یکجا تجزیه و در حافظه نگهداری شوند. برای داده‌ای در این اندازه، لایه‌ها را به PMTiles یا FlatGeobuf تبدیل کنید و به‌جای جاسازی، آن‌ها را به‌صورت لایهٔ راه دور اضافه کنید.",
       "embedVectorEmbedButton": "جاسازی داده",
       "embedVectorReferenceButton": "ذخیرهٔ ارجاع‌های فایل",
       "embedVectorSkipButton": "ذخیره بدون داده",
@@ -2602,7 +2673,9 @@
       "loadingOsmPbfDesc": "در حال تجزیهٔ فایل و تبدیل عوارض به GeoJSON. این کار در پس‌زمینه اجرا می‌شود و برای استخراج‌های بزرگ ممکن است زمان ببرد.",
       "loadingOsmPbfProgress": "در حال تبدیل عوارض به GeoJSON… {{processed}} از {{total}} موجودیت OSM پردازش شد.",
       "projectName": "نام پروژه",
-      "storymapEllipsis": "نقشهٔ روایی..."
+      "storymapEllipsis": "نقشهٔ روایی...",
+      "pointerElevationNoticeTitle": "ارتفاع از یک سرویس عمومی گرفته می‌شود",
+      "pointerElevationNoticeDesc": "وقتی زمین سه‌بعدی فعال باشد ارتفاع از خود نقشه محاسبه می‌شود و چیزی ارسال نمی‌گردد. در نبود زمین سه‌بعدی از Open-Meteo عمومی استفاده می‌شود و مختصات زیر نشانگر از دستگاه شما خارج می‌شود."
     },
     "plugin": {
       "maplibre-gl-annotations": "حاشیه‌نویسی‌ها",
@@ -2676,6 +2749,7 @@
       "couldNotOpenRecentProject": "باز کردن پروژهٔ اخیر ممکن نشد.",
       "couldNotLoadRecentProject": "بارگیری پروژهٔ اخیر ممکن نشد.",
       "couldNotSaveProject": "ذخیرهٔ پروژه ممکن نشد.",
+      "projectTooLargeToSave": "این پروژه برای ذخیره‌شدن بیش از حد بزرگ است. داده‌های برداری جاسازی‌شدهٔ آن را به PMTiles یا FlatGeobuf تبدیل کنید و به‌جای جاسازی عارضه‌ها، آن‌ها را به‌صورت لایهٔ راه دور اضافه کنید.",
       "couldNotExportHtml": "خروجی پروژه به HTML ممکن نشد.",
       "osmPbfNoFeatures": "در این فایل OSM PBF هیچ عارضهٔ نقطه‌ای، خطی یا چندضلعی یافت نشد.",
       "couldNotLoadOsmPbf": "بارگیری فایل OSM PBF ممکن نشد.",
@@ -5133,7 +5207,8 @@
     "noValues": "برای این پیکسل‌ها مقداری برای نمودار نیست.",
     "exportPng": "PNG",
     "exportCsv": "CSV",
-    "exportError": "خروجی نمودار ممکن نشد."
+    "exportError": "خروجی نمودار ممکن نشد.",
+    "rasterFallbackName": "رستر"
   },
   "netcdfIdentify": {
     "noData": "بدون‌داده",
@@ -5393,6 +5468,45 @@
     "postShortcutTooltip": "ثبت دیدگاه ({{shortcut}})",
     "confirmDelete": "آیا از حذف این رشتهٔ دیدگاه مطمئن هستید؟",
     "sessionDisconnected": "نشست قطع شد.",
-    "defaultAuthorName": "نویسنده"
+    "defaultAuthorName": "نویسنده",
+    "addComment": "افزودن دیدگاه",
+    "addCommentTooltip": "گذاشتن دیدگاه بازبینی تازه روی نقشه",
+    "yourNamePlaceholder": "نام شما…",
+    "saveName": "ذخیرهٔ نام",
+    "noNameSet": "نامی تعیین نشده است — دیدگاه‌ها با نام «{{name}}» نمایش داده می‌شوند",
+    "changeNameTooltip": "تغییر نام",
+    "setYourName": "تعیین نام شما",
+    "changeName": "تغییر نام",
+    "postingAs": "ثبت با نام <strong>{{name}}</strong>",
+    "copy": "رونوشت",
+    "startLiveSession": "آغاز نشست زنده",
+    "starting": "در حال آغاز…",
+    "sessionCodePlaceholder": "کد نشست را وارد کنید",
+    "connect": "اتصال",
+    "joining": "در حال پیوستن…",
+    "liveSync": "همگام‌سازی زنده ({{count}} برخط)",
+    "offlineWorkspace": "برون‌خط / فضای کاری خصوصی",
+    "disconnect": "قطع اتصال",
+    "joinFailed": "پیوستن به نشست ممکن نشد.",
+    "startFailed": "آغاز نشست ممکن نشد.",
+    "filterOpen": "باز ({{count}})",
+    "filterResolved": "حل‌شده ({{count}})",
+    "filterAll": "همه ({{count}})",
+    "emptyOpen": "دیدگاه بازی وجود ندارد",
+    "emptyResolved": "دیدگاه حل‌شده‌ای وجود ندارد",
+    "emptyHint": "روی «افزودن دیدگاه» در بالا کلیک کنید و برای گذاشتن یادداشت بازبینی، هر مکان یا عارضه‌ای را روی نقشه برگزینید.",
+    "resolvedBadge": "حل‌شده",
+    "zoomToLocation": "بزرگ‌نمایی روی مکان",
+    "markResolved": "علامت‌گذاری به‌عنوان حل‌شده",
+    "reopenThread": "بازگشایی رشتهٔ دیدگاه",
+    "deleteThread": "حذف رشتهٔ دیدگاه",
+    "anchorFeature": "عارضهٔ #{{id}} ({{layer}})",
+    "anchorPoint": "نقطه ({{coords}})",
+    "anchorMap": "نقشه",
+    "anchoredToFeature": "لنگرانداخته به عارضهٔ #{{id}} ({{layer}})",
+    "anchoredToPoint": "لنگرانداخته به ({{coords}})",
+    "mapPoint": "نقطهٔ نقشه",
+    "reply": "پاسخ",
+    "replyPlaceholder": "پاسخی بنویسید..."
   }
 }

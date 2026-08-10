@@ -117,6 +117,7 @@ import { registerXyzTileProtocol } from "../../lib/xyz-url";
 import { useEmbedBridge } from "../../hooks/useEmbedBridge";
 import { useRasterIdentify } from "../../hooks/useRasterIdentify";
 import { useNetcdfIdentify } from "../../hooks/useNetcdfIdentify";
+import { useCogSpectralIdentify } from "../../hooks/useCogSpectralIdentify";
 import {
   useAutoCollapsedPanel,
   useReplaceLayersPanelId,
@@ -134,6 +135,7 @@ import { NetcdfSampleMarkers } from "./NetcdfSampleMarkers";
 import { NetcdfCubeSetupDialog } from "./NetcdfCubeSetupDialog";
 import { NetcdfCubeWindow } from "./NetcdfCubeWindow";
 import { NetcdfProfileWindow } from "./NetcdfProfileWindow";
+import { hasElevationConsent } from "../../lib/elevation-consent";
 import { MapLegendPanel } from "../legend/MapLegendPanel";
 import { RasterSubsetPanel } from "./RasterSubsetPanel";
 import { BasemapExtractPanel } from "./BasemapExtractPanel";
@@ -571,6 +573,8 @@ export function DesktopShell({
       meanSlope: t("terrainMeasure.meanSlope"),
       computing: t("terrainMeasure.computing"),
       partialData: t("terrainMeasure.partialData"),
+      heading: t("terrainMeasure.heading"),
+      finalHeading: t("terrainMeasure.finalHeading"),
     });
   }, [t]);
   // The map's Fullscreen control maximizes the map *canvas* (it calls
@@ -893,6 +897,7 @@ export function DesktopShell({
   // COG layers (read band values on click). Inert until a COG is identified.
   useRasterIdentify();
   useNetcdfIdentify(mapControllerRef, mapReadyGeneration);
+  useCogSpectralIdentify(mapControllerRef, mapReadyGeneration);
   const [layerPanelWidth, setLayerPanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelWidth, setStylePanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelOpenRequest, setStylePanelOpenRequest] = useState(0);
@@ -2350,6 +2355,7 @@ export function DesktopShell({
           >
             <MapGrid>
               <MapCanvas
+                canUseRemoteElevation={hasElevationConsent}
                 controllerRef={mapControllerRef}
                 onMapDiagnosticEvent={handleMapDiagnosticEvent}
                 onControllerReady={handleMapControllerReady}
