@@ -683,6 +683,7 @@
       "statusTablesFound_other": "已找到 {{count}} 个空间表。",
       "statusNoTables": "在此数据库中未找到任何空间表。",
       "editableTable": "表",
+      "geometryColumn": "几何列",
       "tableReadOnly": "{{table}}（只读：无主键）",
       "errorSelectTable": "请选择要加载的表。",
       "errorRuntimeMissing": "处理服务器未安装 PostGIS 运行时（psycopg）。请安装 geolibre-server 的 “postgis” 扩展以加载可编辑图层。"
@@ -1157,6 +1158,9 @@
     "viewOnly": "仅查看",
     "allowEdit": "允许此人编辑",
     "setViewOnly": "将此人设为仅查看",
+    "kick": "移出参与者",
+    "block": "屏蔽参与者",
+    "requireIdentityLabel": "加入需登录账户",
     "chatLog": "会话聊天",
     "chatCompose": "输入消息",
     "chatEmpty": "尚无消息。",
@@ -1165,7 +1169,11 @@
     "chatAttachLocation": "附加当前地图位置",
     "chatLocationAttached": "已附加位置（点击移除）",
     "chatGoToLocation": "前往此位置",
-    "sessionStatusUnread_other": "实时协作会话，{{count}} 条未读消息。点击查看当前连接的用户并聊天。"
+    "sessionStatusUnread_other": "实时协作会话，{{count}} 条未读消息。点击查看当前连接的用户并聊天。",
+    "lockLayer": "为访客锁定图层",
+    "unlockLayer": "为访客解锁图层",
+    "layerLocked": "已锁定",
+    "layerLockedHint": "此图层已被主持人锁定，无法编辑"
   },
   "share": {
     "title": "共享项目",
@@ -4106,6 +4114,7 @@
     "title": "目标检测",
     "description": "在浏览器中运行导出为 ONNX 格式的 YOLO 模型处理 GeoTIFF。检测到的框会被地理配准，每个类别添加为单独图层。",
     "hint": "使用内置 COCO 模型（下载并缓存一次）或使用自己的 YOLOv5/v8/v11 ONNX。检测在浏览器本地运行。内置模型检测日常物体；对于航拍图像，请提供自己训练的俯视模型。",
+    "unavailableNoExternalCdn": "此构建版本无法使用目标检测。它需要 ONNX Runtime，而该运行时从外部 CDN 加载，此部署已禁用外部 CDN。提供您自己的模型文件也无济于事。",
     "imageLabel": "图像 (GeoTIFF)",
     "imagePlaceholder": "选择 GeoTIFF…",
     "chooseImage": "选择图像",
@@ -4138,6 +4147,7 @@
     "title": "万物分割",
     "description": "在浏览器中自动运行 SlimSAM 处理 GeoTIFF。每个检测到的对象都会成为地理配准的多边形并添加为一个图层。",
     "hint": "在图像上采样网格点并使用 SlimSAM 分割（下载并缓存一次）。无需点击或标注 — 更密集的网格能找到更多对象，但耗时更长。",
+    "unavailableNoExternalCdn": "此构建版本无法使用“万物分割”。它需要 ONNX Runtime，而该运行时从外部 CDN 加载，此部署已禁用外部 CDN。",
     "imageLabel": "图像 (GeoTIFF)",
     "imagePlaceholder": "选择 GeoTIFF…",
     "chooseImage": "选择图像",
@@ -4797,11 +4807,15 @@
       "typeConvexHull": "凸包",
       "typeBuffer": "缓冲区",
       "bufferDistance": "缓冲距离 (m)",
+      "bufferField": "距离字段",
+      "bufferFieldHint": "每个要素按自身的值(米)生成缓冲区;没有值的要素使用上面的距离,值为 0 时不绘制任何内容。",
+      "fieldNone": "无(固定)",
       "fillColor": "填充颜色",
       "strokeColor": "轮廓颜色",
       "strokeWidth": "轮廓宽度 (px)",
       "opacity": "填充不透明度",
-      "circleRadius": "点半径 (px)"
+      "circleRadius": "点半径 (px)",
+      "sizeField": "大小字段"
     },
     "attributeForm": {
       "heading": "属性表单",

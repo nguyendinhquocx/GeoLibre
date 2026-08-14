@@ -527,6 +527,14 @@ export interface LayerStyle {
   geometryGenerator: GeometryGeneratorType;
   /** Buffer distance in meters for the `"buffer"` generator. */
   geometryGeneratorBufferDistance: number;
+  /**
+   * Attribute driving the `"buffer"` generator's distance, so each feature is
+   * buffered by its own value in meters (QGIS data-defined override on a
+   * geometry-generator symbol). An empty string buffers every feature by the
+   * flat {@link geometryGeneratorBufferDistance}, which also stands in for
+   * features whose value is missing or non-numeric.
+   */
+  geometryGeneratorBufferProperty: string;
   /** Fill color (6-digit hex) for generated polygons and centroid points. */
   geometryGeneratorFillColor: string;
   /** Outline color (6-digit hex) for generated geometry. */
@@ -537,6 +545,24 @@ export interface LayerStyle {
   geometryGeneratorOpacity: number;
   /** Circle radius in pixels for generated centroid points. */
   geometryGeneratorCircleRadius: number;
+  /**
+   * Attribute driving the radius of generated centroid points, scaling them
+   * between {@link geometryGeneratorSizeMinRadius} and
+   * {@link geometryGeneratorSizeMaxRadius} across
+   * {@link geometryGeneratorSizeMinValue} ..
+   * {@link geometryGeneratorSizeMaxValue} (proportional symbols on the derived
+   * centroids). An empty string draws every centroid at the flat
+   * {@link geometryGeneratorCircleRadius}.
+   *
+   * Deliberately separate from {@link proportionalSizeProperty}: that one also
+   * drives line width, so reusing it here would resize a polygon layer's
+   * outlines as a side effect of sizing its centroids.
+   */
+  geometryGeneratorSizeProperty: string;
+  geometryGeneratorSizeMinValue: number;
+  geometryGeneratorSizeMaxValue: number;
+  geometryGeneratorSizeMinRadius: number;
+  geometryGeneratorSizeMaxRadius: number;
   rasterBrightnessMin: number;
   rasterBrightnessMax: number;
   rasterSaturation: number;
@@ -639,11 +665,17 @@ export const DEFAULT_LAYER_STYLE: LayerStyle = {
   lineDecorationSpacing: 80,
   geometryGenerator: "none",
   geometryGeneratorBufferDistance: 1000,
+  geometryGeneratorBufferProperty: "",
   geometryGeneratorFillColor: "#f59e0b",
   geometryGeneratorStrokeColor: "#b45309",
   geometryGeneratorStrokeWidth: 2,
   geometryGeneratorOpacity: 0.4,
   geometryGeneratorCircleRadius: 5,
+  geometryGeneratorSizeProperty: "",
+  geometryGeneratorSizeMinValue: 0,
+  geometryGeneratorSizeMaxValue: 100,
+  geometryGeneratorSizeMinRadius: 4,
+  geometryGeneratorSizeMaxRadius: 24,
   rasterBrightnessMin: 0,
   rasterBrightnessMax: 1,
   rasterSaturation: 0,
@@ -1099,6 +1131,21 @@ export type CollaborationRole = "host" | "guest";
 /** Whether guests may edit (`co-edit`) or only watch (`view-only`). */
 export type CollaborationMode = "view-only" | "co-edit";
 
+export interface ParticipantIdentity {
+  provider: string;
+  userId: string;
+  username: string;
+}
+
+export interface CollabInvite {
+  token: string;
+  role: CollaborationMode;
+  createdAt: number;
+  maxUses?: number;
+  useCount: number;
+  revoked: boolean;
+}
+
 export interface CollaborationParticipant {
   clientId: string;
   displayName: string;
@@ -1110,6 +1157,8 @@ export interface CollaborationParticipant {
    * `null` for the host (the host can always edit).
    */
   editOverride: boolean | null;
+  /** Optional account identity when signed-in identity binding is enabled. */
+  identity?: ParticipantIdentity | null;
 }
 
 /** A remote participant's live cursor + viewport, used to render presence. */
@@ -1153,6 +1202,19 @@ export interface CollaborationState {
   followHost: boolean;
   /** Recent session chat, oldest first, capped to a bounded window (#754). */
   chat: CollaborationChatMessage[];
+  /** Session flag requiring participants to be signed in. */
+  requireIdentity: boolean;
+  /**
+   * Whether the connected relay has an identity issuer configured. False (the
+   * default) means it cannot verify a sign-in, so the host UI hides the
+   * "require a signed-in account" toggle instead of offering a gate that would
+   * lock every guest out.
+   */
+  identitySupported: boolean;
+  /** Layer IDs marked locked by the host. */
+  lockedLayerIds: string[];
+  /** Active session invites minted by host. */
+  invites: CollabInvite[];
   /** Last human-readable error, surfaced in the Collaborate dialog. */
   error: string | null;
 }

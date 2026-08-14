@@ -699,6 +699,7 @@
       "statusTablesFound_other": "Found {{count}} spatial tables.",
       "statusNoTables": "No spatial tables were found in this database.",
       "editableTable": "Table",
+      "geometryColumn": "Geometry column",
       "tableReadOnly": "{{table}} (read-only: no primary key)",
       "errorSelectTable": "Select a table to load.",
       "errorRuntimeMissing": "The processing server does not have the PostGIS runtime (psycopg) installed. Install the geolibre-server 'postgis' extra to load editable layers."
@@ -1191,6 +1192,9 @@
     "viewOnly": "View-only",
     "allowEdit": "Allow this person to edit",
     "setViewOnly": "Set this person to view-only",
+    "kick": "Kick participant",
+    "block": "Block participant",
+    "requireIdentityLabel": "Require signed-in account to join",
     "chatLog": "Session chat",
     "chatCompose": "Type a message",
     "chatEmpty": "No messages yet.",
@@ -1200,7 +1204,11 @@
     "chatLocationAttached": "Location attached (click to remove)",
     "chatGoToLocation": "Go to this location",
     "sessionStatusUnread_one": "Live collaboration session, {{count}} unread message. Click to see who's connected and chat.",
-    "sessionStatusUnread_other": "Live collaboration session, {{count}} unread messages. Click to see who's connected and chat."
+    "sessionStatusUnread_other": "Live collaboration session, {{count}} unread messages. Click to see who's connected and chat.",
+    "lockLayer": "Lock layer for guests",
+    "unlockLayer": "Unlock layer for guests",
+    "layerLocked": "Locked",
+    "layerLockedHint": "This layer is locked by the host and cannot be edited"
   },
   "share": {
     "title": "Share project",
@@ -4883,11 +4891,15 @@
       "typeConvexHull": "Convex hulls",
       "typeBuffer": "Buffers",
       "bufferDistance": "Buffer distance (m)",
+      "bufferField": "Distance field",
+      "bufferFieldHint": "Each feature is buffered by its own value in meters; features with no value use the distance above, and a value of 0 draws nothing.",
+      "fieldNone": "None (fixed)",
       "fillColor": "Fill color",
       "strokeColor": "Outline color",
       "strokeWidth": "Outline width (px)",
       "opacity": "Fill opacity",
-      "circleRadius": "Point radius (px)"
+      "circleRadius": "Point radius (px)",
+      "sizeField": "Size field"
     },
     "attributeForm": {
       "heading": "Attributes Form",

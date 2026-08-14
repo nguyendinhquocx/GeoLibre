@@ -699,6 +699,7 @@
       "statusTablesFound_other": "{{count}} räumliche Tabellen gefunden.",
       "statusNoTables": "In dieser Datenbank wurden keine räumlichen Tabellen gefunden.",
       "editableTable": "Tabelle",
+      "geometryColumn": "Geometriespalte",
       "tableReadOnly": "{{table}} (schreibgeschützt: kein Primärschlüssel)",
       "errorSelectTable": "Wählen Sie eine zu ladende Tabelle aus.",
       "errorRuntimeMissing": "Der Verarbeitungsserver hat die PostGIS-Laufzeitumgebung (psycopg) nicht installiert. Installieren Sie das Extra „postgis“ von geolibre-server, um bearbeitbare Ebenen zu laden."
@@ -1191,6 +1192,9 @@
     "viewOnly": "Nur Ansicht",
     "allowEdit": "Dieser Person das Bearbeiten erlauben",
     "setViewOnly": "Diese Person auf Nur-Ansicht setzen",
+    "kick": "Teilnehmer entfernen",
+    "block": "Teilnehmer blockieren",
+    "requireIdentityLabel": "Angemeldetes Konto zum Beitreten erforderlich",
     "chatLog": "Sitzungs-Chat",
     "chatCompose": "Nachricht eingeben",
     "chatEmpty": "Noch keine Nachrichten.",
@@ -1200,7 +1204,11 @@
     "chatLocationAttached": "Position angehängt (zum Entfernen klicken)",
     "chatGoToLocation": "Zu dieser Position wechseln",
     "sessionStatusUnread_one": "Live-Kollaborationssitzung, {{count}} ungelesene Nachricht. Klicken, um zu sehen, wer verbunden ist, und zu chatten.",
-    "sessionStatusUnread_other": "Live-Kollaborationssitzung, {{count}} ungelesene Nachrichten. Klicken, um zu sehen, wer verbunden ist, und zu chatten."
+    "sessionStatusUnread_other": "Live-Kollaborationssitzung, {{count}} ungelesene Nachrichten. Klicken, um zu sehen, wer verbunden ist, und zu chatten.",
+    "lockLayer": "Ebene für Gäste sperren",
+    "unlockLayer": "Ebene für Gäste entsperren",
+    "layerLocked": "Gesperrt",
+    "layerLockedHint": "Diese Ebene wurde vom Host gesperrt und kann nicht bearbeitet werden"
   },
   "share": {
     "title": "Projekt teilen",
@@ -4173,6 +4181,7 @@
     "title": "Objekterkennung",
     "description": "Führen Sie ein nach ONNX exportiertes YOLO-Modell über ein GeoTIFF aus, vollständig im Browser. Erkannte Rechtecke werden georeferenziert, und jede Klasse wird als eigene Ebene hinzugefügt.",
     "hint": "Verwenden Sie ein integriertes COCO-Modell (einmalig heruntergeladen und zwischengespeichert) oder bringen Sie Ihr eigenes YOLOv5/v8/v11-ONNX mit. Die Erkennung läuft lokal im Browser. Integrierte Modelle erkennen Alltagsobjekte; für Luftbilder verwenden Sie Ihr eigenes, auf Luftaufnahmen trainiertes Modell.",
+    "unavailableNoExternalCdn": "Objekterkennung ist in diesem Build nicht verfügbar. Sie benötigt die ONNX Runtime, die von einem externen CDN geladen wird, das diese Bereitstellung deaktiviert hat. Eine eigene Modelldatei hilft dabei nicht.",
     "imageLabel": "Bild (GeoTIFF)",
     "imagePlaceholder": "GeoTIFF auswählen…",
     "chooseImage": "Bild auswählen",
@@ -4205,6 +4214,7 @@
     "title": "Alles segmentieren",
     "description": "Führen Sie SlimSAM automatisch über ein GeoTIFF aus, vollständig im Browser. Jedes erkannte Objekt wird zu einem georeferenzierten Polygon, das als eine Ebene hinzugefügt wird.",
     "hint": "Über das Bild wird ein Punktgitter abgetastet und mit SlimSAM segmentiert (einmalig heruntergeladen und zwischengespeichert). Keine Klicks oder Labels — dichtere Gitter finden mehr Objekte, dauern aber länger.",
+    "unavailableNoExternalCdn": "„Alles segmentieren“ ist in diesem Build nicht verfügbar. Es benötigt die ONNX Runtime, die von einem externen CDN geladen wird, das diese Bereitstellung deaktiviert hat.",
     "imageLabel": "Bild (GeoTIFF)",
     "imagePlaceholder": "GeoTIFF auswählen…",
     "chooseImage": "Bild auswählen",
@@ -4871,11 +4881,15 @@
       "typeConvexHull": "Konvexe Hüllen",
       "typeBuffer": "Puffer",
       "bufferDistance": "Pufferdistanz (m)",
+      "bufferField": "Entfernungsfeld",
+      "bufferFieldHint": "Jedes Objekt wird mit seinem eigenen Wert in Metern gepuffert; Objekte ohne Wert verwenden die oben angegebene Entfernung, und der Wert 0 zeichnet nichts.",
+      "fieldNone": "Keines (fest)",
       "fillColor": "Füllfarbe",
       "strokeColor": "Umrissfarbe",
       "strokeWidth": "Umrissbreite (px)",
       "opacity": "Fülldeckkraft",
-      "circleRadius": "Punktradius (px)"
+      "circleRadius": "Punktradius (px)",
+      "sizeField": "Größenfeld"
     },
     "attributeForm": {
       "heading": "Attributformular",
