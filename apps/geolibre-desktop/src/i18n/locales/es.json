@@ -590,6 +590,8 @@
       "errorMissingCrs": "No se pudo detectar el sistema de coordenadas de esta clase de entidad. Introduzca su CRS de origen para añadirla."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "El libro de Excel no contiene hojas de cálculo con datos.",
+      "worksheet": "Hoja de cálculo",
       "defaultName": "Capa de texto delimitado",
       "sampleLabel": "Ciudades de EE. UU.",
       "errorChooseFile": "Elija un archivo de texto delimitado.",
@@ -2549,7 +2551,7 @@
       "terrain": "Terreno",
       "remoteSensing": "Teledetección",
       "projection": "Proyección",
-      "geolibre": "GeoLibre",
+      "geolibre": "Caja de herramientas de GeoLibre",
       "subGroupGeometry": "Geometría",
       "subGroupOverlay": "Superposición",
       "subGroupJoin": "Unión",
@@ -2621,10 +2623,16 @@
       "arcgisImportWarnings_one": "El proyecto se importó, pero no se pudo cargar {{count}} capa.",
       "arcgisImportWarnings_other": "El proyecto se importó, pero no se pudieron cargar {{count}} capas.",
       "arcgisUnknownLayerType": "desconocido",
+      "importWarningLayerCount_one": "{{count}} capa",
+      "importWarningLayerCount_other": "{{count}} capas",
+      "showLayerNames": "Mostrar los nombres de las capas",
+      "hideLayerNames": "Ocultar los nombres de las capas",
       "arcgisImportReason": {
         "layer-type": "El tipo de capa {{layerType}} no es compatible.",
         "missing-source": "La capa no tiene una fuente de datos local legible.",
         "format": "El formato de datos de la capa no es compatible.",
+        "file-geodatabase": "Las fuentes de geodatabase de archivos (.gdb) no se cargan desde los proyectos. En GeoLibre Desktop, añádelas con Añadir datos → Geodatabase de archivos (GDB).",
+        "file-geodatabase-raster": "Los conjuntos de datos ráster almacenados en una geodatabase de archivos (.gdb) no son compatibles. Exporta el ráster a GeoTIFF y añádelo como capa ráster.",
         "network-path": "Las rutas de recursos compartidos de red no se cargan por motivos de seguridad.",
         "service": "Las capas de servicio de ArcGIS incluidas en proyectos aún no son compatibles.",
         "browser-local-file": "Se hace referencia al archivo local, pero los navegadores no pueden volver a abrir rutas de datos de ArcGIS Pro. Use GeoLibre Desktop para cargarlo.",
@@ -5294,6 +5302,7 @@
     "cogConvertConfirm": "«{{name}}» es un GeoTIFF simple (por franjas), que no se puede mostrar directamente. ¿Convertirlo ahora a un GeoTIFF optimizado para la nube y cargar ese?",
     "cogConvertRemoteConfirm": "«{{name}}» es un GeoTIFF simple (por franjas), que no se puede mostrar directamente. Mostrarlo implica descargar el archivo completo y convertirlo a un GeoTIFF optimizado para la nube en el navegador, lo que puede ser lento y usar mucha memoria en archivos grandes. ¿Continuar?",
     "cogConvertLargeConfirm": "«{{name}}» es un GeoTIFF grande de {{width}}×{{height}} que no está optimizado para la nube. Convertirlo en el navegador puede ser lento y usar mucha memoria. ¿Convertirlo y cargarlo de todos modos?",
+    "cogConvertTooLarge": "«{{name}}» es demasiado grande para convertirlo de forma segura en el navegador. Conviértalo en un GeoTIFF optimizado para la nube con gdal_translate o rio cogeo y cargue el resultado.",
     "cogConvertFailed": "No se pudo convertir «{{name}}» a un GeoTIFF optimizado para la nube. Intente convertirlo con gdal_translate o rio cogeo y luego cargue el resultado.",
     "rasterDownloadFailed": "No se pudo descargar «{{name}}». Es posible que el servidor esté lento, no esté disponible o bloquee solicitudes entre orígenes, o que el archivo sea demasiado grande para mantenerlo en memoria. Compruebe la URL e inténtelo de nuevo.",
     "rasterNotGeotiff": "«{{name}}» no devolvió un GeoTIFF. Es posible que el servidor haya enviado una página de error o de inicio de sesión en su lugar. Compruebe la URL e inténtelo de nuevo."

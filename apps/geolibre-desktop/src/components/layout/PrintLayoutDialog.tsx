@@ -67,6 +67,7 @@ import {
 } from "../../lib/print-data-blocks";
 import {
   categoricalColumns,
+  coerceNumericStringRows,
   numericColumns,
   type BarAggregation,
   type ChartRow,
@@ -509,7 +510,18 @@ export function PrintLayoutDialog({
     [],
   );
 
-  const baseLegend = useMemo(() => buildLegend(layers), [layers]);
+  const baseLegend = useMemo(
+    () =>
+      buildLegend(layers, {
+        labels: {
+          centroid: t("style.generator.typeCentroid"),
+          "bounding-box": t("style.generator.typeBoundingBox"),
+          "convex-hull": t("style.generator.typeConvexHull"),
+          buffer: t("style.generator.typeBuffer"),
+        },
+      }),
+    [layers, t],
+  );
   const legend = useMemo(
     () => applyLegendConfig(baseLegend, legendConfig),
     [baseLegend, legendConfig],
@@ -966,10 +978,13 @@ export function PrintLayoutDialog({
     () => (tableLayer?.geojson ? layerRows(tableLayer.geojson) : []),
     [tableLayer],
   );
-  const chartAllRows = useMemo(
-    () => (chartLayer?.geojson ? layerRows(chartLayer.geojson) : []),
-    [chartLayer],
-  );
+  const chartAllRows = useMemo(() => {
+    if (!chartLayer?.geojson) return [];
+    const rows = layerRows(chartLayer.geojson);
+    return chartLayer.metadata.sourceKind === "delimited-text"
+      ? coerceNumericStringRows(rows)
+      : rows;
+  }, [chartLayer]);
   // Per-feature bounds for the page-extent filter, walked once per layer so
   // stepping/exporting an N-page atlas does not redo the vertex walk N times
   // (the same precompute pattern the atlas page builder uses).

@@ -906,6 +906,7 @@ export function TopToolbar({
       resultsCleared: t("stacPlugin.resultsCleared"),
       searching: t("stacPlugin.searching"),
       loadingMore: t("stacPlugin.loadingMore"),
+      noMatchesHere: t("stacPlugin.noMatchesHere"),
       noResults: t("stacPlugin.noResults"),
       searchFailed: t("stacPlugin.searchFailed"),
       showing: (count) => t("stacPlugin.showing", { count }),

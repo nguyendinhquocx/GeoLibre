@@ -43,7 +43,14 @@ import {
   TIME_SLIDER_PLUGIN_ID,
   VIEWER_BLOCKED_PLUGIN_IDS,
 } from "@geolibre/plugins";
-import { convertGeoTiffToCog, isTiff, readGeoTiffInfo } from "@geolibre/processing";
+import {
+  convertGeoTiffToCog,
+  exceedsBrowserCogConversionLimit,
+  geoTiffSampleCount,
+  isTiff,
+  LARGE_BROWSER_COG_CONVERSION_SAMPLES,
+  readGeoTiffInfo,
+} from "@geolibre/processing";
 import {
   type CSSProperties,
   type DragEvent,
@@ -187,14 +194,6 @@ import type { ProjectUrlLoadState } from "../../hooks/useProjectUrlLoader";
  * `window.confirm` (see the handlers below): a `false` return aborts that one
  * file's load without affecting the rest of a multi-file drop.
  */
-/**
- * Sample count (width × height × bands) above which in-browser COG conversion
- * gets an extra "this may be slow / memory-intensive" confirmation. The
- * converter reads the whole raster into memory as f64, so ~40M samples is
- * roughly where the transient allocation starts to be felt.
- */
-const LARGE_RASTER_SAMPLE_LIMIT = 40_000_000;
-
 function confirmLargeVectorDataset({ name, featureCount }: LargeVectorDataset) {
   return window.confirm(
     i18n.t("toolbar.item.largeVectorDesc", {
@@ -612,10 +611,9 @@ export function DesktopShell({
   useEffect(() => () => activeResizeCleanupRef.current?.(), []);
   const mapControllerRef = useRef<MapController | null>(null);
 
-  // Frame the GeoJSON layers a `?data=` deep link added. Only those are listed:
-  // the raster, PMTiles, and GeoParquet loaders move the camera themselves. The
-  // extent comes from the store's own GeoJSON, which is already in memory by the
-  // time the hook publishes the ids, so this needs no wait for layer sync.
+  // Frame layers a `?data=` deep link added. Single non-GeoJSON datasets move
+  // the camera in their format-specific loader; a repeated `data` batch lists
+  // every added layer here so their stored extents are combined into one fit.
   useEffect(() => {
     const fitLayerIds = dataUrlLoadState?.fitLayerIds;
     if (dataUrlLoadState?.status !== "loaded" || !fitLayerIds?.length) return;
@@ -1141,13 +1139,21 @@ export function DesktopShell({
           window.alert(t("raster.rasterNotGeotiff", { name }));
           return;
         }
+        const info = await readGeoTiffInfo(bytes);
+        if (!info.ok) throw new Error("Not a readable GeoTIFF.");
+        const samples = geoTiffSampleCount(info);
+        if (exceedsBrowserCogConversionLimit(samples)) {
+          console.warn(
+            `[GeoLibre] Skipping in-browser COG conversion for "${name}": ${samples.toLocaleString()} decoded samples exceed the safe memory limit.`,
+          );
+          window.alert(t("raster.cogConvertTooLarge", { name }));
+          return;
+        }
         if (!bytesAreRemote) {
           // Local file: pick the prompt by size now that the header is cheap to
           // read, then confirm once. (A remote source already confirmed above.)
-          const info = await readGeoTiffInfo(bytes);
-          const samples = info.width * info.height * Math.max(info.bands, 1);
           const message =
-            samples > LARGE_RASTER_SAMPLE_LIMIT
+            samples > LARGE_BROWSER_COG_CONVERSION_SAMPLES
               ? t("raster.cogConvertLargeConfirm", {
                   name,
                   width: info.width,

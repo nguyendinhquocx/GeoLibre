@@ -106,6 +106,7 @@ import {
   type CalcOutputType,
 } from "../../lib/attribute-expression";
 import { attributeFormErrorMessage } from "../../lib/attribute-form-messages";
+import { coerceNumericStringRows } from "../../lib/attribute-charts";
 import { computeRowSelection } from "../../lib/attribute-selection";
 import { RESERVED_PROPERTY_KEYS } from "../../lib/field-collection";
 import {
@@ -436,6 +437,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   const calcExpressionRef = useRef<HTMLTextAreaElement>(null);
 
   const layer = layers.find((l) => l.id === selectedLayerId);
+  const coerceNumericStrings = layer?.metadata.sourceKind === "delimited-text";
   const hasLayer = Boolean(layer);
   // Columns materialized by persistent joins are derived data: every save
   // re-derives them from the join table, so an edit, rename, or delete here
@@ -459,15 +461,26 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
     () => new Set([...joinDerivedColumns, ...virtualFieldColumns]),
     [joinDerivedColumns, virtualFieldColumns],
   );
-  const features = layer?.geojson?.features ?? [];
+  const features = useMemo(() => layer?.geojson?.features ?? [], [layer?.geojson]);
   const isDuckDBLayer = isDuckDBQueryLayer(layer);
   const duckdbRows = layer && isDuckDBLayer ? getDuckDBLayerRows(layer.id) : [];
-  const attributeRows: AttributeTableRow[] = isDuckDBLayer
-    ? duckDBRowsToAttributeRows(duckdbRows)
-    : features.map((feature, index) => ({
+  // Memoized so the analysis adapters below (and everything else keyed on these
+  // rows) only rebuild when the layer's features actually change, not on every
+  // render caused by scrolling, filtering or selection. The DuckDB branch stays
+  // unmemoized because `getDuckDBLayerRows` reads a mutable store and returns a
+  // fresh array each call; delimited-text layers — the ones that pay for the
+  // numeric-string adapter below — are geojson-backed and take this path.
+  const geojsonRows: AttributeTableRow[] = useMemo(
+    () =>
+      features.map((feature, index) => ({
         featureId: String(feature.id ?? index),
         properties: (feature.properties ?? {}) as Record<string, unknown>,
-      }));
+      })),
+    [features],
+  );
+  const attributeRows: AttributeTableRow[] = isDuckDBLayer
+    ? duckDBRowsToAttributeRows(duckdbRows)
+    : geojsonRows;
   const hasAttributeSource = Boolean(layer?.geojson || isDuckDBLayer);
   // Add Vector Layer (geojson-mode) layers render from a MapLibre source the
   // control owns, and their `layer.geojson` is dropped when a project is saved.
@@ -612,14 +625,32 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   // O(1) lookups for the multi-selection while rendering thousands of rows.
   const selectedIdSet = useMemo(() => new Set(selectedFeatureIds), [selectedFeatureIds]);
 
-  const filterLower = attributeFilter.toLowerCase();
-  const filtered = attributeRows.filter(({ properties, featureId }) => {
-    // "Show Selected Features" restricts the table to the current selection.
-    if (featureView === "selected" && !selectedIdSet.has(featureId)) return false;
-    if (!filterLower) return true;
-    const props = JSON.stringify(properties).toLowerCase();
-    return featureId.includes(filterLower) || props.includes(filterLower);
-  });
+  const filtered = useMemo(() => {
+    const filterLower = attributeFilter.toLowerCase();
+    return attributeRows.filter(({ properties, featureId }) => {
+      // "Show Selected Features" restricts the table to the current selection.
+      if (featureView === "selected" && !selectedIdSet.has(featureId)) return false;
+      if (!filterLower) return true;
+      const props = JSON.stringify(properties).toLowerCase();
+      return featureId.includes(filterLower) || props.includes(filterLower);
+    });
+  }, [attributeFilter, attributeRows, featureView, selectedIdSet]);
+  // Delimited-text imports preserve every cell as a string. Adapt only the rows
+  // sent to analysis dialogs, leaving the table and exported source data intact.
+  const adaptAnalysisRows = coerceNumericStrings && (chartOpen || statsOpen || explorerOpen);
+  const analysisRows = useMemo(
+    () => (adaptAnalysisRows ? coerceNumericStringRows(attributeRows) : attributeRows),
+    [adaptAnalysisRows, attributeRows],
+  );
+  const analysisFilteredRows = useMemo(
+    () =>
+      adaptAnalysisRows
+        ? filtered.length === attributeRows.length
+          ? analysisRows
+          : coerceNumericStringRows(filtered)
+        : filtered,
+    [adaptAnalysisRows, analysisRows, attributeRows.length, filtered],
+  );
   const sorted = [...filtered].sort((a, b) => {
     const aValue = sort.key === "__featureId" ? a.featureId : a.properties[sort.key];
     const bValue = sort.key === "__featureId" ? b.featureId : b.properties[sort.key];
@@ -2320,23 +2351,23 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
       <AttributeChartDialog
         open={chartOpen}
         onOpenChange={setChartOpen}
-        rows={attributeRows}
+        rows={analysisRows}
         columns={discoveredColumns}
         layerName={layer?.name ?? ""}
       />
       <AttributeStatsDialog
         open={statsOpen}
         onOpenChange={setStatsOpen}
-        rows={attributeRows}
-        filteredRows={filtered}
+        rows={analysisRows}
+        filteredRows={analysisFilteredRows}
         columns={discoveredColumns}
         layerName={layer?.name ?? ""}
       />
       <ColumnExplorerDialog
         open={explorerOpen}
         onOpenChange={setExplorerOpen}
-        rows={attributeRows}
-        filteredRows={filtered}
+        rows={analysisRows}
+        filteredRows={analysisFilteredRows}
         columns={discoveredColumns}
         layerName={layer?.name ?? ""}
       />

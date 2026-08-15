@@ -16,7 +16,7 @@ import {
   materializeEmbeddableVectorLayers,
 } from "@geolibre/plugins";
 import type { FeatureCollection } from "geojson";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createAppAPI, getPluginManager } from "./usePlugins";
 import { pluginManifestUrlsForIds } from "../lib/external-plugins";
@@ -44,6 +44,13 @@ import { resolveShareBaseUrl } from "../lib/share-geolibre";
 import { shareAuthorizedFetch } from "../lib/share-gallery";
 import { normalizeProjectUrl } from "../lib/urls";
 import { recordExplicitProjectSave } from "../lib/project-history-session";
+import {
+  rememberProjectSaveChoices,
+  reusableCredentialChoice,
+  reusableVectorDataChoice,
+  saveChoicesForProject,
+  type ProjectSaveChoices,
+} from "../lib/project-save-choices";
 import { resolveProjectXyzLayers } from "../lib/xyz-url";
 import {
   importQgisProject,
@@ -56,6 +63,8 @@ import type { MapControllerRef } from "../components/layout/toolbar/constants";
 /** A pending "strip credentials before saving?" prompt. */
 export interface CredentialStripPrompt {
   count: number;
+  /** Project generation that opened the prompt. */
+  projectGeneration: number;
   resolve: (choice: "strip" | "keep" | "cancel") => void;
 }
 
@@ -103,6 +112,8 @@ export interface EmbedVectorDataPrompt {
    * described differently than on the web (where it discards the data).
    */
   desktop: boolean;
+  /** Project generation that opened the prompt. */
+  projectGeneration: number;
   resolve: (choice: "embed" | "noembed" | "cancel") => void;
 }
 
@@ -113,6 +124,8 @@ export interface EmbedVectorDataPrompt {
  * same component serves both.
  */
 export interface SaveNamePrompt {
+  /** Project generation that opened the prompt. */
+  projectGeneration: number;
   resolve: (name: string | null) => void;
   /** Dialog title. */
   title: string;
@@ -239,6 +252,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   const rememberRecentProject = useAppStore((s) => s.rememberRecentProject);
   const forgetRecentProject = useAppStore((s) => s.forgetRecentProject);
   const markSaved = useAppStore((s) => s.markSaved);
+  const projectGeneration = useAppStore((s) => s.projectGeneration);
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [qgisImportWarnings, setQgisImportWarnings] = useState<QgisProjectImportWarning[] | null>(
@@ -264,10 +278,65 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   // Separate from projectUrlAbortRef so a gallery open and an Open-from-URL
   // submit can't abort each other's in-flight fetch.
   const shareUrlAbortRef = useRef<AbortController | null>(null);
+  // Retain explicit, non-cancel save decisions for this project only. The
+  // generation check clears them synchronously when newProject/loadProject
+  // switches the store, including before React has rendered the new project.
+  const saveChoicesRef = useRef<ProjectSaveChoices | null>(null);
   // Guards against overlapping saves: a second save started while a prompt
   // dialog is open would overwrite the pending prompt and strand the first
   // call's unresolved promise.
   const isSavingRef = useRef(false);
+
+  // Settling a prompt means resolving its promise and clearing the dialog
+  // state. Each pattern lives here once so the dialog handlers further down and
+  // the generation-change cancellation below cannot drift apart. They close over
+  // nothing but their setters, so their identity is stable and the effect below
+  // still re-runs only when a prompt or the generation changes.
+  const settleCredentialStripPrompt = useCallback(
+    (prompt: CredentialStripPrompt | null, choice: "strip" | "keep" | "cancel") => {
+      // Resolve outside the state updater (updaters must be side-effect free).
+      prompt?.resolve(choice);
+      setCredentialStripPrompt(null);
+    },
+    [],
+  );
+  const settleEmbedVectorDataPrompt = useCallback(
+    (prompt: EmbedVectorDataPrompt | null, choice: "embed" | "noembed" | "cancel") => {
+      prompt?.resolve(choice);
+      setEmbedVectorDataPrompt(null);
+    },
+    [],
+  );
+  const settleSaveNamePrompt = useCallback((prompt: SaveNamePrompt | null, name: string | null) => {
+    prompt?.resolve(name);
+    setSaveNamePrompt(null);
+    setSaveNameInput("");
+  }, []);
+
+  // A project can be replaced by an external open action while a modal save
+  // prompt is visible. Cancel the stale promise immediately so its dialog does
+  // not cover the replacement project and its save guard is released.
+  // useLayoutEffect (not useEffect) so the stale dialog is gone in the same
+  // commit that swapped the project, rather than lingering for one paint.
+  useLayoutEffect(() => {
+    if (credentialStripPrompt && credentialStripPrompt.projectGeneration !== projectGeneration) {
+      settleCredentialStripPrompt(credentialStripPrompt, "cancel");
+    }
+    if (embedVectorDataPrompt && embedVectorDataPrompt.projectGeneration !== projectGeneration) {
+      settleEmbedVectorDataPrompt(embedVectorDataPrompt, "cancel");
+    }
+    if (saveNamePrompt && saveNamePrompt.projectGeneration !== projectGeneration) {
+      settleSaveNamePrompt(saveNamePrompt, null);
+    }
+  }, [
+    credentialStripPrompt,
+    embedVectorDataPrompt,
+    projectGeneration,
+    saveNamePrompt,
+    settleCredentialStripPrompt,
+    settleEmbedVectorDataPrompt,
+    settleSaveNamePrompt,
+  ]);
 
   const handleOpenFromFile = async () => {
     const result = await openProjectFile();
@@ -724,28 +793,34 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   // Ask whether to strip credentials (environment variables, geocoder keys,
   // layer tokens) before writing the file. The promise resolves when the user
   // picks an option in the dialog.
-  const askStripCredentials = (count: number) =>
+  const askStripCredentials = (count: number, promptProjectGeneration: number) =>
     new Promise<"strip" | "keep" | "cancel">((resolve) => {
-      setCredentialStripPrompt({ count, resolve });
+      setCredentialStripPrompt({ count, projectGeneration: promptProjectGeneration, resolve });
     });
 
-  const resolveCredentialStripPrompt = (choice: "strip" | "keep" | "cancel") => {
-    // Resolve outside the state updater (updaters must be side-effect free).
-    credentialStripPrompt?.resolve(choice);
-    setCredentialStripPrompt(null);
-  };
+  const resolveCredentialStripPrompt = (choice: "strip" | "keep" | "cancel") =>
+    settleCredentialStripPrompt(credentialStripPrompt, choice);
 
   // Ask whether to embed local vector layers' data in the saved file. Resolves
   // when the user picks an option in the dialog.
-  const askEmbedVectorData = (count: number, bytes: number, desktop: boolean) =>
+  const askEmbedVectorData = (
+    count: number,
+    bytes: number,
+    desktop: boolean,
+    promptProjectGeneration: number,
+  ) =>
     new Promise<"embed" | "noembed" | "cancel">((resolve) => {
-      setEmbedVectorDataPrompt({ count, bytes, desktop, resolve });
+      setEmbedVectorDataPrompt({
+        count,
+        bytes,
+        desktop,
+        projectGeneration: promptProjectGeneration,
+        resolve,
+      });
     });
 
-  const resolveEmbedVectorDataPrompt = (choice: "embed" | "noembed" | "cancel") => {
-    embedVectorDataPrompt?.resolve(choice);
-    setEmbedVectorDataPrompt(null);
-  };
+  const resolveEmbedVectorDataPrompt = (choice: "embed" | "noembed" | "cancel") =>
+    settleEmbedVectorDataPrompt(embedVectorDataPrompt, choice);
 
   // Builds the embed-mode layers: every local vector layer carries its own
   // features so the project is self-contained (portable to another machine or
@@ -810,13 +885,55 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   const resolveLayersForSave = async (): Promise<{ layers?: GeoLibreLayer[] } | "cancel"> => {
     const state = useAppStore.getState();
     const embeddable = await materializeEmbeddableVectorLayers(state.layers);
+    if (useAppStore.getState().projectGeneration !== state.projectGeneration) return "cancel";
     const localFileLayers = isTauri() ? state.layers.filter(isReloadableLocalFileLayer) : [];
     if (embeddable.size === 0 && localFileLayers.length === 0) return {};
 
     const count = embeddable.size + localFileLayers.length;
     const bytes = estimateEmbedBytes(state.layers, embeddable);
-    const choice = await askEmbedVectorData(count, bytes, isTauri());
+    const remembered = saveChoicesForProject(saveChoicesRef.current, state.projectGeneration);
+    saveChoicesRef.current = remembered;
+    // A remembered Embed choice stays silent until the project crosses the
+    // large-data warning threshold, and again whenever the data outgrows the
+    // size that was acknowledged. A remembered Save without data stays silent
+    // only for the layers whose data the user accepted losing. Both are
+    // material risks that deserve a fresh confirmation even though the ordinary
+    // per-project choice is remembered. On desktop that second case cannot
+    // arise: "without data" writes file references, so nothing is discarded.
+    const discardedLayerIds = isTauri() ? [] : [...embeddable.keys()];
+    const rememberedVectorChoice = reusableVectorDataChoice(remembered, {
+      embedBytes: bytes,
+      warningBytes: LARGE_EMBED_WARNING_BYTES,
+      discardedLayerIds,
+    });
+    const choice =
+      rememberedVectorChoice ??
+      (await askEmbedVectorData(count, bytes, isTauri(), state.projectGeneration));
     if (choice === "cancel") return "cancel";
+    // A project can be opened while a prompt is visible. Do not apply that
+    // prompt's answer to the replacement project or continue saving stale data.
+    if (useAppStore.getState().projectGeneration !== state.projectGeneration) return "cancel";
+    saveChoicesRef.current = rememberProjectSaveChoices(
+      saveChoicesRef.current,
+      state.projectGeneration,
+      {
+        vectorData: choice,
+        // Only a size the user was actually shown extends the allowance; a
+        // silent reuse must not ratchet it up (or down) on its own.
+        acknowledgedEmbedBytes:
+          rememberedVectorChoice === undefined &&
+          choice === "embed" &&
+          bytes >= LARGE_EMBED_WARNING_BYTES
+            ? bytes
+            : remembered.acknowledgedEmbedBytes,
+        // Likewise, only an answered prompt widens the set of layers the user
+        // has agreed to lose.
+        discardedVectorLayerIds:
+          rememberedVectorChoice === undefined && choice === "noembed"
+            ? discardedLayerIds
+            : remembered.discardedVectorLayerIds,
+      },
+    );
 
     if (choice === "embed") {
       // Reuse the map already materialized for the size estimate.
@@ -870,30 +987,34 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   // the user can control. The caller supplies the dialog copy so the same prompt
   // serves both project saves and HTML exports. Resolves with the name, or null
   // if cancelled.
-  const askSaveName = (defaultName: string, labels: Omit<SaveNamePrompt, "resolve">) =>
+  const askSaveName = (
+    defaultName: string,
+    labels: Omit<SaveNamePrompt, "projectGeneration" | "resolve">,
+    promptProjectGeneration: number,
+  ) =>
     new Promise<string | null>((resolve) => {
       setSaveNameInput(defaultName);
-      setSaveNamePrompt({ resolve, ...labels });
+      setSaveNamePrompt({ projectGeneration: promptProjectGeneration, resolve, ...labels });
     });
 
   const submitSaveNamePrompt = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
-    saveNamePrompt?.resolve(saveNameInput);
-    setSaveNamePrompt(null);
-    setSaveNameInput("");
+    settleSaveNamePrompt(saveNamePrompt, saveNameInput);
   };
 
-  const cancelSaveNamePrompt = () => {
-    saveNamePrompt?.resolve(null);
-    setSaveNamePrompt(null);
-    setSaveNameInput("");
-  };
+  const cancelSaveNamePrompt = () => settleSaveNamePrompt(saveNamePrompt, null);
 
   const runSaveProject = async (options?: { saveAs?: boolean }): Promise<boolean> => {
+    const saveProjectGeneration = useAppStore.getState().projectGeneration;
     // Offer to embed local vector data (or, on desktop, save file references)
     // first, so the serialized content below reflects the user's choice.
     const layersForSave = await resolveLayersForSave();
-    if (layersForSave === "cancel") return false;
+    if (
+      layersForSave === "cancel" ||
+      useAppStore.getState().projectGeneration !== saveProjectGeneration
+    ) {
+      return false;
+    }
     const { project, defaultProjectName, projectPath } = buildCurrentProject(
       undefined,
       layersForSave.layers,
@@ -905,8 +1026,30 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     const projectToEgress = excludeHiddenFieldsFromProject(project);
     const redacted = redactProjectCredentials(projectToEgress);
     if (redacted.redactedPaths.length > 0) {
-      const choice = await askStripCredentials(redacted.redactedCount);
+      const remembered = saveChoicesForProject(saveChoicesRef.current, saveProjectGeneration);
+      saveChoicesRef.current = remembered;
+      const rememberedCredentialChoice = reusableCredentialChoice(remembered, {
+        fingerprints: redacted.redactedFingerprints,
+        hasUnfingerprintable: redacted.hasUnfingerprintableCredential,
+      });
+      const choice =
+        rememberedCredentialChoice ??
+        (await askStripCredentials(redacted.redactedCount, saveProjectGeneration));
       if (choice === "cancel") return false;
+      if (useAppStore.getState().projectGeneration !== saveProjectGeneration) return false;
+      saveChoicesRef.current = rememberProjectSaveChoices(
+        saveChoicesRef.current,
+        saveProjectGeneration,
+        {
+          credentials: choice,
+          // Keep covers exactly the credentials the user was asked about, so a
+          // later save that would write a different secret asks again.
+          keptCredentialFingerprints:
+            rememberedCredentialChoice === undefined && choice === "keep"
+              ? redacted.redactedFingerprints
+              : remembered.keptCredentialFingerprints,
+        },
+      );
       contentToSave = serializeForSave(choice === "strip" ? redacted.project : projectToEgress);
     } else {
       contentToSave = serializeForSave(projectToEgress);
@@ -923,15 +1066,20 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     const promptForName =
       browserSaveFallsBackToDownload() && (options?.saveAs === true || !existingLocalPath);
     if (promptForName) {
-      const chosen = await askSaveName(saveName, {
-        title: t("toolbar.item.saveProjectAsTitle"),
-        description: t("toolbar.item.saveProjectAsDesc"),
-        label: t("toolbar.item.saveProjectFileName"),
-        placeholder: t("toolbar.item.saveProjectFileNamePlaceholder"),
-      });
+      const chosen = await askSaveName(
+        saveName,
+        {
+          title: t("toolbar.item.saveProjectAsTitle"),
+          description: t("toolbar.item.saveProjectAsDesc"),
+          label: t("toolbar.item.saveProjectFileName"),
+          placeholder: t("toolbar.item.saveProjectFileNamePlaceholder"),
+        },
+        saveProjectGeneration,
+      );
       if (chosen === null) return false;
       saveName = ensureProjectFileName(chosen);
     }
+    if (useAppStore.getState().projectGeneration !== saveProjectGeneration) return false;
     let path: string | null;
     try {
       path =
@@ -949,6 +1097,10 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       return false;
     }
     if (!path) return false;
+    // A native picker can remain open while another project arrives through an
+    // external action. The old project may have been written successfully, but
+    // never attach its path or saved state to the replacement project.
+    if (useAppStore.getState().projectGeneration !== saveProjectGeneration) return false;
     setProjectPath(path);
     rememberRecentProject({
       path,
@@ -980,6 +1132,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     if (isSavingRef.current) return false;
     isSavingRef.current = true;
     try {
+      const exportProjectGeneration = useAppStore.getState().projectGeneration;
       // Derive the default file name from the project name in the store first,
       // without materializing embedded data, so the prompt can appear right away
       // and a cancel discards no work. This snapshot is passed to
@@ -999,12 +1152,16 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       // saveTextFileWithFallback below instead.
       let defaultName = `${slug}.html`;
       if (browserSaveFallsBackToDownload()) {
-        const chosen = await askSaveName(defaultName, {
-          title: t("toolbar.item.exportHtmlAsTitle"),
-          description: t("toolbar.item.exportHtmlAsDesc"),
-          label: t("toolbar.item.exportHtmlFileName"),
-          placeholder: t("toolbar.item.exportHtmlFileNamePlaceholder"),
-        });
+        const chosen = await askSaveName(
+          defaultName,
+          {
+            title: t("toolbar.item.exportHtmlAsTitle"),
+            description: t("toolbar.item.exportHtmlAsDesc"),
+            label: t("toolbar.item.exportHtmlFileName"),
+            placeholder: t("toolbar.item.exportHtmlFileNamePlaceholder"),
+          },
+          exportProjectGeneration,
+        );
         if (chosen === null) return false;
         defaultName = ensureHtmlFileName(chosen, slug);
       }
@@ -1015,6 +1172,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       // serve no purpose in a static viewer and are removed inside
       // buildProjectHtml, which runs the central redaction pass.
       const { project, defaultProjectName } = await buildEmbeddedProject(projectName);
+      if (useAppStore.getState().projectGeneration !== exportProjectGeneration) return false;
       const html = buildProjectHtml({
         project,
         title: defaultProjectName,
@@ -1032,6 +1190,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
         ],
         mimeType: "text/html",
       });
+      if (useAppStore.getState().projectGeneration !== exportProjectGeneration) return false;
       return savedPath !== null;
     } catch (error) {
       setActionError(

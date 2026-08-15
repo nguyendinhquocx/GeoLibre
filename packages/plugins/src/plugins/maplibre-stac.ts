@@ -15,6 +15,8 @@ import {
   type StacIndexCatalog,
   type StacItem,
   type StacNextPage,
+  type StacSearchResult,
+  type StacSearchCursor,
 } from "./stac-api";
 
 export const STAC_PLUGIN_ID = "geolibre-stac-catalogs";
@@ -111,6 +113,7 @@ export interface StacLabels {
   resultsCleared: string;
   searching: string;
   loadingMore: string;
+  noMatchesHere: string;
   noResults: string;
   searchFailed: string;
   loadMore: string;
@@ -178,6 +181,7 @@ let labels: StacLabels = {
   resultsCleared: "Search results cleared.",
   searching: "Searching STAC items…",
   loadingMore: "Loading more items…",
+  noMatchesHere: "Nothing matched in that part of the catalog. Load more to keep searching.",
   noResults: "No STAC items matched these filters.",
   searchFailed: "STAC search failed",
   loadMore: "Load more",
@@ -245,7 +249,8 @@ const style = {
   // the controls above it scroll as a group rather than pushing it off-panel.
   results:
     "display:flex;flex:1 1 auto;min-height:150px;overflow:auto;flex-direction:column;gap:7px;",
-  controls: "display:flex;flex-direction:column;gap:10px;flex:0 1 auto;min-height:0;overflow:auto;",
+  controls:
+    "display:flex;flex-direction:column;gap:10px;flex:0 1 auto;min-height:180px;overflow:auto;",
   card:
     "display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid hsl(var(--border));" +
     "border-radius:7px;background:hsl(var(--muted));",
@@ -661,6 +666,7 @@ function buildPanel(container: HTMLElement): () => void {
   let filtered: StacIndexCatalog[] = [];
   let connection: StacConnection | null = null;
   let nextPage: StacNextPage | undefined;
+  let searchCursor: StacSearchCursor | undefined;
   let allItems: StacItem[] = [];
   let searchGeneration = 0;
   let cancelDraw: (() => void) | null = null;
@@ -714,6 +720,7 @@ function buildPanel(container: HTMLElement): () => void {
     searchGeneration += 1;
     allItems = [];
     nextPage = undefined;
+    searchCursor = undefined;
     results.innerHTML = "";
     cardsByItemId.clear();
     selectItem(null, false);
@@ -854,6 +861,13 @@ function buildPanel(container: HTMLElement): () => void {
     return parsed as Record<string, unknown>;
   };
 
+  const searchStatus = (result: StacSearchResult): string => {
+    if (!result.items.length && result.cursor) return labels.noMatchesHere;
+    if (!allItems.length) return labels.noResults;
+    if (result.matched) return labels.showingOfMatched(allItems.length, result.matched);
+    return labels.showing(allItems.length);
+  };
+
   const runSearch = async (append: boolean): Promise<void> => {
     if (!connection) return;
     const generation = ++searchGeneration;
@@ -874,6 +888,7 @@ function buildPanel(container: HTMLElement): () => void {
         additional: parseAdditionalParams(),
         limit: 20,
         next: append ? nextPage : undefined,
+        cursor: append ? searchCursor : undefined,
         signal: controller.signal,
       };
       const response = connection.isApi
@@ -882,20 +897,15 @@ function buildPanel(container: HTMLElement): () => void {
       if (generation !== searchGeneration) return;
       allItems = append ? [...allItems, ...response.items] : response.items;
       nextPage = response.next;
+      searchCursor = response.cursor;
       // A fresh search invalidates the selection; "Load more" keeps it.
       if (!append) selectedItemId = null;
       renderItems();
       showFootprints(allItems);
       applySelection(false);
-      loadMore.hidden = !nextPage;
+      loadMore.hidden = !nextPage && !searchCursor;
       clearResultsButton.disabled = allItems.length === 0;
-      setStatus(
-        allItems.length
-          ? response.matched
-            ? labels.showingOfMatched(allItems.length, response.matched)
-            : labels.showing(allItems.length)
-          : labels.noResults,
-      );
+      setStatus(searchStatus(response));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : labels.searchFailed, true);
     } finally {

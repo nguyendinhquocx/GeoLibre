@@ -583,6 +583,8 @@
       "errorMissingCrs": "无法检测此要素类的坐标系。请输入其源坐标系后再添加。"
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "Excel 工作簿中没有非空工作表。",
+      "worksheet": "工作表",
       "defaultName": "分隔文本图层",
       "sampleLabel": "美国城市",
       "errorChooseFile": "请选择一个分隔文本文件。",
@@ -2504,7 +2506,7 @@
       "terrain": "地形",
       "remoteSensing": "遥感",
       "projection": "投影",
-      "geolibre": "GeoLibre",
+      "geolibre": "GeoLibre 工具箱",
       "subGroupGeometry": "几何",
       "subGroupOverlay": "叠加",
       "subGroupJoin": "连接",
@@ -2575,10 +2577,15 @@
       "arcgisImportComplete": "ArcGIS Pro 项目已导入",
       "arcgisImportWarnings_other": "项目已导入，但有 {{count}} 个图层无法加载。",
       "arcgisUnknownLayerType": "未知",
+      "importWarningLayerCount_other": "{{count}} 个图层",
+      "showLayerNames": "显示图层名称",
+      "hideLayerNames": "隐藏图层名称",
       "arcgisImportReason": {
         "layer-type": "不支持 {{layerType}} 图层类型。",
         "missing-source": "该图层没有可读取的本地数据源。",
         "format": "不支持该图层的数据格式。",
+        "file-geodatabase": "项目中的文件地理数据库（.gdb）数据源不会被加载。请在 GeoLibre Desktop 中通过添加数据 → 文件地理数据库（GDB）添加。",
+        "file-geodatabase-raster": "存储在文件地理数据库（.gdb）中的栅格数据集不受支持。请将栅格导出为 GeoTIFF，再作为栅格图层添加。",
         "network-path": "出于安全原因，不加载网络共享路径。",
         "service": "暂不支持项目中的 ArcGIS 服务图层。",
         "browser-local-file": "已引用该本地文件，但浏览器无法重新打开 ArcGIS Pro 数据路径。请使用 GeoLibre Desktop 加载。",
@@ -5220,6 +5227,7 @@
     "cogConvertConfirm": "“{{name}}”是普通（条带式）GeoTIFF，无法直接显示。是否立即将其转换为云优化 GeoTIFF 并加载？",
     "cogConvertRemoteConfirm": "“{{name}}”是普通（条带式）GeoTIFF，无法直接显示。要显示它，需要下载整个文件并在浏览器中将其转换为云优化 GeoTIFF，对于大文件而言这可能会很慢且占用大量内存。是否继续？",
     "cogConvertLargeConfirm": "“{{name}}”是一个 {{width}}×{{height}} 的大型 GeoTIFF，并非云优化 GeoTIFF。在浏览器中转换它可能会很慢且占用大量内存。是否仍要转换并加载？",
+    "cogConvertTooLarge": "“{{name}}”过大，无法在浏览器中安全转换。请使用 gdal_translate 或 rio cogeo 将其转换为云优化 GeoTIFF，然后加载转换结果。",
     "cogConvertFailed": "无法将“{{name}}”转换为云优化 GeoTIFF。请尝试使用 gdal_translate 或 rio cogeo 进行转换，然后加载结果。",
     "rasterDownloadFailed": "无法下载“{{name}}”。服务器可能响应缓慢、无法访问或阻止跨域请求，或者文件可能过大而无法保存在内存中。请检查 URL 并重试。",
     "rasterNotGeotiff": "“{{name}}”未返回 GeoTIFF。服务器可能返回了错误或登录页面。请检查 URL 并重试。"

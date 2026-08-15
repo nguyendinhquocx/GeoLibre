@@ -12,6 +12,7 @@
     "./local-netcdf": "./src/plugins/local-netcdf.ts",
     "./maplibre-graticule": "./src/plugins/maplibre-graticule.ts",
     "./raster-symbology": "./src/plugins/raster-symbology.ts",
+    "./right-panel-registry": "./src/right-panel-registry.ts",
     "./zarr-time-axis": "./src/plugins/zarr-time-axis.ts"
   },
   "dependencies": {
@@ -64,10 +65,10 @@
     "maplibre-gl-raster": "^0.14.7",
     "maplibre-gl-splat": "^0.2.8",
     "maplibre-gl-streetview": "^0.7.0",
-    "maplibre-gl-swipe": "^0.11.1",
+    "maplibre-gl-swipe": "^0.11.2",
     "maplibre-gl-time-slider": "^1.8.4",
     "maplibre-gl-usgs-lidar": "^0.11.1",
-    "maplibre-gl-vector": "^0.10.10",
+    "maplibre-gl-vector": "^0.10.12",
     "netcdfjs": "^4.0.0",
     "ngeohash": "^0.6.4",
     "open-location-code-typescript": "^1.5.0",

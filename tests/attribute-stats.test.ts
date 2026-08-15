@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ChartRow } from "../apps/geolibre-desktop/src/lib/attribute-charts";
+import {
+  coerceNumericStringRows,
+  type ChartRow,
+} from "../apps/geolibre-desktop/src/lib/attribute-charts";
 import {
   computeFieldStats,
   computeNumericStats,
@@ -93,9 +96,10 @@ describe("computeFieldStats", () => {
     const data = rows({ pop: 10 }, { pop: "20" }, { pop: 30 }, { pop: null }, { pop: "" });
     const stats = computeFieldStats(data, "pop") as NumericFieldStats;
     assert.equal(stats.kind, "numeric");
-    assert.equal(stats.count, 3);
+    assert.equal(stats.count, 2);
     assert.equal(stats.nulls, 2);
-    assert.equal(stats.sum, 60);
+    assert.equal(stats.nonNumeric, 1);
+    assert.equal(stats.sum, 40);
   });
 
   it("counts non-numeric non-blank values separately for a numeric field", () => {
@@ -113,9 +117,24 @@ describe("computeFieldStats", () => {
     assert.equal(stats.kind, "text");
   });
 
-  it("returns null for a numeric field with no values", () => {
+  it("keeps numeric-looking strings as text", () => {
+    const data = rows({ fips: "37009" }, { fips: "37005" }, { fips: "37171" });
+    const stats = computeFieldStats(data, "fips");
+    assert.ok(stats);
+    assert.equal(stats.kind, "text");
+    assert.equal(stats.unique, 3);
+  });
+
+  it("infers numeric strings for a string-only source", () => {
+    const data = rows({ population: "10" }, { population: "20" }, { population: "30" });
+    const stats = computeFieldStats(coerceNumericStringRows(data), "population");
+    assert.ok(stats);
+    assert.equal(stats.kind, "numeric");
+    if (stats.kind === "numeric") assert.equal(stats.sum, 60);
+  });
+
+  it("treats a field with fewer than two numeric values as text", () => {
     const data = rows({ v: 1 }, { v: null });
-    // Only one numeric value → not detected as numeric → text stats, not null.
     const stats = computeFieldStats(data, "v");
     assert.equal(stats?.kind, "text");
   });

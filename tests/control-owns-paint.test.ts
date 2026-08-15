@@ -51,6 +51,76 @@ function externalNativeLayer(patch: Partial<GeoLibreLayer> = {}): GeoLibreLayer 
 }
 
 describe("controlOwnsPaint external native layers", () => {
+  it("waits for maplibre-gl-vector to restore its own source and layers", () => {
+    const { map, calls } = makeMapStub("some-other-layer", "circle");
+    const layer = externalNativeLayer({
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: [0, 0] },
+          },
+        ],
+      },
+      metadata: {
+        // Every store layer the control creates carries customLayerType, so
+        // the fixture must too: without it the layer takes a branch of
+        // syncExternalNativeLayer that no real control layer reaches.
+        customLayerType: "circle",
+        externalNativeLayer: true,
+        nativeLayerIds: ["mub-deliveries-circle"],
+        sourceIds: ["mub-deliveries-source"],
+        sourceKind: "maplibre-gl-vector",
+        controlOwnsPaint: true,
+      },
+    });
+
+    syncLayer(map as never, layer);
+
+    assert.ok(
+      !calls.some((call) => call.method === "addSource" || call.method === "addLayer"),
+      "expected the host not to race the control's style-load restoration",
+    );
+  });
+
+  it("waits through the window where the control has cleared its layer ids", () => {
+    // Mid-restore the control empties its record's layerIds and awaits a
+    // re-read of the source data, and the store mirrors that empty list. The
+    // layer must still be recognized as the control's, or the ordinary GeoJSON
+    // path rebuilds it underneath the one the control is about to restore
+    // (opengeos/GeoLibre#1902).
+    const { map, calls } = makeMapStub("some-other-layer", "circle");
+    const layer = externalNativeLayer({
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: [0, 0] },
+          },
+        ],
+      },
+      metadata: {
+        customLayerType: "circle",
+        externalNativeLayer: true,
+        nativeLayerIds: [],
+        sourceIds: [],
+        sourceKind: "maplibre-gl-vector",
+        controlOwnsPaint: true,
+      },
+    });
+
+    syncLayer(map as never, layer);
+
+    assert.ok(
+      !calls.some((call) => call.method === "addSource" || call.method === "addLayer"),
+      "expected no duplicate source or layer while the control's ids are empty",
+    );
+  });
+
   it("syncs visibility and ordering but never overwrites the control's paint", () => {
     const { map, calls } = makeMapStub("mub-deliveries", "circle");
     const layer = externalNativeLayer({

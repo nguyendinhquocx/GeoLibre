@@ -14,6 +14,7 @@
     "lite:build": "node scripts/lite-build.mjs",
     "build:jupyterlite": "node scripts/build-jupyterlite.mjs",
     "build:embed": "node scripts/build-embed.mjs",
+    "build:chrome-extension": "node scripts/package-chrome-extension.mjs",
     "typecheck": "npm run build",
     "lint": "eslint apps packages workers tests",
     "test": "npm run test:frontend",
@@ -40,6 +41,7 @@
     "@types/node": "^26.2.0",
     "eslint": "^10.8.1",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "fflate": "^0.8.3",
     "linkedom": "^0.18.13",
     "tsx": "^4.23.11",
     "typescript-eslint": "^8.66.0"

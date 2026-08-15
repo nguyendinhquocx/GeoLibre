@@ -583,6 +583,8 @@
       "errorMissingCrs": "이 피처 클래스의 좌표계를 감지할 수 없습니다. 추가하려면 원본 CRS를 입력하세요."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "Excel 통합 문서에 비어 있지 않은 워크시트가 없습니다.",
+      "worksheet": "워크시트",
       "defaultName": "구분 텍스트 레이어",
       "sampleLabel": "미국 도시",
       "errorChooseFile": "구분 텍스트 파일을 선택하세요.",
@@ -2504,7 +2506,7 @@
       "terrain": "지형",
       "remoteSensing": "원격 탐사",
       "projection": "투영법",
-      "geolibre": "GeoLibre",
+      "geolibre": "GeoLibre 도구 상자",
       "subGroupGeometry": "지오메트리",
       "subGroupOverlay": "오버레이",
       "subGroupJoin": "조인",
@@ -2575,10 +2577,15 @@
       "arcgisImportComplete": "ArcGIS Pro 프로젝트를 가져왔습니다",
       "arcgisImportWarnings_other": "프로젝트를 가져왔지만 레이어 {{count}}개를 불러오지 못했습니다.",
       "arcgisUnknownLayerType": "알 수 없음",
+      "importWarningLayerCount_other": "레이어 {{count}}개",
+      "showLayerNames": "레이어 이름 표시",
+      "hideLayerNames": "레이어 이름 숨기기",
       "arcgisImportReason": {
         "layer-type": "{{layerType}} 레이어 유형은 지원되지 않습니다.",
         "missing-source": "레이어에 읽을 수 있는 로컬 데이터 소스가 없습니다.",
         "format": "레이어의 데이터 형식은 지원되지 않습니다.",
+        "file-geodatabase": "파일 지오데이터베이스(.gdb) 소스는 프로젝트에서 불러오지 않습니다. GeoLibre Desktop에서 데이터 추가 → 파일 지오데이터베이스 (GDB)로 추가하세요.",
+        "file-geodatabase-raster": "파일 지오데이터베이스(.gdb)에 저장된 래스터 데이터셋은 지원되지 않습니다. 래스터를 GeoTIFF로 내보낸 뒤 래스터 레이어로 추가하세요.",
         "network-path": "네트워크 공유 경로는 보안상의 이유로 불러오지 않습니다.",
         "service": "프로젝트에 포함된 ArcGIS 서비스 레이어는 아직 지원되지 않습니다.",
         "browser-local-file": "로컬 파일이 참조되어 있지만 브라우저는 ArcGIS Pro 데이터 경로를 다시 열 수 없습니다. GeoLibre Desktop으로 불러오세요.",
@@ -5220,6 +5227,7 @@
     "cogConvertConfirm": "\"{{name}}\"은(는) 직접 표시할 수 없는 일반(스트라이프) GeoTIFF입니다. 지금 Cloud-Optimized GeoTIFF로 변환하여 불러오시겠습니까?",
     "cogConvertRemoteConfirm": "\"{{name}}\"은(는) 직접 표시할 수 없는 일반(스트라이프) GeoTIFF입니다. 표시하려면 전체 파일을 다운로드하여 브라우저에서 Cloud-Optimized GeoTIFF로 변환해야 하며, 파일이 클 경우 느리고 메모리를 많이 사용할 수 있습니다. 계속하시겠습니까?",
     "cogConvertLargeConfirm": "\"{{name}}\"은(는) {{width}}×{{height}} 크기의 대용량 GeoTIFF로, Cloud-Optimized GeoTIFF가 아닙니다. 브라우저에서 변환하면 느리고 메모리를 많이 사용할 수 있습니다. 그래도 변환하여 불러오시겠습니까?",
+    "cogConvertTooLarge": "\"{{name}}\"은(는) 브라우저에서 안전하게 변환하기에는 너무 큽니다. gdal_translate 또는 rio cogeo를 사용하여 Cloud-Optimized GeoTIFF로 변환한 후 결과를 불러오세요.",
     "cogConvertFailed": "\"{{name}}\"을(를) Cloud-Optimized GeoTIFF로 변환할 수 없습니다. gdal_translate 또는 rio cogeo로 변환한 후 결과를 불러오세요.",
     "rasterDownloadFailed": "\"{{name}}\"을(를) 다운로드할 수 없습니다. 서버가 느리거나 응답하지 않거나 교차 출처 요청을 차단하고 있을 수 있으며, 또는 파일이 너무 커서 메모리에 담을 수 없을 수 있습니다. URL을 확인한 후 다시 시도하세요.",
     "rasterNotGeotiff": "\"{{name}}\"이(가) GeoTIFF를 반환하지 않았습니다. 서버가 대신 오류 또는 로그인 페이지를 보냈을 수 있습니다. URL을 확인한 후 다시 시도하세요."

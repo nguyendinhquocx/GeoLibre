@@ -27,16 +27,21 @@ import { LayerControl, type CustomLayerAdapter, type LayerState } from "maplibre
 import { CollapsedAttributionControl } from "./collapsed-attribution-control";
 import {
   circleLayerId,
+  clusterCountLayerId,
+  clusterLayerId,
   fillExtrusionLayerId,
   fillLayerId,
   getLayerBounds,
+  heatmapLayerId,
   highlightCircleLayerId,
   highlightFillLayerId,
   highlightLineLayerId,
   highlightSourceId,
+  labelLayerId,
   lineLayerId,
   markerLayerId,
   sourceId,
+  textLayerId,
 } from "./geojson-loader";
 import {
   mbtilesStyleLayerIds,
@@ -2349,8 +2354,13 @@ export class MapController {
         { id: fillExtrusionLayerId(layer.id), suffix: "Extrusions" },
         { id: fillLayerId(layer.id), suffix: "Polygons" },
         { id: lineLayerId(layer.id), suffix: "Lines" },
+        { id: heatmapLayerId(layer.id), suffix: "Heatmap" },
+        { id: clusterLayerId(layer.id), suffix: "Clusters" },
+        { id: clusterCountLayerId(layer.id), suffix: "Cluster counts" },
         { id: circleLayerId(layer.id), suffix: "Points" },
         { id: markerLayerId(layer.id), suffix: "Markers" },
+        { id: textLayerId(layer.id), suffix: "Text" },
+        { id: labelLayerId(layer.id), suffix: "Labels" },
       ];
     }
 
@@ -2400,14 +2410,15 @@ export class MapController {
       // style, so getNamedStyleLayers (which filters to existing style layers)
       // skips them. Publish their store id -> name directly so the Layer Swipe
       // panel, which lists them by store id via its COG layerProvider, shows a
-      // friendly name instead of the raw id. Scoped to "cog-url" (the
-      // CogLayerControl rasters the provider lists) to match that scope. See
-      // opengeos/GeoLibre#1240.
+      // friendly name instead of the raw id. Scoped to the two kinds that
+      // provider lists -- "cog-url" (CogLayerControl) and "maplibre-gl-raster"
+      // (RasterControl) -- to match that scope. See opengeos/GeoLibre#1240.
       ...layers
         .filter(
           (layer) =>
             layer.type === "cog" &&
-            layer.metadata.sourceKind === "cog-url" &&
+            (layer.metadata.sourceKind === "cog-url" ||
+              layer.metadata.sourceKind === "maplibre-gl-raster") &&
             layer.metadata.externalNativeLayer === true,
         )
         .map((layer): [string, string] => [layer.id, layer.name]),

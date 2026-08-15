@@ -1,6 +1,9 @@
 import type { BBox, Feature, Geometry } from "geojson";
 
 export const STAC_INDEX_CATALOGS_URL = "https://stacindex.org/api/catalogs";
+// No item-search endpoint to ask, so a page is however much of the tree the walk covers.
+const STATIC_SEARCH_READS_PER_PAGE = 300;
+const STATIC_SEARCH_CONCURRENCY = 12;
 
 export interface StacIndexCatalog {
   id: number;
@@ -56,10 +59,22 @@ export interface StacConnection {
   root: Record<string, unknown>;
 }
 
+/** A walk in progress; hand it back to continue. Mutated in place rather than copied. */
+export interface StacSearchCursor {
+  items: Unread[];
+  folders: Unread[];
+  visited: Set<string>;
+  /** Items already delivered, so the last page can report a real total. */
+  offset: number;
+  /** Documents given up on; with any of these the catalog was not fully read. */
+  dropped: number;
+}
+
 export interface StacSearchOptions {
   bbox?: [number, number, number, number];
   datetime?: string;
   collections?: string[];
+  cursor?: StacSearchCursor;
   /** Additional STAC API Item Search members such as query, filter, sortby, or fields. */
   additional?: Record<string, unknown>;
   limit?: number;
@@ -76,6 +91,7 @@ export interface StacNextPage {
 export interface StacSearchResult {
   items: StacItem[];
   next?: StacNextPage;
+  cursor?: StacSearchCursor;
   matched?: number;
 }
 
@@ -109,7 +125,7 @@ export function browserAssetHref(href: string, base: string): string {
   return `https://${bucket}.s3.amazonaws.com${url.pathname}${url.search}${url.hash}`;
 }
 
-async function fetchJson(url: string, init: RequestInit, fetcher: FetchLike): Promise<unknown> {
+async function fetchJson<T>(url: string, init: RequestInit, fetcher: FetchLike): Promise<T> {
   const response = await fetcher(url, {
     ...init,
     headers: { Accept: "application/geo+json, application/json", ...init.headers },
@@ -148,6 +164,13 @@ function linksOf(value: unknown, base: string): StacLink[] {
   });
 }
 
+function isStacItem(value: unknown): value is StacItem {
+  if (typeof value !== "object" || value === null) return false;
+  return (
+    "id" in value && typeof value.id === "string" && "assets" in value && Boolean(value.assets)
+  );
+}
+
 function normalizeItem(item: StacItem, base: string): StacItem {
   const assets = Object.fromEntries(
     Object.entries(item.assets ?? {}).flatMap(([key, asset]) => {
@@ -169,9 +192,9 @@ export async function connectStac(
 ): Promise<StacConnection> {
   if (!httpUrl(inputUrl)) throw new Error("Enter a valid HTTP or HTTPS STAC URL");
   const url = new URL(inputUrl).href;
-  const raw = await fetchJson(url, { signal }, fetcher);
-  if (!raw || typeof raw !== "object") throw new Error("The URL did not return a STAC document");
-  const root = raw as Record<string, unknown>;
+  const root = await fetchJson<Record<string, unknown>>(url, { signal }, fetcher);
+  if (typeof root !== "object" || root === null)
+    throw new Error("The URL did not return a STAC document");
   const links = linksOf(root.links, url);
   const conforms = Array.isArray(root.conformsTo) ? root.conformsTo.map(String) : [];
   const searchLink = links.find((link) => link.rel === "search");
@@ -186,9 +209,11 @@ export async function connectStac(
   );
   if (collectionsLink) {
     try {
-      const data = (await fetchJson(collectionsLink.href, { signal }, fetcher)) as {
-        collections?: StacCollection[];
-      };
+      const data = await fetchJson<{ collections?: StacCollection[] }>(
+        collectionsLink.href,
+        { signal },
+        fetcher,
+      );
       if (Array.isArray(data.collections)) collections = data.collections;
     } catch {
       // Collection discovery is helpful but not required for item search.
@@ -213,15 +238,7 @@ function parseItems(raw: unknown, responseUrl: string): StacSearchResult {
     throw new Error("The STAC server returned invalid search data");
   const data = raw as Record<string, unknown>;
   const features = Array.isArray(data.features) ? data.features : [];
-  const items = features
-    .filter(
-      (feature): feature is StacItem =>
-        Boolean(feature) &&
-        typeof feature === "object" &&
-        typeof (feature as StacItem).id === "string" &&
-        Boolean((feature as StacItem).assets),
-    )
-    .map((item) => normalizeItem(item, responseUrl));
+  const items = features.filter(isStacItem).map((item) => normalizeItem(item, responseUrl));
   const nextLink = linksOf(data.links, responseUrl).find((link) => link.rel === "next");
   const context = data.context as { matched?: unknown } | undefined;
   const numberMatched = data.numberMatched;
@@ -313,46 +330,108 @@ function inTime(item: StacItem, interval?: string): boolean {
 }
 
 /** Searches a static catalog by following child/item links, with a hard safety cap. */
+/** Queued but unread; the root arrives already read. */
+type Unread = { url: string; document?: Record<string, unknown>; retried?: boolean };
+
+/** A read about to happen, and the queue it came out of, so a failure can go back there. */
+type Pending = { entry: Unread; from: Unread[] };
+
 export async function searchStaticStac(
   connection: StacConnection,
   options: StacSearchOptions,
   fetcher: FetchLike = fetch,
 ): Promise<StacSearchResult> {
-  const queue: Array<{ url: string; document?: Record<string, unknown> }> = [
-    { url: connection.url, document: connection.root },
-  ];
-  const visited = new Set<string>();
-  const items: StacItem[] = [];
+  const walk = options.cursor ?? {
+    items: [],
+    folders: [{ url: connection.url, document: connection.root }],
+    visited: new Set<string>(),
+    offset: 0,
+    dropped: 0,
+  };
+  const found: StacItem[] = [];
   const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
-  while (queue.length && visited.size < 300 && items.length < limit) {
-    const current = queue.shift()!;
-    if (visited.has(current.url)) continue;
-    visited.add(current.url);
-    const document =
-      current.document ??
-      ((await fetchJson(current.url, { signal: options.signal }, fetcher)) as Record<
-        string,
-        unknown
-      >);
-    if (document.type === "Feature") {
-      const item = normalizeItem(document as unknown as StacItem, current.url);
-      // itemBbox flattens 3D (6-element) bboxes; item.bbox[2]/[3] would be minZ/maxX there.
-      const bbox = itemBbox(item);
-      if (
-        (!options.collections?.length ||
-          (item.collection && options.collections.includes(item.collection))) &&
-        (!options.bbox || (bbox && intersects(bbox, options.bbox))) &&
-        inTime(item, options.datetime)
-      ) {
-        items.push(item);
+  let reads = 0;
+
+  const accepts = (item: StacItem): boolean => {
+    // itemBbox flattens 3D (6-element) bboxes; item.bbox[2]/[3] would be minZ/maxX there.
+    const bbox = itemBbox(item);
+    if (options.collections?.length && !options.collections.includes(item.collection ?? "")) {
+      return false;
+    }
+    if (options.bbox && !(bbox && intersects(bbox, options.bbox))) return false;
+    return inTime(item, options.datetime);
+  };
+
+  const takeBatch = (): Pending[] => {
+    const room = Math.min(
+      STATIC_SEARCH_CONCURRENCY,
+      limit - found.length,
+      STATIC_SEARCH_READS_PER_PAGE - reads,
+    );
+    const batch: Pending[] = [];
+    while (batch.length < room && (walk.items.length || walk.folders.length)) {
+      const from = walk.items.length ? walk.items : walk.folders;
+      const entry = from.shift()!;
+      if (walk.visited.has(entry.url)) continue;
+      walk.visited.add(entry.url);
+      batch.push({ entry, from });
+    }
+    return batch;
+  };
+
+  /**
+   * A batch leaves its queue before the requests go out, so a failed read has to put the entry
+   * back or it is lost, and a folder takes its subtree with it. Twice failed is dropped.
+   */
+  const read = async ({ entry, from }: Pending): Promise<Record<string, unknown> | undefined> => {
+    if (entry.document) return entry.document;
+    try {
+      return await fetchJson<Record<string, unknown>>(
+        entry.url,
+        { signal: options.signal },
+        fetcher,
+      );
+    } catch {
+      if (entry.retried) {
+        walk.dropped += 1;
+        return undefined;
       }
-      continue;
+      walk.visited.delete(entry.url);
+      from.unshift({ url: entry.url, retried: true });
+      return undefined;
     }
-    for (const link of linksOf(document.links, current.url)) {
-      if (link.rel === "item" || link.rel === "child") queue.push({ url: link.href });
+  };
+
+  const collect = (document: Record<string, unknown>, url: string): void => {
+    if (document.type !== "Feature") {
+      for (const link of linksOf(document.links, url)) {
+        if (link.rel === "item") walk.items.push({ url: link.href });
+        else if (link.rel === "child") walk.folders.push({ url: link.href });
+      }
+      return;
     }
+    if (!isStacItem(document)) return;
+    const item = normalizeItem(document, url);
+    if (accepts(item)) found.push(item);
+  };
+
+  while (found.length < limit && reads < STATIC_SEARCH_READS_PER_PAGE) {
+    const batch = takeBatch();
+    if (!batch.length) break;
+    reads += batch.length;
+    const documents = await Promise.all(batch.map(read));
+    documents.forEach((document, index) => {
+      if (document) collect(document, batch[index].entry.url);
+    });
   }
-  return { items, matched: items.length };
+
+  const offset = walk.offset + found.length;
+  const done = !walk.items.length && !walk.folders.length;
+  // Counting every page, not the last: the panel accumulates, so a page total reads "25 of 5".
+  // A dropped document leaves part of the catalog unread, so the count is no longer a total.
+  if (done) return { items: found, matched: walk.dropped ? undefined : offset };
+  walk.offset = offset;
+  return { items: found, cursor: walk };
 }
 
 export function itemBbox(item: StacItem): [number, number, number, number] | undefined {

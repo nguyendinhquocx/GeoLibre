@@ -583,6 +583,8 @@
       "errorMissingCrs": "Sistem koordinat kelas fitur ini tidak dapat terdeteksi. Masukkan CRS sumbernya untuk menambahkannya."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "Buku kerja Excel tidak memiliki lembar kerja yang berisi data.",
+      "worksheet": "Lembar kerja",
       "defaultName": "Layer Teks Berpembatas",
       "sampleLabel": "Kota-kota AS",
       "errorChooseFile": "Pilih file teks berpembatas.",
@@ -2504,7 +2506,7 @@
       "terrain": "Medan",
       "remoteSensing": "Penginderaan Jauh",
       "projection": "Proyeksi",
-      "geolibre": "GeoLibre",
+      "geolibre": "Kotak alat GeoLibre",
       "subGroupGeometry": "Geometri",
       "subGroupOverlay": "Overlay",
       "subGroupJoin": "Gabungan",
@@ -2575,10 +2577,15 @@
       "arcgisImportComplete": "Proyek ArcGIS Pro diimpor",
       "arcgisImportWarnings_other": "Proyek berhasil diimpor, tetapi {{count}} layer tidak dapat dimuat.",
       "arcgisUnknownLayerType": "tidak diketahui",
+      "importWarningLayerCount_other": "{{count}} layer",
+      "showLayerNames": "Tampilkan nama layer",
+      "hideLayerNames": "Sembunyikan nama layer",
       "arcgisImportReason": {
         "layer-type": "Tipe layer {{layerType}} tidak didukung.",
         "missing-source": "Layer tidak memiliki sumber data lokal yang dapat dibaca.",
         "format": "Format data layer tidak didukung.",
+        "file-geodatabase": "Sumber File Geodatabase (.gdb) tidak dimuat dari proyek. Di GeoLibre Desktop, tambahkan melalui Tambah Data → File Geodatabase (GDB).",
+        "file-geodatabase-raster": "Dataset raster yang disimpan dalam File Geodatabase (.gdb) tidak didukung. Ekspor raster ke GeoTIFF lalu tambahkan sebagai layer raster.",
         "network-path": "Jalur berbagi jaringan tidak dimuat karena alasan keamanan.",
         "service": "Layer layanan ArcGIS di dalam proyek belum didukung.",
         "browser-local-file": "Berkas lokal dirujuk, tetapi peramban tidak dapat membuka kembali jalur data ArcGIS Pro. Gunakan GeoLibre Desktop untuk memuatnya.",
@@ -5220,6 +5227,7 @@
     "cogConvertConfirm": "\"{{name}}\" adalah GeoTIFF biasa (bergaris), yang tidak dapat ditampilkan langsung. Konversi ke Cloud-Optimized GeoTIFF sekarang dan muat itu?",
     "cogConvertRemoteConfirm": "\"{{name}}\" adalah GeoTIFF biasa (bergaris), yang tidak dapat ditampilkan langsung. Menampilkannya berarti mengunduh seluruh file dan mengonversinya menjadi Cloud-Optimized GeoTIFF di browser, yang bisa lambat dan menguras memori untuk file besar. Lanjutkan?",
     "cogConvertLargeConfirm": "\"{{name}}\" adalah GeoTIFF {{width}}×{{height}} besar yang bukan Cloud-Optimized GeoTIFF. Mengonversinya di browser mungkin lambat dan menguras memori. Konversi dan muat saja?",
+    "cogConvertTooLarge": "\"{{name}}\" terlalu besar untuk dikonversi dengan aman di browser. Konversikan menjadi Cloud-Optimized GeoTIFF dengan gdal_translate atau rio cogeo, lalu muat hasilnya.",
     "cogConvertFailed": "Tidak dapat mengonversi \"{{name}}\" menjadi Cloud-Optimized GeoTIFF. Coba konversi dengan gdal_translate atau rio cogeo, lalu muat hasilnya.",
     "rasterDownloadFailed": "Tidak dapat mengunduh \"{{name}}\". Server mungkin lambat, tidak dapat dijangkau, atau memblokir permintaan lintas asal, atau file mungkin terlalu besar untuk disimpan dalam memori. Periksa URL dan coba lagi.",
     "rasterNotGeotiff": "\"{{name}}\" tidak mengembalikan GeoTIFF. Server mungkin mengirim halaman kesalahan atau login sebagai gantinya. Periksa URL dan coba lagi."

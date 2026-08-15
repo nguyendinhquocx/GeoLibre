@@ -590,6 +590,8 @@
       "errorMissingCrs": "Bu öğe sınıfının koordinat sistemi algılanamadı. Eklemek için kaynak KRS'sini girin."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "Excel çalışma kitabında dolu çalışma sayfası yok.",
+      "worksheet": "Çalışma sayfası",
       "defaultName": "Sınırlayıcılı Metin Katmanı",
       "sampleLabel": "ABD şehirleri",
       "errorChooseFile": "Sınırlayıcılı bir metin dosyası seçin.",
@@ -2549,7 +2551,7 @@
       "terrain": "Arazi",
       "remoteSensing": "Uzaktan Algılama",
       "projection": "İzdüşüm",
-      "geolibre": "GeoLibre",
+      "geolibre": "GeoLibre araç kutusu",
       "subGroupGeometry": "Geometri",
       "subGroupOverlay": "Kaplama",
       "subGroupJoin": "Birleştirme",
@@ -2621,10 +2623,16 @@
       "arcgisImportWarnings_one": "Proje içe aktarıldı, ancak {{count}} katman yüklenemedi.",
       "arcgisImportWarnings_other": "Proje içe aktarıldı, ancak {{count}} katman yüklenemedi.",
       "arcgisUnknownLayerType": "bilinmiyor",
+      "importWarningLayerCount_one": "{{count}} katman",
+      "importWarningLayerCount_other": "{{count}} katman",
+      "showLayerNames": "Katman adlarını göster",
+      "hideLayerNames": "Katman adlarını gizle",
       "arcgisImportReason": {
         "layer-type": "{{layerType}} katman türü desteklenmiyor.",
         "missing-source": "Katmanın okunabilir bir yerel veri kaynağı yok.",
         "format": "Katmanın veri biçimi desteklenmiyor.",
+        "file-geodatabase": "File Geodatabase (.gdb) kaynakları projelerden yüklenmez. GeoLibre Desktop'ta bunları Veri Ekle → Dosya Coğrafi Veritabanı (GDB) ile ekleyin.",
+        "file-geodatabase-raster": "Dosya Coğrafi Veritabanında (.gdb) saklanan raster veri kümeleri desteklenmiyor. Rasteri GeoTIFF olarak dışa aktarın ve raster katmanı olarak ekleyin.",
         "network-path": "Ağ paylaşımı yolları güvenlik nedeniyle yüklenmez.",
         "service": "Projelerdeki ArcGIS servis katmanları henüz desteklenmiyor.",
         "browser-local-file": "Yerel dosyaya başvuruluyor, ancak tarayıcılar ArcGIS Pro veri yollarını yeniden açamaz. Yüklemek için GeoLibre Desktop kullanın.",
@@ -5294,6 +5302,7 @@
     "cogConvertConfirm": "\"{{name}}\", doğrudan görüntülenemeyen düz (şeritli) bir GeoTIFF'tir. Şimdi Bulut Optimizeli bir GeoTIFF'e dönüştürülüp yüklensin mi?",
     "cogConvertRemoteConfirm": "\"{{name}}\", doğrudan görüntülenemeyen düz (şeritli) bir GeoTIFF'tir. Görüntülemek, tüm dosyayı indirmeyi ve tarayıcıda Bulut Optimizeli bir GeoTIFF'e dönüştürmeyi gerektirir; bu büyük dosyalar için yavaş ve bellek yoğun olabilir. Devam edilsin mi?",
     "cogConvertLargeConfirm": "\"{{name}}\", Bulut Optimizeli bir GeoTIFF olmayan büyük bir {{width}}×{{height}} GeoTIFF'tir. Tarayıcıda dönüştürmek yavaş ve bellek yoğun olabilir. Yine de dönüştürülüp yüklensin mi?",
+    "cogConvertTooLarge": "\"{{name}}\", tarayıcıda güvenli bir şekilde dönüştürülemeyecek kadar büyük. gdal_translate veya rio cogeo ile Cloud-Optimized GeoTIFF'e dönüştürün, ardından sonucu yükleyin.",
     "cogConvertFailed": "\"{{name}}\" bir Bulut Optimizeli GeoTIFF'e dönüştürülemedi. gdal_translate veya rio cogeo ile dönüştürmeyi deneyin, ardından sonucu yükleyin.",
     "rasterDownloadFailed": "\"{{name}}\" indirilemedi. Sunucu yavaş, erişilemez olabilir, çapraz kaynak isteklerini engelliyor olabilir, ya da dosya bellekte tutulamayacak kadar büyük olabilir. URL'yi kontrol edip tekrar deneyin.",
     "rasterNotGeotiff": "\"{{name}}\" bir GeoTIFF döndürmedi. Sunucu, bunun yerine bir hata veya oturum açma sayfası göndermiş olabilir. URL'yi kontrol edip tekrar deneyin."

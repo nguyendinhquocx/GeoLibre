@@ -11,7 +11,6 @@ import {
   type ProjectPreferences,
   type RuntimeEnvironmentVariable,
 } from "@geolibre/core";
-import { closeRightPanel, collapseRightPanel, openRightPanel } from "@geolibre/plugins";
 import {
   Button,
   Dialog,
@@ -91,6 +90,7 @@ import { COMMENTS_PANEL_ID } from "../../hooks/useRegisterCommentsPanel";
 import { useRightPanelState } from "../../hooks/useRightPanels";
 import type { ThemeMode } from "../../hooks/useThemeMode";
 import { isTauri } from "../../lib/is-tauri";
+import { applyRightPanelVisibility } from "../../lib/persisted-right-panel";
 import { COORDINATE_FORMATS, normalizeCoordinateFormat } from "../../lib/coordinate-format";
 import { THEME_SCHEMES, normalizeHexColor, type ThemeScheme } from "../../lib/theme-schemes";
 import { IS_MAS_BUILD } from "../../lib/build-flags";
@@ -417,33 +417,17 @@ export function SettingsDialog({
   const showSettingsItem = (id: string) => isMenuItemVisible(desktopSettings.uiProfile, id);
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<SettingsSection>("map");
-  // The Browser is a dockable right panel (open/close via the registry), not a
-  // persisted layout preference, so its Layout toggle acts on the live registry
-  // state directly rather than through the draft settings.
+  // Browser and Comments are dockable right panels: the registry owns whether
+  // they are on screen and `registerPersistedRightPanel` mirrors that into
+  // `layout.browserPanelVisible` / `layout.commentsPanelVisible`, so the toggle
+  // no longer resets on every launch (#1935). Because the mirror is the single
+  // writer, moving the panel is all these controls have to do: the setting
+  // follows, so the two can never disagree about what the checkbox should say.
   const rightPanelState = useRightPanelState();
   const browserPanelOpen = rightPanelState.visibleIds.includes(BROWSER_PANEL_ID);
   const commentsPanelOpen = rightPanelState.visibleIds.includes(COMMENTS_PANEL_ID);
-  // Show it collapsed on the shared Layers rail, matching its default state, so
-  // re-enabling from Settings doesn't jump to an expanded panel that buries the
-  // Layers panel.
-  const toggleBrowserPanel = (show: boolean) => {
-    if (show) {
-      openRightPanel(BROWSER_PANEL_ID);
-      collapseRightPanel(BROWSER_PANEL_ID);
-    } else {
-      closeRightPanel(BROWSER_PANEL_ID);
-    }
-  };
-  // Collapsed for the same reason as Browser above, and to match the state
-  // Comments registers itself in on mount.
-  const toggleCommentsPanel = (show: boolean) => {
-    if (show) {
-      openRightPanel(COMMENTS_PANEL_ID);
-      collapseRightPanel(COMMENTS_PANEL_ID);
-    } else {
-      closeRightPanel(COMMENTS_PANEL_ID);
-    }
-  };
+  const toggleBrowserPanel = (show: boolean) => applyRightPanelVisibility(BROWSER_PANEL_ID, show);
+  const toggleCommentsPanel = (show: boolean) => applyRightPanelVisibility(COMMENTS_PANEL_ID, show);
   // A field a deep-link asked us to focus once its section renders; cleared
   // after the focus lands so a later open without a focus request stays put.
   const [pendingFocus, setPendingFocus] = useState<SettingsFocusTarget | null>(null);
@@ -1205,6 +1189,12 @@ export function SettingsDialog({
       updates: draftDesktopSettings.updates,
       startup: draftDesktopSettings.startup,
     });
+    // The dockable panels are the one layout row nothing renders from the store:
+    // the registry owns what is on screen, so move it to match what was just
+    // saved (a no-op for a panel already there, so an untouched Save cannot
+    // collapse one the user had expanded).
+    applyRightPanelVisibility(BROWSER_PANEL_ID, draftDesktopSettings.layout.browserPanelVisible);
+    applyRightPanelVisibility(COMMENTS_PANEL_ID, draftDesktopSettings.layout.commentsPanelVisible);
     setOpen(false);
   };
 
@@ -1827,8 +1817,12 @@ export function SettingsDialog({
                       <input
                         className="h-4 w-4"
                         type="checkbox"
-                        checked={browserPanelOpen}
-                        onChange={(event) => toggleBrowserPanel(event.target.checked)}
+                        checked={draftDesktopSettings.layout.browserPanelVisible}
+                        onChange={(event) =>
+                          updateDraftLayoutSettings({
+                            browserPanelVisible: event.target.checked,
+                          })
+                        }
                       />
                       <FolderTree className="h-4 w-4 text-muted-foreground" />
                       <span>{t("settings.layout.showBrowserPanel")}</span>
@@ -1837,8 +1831,12 @@ export function SettingsDialog({
                       <input
                         className="h-4 w-4"
                         type="checkbox"
-                        checked={commentsPanelOpen}
-                        onChange={(event) => toggleCommentsPanel(event.target.checked)}
+                        checked={draftDesktopSettings.layout.commentsPanelVisible}
+                        onChange={(event) =>
+                          updateDraftLayoutSettings({
+                            commentsPanelVisible: event.target.checked,
+                          })
+                        }
                       />
                       <MessageSquare className="h-4 w-4 text-muted-foreground" />
                       <span>{t("settings.layout.showCommentsPanel")}</span>

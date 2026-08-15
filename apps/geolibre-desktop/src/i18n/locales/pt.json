@@ -590,6 +590,8 @@
       "errorMissingCrs": "Não foi possível detectar o sistema de coordenadas desta classe de feição. Digite seu CRS de origem para adicioná-la."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "A pasta de trabalho do Excel não contém planilhas com dados.",
+      "worksheet": "Planilha",
       "defaultName": "Camada de texto delimitado",
       "sampleLabel": "Cidades dos EUA",
       "errorChooseFile": "Escolha um arquivo de texto delimitado.",
@@ -2549,7 +2551,7 @@
       "terrain": "Terreno",
       "remoteSensing": "Sensoriamento remoto",
       "projection": "Projeção",
-      "geolibre": "GeoLibre",
+      "geolibre": "Caixa de ferramentas GeoLibre",
       "subGroupGeometry": "Geometria",
       "subGroupOverlay": "Sobreposição",
       "subGroupJoin": "Junção",
@@ -2621,10 +2623,16 @@
       "arcgisImportWarnings_one": "O projeto foi importado, mas {{count}} camada não pôde ser carregada.",
       "arcgisImportWarnings_other": "O projeto foi importado, mas {{count}} camadas não puderam ser carregadas.",
       "arcgisUnknownLayerType": "desconhecido",
+      "importWarningLayerCount_one": "{{count}} camada",
+      "importWarningLayerCount_other": "{{count}} camadas",
+      "showLayerNames": "Mostrar os nomes das camadas",
+      "hideLayerNames": "Ocultar os nomes das camadas",
       "arcgisImportReason": {
         "layer-type": "O tipo de camada {{layerType}} não é compatível.",
         "missing-source": "A camada não tem uma fonte de dados local legível.",
         "format": "O formato de dados da camada não é compatível.",
+        "file-geodatabase": "As fontes File Geodatabase (.gdb) não são carregadas a partir dos projetos. No GeoLibre Desktop, adicione-as em Adicionar dados → File Geodatabase (GDB).",
+        "file-geodatabase-raster": "Os conjuntos de dados raster armazenados numa File Geodatabase (.gdb) não são suportados. Exporte o raster para GeoTIFF e adicione-o como camada raster.",
         "network-path": "Caminhos de compartilhamento de rede não são carregados por motivos de segurança.",
         "service": "Camadas de serviço do ArcGIS em projetos ainda não são compatíveis.",
         "browser-local-file": "O arquivo local é referenciado, mas navegadores não conseguem reabrir caminhos de dados do ArcGIS Pro. Use o GeoLibre Desktop para carregá-lo.",
@@ -5294,6 +5302,7 @@
     "cogConvertConfirm": "\"{{name}}\" é um GeoTIFF simples (em faixas), que não pode ser exibido diretamente. Convertê-lo agora para um GeoTIFF Cloud-Optimized e carregá-lo?",
     "cogConvertRemoteConfirm": "\"{{name}}\" é um GeoTIFF simples (em faixas), que não pode ser exibido diretamente. Exibi-lo significa baixar o arquivo completo e convertê-lo para um GeoTIFF Cloud-Optimized no navegador, o que pode ser lento e consumir muita memória para arquivos grandes. Continuar?",
     "cogConvertLargeConfirm": "\"{{name}}\" é um GeoTIFF grande de {{width}}×{{height}} que não é um GeoTIFF Cloud-Optimized. Convertê-lo no navegador pode ser lento e consumir muita memória. Converter e carregar mesmo assim?",
+    "cogConvertTooLarge": "“{{name}}” é grande demais para ser convertido com segurança no navegador. Converta-o em um GeoTIFF Cloud-Optimized com gdal_translate ou rio cogeo e carregue o resultado.",
     "cogConvertFailed": "Não foi possível converter \"{{name}}\" para um GeoTIFF Cloud-Optimized. Tente convertê-lo com gdal_translate ou rio cogeo e, em seguida, carregue o resultado.",
     "rasterDownloadFailed": "Não foi possível baixar \"{{name}}\". O servidor pode estar lento, inacessível ou bloqueando solicitações entre origens, ou o arquivo pode ser grande demais para caber na memória. Verifique a URL e tente novamente.",
     "rasterNotGeotiff": "\"{{name}}\" não retornou um GeoTIFF. O servidor pode ter enviado uma página de erro ou login em vez disso. Verifique a URL e tente novamente."

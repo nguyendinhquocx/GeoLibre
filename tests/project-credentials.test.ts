@@ -206,6 +206,47 @@ describe("project credential redaction", () => {
     assert.ok(redactedPaths.includes("layers[0].connection.lastError"));
   });
 
+  it("fingerprints the credential values, not just their paths", () => {
+    // The save prompt reuses a remembered Keep only while the fingerprints
+    // match, so a different secret at an unchanged path has to change one.
+    const original = credentialProject();
+    const baseline = redactProjectCredentials(original);
+    assert.equal(baseline.redactedFingerprints.length, baseline.redactedPaths.length);
+    assert.deepEqual(
+      redactProjectCredentials(credentialProject()).redactedFingerprints,
+      baseline.redactedFingerprints,
+    );
+    assert.ok(
+      !baseline.redactedFingerprints.some((fingerprint) => fingerprint.includes("header-secret")),
+    );
+
+    const rotated = credentialProject();
+    (
+      rotated.layers[0].source.nested as { headers: { Authorization: string } }
+    ).headers.Authorization = "Bearer rotated-secret";
+    const after = redactProjectCredentials(rotated);
+    assert.deepEqual(after.redactedPaths, baseline.redactedPaths);
+    assert.notDeepEqual(after.redactedFingerprints, baseline.redactedFingerprints);
+  });
+
+  it("fails closed for a credential it cannot fingerprint", () => {
+    // A fingerprint match skips the Keep confirmation, so a value that cannot
+    // be serialized is reported rather than hashed into something that could
+    // collide with an unrelated one.
+    const project = credentialProject();
+    assert.equal(redactProjectCredentials(project).hasUnfingerprintableCredential, false);
+
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    project.layers[0].source = { token: circular };
+    const result = redactProjectCredentials(project);
+
+    assert.equal(result.hasUnfingerprintableCredential, true);
+    assert.ok(result.redactedPaths.includes("layers[0].source.token"));
+    assert.ok(!result.redactedFingerprints.some((entry) => entry.startsWith("layers[0].source.")));
+    assert.ok(!serializeProject(result.project).includes("self"));
+  });
+
   it("fails closed when configuration exceeds the traversal depth", () => {
     let nested: Record<string, unknown> = { arbitrary: "too-deep-secret" };
     for (let index = 0; index < 12; index += 1) nested = { child: nested };

@@ -590,6 +590,8 @@
       "errorMissingCrs": "Het coördinatenstelsel van deze feature class kon niet worden gedetecteerd. Voer het bron-CRS in om deze toe te voegen."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "De Excel-werkmap bevat geen niet-lege werkbladen.",
+      "worksheet": "Werkblad",
       "defaultName": "Tekstlaag met scheidingstekens",
       "sampleLabel": "Amerikaanse steden",
       "errorChooseFile": "Kies een tekstbestand met scheidingstekens.",
@@ -2549,7 +2551,7 @@
       "terrain": "Terrein",
       "remoteSensing": "Remote sensing",
       "projection": "Projectie",
-      "geolibre": "GeoLibre",
+      "geolibre": "GeoLibre-toolbox",
       "subGroupGeometry": "Geometrie",
       "subGroupOverlay": "Overlay",
       "subGroupJoin": "Join",
@@ -2621,10 +2623,16 @@
       "arcgisImportWarnings_one": "Het project is geïmporteerd, maar {{count}} laag kon niet worden geladen.",
       "arcgisImportWarnings_other": "Het project is geïmporteerd, maar {{count}} lagen konden niet worden geladen.",
       "arcgisUnknownLayerType": "onbekend",
+      "importWarningLayerCount_one": "{{count}} laag",
+      "importWarningLayerCount_other": "{{count}} lagen",
+      "showLayerNames": "Laagnamen tonen",
+      "hideLayerNames": "Laagnamen verbergen",
       "arcgisImportReason": {
         "layer-type": "Het laagtype {{layerType}} wordt niet ondersteund.",
         "missing-source": "De laag heeft geen leesbare lokale gegevensbron.",
         "format": "Het gegevensformaat van de laag wordt niet ondersteund.",
+        "file-geodatabase": "File Geodatabase-bronnen (.gdb) worden niet uit projecten geladen. Voeg ze in GeoLibre Desktop toe via Gegevens toevoegen → File Geodatabase (GDB).",
+        "file-geodatabase-raster": "Rasterdatasets in een File Geodatabase (.gdb) worden niet ondersteund. Exporteer het raster naar GeoTIFF en voeg het toe als rasterlaag.",
         "network-path": "Netwerkpaden worden om veiligheidsredenen niet geladen.",
         "service": "ArcGIS-servicelagen in projecten worden nog niet ondersteund.",
         "browser-local-file": "Er wordt naar het lokale bestand verwezen, maar browsers kunnen ArcGIS Pro-gegevenspaden niet opnieuw openen. Gebruik GeoLibre Desktop om het te laden.",
@@ -5294,6 +5302,7 @@
     "cogConvertConfirm": "\"{{name}}\" is een gewone (striped) GeoTIFF, die niet rechtstreeks kan worden weergegeven. Nu omzetten naar een Cloud-Optimized GeoTIFF en die laden?",
     "cogConvertRemoteConfirm": "\"{{name}}\" is een gewone (striped) GeoTIFF, die niet rechtstreeks kan worden weergegeven. Om deze weer te geven moet het volledige bestand worden gedownload en in de browser worden omgezet naar een Cloud-Optimized GeoTIFF, wat traag en geheugenintensief kan zijn bij grote bestanden. Doorgaan?",
     "cogConvertLargeConfirm": "\"{{name}}\" is een grote GeoTIFF van {{width}}×{{height}} die geen Cloud-Optimized GeoTIFF is. Omzetten in de browser kan traag en geheugenintensief zijn. Toch omzetten en laden?",
+    "cogConvertTooLarge": "‘{{name}}’ is te groot om veilig in de browser te converteren. Converteer het met gdal_translate of rio cogeo naar een Cloud-Optimized GeoTIFF en laad daarna het resultaat.",
     "cogConvertFailed": "\"{{name}}\" kon niet worden omgezet naar een Cloud-Optimized GeoTIFF. Probeer het te converteren met gdal_translate of rio cogeo en laad vervolgens het resultaat.",
     "rasterDownloadFailed": "\"{{name}}\" kon niet worden gedownload. De server is mogelijk traag, onbereikbaar of blokkeert cross-origin-verzoeken, of het bestand is te groot om in het geheugen te laden. Controleer de URL en probeer het opnieuw.",
     "rasterNotGeotiff": "\"{{name}}\" leverde geen GeoTIFF op. De server heeft mogelijk een foutmelding of inlogpagina teruggestuurd. Controleer de URL en probeer het opnieuw."

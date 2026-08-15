@@ -590,6 +590,8 @@
       "errorMissingCrs": "इस फ़ीचर क्लास की निर्देशांक प्रणाली का पता नहीं चल सका। इसे जोड़ने के लिए इसका स्रोत CRS दर्ज करें।"
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "Excel कार्यपुस्तिका में कोई गैर-रिक्त कार्यपत्रक नहीं है।",
+      "worksheet": "कार्यपत्रक",
       "defaultName": "डिलिमिटेड टेक्स्ट लेयर",
       "sampleLabel": "US शहर",
       "errorChooseFile": "एक डिलिमिटेड टेक्स्ट फ़ाइल चुनें।",
@@ -2549,7 +2551,7 @@
       "terrain": "भू-भाग",
       "remoteSensing": "रिमोट सेंसिंग",
       "projection": "प्रोजेक्शन",
-      "geolibre": "GeoLibre",
+      "geolibre": "GeoLibre टूलबॉक्स",
       "subGroupGeometry": "ज्यामिति",
       "subGroupOverlay": "ओवरले",
       "subGroupJoin": "जॉइन",
@@ -2621,10 +2623,16 @@
       "arcgisImportWarnings_one": "प्रोजेक्ट आयात हो गया, लेकिन {{count}} लेयर लोड नहीं की जा सकी।",
       "arcgisImportWarnings_other": "प्रोजेक्ट आयात हो गया, लेकिन {{count}} लेयर लोड नहीं की जा सकीं।",
       "arcgisUnknownLayerType": "अज्ञात",
+      "importWarningLayerCount_one": "{{count}} लेयर",
+      "importWarningLayerCount_other": "{{count}} लेयर",
+      "showLayerNames": "लेयर के नाम दिखाएँ",
+      "hideLayerNames": "लेयर के नाम छिपाएँ",
       "arcgisImportReason": {
         "layer-type": "{{layerType}} लेयर प्रकार समर्थित नहीं है।",
         "missing-source": "लेयर के पास कोई पठनीय स्थानीय डेटा स्रोत नहीं है।",
         "format": "लेयर का डेटा स्वरूप समर्थित नहीं है।",
+        "file-geodatabase": "फ़ाइल जियोडेटाबेस (.gdb) स्रोत प्रोजेक्ट से लोड नहीं किए जाते। GeoLibre Desktop में उन्हें डेटा जोड़ें → फ़ाइल जियोडेटाबेस (GDB) से जोड़ें।",
+        "file-geodatabase-raster": "फ़ाइल जियोडेटाबेस (.gdb) में संग्रहीत रास्टर डेटासेट समर्थित नहीं हैं। रास्टर को GeoTIFF में निर्यात करें और उसे रास्टर लेयर के रूप में जोड़ें।",
         "network-path": "सुरक्षा कारणों से नेटवर्क शेयर पथ लोड नहीं किए जाते।",
         "service": "प्रोजेक्ट में मौजूद ArcGIS सेवा लेयर अभी समर्थित नहीं हैं।",
         "browser-local-file": "स्थानीय फ़ाइल का संदर्भ है, लेकिन ब्राउज़र ArcGIS Pro डेटा पथ दोबारा नहीं खोल सकते। इसे लोड करने के लिए GeoLibre Desktop का उपयोग करें।",
@@ -5294,6 +5302,7 @@
     "cogConvertConfirm": "\"{{name}}\" एक सामान्य (striped) GeoTIFF है, जिसे सीधे प्रदर्शित नहीं किया जा सकता। क्या इसे अभी Cloud-Optimized GeoTIFF में बदलकर लोड करें?",
     "cogConvertRemoteConfirm": "\"{{name}}\" एक सामान्य (striped) GeoTIFF है, जिसे सीधे प्रदर्शित नहीं किया जा सकता। इसे प्रदर्शित करने के लिए पूरी फ़ाइल डाउनलोड करके ब्राउज़र में उसे Cloud-Optimized GeoTIFF में बदलना होगा, जो बड़ी फ़ाइलों के लिए धीमा और मेमोरी-गहन हो सकता है। जारी रखें?",
     "cogConvertLargeConfirm": "\"{{name}}\" एक बड़ी {{width}}×{{height}} GeoTIFF है जो Cloud-Optimized GeoTIFF नहीं है। इसे ब्राउज़र में बदलना धीमा और मेमोरी-गहन हो सकता है। फिर भी बदलकर लोड करें?",
+    "cogConvertTooLarge": "\"{{name}}\" ब्राउज़र में सुरक्षित रूप से बदलने के लिए बहुत बड़ा है। इसे gdal_translate या rio cogeo से Cloud-Optimized GeoTIFF में बदलें, फिर परिणाम लोड करें।",
     "cogConvertFailed": "\"{{name}}\" को Cloud-Optimized GeoTIFF में नहीं बदला जा सका। gdal_translate या rio cogeo से बदलने का प्रयास करें, फिर परिणाम लोड करें।",
     "rasterDownloadFailed": "\"{{name}}\" डाउनलोड नहीं की जा सकी। सर्वर धीमा, अनुपलब्ध, या क्रॉस-ओरिजिन रिक्वेस्ट ब्लॉक कर रहा हो सकता है, या फ़ाइल मेमोरी में रखने के लिए बहुत बड़ी हो सकती है। URL जांचें और पुनः प्रयास करें।",
     "rasterNotGeotiff": "\"{{name}}\" ने GeoTIFF नहीं लौटाई। सर्वर ने इसके बजाय एक त्रुटि या लॉगिन पेज भेजा हो सकता है। URL जांचें और पुनः प्रयास करें।"

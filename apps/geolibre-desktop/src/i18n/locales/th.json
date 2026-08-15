@@ -583,6 +583,8 @@
       "errorMissingCrs": "ไม่สามารถตรวจพบระบบพิกัดของคลาสฟีเจอร์นี้ได้ กรุณาป้อนระบบพิกัดต้นทางเพื่อเพิ่มเลเยอร์"
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "สมุดงาน Excel ไม่มีเวิร์กชีตที่มีข้อมูล",
+      "worksheet": "เวิร์กชีต",
       "defaultName": "เลเยอร์ข้อความคั่นด้วยตัวแบ่ง",
       "sampleLabel": "เมืองในสหรัฐฯ",
       "errorChooseFile": "เลือกไฟล์ข้อความคั่นด้วยตัวแบ่ง",
@@ -2504,7 +2506,7 @@
       "terrain": "ภูมิประเทศ",
       "remoteSensing": "การรับรู้จากระยะไกล",
       "projection": "การฉายแผนที่",
-      "geolibre": "GeoLibre",
+      "geolibre": "กล่องเครื่องมือ GeoLibre",
       "subGroupGeometry": "เรขาคณิต",
       "subGroupOverlay": "การซ้อนทับ",
       "subGroupJoin": "การเชื่อมข้อมูล",
@@ -2575,10 +2577,15 @@
       "arcgisImportComplete": "นำเข้าโปรเจกต์ ArcGIS Pro แล้ว",
       "arcgisImportWarnings_other": "นำเข้าโปรเจกต์แล้ว แต่มี {{count}} เลเยอร์ที่โหลดไม่ได้",
       "arcgisUnknownLayerType": "ไม่ทราบ",
+      "importWarningLayerCount_other": "{{count}} เลเยอร์",
+      "showLayerNames": "แสดงชื่อเลเยอร์",
+      "hideLayerNames": "ซ่อนชื่อเลเยอร์",
       "arcgisImportReason": {
         "layer-type": "ไม่รองรับเลเยอร์ชนิด {{layerType}}",
         "missing-source": "เลเยอร์นี้ไม่มีแหล่งข้อมูลในเครื่องที่อ่านได้",
         "format": "ไม่รองรับรูปแบบข้อมูลของเลเยอร์นี้",
+        "file-geodatabase": "แหล่งข้อมูล File Geodatabase (.gdb) จะไม่ถูกโหลดจากโปรเจกต์ ใน GeoLibre Desktop ให้เพิ่มผ่านเพิ่มข้อมูล → File Geodatabase (GDB)",
+        "file-geodatabase-raster": "ชุดข้อมูลแรสเตอร์ที่จัดเก็บใน File Geodatabase (.gdb) ไม่รองรับ ให้ส่งออกแรสเตอร์เป็น GeoTIFF แล้วเพิ่มเป็นเลเยอร์แรสเตอร์",
         "network-path": "ไม่โหลดพาธจากไดรฟ์ที่แชร์บนเครือข่ายด้วยเหตุผลด้านความปลอดภัย",
         "service": "ยังไม่รองรับเลเยอร์บริการของ ArcGIS ในโปรเจกต์",
         "browser-local-file": "มีการอ้างอิงไฟล์ในเครื่อง แต่เบราว์เซอร์ไม่สามารถเปิดพาธข้อมูลของ ArcGIS Pro ได้อีก กรุณาใช้ GeoLibre Desktop เพื่อโหลด",
@@ -5220,6 +5227,7 @@
     "cogConvertConfirm": "\"{{name}}\" เป็น GeoTIFF ธรรมดา (แบบแถบ) ซึ่งแสดงผลโดยตรงไม่ได้ ต้องการแปลงเป็น Cloud-Optimized GeoTIFF ตอนนี้แล้วโหลดไฟล์นั้นหรือไม่?",
     "cogConvertRemoteConfirm": "\"{{name}}\" เป็น GeoTIFF ธรรมดา (แบบแถบ) ซึ่งแสดงผลโดยตรงไม่ได้ การแสดงผลจะต้องดาวน์โหลดไฟล์ทั้งไฟล์แล้วแปลงเป็น Cloud-Optimized GeoTIFF ในเบราว์เซอร์ ซึ่งอาจช้าและใช้หน่วยความจำมากสำหรับไฟล์ขนาดใหญ่ ต้องการดำเนินการต่อหรือไม่?",
     "cogConvertLargeConfirm": "\"{{name}}\" เป็นไฟล์ GeoTIFF ขนาดใหญ่ {{width}}×{{height}} ที่ไม่ใช่ Cloud-Optimized GeoTIFF การแปลงในเบราว์เซอร์อาจช้าและใช้หน่วยความจำมาก ต้องการแปลงและโหลดต่อไปหรือไม่?",
+    "cogConvertTooLarge": "\"{{name}}\" มีขนาดใหญ่เกินกว่าจะแปลงในเบราว์เซอร์ได้อย่างปลอดภัย โปรดแปลงเป็น Cloud-Optimized GeoTIFF ด้วย gdal_translate หรือ rio cogeo แล้วโหลดผลลัพธ์",
     "cogConvertFailed": "ไม่สามารถแปลง \"{{name}}\" เป็น Cloud-Optimized GeoTIFF ได้ กรุณาลองแปลงด้วย gdal_translate หรือ rio cogeo แล้วโหลดไฟล์ผลลัพธ์",
     "rasterDownloadFailed": "ไม่สามารถดาวน์โหลด \"{{name}}\" ได้ เซิร์ฟเวอร์อาจตอบสนองช้า เข้าถึงไม่ได้ หรือบล็อกคำขอข้ามต้นทาง หรือไฟล์อาจมีขนาดใหญ่เกินกว่าจะเก็บไว้ในหน่วยความจำ กรุณาตรวจสอบ URL แล้วลองใหม่",
     "rasterNotGeotiff": "\"{{name}}\" ไม่ได้ส่งคืนไฟล์ GeoTIFF เซิร์ฟเวอร์อาจส่งหน้าข้อผิดพลาดหรือหน้าเข้าสู่ระบบมาแทน กรุณาตรวจสอบ URL แล้วลองใหม่"

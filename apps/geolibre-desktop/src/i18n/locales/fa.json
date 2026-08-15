@@ -590,6 +590,8 @@
       "errorMissingCrs": "سیستم مختصات این کلاس عارضه شناسایی نشد. برای افزودن آن، سیستم مختصات مبدأ را وارد کنید."
     },
     "delimitedText": {
+      "errorWorkbookEmpty": "کتاب کار Excel هیچ کاربرگ غیرخالی ندارد.",
+      "worksheet": "کاربرگ",
       "defaultName": "لایهٔ متن جداشده",
       "sampleLabel": "شهرهای آمریکا",
       "errorChooseFile": "یک فایل متن جداشده انتخاب کنید.",
@@ -2549,7 +2551,7 @@
       "terrain": "زمین",
       "remoteSensing": "سنجش از دور",
       "projection": "تصویر نقشه",
-      "geolibre": "GeoLibre",
+      "geolibre": "جعبه‌ابزار GeoLibre",
       "subGroupGeometry": "هندسه",
       "subGroupOverlay": "همپوشانی",
       "subGroupJoin": "پیوند",
@@ -2621,10 +2623,16 @@
       "arcgisImportWarnings_one": "پروژه وارد شد، اما بارگیری {{count}} لایه ممکن نشد.",
       "arcgisImportWarnings_other": "پروژه وارد شد، اما بارگیری {{count}} لایه ممکن نشد.",
       "arcgisUnknownLayerType": "ناشناخته",
+      "importWarningLayerCount_one": "{{count}} لایه",
+      "importWarningLayerCount_other": "{{count}} لایه",
+      "showLayerNames": "نمایش نام لایه‌ها",
+      "hideLayerNames": "پنهان کردن نام لایه‌ها",
       "arcgisImportReason": {
         "layer-type": "نوع لایهٔ {{layerType}} پشتیبانی نمی‌شود.",
         "missing-source": "این لایه هیچ منبع دادهٔ محلی خواندنی ندارد.",
         "format": "قالب دادهٔ این لایه پشتیبانی نمی‌شود.",
+        "file-geodatabase": "منابع File Geodatabase (‎.gdb) از پروژه‌ها بارگیری نمی‌شوند. در GeoLibre Desktop آن‌ها را از افزودن داده ← File Geodatabase (GDB) بیفزایید.",
+        "file-geodatabase-raster": "مجموعه‌داده‌های رستری ذخیره‌شده در File Geodatabase (‎.gdb) پشتیبانی نمی‌شوند. رستر را به GeoTIFF صادر کنید و آن را به‌عنوان لایهٔ رستری بیفزایید.",
         "network-path": "مسیرهای اشتراک شبکه به دلایل امنیتی بارگیری نمی‌شوند.",
         "service": "لایه‌های سرویس ArcGIS در پروژه‌ها هنوز پشتیبانی نمی‌شوند.",
         "browser-local-file": "به فایل محلی ارجاع شده، اما مرورگرها نمی‌توانند مسیرهای دادهٔ ArcGIS Pro را دوباره باز کنند. برای بارگیری آن از GeoLibre Desktop استفاده کنید.",
@@ -5294,6 +5302,7 @@
     "cogConvertConfirm": "«{{name}}» یک GeoTIFF ساده (نواری) است که مستقیم نمایش‌پذیر نیست. اکنون به یک GeoTIFF بهینه‌شده برای ابر تبدیل و همان بارگیری شود؟",
     "cogConvertRemoteConfirm": "«{{name}}» یک GeoTIFF ساده (نواری) است که مستقیم نمایش‌پذیر نیست. نمایش آن یعنی دانلود کل فایل و تبدیلش به یک GeoTIFF بهینه‌شده برای ابر در مرورگر، که برای فایل‌های بزرگ می‌تواند کند و پرمصرف باشد. ادامه می‌دهید؟",
     "cogConvertLargeConfirm": "«{{name}}» یک GeoTIFF بزرگ {{width}}×{{height}} است که بهینه‌شده برای ابر نیست. تبدیل آن در مرورگر ممکن است کند و پرمصرف باشد. به‌هر‌حال تبدیل و بارگیری شود؟",
+    "cogConvertTooLarge": "«{{name}}» برای تبدیل ایمن در مرورگر بیش از حد بزرگ است. آن را با gdal_translate یا rio cogeo به یک Cloud-Optimized GeoTIFF تبدیل کنید، سپس نتیجه را بارگیری کنید.",
     "cogConvertFailed": "تبدیل «{{name}}» به یک GeoTIFF بهینه‌شده برای ابر با شکست مواجه شد. آن را با gdal_translate یا rio cogeo تبدیل کنید، سپس نتیجه را بارگیری کنید.",
     "rasterDownloadFailed": "دانلود «{{name}}» با شکست مواجه شد. ممکن است سرور کند یا خارج از دسترس باشد یا درخواست‌های میان‌مبدأ را مسدود کند، یا فایل برای نگه داشتن در حافظه بسیار بزرگ باشد. نشانی را بررسی کنید و دوباره تلاش کنید.",
     "rasterNotGeotiff": "«{{name}}» یک GeoTIFF برنگرداند. ممکن است سرور به‌جای آن صفحهٔ خطا یا ورود فرستاده باشد. نشانی را بررسی کنید و دوباره تلاش کنید."

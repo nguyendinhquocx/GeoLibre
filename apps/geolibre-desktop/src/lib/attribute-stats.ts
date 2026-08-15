@@ -3,12 +3,13 @@
  * detect whether a field reads as numeric or text and compute a compact summary
  * for it (count / nulls / min / max / mean / median / std / sum / unique for
  * numbers; count / nulls / unique / most-frequent values for text). Kept free of
- * any rendering or React so they can be unit-tested in isolation, and built on
- * the same `{ properties }` rows and numeric coercion the Charts panel uses so
- * the two panels agree on what counts as a number.
+ * any rendering or React so they can be unit-tested in isolation. Field type
+ * detection respects the primitive types stored in `{ properties }`, so a text
+ * field is not reclassified just because every string parses as a number.
+ * String-only sources can explicitly retain their numeric inference behavior.
  */
 
-import { numericColumns, toFiniteNumber, type ChartRow } from "./attribute-charts";
+import { isNumericFieldValue, type ChartRow } from "./attribute-charts";
 
 export interface NumericFieldStats {
   kind: "numeric";
@@ -148,18 +149,27 @@ export function computeTextStats(
 }
 
 /**
- * Summary statistics for one field, choosing the numeric or text shape from the
- * same heuristic the Charts panel uses (`numericColumns`): a field counts as
- * numeric when enough of its populated rows parse as finite numbers. Numeric
- * fields fold their blank and non-numeric row counts into the result. Returns
- * null when `key` is not present, so callers can show an empty state.
+ * Summary statistics for one field, choosing the numeric or text shape from its
+ * stored primitive values. A field counts as numeric when at least two populated
+ * rows contain finite JavaScript numbers and those values make up at least half
+ * of the populated rows. Numeric-looking strings alone therefore remain text
+ * unless the caller adapts a string-only source before summarizing it. Numeric
+ * fields fold their blank and non-numeric row counts into the result.
  */
 export function computeFieldStats(
   rows: ChartRow[],
   key: string,
   topCount: number = DEFAULT_TOP_VALUES,
 ): FieldStats | null {
-  const isNumeric = numericColumns(rows, [key]).length > 0;
+  let numeric = 0;
+  let populated = 0;
+  for (const row of rows) {
+    const raw = row.properties[key];
+    if (raw == null || raw === "") continue;
+    populated += 1;
+    if (isNumericFieldValue(raw)) numeric += 1;
+  }
+  const isNumeric = numeric >= 2 && numeric >= populated / 2;
   if (!isNumeric) return computeTextStats(rows, key, topCount);
 
   const values: number[] = [];
@@ -171,9 +181,8 @@ export function computeFieldStats(
       nulls += 1;
       continue;
     }
-    const next = toFiniteNumber(raw);
-    if (next === null) nonNumeric += 1;
-    else values.push(next);
+    if (isNumericFieldValue(raw)) values.push(raw);
+    else nonNumeric += 1;
   }
   return computeNumericStats(values, nulls, nonNumeric);
 }
