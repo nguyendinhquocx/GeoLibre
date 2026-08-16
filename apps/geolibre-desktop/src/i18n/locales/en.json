@@ -1826,6 +1826,7 @@
       "ai": "AI Providers",
       "environmentVariables": "Environment Variables",
       "updates": "Update Settings",
+      "startupSettings": "Startup Settings",
       "managePlugins": "Manage Plugins",
       "styleManager": "Style Manager",
       "urlOverrideNote": "URL layout parameters override saved settings."
@@ -1845,7 +1846,7 @@
     },
     "startup": {
       "title": "Startup project",
-      "description": "Choose the workspace GeoLibre opens when the native app starts.",
+      "description": "Choose how GeoLibre opens a new session.",
       "mode": {
         "default": "Open the default workspace",
         "last": "Reopen the last project",
@@ -1857,7 +1858,10 @@
       },
       "chooseProject": "Choose Project",
       "noProjectSelected": "No project selected",
+      "globeByDefault": "Enable 3D globe by default",
+      "globeByDefaultHint": "Used for the untitled workspace when no startup project or project link is provided.",
       "selectError": "The selected project could not be read.",
+      "restoring": "Opening your startup project…",
       "loadWarning": "The startup project is unavailable. GeoLibre opened the default workspace instead."
     },
     "map": {
@@ -3400,6 +3404,8 @@
     "searching": "Searching STAC items…",
     "loadingMore": "Loading more items…",
     "noMatchesHere": "Nothing matched in that part of the catalog. Load more to keep searching.",
+    "treeEmpty": "Empty",
+    "treeOpenFailed": "Could not open this catalog",
     "noResults": "No STAC items matched these filters.",
     "searchFailed": "STAC search failed",
     "showing": "Showing {{count}} items.",
@@ -4378,6 +4384,7 @@
     "deleteField": "Delete field",
     "joinedColumnTitle": "Joined column, derived from a join table. Edit the join table or the join definition instead.",
     "virtualColumnTitle": "Virtual field, computed from an expression. Edit its definition in the layer's style panel instead.",
+    "trackingColumnTitle": "Editor tracking column, maintained automatically. Rename it in the layer's Editor Tracking settings.",
     "deleteFieldConfirm": "This permanently removes the field \"{{field}}\" from every feature in \"{{layer}}\". Styling or labels that reference it will be cleared. This cannot be undone.",
     "addFieldDescription": "Add a new field to every feature in \"{{layer}}\".",
     "fieldName": "Field name",
@@ -4950,6 +4957,21 @@
       "save": "Save",
       "noFields": "The layer has no attribute fields to configure.",
       "minMaxInvalid": "Min must be less than or equal to Max."
+    },
+    "editorTracking": {
+      "heading": "Editor Tracking",
+      "description": "Record who created each feature and who last changed it. The columns below are filled in automatically when features are drawn, edited, calculated, or captured.",
+      "enable": "Track edits on this layer",
+      "identity": "Your name",
+      "identityHint": "Edits will be recorded as “{{name}}”.",
+      "identityFromSession": "Taken from the collaboration session you are in.",
+      "createdByField": "Created by column",
+      "createdAtField": "Created at column",
+      "editedByField": "Edited by column",
+      "editedAtField": "Edited at column",
+      "blankName": "Column names cannot be blank.",
+      "duplicateName": "Each tracking column needs a different name.",
+      "columnTaken": "“{{name}}” is already an attribute column. Tracking would overwrite its values."
     }
   },
   "vectorExport": {
@@ -4975,6 +4997,13 @@
     "identifyInspectPixels": "Inspect pixel values",
     "identifyStopInspectPixels": "Stop inspecting pixel values",
     "identifyUnavailable": "Identify is only available for vector, WMS, and COG layers",
+    "selectFeaturesMenu": "Select features",
+    "selectFeaturesSingle": "Select features by click",
+    "selectFeaturesRectangle": "Select features by rectangle",
+    "selectFeaturesPolygon": "Select features by polygon",
+    "selectFeaturesFreehand": "Select features by freehand",
+    "selectFeaturesRadius": "Select features by radius",
+    "selectFeaturesModifiers": "Shift adds, Alt removes, and Shift+Alt intersects. Press Esc to cancel.",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "Extract subset…",
     "stylesMenu": "Styles",

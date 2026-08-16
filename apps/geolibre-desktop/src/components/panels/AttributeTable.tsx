@@ -2,13 +2,18 @@ import { useTranslation } from "react-i18next";
 import {
   attributeLinkUrl,
   coerceAttributeFormValue,
+  currentEditorIdentity,
+  editorTrackingFieldNames,
+  ensureEditorTrackingFields,
   isDuckDBQueryLayer,
+  stampFeaturePropertiesEditorTracking,
   useAppStore,
   validateAttributeFormValues,
   excludeHiddenFieldsFromGeojson,
   type AttributeFormConfig,
   type AttributeFormFieldConfig,
   type AttributeFormFieldError,
+  type EditorTrackingStampOptions,
 } from "@geolibre/core";
 import {
   getDuckDBLayerRows,
@@ -238,6 +243,7 @@ function applyDraftsToFeatures(
   features: Feature[],
   drafts: AttributeDrafts,
   formFields?: Map<string, AttributeFormFieldConfig>,
+  tracking?: EditorTrackingStampOptions,
 ): Feature[] {
   // Derived from the whole collection, so an edit to an empty cell adopts the
   // column's type rather than the cell's (absent) one.
@@ -247,7 +253,7 @@ function applyDraftsToFeatures(
     const rowDrafts = drafts[featureId];
     if (!rowDrafts) return feature;
 
-    const properties = { ...(feature.properties ?? {}) };
+    let properties: Record<string, unknown> = { ...(feature.properties ?? {}) };
     for (const [column, draft] of Object.entries(rowDrafts)) {
       const previousValue = feature.properties?.[column];
       // Skip drafts that are invalid JSON for an object-typed cell so we never
@@ -260,6 +266,13 @@ function applyDraftsToFeatures(
       properties[column] = config
         ? coerceAttributeFormValue(config, draft)
         : parseAttributeDraft(draft, previousValue, columnTypes?.get(column));
+    }
+
+    // Only the rows that carried a draft reach here, so this stamps exactly the
+    // features the user edited. Passed only on save — the export preview runs
+    // the same transform and must not record an edit that never happened.
+    if (tracking) {
+      properties = stampFeaturePropertiesEditorTracking(properties, "update", tracking);
     }
 
     return { ...feature, properties };
@@ -460,6 +473,19 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   const derivedColumns = useMemo(
     () => new Set([...joinDerivedColumns, ...virtualFieldColumns]),
     [joinDerivedColumns, virtualFieldColumns],
+  );
+  // Editor tracking columns are maintained by the app on every create/update,
+  // so a hand-typed value would be overwritten by the next edit and a rename
+  // would detach the column from the configuration that names it. They are
+  // shown, but not edited here — the Editor Tracking section owns them.
+  const trackingColumns = useMemo(
+    () => new Set(editorTrackingFieldNames(layer?.editorTracking) ?? []),
+    [layer?.editorTracking],
+  );
+  // Every column the user may not type into or restructure from this table.
+  const readOnlyColumns = useMemo(
+    () => new Set([...derivedColumns, ...trackingColumns]),
+    [derivedColumns, trackingColumns],
   );
   const features = useMemo(() => layer?.geojson?.features ?? [], [layer?.geojson]);
   const isDuckDBLayer = isDuckDBQueryLayer(layer);
@@ -745,7 +771,10 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
       if (!RESERVED_IMAGE_KEYS.has(k)) propKeys.add(k);
     }
   }
-  const discoveredColumns = Array.from(propKeys);
+  // Tracking columns are listed even before any feature carries one, so a layer
+  // that just turned tracking on shows what it is about to maintain (and the
+  // Field Calculator's "new field" name check sees them as taken).
+  const discoveredColumns = ensureEditorTrackingFields(Array.from(propKeys), layer?.editorTracking);
   const columnSettings = getColumnSettings(layer);
   // Columns rendered in the table, honoring saved order and hidden state.
   const columns = visibleColumns(discoveredColumns, columnSettings);
@@ -937,7 +966,19 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
 
     const geojson = {
       ...layer.geojson,
-      features: applyDraftsToFeatures(layer.geojson.features, drafts, formFields),
+      features: applyDraftsToFeatures(
+        layer.geojson.features,
+        drafts,
+        formFields,
+        editorTrackingFieldNames(layer.editorTracking)
+          ? {
+              config: layer.editorTracking,
+              userIdentity: currentEditorIdentity(),
+              // One timestamp for the save, so rows edited together agree.
+              timestamp: new Date().toISOString(),
+            }
+          : undefined,
+      ),
     };
 
     updateLayer(layer.id, { geojson });
@@ -1113,7 +1154,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   // The Field Calculator must not target a derived column (joined or virtual)
   // either: the calculated value would be overwritten by the re-derivation in
   // the same store update.
-  const calculatorTargetColumns = discoveredColumns.filter((col) => !derivedColumns.has(col));
+  const calculatorTargetColumns = discoveredColumns.filter((col) => !readOnlyColumns.has(col));
 
   const openCalculator = () => {
     const hasColumns = calculatorTargetColumns.length > 0;
@@ -1407,7 +1448,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              disabled={derivedColumns.has(col)}
+              disabled={readOnlyColumns.has(col)}
               onSelect={() => beginColumnRename(col)}
             >
               <Pencil className="me-2 h-3.5 w-3.5" />
@@ -1440,7 +1481,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
-              disabled={derivedColumns.has(col)}
+              disabled={readOnlyColumns.has(col)}
               onSelect={() => setColumnPendingDelete(col)}
             >
               <Trash2 className="me-2 h-3.5 w-3.5" />
@@ -1892,7 +1933,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
                             : "h-7 min-w-0 px-2 text-xs";
                         const config = formFields.get(col);
                         const current = draft ?? formatAttributeValue(value);
-                        const isEditableCell = isEditing && !derivedColumns.has(col);
+                        const isEditableCell = isEditing && !readOnlyColumns.has(col);
                         const linkUrl = isEditableCell ? null : attributeLinkUrl(value);
                         const invalidTitle = invalid
                           ? formError
@@ -1915,7 +1956,9 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
                                 ? t("attributeTable.virtualColumnTitle")
                                 : joinDerivedColumns.has(col)
                                   ? t("attributeTable.joinedColumnTitle")
-                                  : undefined
+                                  : trackingColumns.has(col)
+                                    ? t("attributeTable.trackingColumnTitle")
+                                    : undefined
                             }
                           >
                             {isEditableCell ? (

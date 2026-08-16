@@ -70,7 +70,7 @@ The project name is edited in place on the right of the toolbar, and it is saved
 
 ## Startup
 
-**Settings → Startup** chooses the workspace the desktop app opens with:
+**Settings → Startup** chooses how GeoLibre opens a new session. The installed desktop app also offers project restoration modes:
 
 | Mode | Behavior |
 | --- | --- |
@@ -78,15 +78,22 @@ The project name is edited in place on the right of the toolbar, and it is saved
 | **Reopen the last project** | Open the most recently used *local* project. |
 | **Open a specific project** | Always open one chosen project. Use **Choose Project** to pick the file; the mode stays unavailable until you have. |
 
+**Enable 3D globe by default** controls the projection of the new, untitled workspace shown when no project is provided. Turn it off to start that workspace in Mercator. A restored project or project link always uses the projection saved in that project instead.
+
 If the startup project has been moved or deleted, GeoLibre opens the default workspace instead, says so in a banner, and drops the missing file from the recent-projects list.
 
-!!! note "Desktop only"
-    This section appears only in the installed desktop app. The browser build has no persistent local file to reopen.
+!!! note "Project restoration is desktop only"
+    The browser build includes the empty-workspace projection option, but has no persistent local file to reopen, so the three project modes appear only in the installed desktop app.
 
 Two deliberate limits are worth knowing:
 
 - **Only local projects are reopened.** Opening a share link records it in your recent projects by its `https://` URL, so *Reopen the last project* skips remote entries rather than fetching a third-party host on every launch.
 - **A URL always wins.** Launching with a project or `?data=` parameter in the URL skips the startup restore entirely, and so does opening your own project before the restore finishes.
+
+!!! note "Android reopens its own copy"
+    Android identifies a project picked from device storage by a temporary reference that stops working once the app's process ends — which is exactly when the startup restore runs. So on Android GeoLibre keeps a copy of the startup project in its own private storage and reopens that copy, refreshing it every time you open or save the project. Two consequences worth knowing: a project edited in another app after you last saved it in GeoLibre reopens as GeoLibre last saw it (open it again from **File → Open** to pick the newer contents back up), and a project deleted from the device still reopens from GeoLibre's copy rather than dropping out of the startup preference, because Android reports a deleted file and an expired reference the same way.
+
+    Saving a project you opened from device storage asks you where to save it, once — Android does not grant write access to a file you only picked to read. If your startup project is that project, the preference follows it to the file that save creates, so it keeps opening the copy you are actually working in.
 
 ## Updates
 

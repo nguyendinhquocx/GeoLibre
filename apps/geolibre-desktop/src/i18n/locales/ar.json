@@ -1987,6 +1987,7 @@
       "ai": "موفرو الذكاء الاصطناعي",
       "environmentVariables": "متغيرات البيئة",
       "updates": "إعدادات التحديث",
+      "startupSettings": "إعدادات بدء التشغيل",
       "managePlugins": "إدارة الإضافات",
       "styleManager": "مدير الأنماط",
       "urlOverrideNote": "تتجاوز معلمات التخطيط في عنوان URL الإعدادات المحفوظة."
@@ -2018,7 +2019,10 @@
       },
       "chooseProject": "اختيار مشروع",
       "noProjectSelected": "لم يُحدد أي مشروع",
+      "globeByDefault": "تفعيل الكرة الأرضية ثلاثية الأبعاد افتراضيًا",
+      "globeByDefaultHint": "تُستخدم لمساحة العمل بلا عنوان عندما لا يُحدَّد مشروع بدء تشغيل أو رابط مشروع.",
       "selectError": "تعذر قراءة المشروع المحدد.",
+      "restoring": "جارٍ فتح مشروع بدء التشغيل…",
       "loadWarning": "مشروع بدء التشغيل غير متاح. فتح GeoLibre مساحة العمل الافتراضية بدلاً منه."
     },
     "map": {
@@ -3612,6 +3616,9 @@
     "resultsCleared": "تم مسح نتائج البحث.",
     "searching": "جارٍ البحث عن عناصر STAC…",
     "loadingMore": "جارٍ تحميل مزيد من العناصر…",
+    "noMatchesHere": "لا توجد نتائج مطابقة في هذا الجزء من الكتالوج. حمّل المزيد لمواصلة البحث.",
+    "treeEmpty": "فارغ",
+    "treeOpenFailed": "تعذّر فتح هذا الكتالوج",
     "noResults": "لا توجد عناصر STAC مطابقة لعوامل التصفية هذه.",
     "searchFailed": "فشل بحث STAC",
     "showing": "العناصر المعروضة: {{count}}.",
@@ -4650,6 +4657,7 @@
     "deleteField": "حذف الحقل",
     "joinedColumnTitle": "عمود مرتبط مشتق من جدول ربط. عدّل جدول الربط أو تعريف الربط بدلاً من ذلك.",
     "virtualColumnTitle": "حقل افتراضي محسوب من تعبير. عدّل تعريفه في لوحة نمط الطبقة بدلاً من ذلك.",
+    "trackingColumnTitle": "حقل تتبّع التحرير، يُدار تلقائيًا. أعد تسميته من إعدادات تتبّع التحرير للطبقة.",
     "deleteFieldConfirm": "سيؤدي هذا إلى إزالة الحقل \"{{field}}\" نهائيًا من كل معلم في \"{{layer}}\". وسيُمسح أي نمط أو تسميات تشير إليه. لا يمكن التراجع عن هذا الإجراء.",
     "addFieldDescription": "أضف حقلًا جديدًا إلى كل معلم في \"{{layer}}\".",
     "fieldName": "اسم الحقل",
@@ -5238,6 +5246,21 @@
       "save": "حفظ",
       "noFields": "لا تحتوي الطبقة على حقول سمات للتكوين.",
       "minMaxInvalid": "يجب أن يكون الحد الأدنى أقل من أو يساوي الحد الأقصى."
+    },
+    "editorTracking": {
+      "heading": "تتبع التحرير",
+      "description": "سجّل من أنشأ كل معلم ومن غيّره آخر مرة. تُملأ الحقول أدناه تلقائيًا عند رسم المعالم أو تحريرها أو حسابها أو جمعها.",
+      "enable": "تتبّع التعديلات في هذه الطبقة",
+      "identity": "اسمك",
+      "identityHint": "ستُسجَّل التعديلات باسم ”{{name}}“.",
+      "identityFromSession": "مأخوذ من جلسة التعاون التي تشارك فيها.",
+      "createdByField": "حقل ”أنشأه“",
+      "createdAtField": "حقل ”تاريخ الإنشاء“",
+      "editedByField": "حقل ”عدّله“",
+      "editedAtField": "حقل ”تاريخ التعديل“",
+      "blankName": "لا يمكن ترك أسماء الحقول فارغة.",
+      "duplicateName": "يجب أن يكون لكل حقل تتبّع اسم مختلف.",
+      "columnTaken": "”{{name}}“ حقل سمات موجود بالفعل. سيؤدي التتبّع إلى الكتابة فوق قيمه."
     }
   },
   "vectorExport": {
@@ -5263,6 +5286,13 @@
     "identifyInspectPixels": "فحص قيم البكسل",
     "identifyStopInspectPixels": "إيقاف فحص قيم البكسل",
     "identifyUnavailable": "التعرف متاح فقط لطبقات المتجهات وWMS وCOG",
+    "selectFeaturesMenu": "تحديد المعالم",
+    "selectFeaturesSingle": "تحديد المعالم بالنقر",
+    "selectFeaturesRectangle": "تحديد المعالم بمستطيل",
+    "selectFeaturesPolygon": "تحديد المعالم بمضلع",
+    "selectFeaturesFreehand": "تحديد المعالم برسم حر",
+    "selectFeaturesRadius": "تحديد المعالم بنصف قطر",
+    "selectFeaturesModifiers": "Shift يضيف، وAlt يزيل، وShift+Alt يتقاطع. اضغط Esc للإلغاء.",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "استخراج مجموعة فرعية…",
     "stylesMenu": "الأنماط",

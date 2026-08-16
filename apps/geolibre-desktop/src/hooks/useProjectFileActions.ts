@@ -33,8 +33,10 @@ import {
   RecentProjectGoneError,
   saveProjectFile,
   saveProjectFileToPath,
+  saveStartupProjectSnapshot,
   saveTextFileWithFallback,
 } from "../lib/tauri-io";
+import { useDesktopSettingsStore } from "./useDesktopSettings";
 import { buildProjectHtml } from "../lib/html-export";
 import { ensureHtmlFileName, ensureProjectFileName } from "../lib/file-names";
 import { mergeStringLists } from "../lib/string-lists";
@@ -51,6 +53,7 @@ import {
   saveChoicesForProject,
   type ProjectSaveChoices,
 } from "../lib/project-save-choices";
+import { startupSettingsAfterForcedSaveAs } from "../lib/startup-project";
 import { resolveProjectXyzLayers } from "../lib/xyz-url";
 import {
   importQgisProject,
@@ -338,6 +341,19 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     settleSaveNamePrompt,
   ]);
 
+  // On Android a project lives behind a `content://` URI whose read grant dies
+  // with the process, so the startup restore has nothing to reopen on the next
+  // launch (GeoLibre#1948). Keep a copy in the app's own storage whenever the
+  // startup preference points at the project being opened or saved. Fire and
+  // forget: a failed copy is logged inside and must not fail the open or save.
+  const rememberStartupProjectSnapshot = (path: string, text: string) => {
+    void saveStartupProjectSnapshot(
+      path,
+      text,
+      useDesktopSettingsStore.getState().desktopSettings.startup,
+    );
+  };
+
   const handleOpenFromFile = async () => {
     const result = await openProjectFile();
     if (result) {
@@ -345,6 +361,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
         loadProject(await resolveProjectXyzLayers(result.project), result.path, {
           rememberRecent: isTauri(),
         });
+        rememberStartupProjectSnapshot(result.path, result.text);
       } catch (error) {
         console.error("Failed to open project", error);
         setActionError(
@@ -685,6 +702,13 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       const project = await resolveProjectXyzLayers(result.project, controller.signal);
       if (controller.signal.aborted) return null;
       loadProject(project, result.path);
+      // `loadProject` moves this path to the front of the recent list, so in
+      // "last" mode it is now the project the next launch will reopen. Without
+      // this, reopening an older project from the recent list would leave the
+      // copy on disk holding whichever project was opened through the picker
+      // last, and the next cold start would find no copy matching the path it
+      // resolves (GeoLibre#1948 review).
+      rememberStartupProjectSnapshot(result.path, result.text);
       return null;
     } catch (error) {
       if (controller.signal.aborted) return null;
@@ -1107,6 +1131,23 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       name: project.name,
       openedAt: new Date().toISOString(),
     });
+    // An ordinary Save that landed somewhere else is Android refusing to write
+    // the picked document and the save dialog creating a new one in its place
+    // (GeoLibre#1833). Move a startup preference pinned to the old document
+    // across, or it keeps naming one nothing can open again. Before the copy
+    // below, so that copy lands in the slot the moved preference resolves to.
+    const startupSettings = useDesktopSettingsStore.getState().desktopSettings;
+    const movedStartup = options?.saveAs
+      ? null
+      : startupSettingsAfterForcedSaveAs(startupSettings.startup, existingLocalPath, path);
+    if (movedStartup) {
+      useDesktopSettingsStore
+        .getState()
+        .setDesktopSettings({ ...startupSettings, startup: movedStartup });
+    }
+    // Refresh the restorable copy so a startup restore reopens what was just
+    // saved rather than the state the project was opened in.
+    rememberStartupProjectSnapshot(path, contentToSave);
     markSaved();
     recordExplicitProjectSave();
     return true;

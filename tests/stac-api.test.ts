@@ -5,6 +5,7 @@ import {
   connectStac,
   isVisualizableAsset,
   itemBbox,
+  openCatalogNode,
   searchStacApi,
   searchStaticStac,
 } from "../packages/plugins/src/plugins/stac-api";
@@ -54,6 +55,614 @@ test("connectStac discovers relative API links and collections", async () => {
     ["landsat"],
   );
   assert.deepEqual(calls, ["https://example.com/stac/", "https://example.com/stac/collections"]);
+});
+
+test("connectStac reads only the root of a static catalog", async () => {
+  const fetched: string[] = [];
+  const fetcher = (async (input: RequestInfo | URL) => {
+    fetched.push(String(input));
+    return jsonResponse({
+      type: "Catalog",
+      id: "warehouse",
+      links: [
+        { rel: "child", href: "./topics/catalog.json", title: "Serving Topics" },
+        { rel: "child", href: "./maps/collection.json", title: "Geologic Maps" },
+        { rel: "child", href: "./unlabelled/thing.json" },
+      ],
+    });
+  }) as typeof fetch;
+
+  const connection = await connectStac("https://example.com/stac/catalog.json", fetcher);
+  assert.equal(connection.isApi, false);
+  assert.deepEqual(fetched, ["https://example.com/stac/catalog.json"]);
+  assert.deepEqual(
+    connection.children?.map((node) => [node.title, node.kind]),
+    [
+      ["Serving Topics", "container"],
+      ["Geologic Maps", "collection"],
+      // No title, so the folder it sits in has to name it.
+      ["unlabelled", "container"],
+    ],
+  );
+});
+
+test("openCatalogNode reports what a node turned out to be and what is inside it", async () => {
+  const fetcher = (async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("collection.json")) {
+      return jsonResponse({ type: "Collection", id: "hazards", links: [] });
+    }
+    if (String(input).endsWith("scenes.json")) {
+      // A catalog is allowed to link items with no collection in between.
+      return jsonResponse({
+        type: "Catalog",
+        id: "scenes",
+        links: [
+          { rel: "item", href: "./a.json" },
+          { rel: "item", href: "./b.json" },
+          { rel: "self", href: "./scenes.json" },
+        ],
+      });
+    }
+    return jsonResponse({
+      type: "Catalog",
+      id: "topics",
+      links: [{ rel: "child", href: "./hazards/collection.json", title: "Hazards" }],
+    });
+  }) as typeof fetch;
+
+  const catalog = await openCatalogNode("https://example.com/stac/topics/catalog.json", fetcher);
+  assert.equal(catalog.items, 0);
+  assert.equal(catalog.kind, "container");
+  assert.deepEqual(
+    catalog.children.map((node) => [node.title, node.href]),
+    [["Hazards", "https://example.com/stac/topics/hazards/collection.json"]],
+  );
+
+  const collection = await openCatalogNode("https://example.com/stac/x/collection.json", fetcher);
+  assert.equal(collection.kind, "collection");
+  assert.deepEqual(collection.children, []);
+
+  // Items the node carries itself are counted, and only those: `self` is not one of them.
+  const scenes = await openCatalogNode("https://example.com/stac/scenes.json", fetcher);
+  assert.equal(scenes.items, 2);
+  assert.deepEqual(scenes.children, []);
+});
+
+test("searchStaticStac starts at the chosen collection instead of walking from the root", async () => {
+  // The root's other branch is large enough to exhaust the visit cap on its own. Walking from
+  // the root would spend the search there and return nothing for the collection asked for.
+  const bulk = Array.from({ length: 40 }, (_value, index) => ({
+    rel: "child" as const,
+    href: `bulk/${index}.json`,
+  }));
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/catalog.json": {
+      type: "Catalog",
+      id: "root",
+      links: [
+        { rel: "child", href: "./bulk/catalog.json" },
+        { rel: "child", href: "./wanted.json" },
+      ],
+    },
+    "https://example.com/stac/bulk/catalog.json": {
+      type: "Catalog",
+      id: "bulk",
+      links: bulk,
+    },
+    "https://example.com/stac/wanted.json": {
+      type: "Collection",
+      id: "wanted",
+      links: [{ rel: "item", href: "item.json" }],
+    },
+    "https://example.com/stac/item.json": {
+      type: "Feature",
+      id: "wanted-item",
+      collection: "wanted",
+      bbox: [0, 0, 1, 1],
+      geometry: null,
+      properties: { datetime: "2024-05-01T00:00:00Z" },
+      assets: {},
+    },
+  };
+  for (const link of bulk) {
+    docs[`https://example.com/stac/bulk/${link.href.split("/")[1]}`] = {
+      type: "Catalog",
+      id: link.href,
+      links: [],
+    };
+  }
+  const calls: string[] = [];
+  const fetcher = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    return jsonResponse(docs[url]);
+  }) as typeof fetch;
+
+  const result = await searchStaticStac(
+    {
+      url: "https://example.com/stac/catalog.json",
+      title: "Static",
+      isApi: false,
+      collections: [],
+      children: [],
+      root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
+    },
+    { entries: ["https://example.com/stac/wanted.json"], limit: 20 },
+    fetcher,
+  );
+
+  assert.deepEqual(
+    result.items.map((item) => item.id),
+    ["wanted-item"],
+  );
+  assert.equal(
+    calls.some((url) => url.includes("/bulk/")),
+    false,
+    "the unselected branch is never visited",
+  );
+});
+
+test("connectStac reads child links only, and names them when the link does not", async () => {
+  const fetcher = (async () =>
+    jsonResponse({
+      type: "Catalog",
+      id: "warehouse",
+      links: [
+        { rel: "self", href: "./catalog.json" },
+        { rel: "root", href: "./catalog.json" },
+        { rel: "parent", href: "../catalog.json" },
+        { rel: "item", href: "./scene.json", title: "A scene, not a folder" },
+        { rel: "child", href: "./maps/collection.json", title: "Geologic Maps" },
+        // A bare % is legal in a path and fatal to decodeURIComponent.
+        { rel: "child", href: "./100%_coverage/catalog.json" },
+        { rel: "child", href: "./UPPER/CATALOG.JSON" },
+        { rel: "child", href: "./quads/" },
+        // At the root there is no folder to borrow a name from.
+        { rel: "child", href: "/standalone.json" },
+      ],
+    })) as typeof fetch;
+
+  const connection = await connectStac("https://example.com/stac/catalog.json", fetcher);
+  assert.deepEqual(
+    connection.children?.map((node) => [node.title, node.kind]),
+    [
+      ["Geologic Maps", "collection"],
+      ["100%_coverage", "container"],
+      ["UPPER", "container"],
+      ["quads", "container"],
+      ["standalone", "container"],
+    ],
+  );
+});
+
+test("connectStac offers no tree for an API, which is searched through its endpoint", async () => {
+  // NASA's CMR is an API that also lists a sub-catalog per provider, but its root search endpoint
+  // 404s — only each provider's own answers — so those branches cannot be searched from here.
+  const fetcher = (async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("/collections")) return jsonResponse({ collections: [] });
+    return jsonResponse({
+      type: "Catalog",
+      id: "api",
+      conformsTo: ["https://api.stacspec.org/v1.0.0/item-search"],
+      links: [
+        { rel: "data", href: "./collections" },
+        { rel: "child", href: "./LPCLOUD/catalog.json", title: "LPCLOUD" },
+      ],
+    });
+  }) as typeof fetch;
+
+  const connection = await connectStac("https://example.com/stac/", fetcher);
+  assert.equal(connection.isApi, true);
+  assert.deepEqual(connection.children, []);
+});
+
+test("openCatalogNode refuses a document that is not an object", async () => {
+  const fetcher = (async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("missing.json")) return jsonResponse(null);
+    if (String(input).endsWith("list.json")) return jsonResponse([1, 2]);
+    return jsonResponse({ status: 404 }, 404);
+  }) as typeof fetch;
+
+  for (const href of ["https://example.com/missing.json", "https://example.com/list.json"]) {
+    await assert.rejects(
+      () => openCatalogNode(href, fetcher),
+      /did not return a STAC document/,
+      `${href} must not read as an empty catalog`,
+    );
+  }
+  await assert.rejects(() => openCatalogNode("https://example.com/gone.json", fetcher), /404/);
+});
+
+test("several chosen collections are searched together, and the root is not read twice", async () => {
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/catalog.json": {
+      type: "Catalog",
+      links: [{ rel: "item", href: "./root-item.json" }],
+    },
+    "https://example.com/stac/a.json": {
+      type: "Collection",
+      id: "a",
+      links: [{ rel: "item", href: "./a-item.json" }],
+    },
+    "https://example.com/stac/b.json": {
+      type: "Collection",
+      id: "b",
+      links: [{ rel: "item", href: "./b-item.json" }],
+    },
+  };
+  for (const id of ["root-item", "a-item", "b-item"]) {
+    docs[`https://example.com/stac/${id}.json`] = {
+      type: "Feature",
+      id,
+      collection: "c",
+      bbox: [0, 0, 1, 1],
+      geometry: null,
+      properties: { datetime: "2024-05-01T00:00:00Z" },
+      assets: {},
+    };
+  }
+  const reads: string[] = [];
+  const fetcher = (async (input: RequestInfo | URL) => {
+    reads.push(String(input));
+    return jsonResponse(docs[String(input)]);
+  }) as typeof fetch;
+  const connection = {
+    url: "https://example.com/stac/catalog.json",
+    title: "Static",
+    isApi: false,
+    collections: [],
+    root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
+  };
+
+  const result = await searchStaticStac(
+    connection,
+    {
+      // The root is one of the chosen entries: the caller already has that document, so asking
+      // the network for it again would be a read spent on something already in hand.
+      entries: [
+        "https://example.com/stac/a.json",
+        "https://example.com/stac/b.json",
+        connection.url,
+      ],
+      limit: 20,
+    },
+    fetcher,
+  );
+
+  assert.deepEqual(result.items.map((item) => item.id).sort(), ["a-item", "b-item", "root-item"]);
+  assert.equal(
+    reads.filter((url) => url === connection.url).length,
+    0,
+    "the root came from the connection, not from a second read",
+  );
+});
+
+test("openCatalogNode reports a collection's extent, and ignores a malformed one", async () => {
+  const extents: Record<string, unknown> = {
+    good: { spatial: { bbox: [[-114, 37, -109, 42]] } },
+    // A 3D extent carries six numbers; the map only wants the four that are horizontal.
+    deep: { spatial: { bbox: [[-114, 37, 0, -109, 42, 2000]] } },
+    empty: { spatial: { bbox: [] } },
+    words: { spatial: { bbox: [["west", "south", "east", "north"]] } },
+    short: { spatial: { bbox: [[-114, 37]] } },
+    // Half of five is not an index: the middle of an odd box is a coordinate that does not exist.
+    odd: { spatial: { bbox: [[-114, 37, 0, -109, 42]] } },
+    infinite: { spatial: { bbox: [[-114, 37, Number.POSITIVE_INFINITY, 42]] } },
+    temporalOnly: { temporal: { interval: [["2024-01-01T00:00:00Z", null]] } },
+    notAnObject: "everywhere",
+  };
+  const fetcher = (async (input: RequestInfo | URL) => {
+    const key = new URL(String(input)).pathname.slice(1).replace(".json", "");
+    return jsonResponse({ type: "Collection", id: key, links: [], extent: extents[key] });
+  }) as typeof fetch;
+
+  const bboxOf = async (key: string) =>
+    (await openCatalogNode(`https://example.com/${key}.json`, fetcher)).bbox;
+
+  assert.deepEqual(await bboxOf("good"), [-114, 37, -109, 42]);
+  assert.deepEqual(await bboxOf("deep"), [-114, 37, -109, 42]);
+  for (const key of ["empty", "words", "short", "odd", "infinite", "temporalOnly", "notAnObject"]) {
+    assert.equal(await bboxOf(key), undefined, `${key} is not an extent the map can be sent to`);
+  }
+});
+
+test("openCatalogNode gives up when the search that asked for it is called off", async () => {
+  const controller = new AbortController();
+  let seen: AbortSignal | undefined;
+  const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen = init?.signal ?? undefined;
+    if (seen?.aborted) throw new DOMException("aborted", "AbortError");
+    return jsonResponse({ type: "Catalog", links: [] });
+  }) as typeof fetch;
+
+  await openCatalogNode("https://example.com/stac/catalog.json", fetcher, controller.signal);
+  assert.equal(seen, controller.signal, "the caller's signal reaches the request");
+
+  controller.abort();
+  await assert.rejects(
+    () => openCatalogNode("https://example.com/stac/catalog.json", fetcher, controller.signal),
+    /abort/i,
+  );
+});
+
+test("a search the caller abandons stops reading", async () => {
+  // A static catalog has no index, so a walk opens documents to answer a filter. One nobody is
+  // waiting for should stop rather than read its way to the page budget.
+  const controller = new AbortController();
+  let reads = 0;
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/catalog.json": {
+      type: "Catalog",
+      links: Array.from({ length: 60 }, (_value, index) => ({
+        rel: "item",
+        href: `./item-${index}.json`,
+      })),
+    },
+  };
+  for (let index = 0; index < 60; index += 1) {
+    docs[`https://example.com/stac/item-${index}.json`] = {
+      type: "Feature",
+      id: `i${index}`,
+      collection: "c",
+      // Nothing matches, so the walk would otherwise read every one of them.
+      bbox: [100, 40, 101, 41],
+      geometry: null,
+      properties: { datetime: "2024-05-01T00:00:00Z" },
+      assets: {},
+    };
+  }
+  const fetcher = (async (input: RequestInfo | URL) => {
+    reads += 1;
+    if (reads > 12) controller.abort();
+    return jsonResponse(docs[String(input)]);
+  }) as typeof fetch;
+
+  const result = await searchStaticStac(
+    {
+      url: "https://example.com/stac/catalog.json",
+      title: "Static",
+      isApi: false,
+      collections: [],
+      root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
+    },
+    { limit: 20, bbox: [-1, -1, 1, 1], signal: controller.signal },
+    fetcher,
+  );
+
+  assert.deepEqual(result.items, []);
+  assert.ok(reads < 40, `stopped early, having read ${reads} of 60`);
+});
+
+test("a search keeps the collection filter it began with as later pages arrive", async () => {
+  // The tree's selection can change between Load more clicks; the filter must not follow it, or
+  // one accumulated list ends up filtered two ways.
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/catalog.json": {
+      type: "Catalog",
+      links: Array.from({ length: 4 }, (_value, index) => ({
+        rel: "item",
+        href: `./item-${index}.json`,
+      })),
+    },
+  };
+  for (let index = 0; index < 4; index += 1) {
+    docs[`https://example.com/stac/item-${index}.json`] = {
+      type: "Feature",
+      id: `i${index}`,
+      collection: index % 2 === 0 ? "a" : "b",
+      bbox: [0, 0, 1, 1],
+      geometry: null,
+      properties: { datetime: "2024-05-01T00:00:00Z" },
+      assets: {},
+    };
+  }
+  const fetcher = (async (input: RequestInfo | URL) =>
+    jsonResponse(docs[String(input)])) as typeof fetch;
+  const connection = {
+    url: "https://example.com/stac/catalog.json",
+    title: "Static",
+    isApi: false,
+    collections: [],
+    root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
+  };
+
+  const first = await searchStaticStac(connection, { limit: 1, collections: ["a"] }, fetcher);
+  assert.deepEqual(
+    first.items.map((item) => item.id),
+    ["i0"],
+  );
+  assert.ok(first.cursor);
+  // The user picks a tree entry and drops the collection filter before asking for more.
+  const second = await searchStaticStac(
+    connection,
+    { limit: 5, cursor: first.cursor, entries: ["https://example.com/stac/other.json"] },
+    fetcher,
+  );
+  assert.deepEqual(
+    second.items.map((item) => item.id),
+    ["i2"],
+    "page two filters the way page one did",
+  );
+});
+
+test("a search keeps the extent and dates it began with as later pages arrive", async () => {
+  // The panel re-reads its form on every Load more, so a filter typed mid-walk must not apply to
+  // half a list: page one set the terms.
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/catalog.json": {
+      type: "Catalog",
+      links: Array.from({ length: 4 }, (_value, index) => ({
+        rel: "item",
+        href: `./item-${index}.json`,
+      })),
+    },
+  };
+  for (let index = 0; index < 4; index += 1) {
+    docs[`https://example.com/stac/item-${index}.json`] = {
+      type: "Feature",
+      id: `i${index}`,
+      collection: "c",
+      bbox: index < 2 ? [0, 0, 1, 1] : [100, 40, 101, 41],
+      geometry: null,
+      properties: { datetime: index < 2 ? "2024-05-01T00:00:00Z" : "1999-01-01T00:00:00Z" },
+      assets: {},
+    };
+  }
+  const fetcher = (async (input: RequestInfo | URL) =>
+    jsonResponse(docs[String(input)])) as typeof fetch;
+  const connection = {
+    url: "https://example.com/stac/catalog.json",
+    title: "Static",
+    isApi: false,
+    collections: [],
+    root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
+  };
+
+  const first = await searchStaticStac(connection, { limit: 1 }, fetcher);
+  assert.deepEqual(
+    first.items.map((item) => item.id),
+    ["i0"],
+  );
+  const second = await searchStaticStac(
+    connection,
+    {
+      limit: 5,
+      cursor: first.cursor,
+      bbox: [-1, -1, 2, 2],
+      datetime: "2024-01-01T00:00:00Z/..",
+    },
+    fetcher,
+  );
+  assert.deepEqual(
+    second.items.map((item) => item.id),
+    ["i1", "i2", "i3"],
+    "an extent and a date range typed mid-walk do not apply to the rest of a started search",
+  );
+});
+
+test("an untouched tree leaves the search walking the whole catalog", async () => {
+  // The panel always passes `entries`, empty when nothing in the tree is chosen. Reading that as
+  // "search nothing" would break every default search on a static catalog.
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/catalog.json": {
+      type: "Catalog",
+      links: [{ rel: "item", href: "./only.json" }],
+    },
+    "https://example.com/stac/only.json": {
+      type: "Feature",
+      id: "only",
+      collection: "c",
+      bbox: [0, 0, 1, 1],
+      geometry: null,
+      properties: { datetime: "2024-05-01T00:00:00Z" },
+      assets: {},
+    },
+  };
+  const fetcher = (async (input: RequestInfo | URL) =>
+    jsonResponse(docs[String(input)])) as typeof fetch;
+  const connection = {
+    url: "https://example.com/stac/catalog.json",
+    title: "Static",
+    isApi: false,
+    collections: [],
+    // A catalog one level deep: items at the root, nothing to put in a tree.
+    children: [],
+    root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
+  };
+
+  const result = await searchStaticStac(connection, { entries: [], limit: 20 }, fetcher);
+  assert.deepEqual(
+    result.items.map((item) => item.id),
+    ["only"],
+  );
+  assert.equal(result.matched, 1);
+});
+
+test("a link is read as a collection however its query or fragment is written", async () => {
+  const fetcher = (async () =>
+    jsonResponse({
+      type: "Catalog",
+      links: [
+        { rel: "child", href: "./a/collection.json?version=2" },
+        { rel: "child", href: "./b/collection.json#section" },
+        { rel: "child", href: "./c/COLLECTION.JSON" },
+        { rel: "child", href: "./d/catalog.json" },
+      ],
+    })) as typeof fetch;
+
+  const connection = await connectStac("https://example.com/stac/catalog.json", fetcher);
+  assert.deepEqual(
+    connection.children?.map((node) => node.kind),
+    ["collection", "collection", "collection", "container"],
+  );
+});
+
+test("a tree selection narrows where the search starts without voiding the collection filter", async () => {
+  const docs: Record<string, unknown> = {
+    "https://example.com/stac/landsat.json": {
+      type: "Collection",
+      id: "landsat",
+      links: [
+        { rel: "child", href: "./l8/collection.json" },
+        { rel: "child", href: "./l9/collection.json" },
+      ],
+    },
+    "https://example.com/stac/l8/collection.json": {
+      type: "Collection",
+      id: "landsat-8",
+      links: [{ rel: "item", href: "./scene.json" }],
+    },
+    "https://example.com/stac/l9/collection.json": {
+      type: "Collection",
+      id: "landsat-9",
+      links: [{ rel: "item", href: "./scene.json" }],
+    },
+  };
+  for (const [id, path] of [
+    ["L8", "l8"],
+    ["L9", "l9"],
+  ]) {
+    docs[`https://example.com/stac/${path}/scene.json`] = {
+      type: "Feature",
+      id,
+      collection: `landsat-${id === "L8" ? 8 : 9}`,
+      bbox: [0, 0, 1, 1],
+      geometry: null,
+      properties: { datetime: "2024-05-01T00:00:00Z" },
+      assets: {},
+    };
+  }
+  const fetcher = (async (input: RequestInfo | URL) =>
+    jsonResponse(docs[String(input)])) as typeof fetch;
+  const connection = {
+    url: "https://example.com/stac/catalog.json",
+    title: "Static",
+    isApi: false,
+    collections: [],
+    root: { type: "Catalog", links: [] } as Record<string, unknown>,
+  };
+
+  const both = await searchStaticStac(
+    connection,
+    { entries: ["https://example.com/stac/landsat.json"], limit: 20 },
+    fetcher,
+  );
+  assert.deepEqual(both.items.map((item) => item.id).sort(), ["L8", "L9"]);
+
+  const narrowed = await searchStaticStac(
+    connection,
+    {
+      entries: ["https://example.com/stac/landsat.json"],
+      collections: ["landsat-9"],
+      limit: 20,
+    },
+    fetcher,
+  );
+  assert.deepEqual(
+    narrowed.items.map((item) => item.id),
+    ["L9"],
+    "both filters apply; neither is silently dropped",
+  );
 });
 
 test("searchStacApi sends spatial, temporal, and collection filters and follows next", async () => {
@@ -270,6 +879,7 @@ test("searchStaticStac pages through a catalog holding more items than one page 
     title: "Static",
     isApi: false,
     collections: [],
+    children: [],
     root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
   };
 
@@ -420,6 +1030,7 @@ test("a read that fails once is retried rather than dropped from the search", as
     title: "Static",
     isApi: false,
     collections: [],
+    children: [],
     root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
   };
 
@@ -513,6 +1124,7 @@ test("a document that never reads leaves the search without a total", async () =
     title: "Static",
     isApi: false,
     collections: [],
+    children: [],
     root: docs["https://example.com/stac/catalog.json"] as Record<string, unknown>,
   };
 

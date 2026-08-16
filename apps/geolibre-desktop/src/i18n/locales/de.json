@@ -1816,6 +1816,7 @@
       "ai": "KI-Anbieter",
       "environmentVariables": "Umgebungsvariablen",
       "updates": "Update-Einstellungen",
+      "startupSettings": "Starteinstellungen",
       "managePlugins": "Plugins verwalten",
       "styleManager": "Stilverwaltung",
       "urlOverrideNote": "URL-Layout-Parameter überschreiben gespeicherte Einstellungen."
@@ -1847,7 +1848,10 @@
       },
       "chooseProject": "Projekt auswählen",
       "noProjectSelected": "Kein Projekt ausgewählt",
+      "globeByDefault": "3D-Globus standardmäßig aktivieren",
+      "globeByDefaultHint": "Wird für den unbenannten Arbeitsbereich verwendet, wenn kein Startprojekt und kein Projektlink angegeben ist.",
       "selectError": "Das ausgewählte Projekt konnte nicht gelesen werden.",
+      "restoring": "Ihr Startprojekt wird geöffnet…",
       "loadWarning": "Das Startprojekt ist nicht verfügbar. GeoLibre hat stattdessen den Standardarbeitsbereich geöffnet."
     },
     "map": {
@@ -3389,6 +3393,9 @@
     "resultsCleared": "Suchergebnisse gelöscht.",
     "searching": "STAC-Objekte werden gesucht…",
     "loadingMore": "Weitere Objekte werden geladen…",
+    "noMatchesHere": "In diesem Teil des Katalogs gab es keine Treffer. Laden Sie weitere, um die Suche fortzusetzen.",
+    "treeEmpty": "Leer",
+    "treeOpenFailed": "Dieser Katalog konnte nicht geöffnet werden",
     "noResults": "Keine STAC-Objekte entsprechen diesen Filtern.",
     "searchFailed": "STAC-Suche fehlgeschlagen",
     "showing": "{{count}} Objekte werden angezeigt.",
@@ -4367,6 +4374,7 @@
     "deleteField": "Feld löschen",
     "joinedColumnTitle": "Verknüpfte Spalte, abgeleitet aus einer Verknüpfungstabelle. Bearbeiten Sie stattdessen die Tabelle oder die Verknüpfungsdefinition.",
     "virtualColumnTitle": "Virtuelles Feld, berechnet aus einem Ausdruck. Bearbeiten Sie stattdessen seine Definition im Stilbereich des Layers.",
+    "trackingColumnTitle": "Feld der Bearbeitungsverfolgung, wird automatisch gepflegt. Benennen Sie es in den Einstellungen zur Bearbeitungsverfolgung des Layers um.",
     "deleteFieldConfirm": "Dadurch wird das Feld „{{field}}“ dauerhaft aus jedem Objekt in „{{layer}}“ entfernt. Darauf verweisende Stile oder Beschriftungen werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
     "addFieldDescription": "Fügen Sie jedem Objekt in „{{layer}}“ ein neues Feld hinzu.",
     "fieldName": "Feldname",
@@ -4939,6 +4947,21 @@
       "save": "Speichern",
       "noFields": "Die Ebene hat keine Attributfelder zum Konfigurieren.",
       "minMaxInvalid": "Min muss kleiner oder gleich Max sein."
+    },
+    "editorTracking": {
+      "heading": "Bearbeitungsverfolgung",
+      "description": "Erfassen Sie, wer jedes Objekt erstellt und wer es zuletzt geändert hat. Die Felder unten werden automatisch gefüllt, wenn Objekte gezeichnet, bearbeitet, berechnet oder erfasst werden.",
+      "enable": "Bearbeitungen in diesem Layer verfolgen",
+      "identity": "Ihr Name",
+      "identityHint": "Bearbeitungen werden als „{{name}}“ erfasst.",
+      "identityFromSession": "Aus der Kollaborationssitzung übernommen, in der Sie sich befinden.",
+      "createdByField": "Feld „Erstellt von“",
+      "createdAtField": "Feld „Erstellt am“",
+      "editedByField": "Feld „Bearbeitet von“",
+      "editedAtField": "Feld „Bearbeitet am“",
+      "blankName": "Feldnamen dürfen nicht leer sein.",
+      "duplicateName": "Jedes Verfolgungsfeld benötigt einen eigenen Namen.",
+      "columnTaken": "„{{name}}“ ist bereits eine Attributspalte. Die Verfolgung würde deren Werte überschreiben."
     }
   },
   "vectorExport": {
@@ -4964,6 +4987,13 @@
     "identifyInspectPixels": "Pixelwerte untersuchen",
     "identifyStopInspectPixels": "Untersuchung der Pixelwerte beenden",
     "identifyUnavailable": "Identifizieren ist nur für Vektor-, WMS- und COG-Ebenen verfügbar",
+    "selectFeaturesMenu": "Objekte auswählen",
+    "selectFeaturesSingle": "Objekte per Klick auswählen",
+    "selectFeaturesRectangle": "Objekte per Rechteck auswählen",
+    "selectFeaturesPolygon": "Objekte per Polygon auswählen",
+    "selectFeaturesFreehand": "Objekte per Freihandzeichnung auswählen",
+    "selectFeaturesRadius": "Objekte per Radius auswählen",
+    "selectFeaturesModifiers": "Shift fügt hinzu, Alt entfernt und Shift+Alt bildet die Schnittmenge. Drücken Sie Esc zum Abbrechen.",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "Teilmenge extrahieren…",
     "stylesMenu": "Stile",

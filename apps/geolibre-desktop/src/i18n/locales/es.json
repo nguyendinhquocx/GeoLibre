@@ -1816,6 +1816,7 @@
       "ai": "Proveedores de IA",
       "environmentVariables": "Variables de entorno",
       "updates": "Configuración de actualizaciones",
+      "startupSettings": "Configuración de inicio",
       "managePlugins": "Administrar complementos",
       "styleManager": "Administrador de estilos",
       "urlOverrideNote": "Los parámetros de diseño de la URL anulan la configuración guardada."
@@ -1847,7 +1848,10 @@
       },
       "chooseProject": "Elegir proyecto",
       "noProjectSelected": "Ningún proyecto seleccionado",
+      "globeByDefault": "Activar el globo 3D de forma predeterminada",
+      "globeByDefaultHint": "Se usa para el espacio de trabajo sin título cuando no se indica un proyecto de inicio ni un enlace de proyecto.",
       "selectError": "No se pudo leer el proyecto seleccionado.",
+      "restoring": "Abriendo su proyecto de inicio…",
       "loadWarning": "El proyecto de inicio no está disponible. GeoLibre abrió el espacio de trabajo predeterminado en su lugar."
     },
     "map": {
@@ -3389,6 +3393,9 @@
     "resultsCleared": "Resultados de búsqueda borrados.",
     "searching": "Buscando elementos STAC…",
     "loadingMore": "Cargando más elementos…",
+    "noMatchesHere": "Nada coincidió en esa parte del catálogo. Carga más para seguir buscando.",
+    "treeEmpty": "Vacío",
+    "treeOpenFailed": "No se pudo abrir este catálogo",
     "noResults": "Ningún elemento STAC coincide con estos filtros.",
     "searchFailed": "Error en la búsqueda STAC",
     "showing": "Mostrando {{count}} elementos.",
@@ -4367,6 +4374,7 @@
     "deleteField": "Eliminar campo",
     "joinedColumnTitle": "Columna unida, derivada de una tabla de unión. Edita la tabla o la definición de la unión en su lugar.",
     "virtualColumnTitle": "Campo virtual, calculado a partir de una expresión. Edita su definición en el panel de estilo de la capa en su lugar.",
+    "trackingColumnTitle": "Campo de seguimiento de edición, mantenido automáticamente. Cámbiale el nombre en la configuración de seguimiento de edición de la capa.",
     "deleteFieldConfirm": "Esto elimina permanentemente el campo \"{{field}}\" de todas las entidades de \"{{layer}}\". El estilo o las etiquetas que lo referencian se borrarán. Esto no se puede deshacer.",
     "addFieldDescription": "Añada un nuevo campo a todas las entidades de \"{{layer}}\".",
     "fieldName": "Nombre del campo",
@@ -4939,6 +4947,21 @@
       "save": "Guardar",
       "noFields": "La capa no tiene campos de atributos para configurar.",
       "minMaxInvalid": "El mínimo debe ser menor o igual que el máximo."
+    },
+    "editorTracking": {
+      "heading": "Seguimiento de edición",
+      "description": "Registra quién creó cada entidad y quién la modificó por última vez. Los campos siguientes se rellenan automáticamente cuando se dibujan, editan, calculan o capturan entidades.",
+      "enable": "Registrar las ediciones de esta capa",
+      "identity": "Tu nombre",
+      "identityHint": "Las ediciones se registrarán como «{{name}}».",
+      "identityFromSession": "Tomado de la sesión de colaboración en la que estás.",
+      "createdByField": "Campo «Creado por»",
+      "createdAtField": "Campo «Creado el»",
+      "editedByField": "Campo «Editado por»",
+      "editedAtField": "Campo «Editado el»",
+      "blankName": "Los nombres de campo no pueden estar vacíos.",
+      "duplicateName": "Cada campo de seguimiento necesita un nombre distinto.",
+      "columnTaken": "«{{name}}» ya es una columna de atributos. El seguimiento sobrescribiría sus valores."
     }
   },
   "vectorExport": {
@@ -4964,6 +4987,13 @@
     "identifyInspectPixels": "Inspeccionar valores de píxel",
     "identifyStopInspectPixels": "Dejar de inspeccionar valores de píxel",
     "identifyUnavailable": "Identificar solo está disponible para capas vectoriales, WMS y COG",
+    "selectFeaturesMenu": "Seleccionar entidades",
+    "selectFeaturesSingle": "Seleccionar entidades por clic",
+    "selectFeaturesRectangle": "Seleccionar entidades por rectángulo",
+    "selectFeaturesPolygon": "Seleccionar entidades por polígono",
+    "selectFeaturesFreehand": "Seleccionar entidades a mano alzada",
+    "selectFeaturesRadius": "Seleccionar entidades por radio",
+    "selectFeaturesModifiers": "Shift añade, Alt quita y Shift+Alt interseca. Pulse Esc para cancelar.",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "Extraer subconjunto…",
     "stylesMenu": "Estilos",

@@ -18,6 +18,7 @@ export interface StacIndexCatalog {
 export interface StacLink {
   rel: string;
   href: string;
+  title?: string;
   type?: string;
   method?: string;
   body?: Record<string, unknown>;
@@ -56,7 +57,27 @@ export interface StacConnection {
   isApi: boolean;
   searchUrl?: string;
   collections: StacCollection[];
+  /** A static catalog's top-level children, to be opened on demand. Empty for an API. */
+  children?: StacCatalogNode[];
   root: Record<string, unknown>;
+}
+
+export interface StacCatalogNode {
+  href: string;
+  title: string;
+  /** A collection can be searched; a container is opened to see what is inside. Only the link
+   *  says which, so a container may turn out to be a collection once it is read. */
+  kind: "collection" | "container";
+}
+
+/** What a node turned out to be, and what it holds. */
+export interface StacOpenedNode {
+  kind: "collection" | "container";
+  children: StacCatalogNode[];
+  /** Items linked from the node itself, which a catalog is allowed to carry without a collection. */
+  items?: number;
+  /** A collection's own extent, so the map can be sent to it without reading any item. */
+  bbox?: [number, number, number, number];
 }
 
 /** A walk in progress; hand it back to continue. Mutated in place rather than copied. */
@@ -68,12 +89,16 @@ export interface StacSearchCursor {
   offset: number;
   /** Documents given up on; with any of these the catalog was not fully read. */
   dropped: number;
+  /** The filters this walk began with, so later pages filter the way page one did. */
+  filters: Pick<StacSearchOptions, "bbox" | "collections" | "datetime">;
 }
 
 export interface StacSearchOptions {
   bbox?: [number, number, number, number];
   datetime?: string;
   collections?: string[];
+  /** Documents to search instead of the whole catalog, from the tree's selection. */
+  entries?: string[];
   cursor?: StacSearchCursor;
   /** Additional STAC API Item Search members such as query, filter, sortby, or fields. */
   additional?: Record<string, unknown>;
@@ -185,6 +210,77 @@ function normalizeItem(item: StacItem, base: string): StacItem {
   return { ...item, assets, links: linksOf(item.links, base) };
 }
 
+/** Names an untitled node after the folder it sits in. */
+function folderName(href: string): string {
+  const segments = new URL(href).pathname.split("/").filter(Boolean);
+  const last = segments.at(-1);
+  // A file at the root has no folder to be named after, so its own name will have to do.
+  const named = /\.json$/i.test(last ?? "")
+    ? (segments.at(-2) ?? last?.replace(/\.json$/i, ""))
+    : last;
+  const name = named ?? href;
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    // A bare % is legal in a path and fatal to decodeURIComponent; a raw name beats no catalog.
+    return name;
+  }
+}
+
+/** The `child` links of an already-read document, as tree nodes. */
+function catalogChildren(document: Record<string, unknown>, base: string): StacCatalogNode[] {
+  return linksOf(document.links, base)
+    .filter((link) => link.rel === "child")
+    .map(
+      (link): StacCatalogNode => ({
+        href: link.href,
+        title: link.title || folderName(link.href),
+        kind: /\/collection\.json($|[?#])/i.test(link.href) ? "collection" : "container",
+      }),
+    );
+}
+
+/**
+ * The horizontal corners of a STAC bounding box, which carries elevation in its middle when it
+ * has any: four numbers or six, never an odd count — half of five is not an index.
+ */
+export function horizontalBbox(values: unknown): [number, number, number, number] | undefined {
+  if (!Array.isArray(values) || values.length < 4 || values.length % 2 !== 0) return undefined;
+  if (!values.every((value) => typeof value === "number" && Number.isFinite(value)))
+    return undefined;
+  const half = values.length / 2;
+  return [values[0], values[1], values[half], values[half + 1]];
+}
+
+/** The first spatial extent a collection declares, which covers the rest. */
+function collectionBbox(
+  document: Record<string, unknown>,
+): [number, number, number, number] | undefined {
+  const extent = document.extent;
+  if (typeof extent !== "object" || extent === null || !("spatial" in extent)) return undefined;
+  const spatial = extent.spatial;
+  if (typeof spatial !== "object" || spatial === null || !("bbox" in spatial)) return undefined;
+  const boxes = spatial.bbox;
+  return horizontalBbox(Array.isArray(boxes) ? boxes[0] : undefined);
+}
+
+export async function openCatalogNode(
+  href: string,
+  fetcher: FetchLike = fetch,
+  signal?: AbortSignal,
+): Promise<StacOpenedNode> {
+  const document = await fetchJson<Record<string, unknown>>(href, { signal }, fetcher);
+  if (typeof document !== "object" || document === null || Array.isArray(document))
+    throw new Error("The link did not return a STAC document");
+  const links = linksOf(document.links, href);
+  return {
+    kind: document.type === "Collection" ? "collection" : "container",
+    children: catalogChildren(document, href),
+    items: links.filter((link) => link.rel === "item").length,
+    bbox: collectionBbox(document),
+  };
+}
+
 export async function connectStac(
   inputUrl: string,
   fetcher: FetchLike = fetch,
@@ -229,6 +325,9 @@ export async function connectStac(
       searchLink?.href ??
       (isApi ? absoluteHref("search", url.endsWith("/") ? url : `${url}/`) : undefined),
     collections,
+    // An API is searched through its endpoint, and a branch of one can only be searched through
+    // the endpoint that branch advertises, so its hierarchy is not a way in from here.
+    children: isApi ? [] : catalogChildren(root, url),
     root,
   };
 }
@@ -341,12 +440,21 @@ export async function searchStaticStac(
   options: StacSearchOptions,
   fetcher: FetchLike = fetch,
 ): Promise<StacSearchResult> {
+  // Where a search starts and what it filters by belong to the walk, not to the call: both can
+  // change between pages, and one accumulated list filtered two ways is worse than either.
+  const roots: Unread[] = (options.entries?.length ? options.entries : [connection.url]).map(
+    // The root is already in hand, so a chosen entry that is the root costs no read. Any other
+    // entry is read here even when the tree read it to classify it: passing that document along
+    // would mean the tree holding every document it has opened, to save one request per search.
+    (url) => (url === connection.url ? { url, document: connection.root } : { url }),
+  );
   const walk = options.cursor ?? {
     items: [],
-    folders: [{ url: connection.url, document: connection.root }],
+    folders: roots,
     visited: new Set<string>(),
     offset: 0,
     dropped: 0,
+    filters: { bbox: options.bbox, collections: options.collections, datetime: options.datetime },
   };
   const found: StacItem[] = [];
   const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
@@ -355,11 +463,12 @@ export async function searchStaticStac(
   const accepts = (item: StacItem): boolean => {
     // itemBbox flattens 3D (6-element) bboxes; item.bbox[2]/[3] would be minZ/maxX there.
     const bbox = itemBbox(item);
-    if (options.collections?.length && !options.collections.includes(item.collection ?? "")) {
+    const filters = walk.filters;
+    if (filters.collections?.length && !filters.collections.includes(item.collection ?? "")) {
       return false;
     }
-    if (options.bbox && !(bbox && intersects(bbox, options.bbox))) return false;
-    return inTime(item, options.datetime);
+    if (filters.bbox && !(bbox && intersects(bbox, filters.bbox))) return false;
+    return inTime(item, filters.datetime);
   };
 
   const takeBatch = (): Pending[] => {
@@ -416,6 +525,8 @@ export async function searchStaticStac(
   };
 
   while (found.length < limit && reads < STATIC_SEARCH_READS_PER_PAGE) {
+    // Abandoned: stop, rather than read to the budget and count each cancelled read as a failure.
+    if (options.signal?.aborted) break;
     const batch = takeBatch();
     if (!batch.length) break;
     reads += batch.length;
@@ -435,15 +546,7 @@ export async function searchStaticStac(
 }
 
 export function itemBbox(item: StacItem): [number, number, number, number] | undefined {
-  if (item.bbox?.length && item.bbox.length >= 4) {
-    return [
-      item.bbox[0],
-      item.bbox[1],
-      item.bbox[item.bbox.length / 2],
-      item.bbox[item.bbox.length / 2 + 1],
-    ];
-  }
-  return undefined;
+  return horizontalBbox(item.bbox);
 }
 
 export function isVisualizableAsset(asset: StacAsset): boolean {

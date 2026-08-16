@@ -1773,6 +1773,7 @@
       "ai": "AIプロバイダー",
       "environmentVariables": "環境変数",
       "updates": "更新設定",
+      "startupSettings": "起動設定",
       "managePlugins": "プラグインを管理",
       "styleManager": "スタイルマネージャー",
       "urlOverrideNote": "URLのレイアウトパラメータは保存済みの設定より優先されます。"
@@ -1804,7 +1805,10 @@
       },
       "chooseProject": "プロジェクトを選択",
       "noProjectSelected": "プロジェクトが選択されていません",
+      "globeByDefault": "既定で3D地球儀を有効にする",
+      "globeByDefaultHint": "起動時のプロジェクトもプロジェクトリンクも指定されていない場合の、無題のワークスペースに使用されます。",
       "selectError": "選択したプロジェクトを読み取れませんでした。",
+      "restoring": "起動時のプロジェクトを開いています…",
       "loadWarning": "起動時のプロジェクトを利用できません。GeoLibreは代わりに既定のワークスペースを開きました。"
     },
     "map": {
@@ -3333,6 +3337,9 @@
     "resultsCleared": "検索結果をクリアしました。",
     "searching": "STAC アイテムを検索しています…",
     "loadingMore": "さらにアイテムを読み込んでいます…",
+    "noMatchesHere": "カタログのこの部分には一致するものがありませんでした。さらに読み込んで検索を続けてください。",
+    "treeEmpty": "空",
+    "treeOpenFailed": "このカタログを開けませんでした",
     "noResults": "これらのフィルターに一致する STAC アイテムはありません。",
     "searchFailed": "STAC 検索に失敗しました",
     "showing": "{{count}} 件のアイテムを表示しています。",
@@ -4296,6 +4303,7 @@
     "deleteField": "フィールドを削除",
     "joinedColumnTitle": "結合テーブルから導出された結合列です。代わりに結合テーブルまたは結合定義を編集してください。",
     "virtualColumnTitle": "式から計算される仮想フィールドです。代わりにレイヤのスタイルパネルで定義を編集してください。",
+    "trackingColumnTitle": "編集トラッキング フィールドです。自動的に管理されます。名前の変更はレイヤの編集トラッキング設定で行ってください。",
     "deleteFieldConfirm": "これにより、フィールド「{{field}}」が「{{layer}}」内のすべてのフィーチャから完全に削除されます。これを参照しているスタイルやラベルはクリアされます。この操作は元に戻せません。",
     "addFieldDescription": "「{{layer}}」内のすべてのフィーチャに新しいフィールドを追加します。",
     "fieldName": "フィールド名",
@@ -4864,6 +4872,21 @@
       "save": "保存",
       "noFields": "レイヤーに設定できる属性フィールドがありません。",
       "minMaxInvalid": "最小値は最大値以下である必要があります。"
+    },
+    "editorTracking": {
+      "heading": "編集トラッキング",
+      "description": "各フィーチャを誰が作成し、誰が最後に変更したかを記録します。フィーチャの描画・編集・計算・現地収集の際に、下のフィールドが自動的に入力されます。",
+      "enable": "このレイヤの編集を記録する",
+      "identity": "あなたの名前",
+      "identityHint": "編集は「{{name}}」として記録されます。",
+      "identityFromSession": "参加中の共同編集セッションから取得しています。",
+      "createdByField": "「作成者」フィールド",
+      "createdAtField": "「作成日時」フィールド",
+      "editedByField": "「更新者」フィールド",
+      "editedAtField": "「更新日時」フィールド",
+      "blankName": "フィールド名は空にできません。",
+      "duplicateName": "トラッキング フィールドにはそれぞれ異なる名前が必要です。",
+      "columnTaken": "「{{name}}」は既に属性フィールドです。トラッキングはその値を上書きします。"
     }
   },
   "vectorExport": {
@@ -4889,6 +4912,13 @@
     "identifyInspectPixels": "ピクセル値を確認",
     "identifyStopInspectPixels": "ピクセル値の確認を停止",
     "identifyUnavailable": "フィーチャ情報の取得はベクター、WMS、COGレイヤーでのみ利用できます",
+    "selectFeaturesMenu": "フィーチャを選択",
+    "selectFeaturesSingle": "クリックでフィーチャを選択",
+    "selectFeaturesRectangle": "矩形でフィーチャを選択",
+    "selectFeaturesPolygon": "ポリゴンでフィーチャを選択",
+    "selectFeaturesFreehand": "フリーハンドでフィーチャを選択",
+    "selectFeaturesRadius": "半径でフィーチャを選択",
+    "selectFeaturesModifiers": "Shiftで追加、Altで削除、Shift+Altで交差します。Escキーでキャンセルします。",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "サブセットを抽出…",
     "stylesMenu": "スタイル",

@@ -96,7 +96,7 @@ import { THEME_SCHEMES, normalizeHexColor, type ThemeScheme } from "../../lib/th
 import { IS_MAS_BUILD } from "../../lib/build-flags";
 import { resolveShareHost, shareHostLabel } from "../../lib/share-geolibre";
 import { IS_STORE_BUILD, type UpdateNotificationLevel } from "../../lib/updates";
-import { openProjectFile } from "../../lib/tauri-io";
+import { ensureStartupProjectSnapshot, openProjectFile } from "../../lib/tauri-io";
 import {
   DATA_SOURCE_CATALOG,
   DATA_SOURCE_SECTION_LABEL_KEYS,
@@ -456,7 +456,6 @@ export function SettingsDialog({
     // The Microsoft Store build has no in-app update flow to configure (policy
     // 10.2.5), so its settings section is dropped entirely.
     if (id === "updates" && IS_STORE_BUILD) return false;
-    if (id === "startup" && !isTauri()) return false;
     const gate = SECTION_GATE[id];
     return gate ? showSettingsItem(gate) : true;
   };
@@ -1189,6 +1188,13 @@ export function SettingsDialog({
       updates: draftDesktopSettings.updates,
       startup: draftDesktopSettings.startup,
     });
+    // On Android the project behind the preference just saved is reachable only
+    // until this process ends, so keep a copy the next launch can open
+    // (GeoLibre#1948). A no-op on every other platform.
+    void ensureStartupProjectSnapshot(
+      draftDesktopSettings.startup,
+      useAppStore.getState().recentProjects,
+    );
     // The dockable panels are the one layout row nothing renders from the store:
     // the registry owns what is on screen, so move it to match what was just
     // saved (a no-op for a panel already there, so an untouched Save cannot
@@ -1495,6 +1501,17 @@ export function SettingsDialog({
             >
               <DownloadCloud className="me-2 h-3.5 w-3.5" />
               {t("settings.menu.updates")}
+            </DropdownMenuItem>
+          )}
+          {isSectionVisible("startup") && (
+            <DropdownMenuItem
+              onSelect={() => {
+                setSection("startup");
+                setOpen(true);
+              }}
+            >
+              <FolderOpen className="me-2 h-3.5 w-3.5" />
+              {t("settings.menu.startupSettings")}
             </DropdownMenuItem>
           )}
           {/* The Mac App Store build has no plugin marketplace (external
@@ -2535,7 +2552,7 @@ export function SettingsDialog({
                       {t("settings.startup.description")}
                     </p>
                   </div>
-                  <div className="space-y-2">
+                  <div className={isTauri() ? "space-y-2" : "hidden"}>
                     {(["default", "last"] as const).map((mode) => (
                       <label
                         key={mode}
@@ -2583,6 +2600,22 @@ export function SettingsDialog({
                       </Button>
                     </label>
                   </div>
+                  <label className="flex items-start gap-3 rounded-md border p-3 text-sm">
+                    <input
+                      className="mt-0.5 h-4 w-4"
+                      type="checkbox"
+                      checked={draftDesktopSettings.startup.globeByDefault}
+                      onChange={(event) =>
+                        updateDraftStartupSettings({ globeByDefault: event.target.checked })
+                      }
+                    />
+                    <span className="space-y-1">
+                      <span className="block">{t("settings.startup.globeByDefault")}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {t("settings.startup.globeByDefaultHint")}
+                      </span>
+                    </span>
+                  </label>
                 </div>
               ) : null}
               {effectiveSection === "updates" ? (

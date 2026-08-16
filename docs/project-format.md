@@ -169,7 +169,14 @@ bound to a missing or non-attribute layer are shown as empty.
   },
   "metadata": {},
   "geojson": { "type": "FeatureCollection", "features": [] },
-  "sourcePath": "/path/to/file.geojson"
+  "sourcePath": "/path/to/file.geojson",
+  "editorTracking": {
+    "enabled": false,
+    "createdByField": "created_by",
+    "createdAtField": "created_at",
+    "editedByField": "edited_by",
+    "editedAtField": "edited_at"
+  }
 }
 ```
 

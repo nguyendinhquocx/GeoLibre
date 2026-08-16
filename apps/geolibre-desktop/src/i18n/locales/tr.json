@@ -1816,6 +1816,7 @@
       "ai": "AI Sağlayıcıları",
       "environmentVariables": "Ortam Değişkenleri",
       "updates": "Güncelleme Ayarları",
+      "startupSettings": "Başlangıç Ayarları",
       "managePlugins": "Eklentileri Yönet",
       "styleManager": "Stil Yöneticisi",
       "urlOverrideNote": "URL düzen parametreleri kayıtlı ayarları geçersiz kılar."
@@ -1847,7 +1848,10 @@
       },
       "chooseProject": "Proje Seç",
       "noProjectSelected": "Proje seçilmedi",
+      "globeByDefault": "3D küreyi varsayılan olarak etkinleştir",
+      "globeByDefaultHint": "Başlangıç projesi veya proje bağlantısı verilmediğinde adsız çalışma alanı için kullanılır.",
       "selectError": "Seçilen proje okunamadı.",
+      "restoring": "Başlangıç projeniz açılıyor…",
       "loadWarning": "Başlangıç projesi kullanılamıyor. GeoLibre bunun yerine varsayılan çalışma alanını açtı."
     },
     "map": {
@@ -3389,6 +3393,9 @@
     "resultsCleared": "Arama sonuçları temizlendi.",
     "searching": "STAC öğeleri aranıyor…",
     "loadingMore": "Daha fazla öğe yükleniyor…",
+    "noMatchesHere": "Kataloğun o bölümünde eşleşme bulunamadı. Aramayı sürdürmek için daha fazla yükleyin.",
+    "treeEmpty": "Boş",
+    "treeOpenFailed": "Bu katalog açılamadı",
     "noResults": "Bu filtrelerle eşleşen STAC öğesi yok.",
     "searchFailed": "STAC araması başarısız oldu",
     "showing": "{{count}} öğe gösteriliyor.",
@@ -4367,6 +4374,7 @@
     "deleteField": "Alanı sil",
     "joinedColumnTitle": "Birleştirme tablosundan türetilen birleştirilmiş sütun. Bunun yerine tabloyu veya birleştirme tanımını düzenleyin.",
     "virtualColumnTitle": "İfadeden hesaplanan sanal alan. Bunun yerine tanımını katmanın stil panelinde düzenleyin.",
+    "trackingColumnTitle": "Düzenleme takibi alanı, otomatik olarak yönetilir. Adını katmanın Düzenleme Takibi ayarlarından değiştirin.",
     "deleteFieldConfirm": "Bu işlem, \"{{field}}\" alanını \"{{layer}}\" katmanındaki her öğeden kalıcı olarak kaldırır. Buna başvuran stil veya etiketler temizlenir. Bu işlem geri alınamaz.",
     "addFieldDescription": "\"{{layer}}\" katmanındaki her öğeye yeni bir alan ekleyin.",
     "fieldName": "Alan adı",
@@ -4939,6 +4947,21 @@
       "save": "Kaydet",
       "noFields": "Katmanda yapılandırılacak öznitelik alanı yok.",
       "minMaxInvalid": "Min, Maks değerinden küçük veya ona eşit olmalıdır."
+    },
+    "editorTracking": {
+      "heading": "Düzenleme Takibi",
+      "description": "Her nesneyi kimin oluşturduğunu ve en son kimin değiştirdiğini kaydedin. Nesneler çizildiğinde, düzenlendiğinde, hesaplandığında veya toplandığında aşağıdaki alanlar otomatik doldurulur.",
+      "enable": "Bu katmandaki düzenlemeleri takip et",
+      "identity": "Adınız",
+      "identityHint": "Düzenlemeler “{{name}}” olarak kaydedilecek.",
+      "identityFromSession": "Katıldığınız iş birliği oturumundan alındı.",
+      "createdByField": "“Oluşturan” alanı",
+      "createdAtField": "“Oluşturulma zamanı” alanı",
+      "editedByField": "“Düzenleyen” alanı",
+      "editedAtField": "“Düzenlenme zamanı” alanı",
+      "blankName": "Alan adları boş olamaz.",
+      "duplicateName": "Her takip alanının farklı bir adı olmalıdır.",
+      "columnTaken": "“{{name}}” zaten bir öznitelik alanı. Takip, değerlerinin üzerine yazar."
     }
   },
   "vectorExport": {
@@ -4964,6 +4987,13 @@
     "identifyInspectPixels": "Piksel değerlerini incele",
     "identifyStopInspectPixels": "Piksel değerlerini incelemeyi durdur",
     "identifyUnavailable": "Tanımlama yalnızca vektör, WMS ve COG katmanları için kullanılabilir",
+    "selectFeaturesMenu": "Öğeleri seç",
+    "selectFeaturesSingle": "Öğeleri tıklayarak seç",
+    "selectFeaturesRectangle": "Öğeleri dikdörtgenle seç",
+    "selectFeaturesPolygon": "Öğeleri poligonla seç",
+    "selectFeaturesFreehand": "Öğeleri serbest elle seç",
+    "selectFeaturesRadius": "Öğeleri yarıçapla seç",
+    "selectFeaturesModifiers": "Shift ekler, Alt çıkarır ve Shift+Alt kesiştirir. İptal etmek için Esc'e basın.",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "Alt küme çıkar…",
     "stylesMenu": "Stiller",

@@ -5,9 +5,11 @@ import type { GeoJSONSource, MapMouseEvent, Map as MapLibreMap } from "maplibre-
 import type { GeoLibreAppAPI, GeoLibreCogLayerOptions, GeoLibrePlugin } from "../types";
 import {
   connectStac,
+  horizontalBbox,
   isVisualizableAsset,
   itemBbox,
   loadStacIndex,
+  openCatalogNode,
   searchStacApi,
   searchStaticStac,
   type StacAsset,
@@ -18,6 +20,8 @@ import {
   type StacSearchResult,
   type StacSearchCursor,
 } from "./stac-api";
+import { buildCatalogTree } from "./stac-catalog-tree";
+import { el } from "../panel-dom";
 
 export const STAC_PLUGIN_ID = "geolibre-stac-catalogs";
 const PANEL_ID = STAC_PLUGIN_ID;
@@ -114,6 +118,8 @@ export interface StacLabels {
   searching: string;
   loadingMore: string;
   noMatchesHere: string;
+  treeEmpty: string;
+  treeOpenFailed: string;
   noResults: string;
   searchFailed: string;
   loadMore: string;
@@ -182,6 +188,8 @@ let labels: StacLabels = {
   searching: "Searching STAC items…",
   loadingMore: "Loading more items…",
   noMatchesHere: "Nothing matched in that part of the catalog. Load more to keep searching.",
+  treeEmpty: "Empty",
+  treeOpenFailed: "Could not open this catalog",
   noResults: "No STAC items matched these filters.",
   searchFailed: "STAC search failed",
   loadMore: "Load more",
@@ -255,15 +263,6 @@ const style = {
     "display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid hsl(var(--border));" +
     "border-radius:7px;background:hsl(var(--muted));",
 } as const;
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 function field(label: string, type = "text"): { wrap: HTMLElement; input: HTMLInputElement } {
   const wrap = el("label");
@@ -554,6 +553,13 @@ function buildPanel(container: HTMLElement): () => void {
   // Catalogs can advertise hundreds of collections, so let the list be dragged taller.
   collectionSelect.style.cssText = `${style.input}resize:vertical;overflow:auto;min-height:58px;`;
   collectionSelect.title = labels.collectionsHint;
+  // An API answers with a flat list of collections; a static catalog is a tree read as it opens.
+  const tree = buildCatalogTree({
+    labels: { empty: labels.treeEmpty, openFailed: labels.treeOpenFailed },
+    onError: (message) => setStatus(message, true),
+    onActivate: showCollection,
+    signal: controller.signal,
+  });
   const extentRow = el("label");
   extentRow.style.cssText = style.row;
   const useExtent = el("input");
@@ -599,6 +605,7 @@ function buildPanel(container: HTMLElement): () => void {
   searchSection.append(
     catalogInfo,
     collectionSelect,
+    tree.element,
     extentRow,
     bboxField.wrap,
     drawRow,
@@ -669,6 +676,10 @@ function buildPanel(container: HTMLElement): () => void {
   let searchCursor: StacSearchCursor | undefined;
   let allItems: StacItem[] = [];
   let searchGeneration = 0;
+  /** The walk a search is doing; starting another stops it, since a static walk reads to find. */
+  let walking: AbortController | null = null;
+  /** The extent read a collection asked for, cancelled when another collection is asked for. */
+  let extentRead: AbortController | null = null;
   let cancelDraw: (() => void) | null = null;
   let selectedItemId: string | null = null;
   const cardsByItemId = new Map<string, HTMLElement>();
@@ -868,9 +879,42 @@ function buildPanel(container: HTMLElement): () => void {
     return labels.showing(allItems.length);
   };
 
-  const runSearch = async (append: boolean): Promise<void> => {
+  // A double-click means the same here as in the tree: search this one.
+  collectionSelect.addEventListener("dblclick", () => {
+    const chosen = collectionSelect.selectedOptions[0]?.value;
+    const extent = connection?.collections.find((collection) => collection.id === chosen)?.extent;
+    const box = horizontalBbox(extent?.spatial?.bbox?.[0]);
+    void runSearch(false);
+    if (box) appRef?.fitBounds?.(box);
+  });
+
+  /** The tree asked for a collection: search it, and send the map to it. */
+  function showCollection(href: string, bbox?: [number, number, number, number]): void {
+    void runSearch(false, ++searchGeneration);
+    if (bbox) return void appRef?.fitBounds?.(bbox);
+    // A collection guessed from its link has never been read, so its extent has to be fetched.
+    // Asking for a second collection cancels that read rather than letting it finish and be
+    // thrown away, so the map cannot be sent where the user no longer is.
+    extentRead?.abort();
+    const reading = new AbortController();
+    extentRead = reading;
+    const scope = AbortSignal.any([reading.signal, controller.signal]);
+    void openCatalogNode(href, fetch, scope)
+      .then((node) => {
+        if (!scope.aborted && node.bbox) appRef?.fitBounds?.(node.bbox);
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * `generation` says which search this is, so a late answer can tell whether it is still wanted.
+   * The caller may take it first, when it has its own late answer to check; taking it here would
+   * mean it moves on a call that does nothing.
+   */
+  async function runSearch(append: boolean, generation?: number): Promise<void> {
     if (!connection) return;
-    const generation = ++searchGeneration;
+    const search = generation ?? ++searchGeneration;
+
     searchButton.disabled = true;
     loadMore.disabled = true;
     setStatus(append ? labels.loadingMore : labels.searching);
@@ -881,20 +925,24 @@ function buildPanel(container: HTMLElement): () => void {
       const start = startField.input.value;
       const end = endField.input.value;
       const datetime = start || end ? `${start || ".."}/${end || ".."}` : undefined;
+      walking?.abort();
+      walking = new AbortController();
+      const reading = AbortSignal.any([walking.signal, controller.signal]);
       const options = {
         bbox: parseBbox(),
         datetime,
         collections: selectedCollections,
+        entries: connection.isApi ? [] : tree.selection(),
         additional: parseAdditionalParams(),
         limit: 20,
         next: append ? nextPage : undefined,
         cursor: append ? searchCursor : undefined,
-        signal: controller.signal,
+        signal: reading,
       };
       const response = connection.isApi
         ? await searchStacApi(connection, options)
         : await searchStaticStac(connection, options);
-      if (generation !== searchGeneration) return;
+      if (search !== searchGeneration) return;
       allItems = append ? [...allItems, ...response.items] : response.items;
       nextPage = response.next;
       searchCursor = response.cursor;
@@ -907,14 +955,16 @@ function buildPanel(container: HTMLElement): () => void {
       clearResultsButton.disabled = allItems.length === 0;
       setStatus(searchStatus(response));
     } catch (error) {
+      // A search the user has moved on from must not report its failure over the current one.
+      if (search !== searchGeneration) return;
       setStatus(error instanceof Error ? error.message : labels.searchFailed, true);
     } finally {
-      if (generation === searchGeneration) {
+      if (search === searchGeneration) {
         searchButton.disabled = false;
         loadMore.disabled = false;
       }
     }
-  };
+  }
 
   catalogSearch.input.addEventListener("input", renderCatalogs);
   catalogSelect.addEventListener("change", () => {
@@ -941,6 +991,9 @@ function buildPanel(container: HTMLElement): () => void {
       } else {
         collectionSelect.hidden = true;
       }
+      const children = connection.children ?? [];
+      tree.reset(children);
+      tree.element.hidden = connection.isApi || !children.length;
       searchSection.hidden = false;
       renderSection.hidden = false;
       clearSearchResults(false);

@@ -46,6 +46,7 @@ import {
   type LayerGroup,
   type LayerLibraryEntry,
   type AttributeFormConfig,
+  type EditorTrackingConfig,
   type LayerJoin,
   type LayerVirtualField,
   type LayerStyle,
@@ -595,6 +596,12 @@ export interface AppState {
    * the form config entirely.
    */
   setLayerAttributeForm: (id: string, attributeForm: AttributeFormConfig | undefined) => void;
+  /**
+   * Replace the layer's editor tracking configuration (whether creation/edit
+   * author and timestamp columns are maintained, and under which names). Pass
+   * `undefined` to drop the configuration entirely.
+   */
+  setLayerEditorTracking: (id: string, editorTracking: EditorTrackingConfig | undefined) => void;
   /**
    * Replace a layer's virtual fields and immediately re-derive its computed
    * columns (strip what the previous fields added, evaluate the new list).
@@ -1732,6 +1739,8 @@ export const useAppStore = create<AppState>()(
         }),
 
       setLayerAttributeForm: (id, attributeForm) => get().updateLayer(id, { attributeForm }),
+
+      setLayerEditorTracking: (id, editorTracking) => get().updateLayer(id, { editorTracking }),
 
       setLayerVirtualFields: (id, fields) =>
         set((s) => {

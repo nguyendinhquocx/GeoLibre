@@ -92,7 +92,7 @@ kepler.gl, see the [Comparison](comparison.md).
     - **Renderers**: single, categorized, graduated, expression, and rule-based (filter-driven) symbology over fill, stroke, opacity, and circle radius, plus proportional symbols, fill patterns, a built-in marker library, and point heatmap and clustering renderers — all including for Add Vector Layer point layers
     - **Color**: an inline color ramp picker that previews each colormap's gradient on the trigger and beside every option, plus a transparent (no fill / no outline) option in the color picker
     - **Rule-based renderer**: per-rule symbol properties, scale-dependent visibility, nested rules, and per-rule toggles, and it can hide features matching no rule
-    - **Style toolkit**: diagram symbology (pie, donut, and bar charts drawn on features); a symbology pack of inverted-polygon masks, arrow and marker lines, and geometry generators whose derived centroids can be sized and whose buffers can be distanced by an attribute; and data-driven proportional sizing for marker icons
+    - **Style toolkit**: diagram symbology (pie, donut, and bar charts drawn on features); a symbology pack of inverted-polygon masks, arrow and marker lines, and geometry generators whose derived centroids can be sized and whose buffer distances can be driven by an attribute; and data-driven proportional sizing for marker icons
     - **Style Manager**: saves reusable symbol, color-ramp, and label presets to a personal library and applies them across projects
     - **Interchange**: vector layer symbology imports and exports as OGC SLD, QGIS QML, Mapbox GL style JSON, and compact GeoLibre URL style JSON; URL-style exports omit feature data, carry filename-matched sources for ZIP layers, work directly with `?style=`, and can be imported back onto any selected vector layer
 - Data-defined label engine for labeling vector features by any attribute or expression
@@ -111,7 +111,7 @@ kepler.gl, see the [Comparison](comparison.md).
 
 - Attribute table
     - **Browsing**: filtering, sorting, resize controls, feature highlighting with Ctrl- and Shift-click multi-row selection, optional zoom to selected features, and virtualized rows for large layers
-    - **Editing and derived fields**: add-field and field-calculator tools (including geometry length and area calculation), virtual fields (expression-backed computed columns that update with the data), and persistent attribute joins configured in layer properties
+    - **Editing and derived fields**: add-field and field-calculator tools (including geometry length and area calculation), virtual fields (expression-backed computed columns that update with the data), persistent attribute joins configured in layer properties, and automatic editor tracking (created by/at and edited by/at)
     - **Forms**: an attribute form designer with edit widgets, validation constraints, and conditional field visibility
     - **Analysis**: a Charts panel (histogram, scatter, bar, line, box) and a field statistics summary panel
     - **Columns**: rename, delete, hide/show, and reorder, plus a column explorer for finding and toggling fields in wide tables
@@ -221,7 +221,7 @@ kepler.gl, see the [Comparison](comparison.md).
 - QGIS project import (`.qgs` and `.qgz`) that rebuilds layers, nested layer groups, group visibility, layer order, styling, and the saved map view, reporting per-layer why anything was skipped rather than failing the whole import. See [Projects](user-guide/projects.md#importing-a-qgis-project)
 - ArcGIS Pro project import (`.aprx` and `.mapx`) that reads CIM JSON without ArcPy and restores the first 2D map's extent, local vector and GeoTIFF layers, nested groups, visibility, simple symbols, field labels, vector-tile portal items, and cached map services, with per-layer warnings for unsupported sources. See [Projects](user-guide/projects.md#importing-an-arcgis-pro-project)
 - Reusable project templates saved to a personal library, with an option to keep the basemap, groups, styles, legend, widgets, and layout while stripping the data layer content
-- Startup project preference on the desktop app: open the default workspace, reopen the last local project, or always open one chosen project. Remote share links are never replayed on launch, a project URL in the address bar takes precedence, and a startup project that has gone missing falls back to the default workspace with an explanation instead of an error. See [Settings](user-guide/settings.md#startup)
+- Startup preferences on the desktop app: open the default workspace, reopen the last local project, or always open one chosen project, and choose whether an empty workspace starts as a 3D globe or a Mercator map. Remote share links are never replayed on launch, a project URL in the address bar takes precedence, and a startup project that has gone missing falls back to the default workspace with an explanation instead of an error. See [Settings](user-guide/settings.md#startup)
 
 ## Plugins
 

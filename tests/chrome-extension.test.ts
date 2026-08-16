@@ -96,6 +96,115 @@ describe("GeoLibre Chrome extension scanner", () => {
     assert.equal(found.styleUrl, "https://data.source.coop/giswqs/opengeos/roads.style.json");
   });
 
+  it("collapses every Hugging Face file route onto the direct resolve URL", () => {
+    const repo = "https://huggingface.co/datasets/giswqs/PACE-Water-Quality";
+    const file = "main/cogs/PACE_OCI-20260103-chla.tif";
+    const found = scan(
+      `
+        <a href="${repo}/blob/${file}">PACE_OCI-20260103-chla.tif</a>
+        <a href="${repo}/raw/${file}">Raw pointer file</a>
+        <a href="${repo}/blame/${file}">Blame</a>
+        <a href="${repo}/edit/${file}">Contribute</a>
+        <a href="${repo}/delete/${file}">Delete</a>
+        <a href="${repo}/commits/${file}">History</a>
+        <a href="${repo}/resolve/${file}?download=true">Download</a>
+      `,
+      `${repo}/blob/${file}`,
+    );
+    assert.deepEqual(found, [
+      {
+        url: `${repo}/resolve/${file}`,
+        name: "PACE_OCI-20260103-chla.tif",
+        format: "GeoTIFF",
+        kind: "raster",
+        styleUrl: null,
+      },
+    ]);
+  });
+
+  it("canonicalizes Hugging Face model and Space files but leaves other Hub links alone", () => {
+    const found = scan(
+      `
+        <a href="https://hf.co/giswqs/model/blob/main/grid.geojson">grid</a>
+        <a href="https://huggingface.co/spaces/giswqs/demo/blob/main/roads.pmtiles">roads</a>
+        <a href="https://huggingface.co/datasets/giswqs/PACE-Water-Quality/tree/main/cogs">cogs</a>
+        <a href="https://huggingface.co/datasets/giswqs/PACE-Water-Quality/tree/refs%2Fconvert%2Fparquet/default">Auto-converted to Parquet</a>
+      `,
+      "https://huggingface.co/giswqs",
+    );
+    assert.deepEqual(
+      found.map((dataset) => dataset.url),
+      [
+        "https://hf.co/giswqs/model/resolve/main/grid.geojson",
+        "https://huggingface.co/spaces/giswqs/demo/resolve/main/roads.pmtiles",
+      ],
+    );
+  });
+
+  it("reads the Hugging Face route from its position, not the first matching segment", () => {
+    const found = scan(
+      `
+        <a href="https://huggingface.co/datasets/giswqs/blob/resolve/main/roads.geojson">repo named blob</a>
+        <a href="https://huggingface.co/raw/model/blob/main/dem.tif">owner named raw</a>
+        <a href="https://huggingface.co/datasets/glue/blob/main/grid.pmtiles">legacy repo</a>
+      `,
+      "https://huggingface.co/giswqs",
+    );
+    assert.deepEqual(
+      found.map((dataset) => dataset.url),
+      [
+        "https://huggingface.co/raw/model/resolve/main/dem.tif",
+        "https://huggingface.co/datasets/glue/resolve/main/grid.pmtiles",
+        "https://huggingface.co/datasets/giswqs/blob/resolve/main/roads.geojson",
+      ],
+    );
+  });
+
+  it("falls back to a shallower Hugging Face route when the deeper one cannot parse", () => {
+    const found = scan(
+      `
+        <a href="https://huggingface.co/gpt2/blob/main/grid.geojson">namespaceless model</a>
+        <a href="https://huggingface.co/datasets/glue/blob/resolve/legacy.tif">revision named resolve</a>
+      `,
+      "https://huggingface.co/gpt2",
+    );
+    assert.deepEqual(
+      found.map((dataset) => dataset.url),
+      [
+        "https://huggingface.co/gpt2/resolve/main/grid.geojson",
+        "https://huggingface.co/datasets/glue/resolve/resolve/legacy.tif",
+      ],
+    );
+  });
+
+  it("drops a Hugging Face line anchor so it does not split one file in two", () => {
+    const repo = "https://huggingface.co/datasets/giswqs/opengeos";
+    const found = scan(
+      `
+        <a href="${repo}/blob/main/roads.geojson#L10">roads</a>
+        <a href="${repo}/resolve/main/roads.geojson?download=true">Download</a>
+      `,
+      `${repo}/tree/main`,
+    );
+    assert.deepEqual(
+      found.map((dataset) => dataset.url),
+      [`${repo}/resolve/main/roads.geojson`],
+    );
+  });
+
+  it("pairs a Hugging Face style file with its dataset across routes", () => {
+    const repo = "https://huggingface.co/datasets/giswqs/opengeos";
+    const [found] = scan(
+      `
+        <a href="${repo}/resolve/main/roads.geojson?download=true">Download</a>
+        <a href="${repo}/blob/main/roads.style.json">roads.style.json</a>
+      `,
+      `${repo}/tree/main`,
+    );
+    assert.equal(found.url, `${repo}/resolve/main/roads.geojson`);
+    assert.equal(found.styleUrl, `${repo}/resolve/main/roads.style.json`);
+  });
+
   it("preserves a discovered style when stronger metadata replaces a dataset", () => {
     const target = new URL("https://web.geolibre.app/");
     target.searchParams.append("data", "https://data.example.com/roads.json");

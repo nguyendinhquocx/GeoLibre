@@ -54,6 +54,7 @@ import { type MapController } from "@geolibre/map";
 import type { ParseKeys, TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { AttributeFormSection } from "./AttributeFormSection";
+import { EditorTrackingSection } from "./EditorTrackingSection";
 import { LayerJoinsSection } from "./LayerJoinsSection";
 import { VirtualFieldsSection } from "./VirtualFieldsSection";
 import { getNetcdfLayerState, NETCDF_IMAGE_SOURCE_KIND } from "../../lib/netcdf-image-symbology";
@@ -5014,6 +5015,16 @@ export function StylePanel({
             <>
               <Separator />
               <AttributeFormSection key={`af-${layer.id}`} layer={layer} />
+            </>
+          ) : null}
+          {/* Editor tracking stamps the features as they are created and edited,
+              so it needs the layer's features in the store as well. Keyed like
+              the sections above so a half-typed column name never carries over
+              to the next layer. */}
+          {layer.geojson ? (
+            <>
+              <Separator />
+              <EditorTrackingSection key={`et-${layer.id}`} layer={layer} />
             </>
           ) : null}
         </div>

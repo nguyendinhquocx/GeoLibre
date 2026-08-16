@@ -16,6 +16,7 @@ export * from "./attribute-form";
 export * from "./joins";
 export * from "./virtual-fields";
 export * from "./selection";
+export * from "./selection-actions";
 export * from "./scale-units";
 export * from "./elevation";
 export * from "./camera-altitude";
@@ -139,3 +140,9 @@ export {
   type CredentialRedactionResult,
 } from "./credentials";
 export { excludeHiddenFieldsFromGeojson, excludeHiddenFieldsFromProject } from "./visibility";
+export * from "./editor-tracking";
+export {
+  currentEditorIdentity,
+  readStoredAuthorName,
+  setStoredAuthorName,
+} from "./editor-identity";

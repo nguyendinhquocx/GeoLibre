@@ -782,9 +782,9 @@ function radiusInterpolateExpression(range: ProportionalSizeRange): unknown[] {
     ["linear"],
     ["to-number", ["get", range.property], range.minValue],
     range.minValue,
-    range.minRadius,
+    Math.max(0, range.minRadius),
     range.maxValue,
-    range.maxRadius,
+    Math.max(0, range.maxRadius),
   ];
 }
 

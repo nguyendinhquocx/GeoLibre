@@ -885,6 +885,24 @@ export interface LayerConnection {
 }
 
 /**
+ * Configuration for automatic feature editor tracking (Issue #1677).
+ * Maintains `created_by`, `created_at`, `edited_by`, `edited_at` fields
+ * automatically when features are created or updated.
+ */
+export interface EditorTrackingConfig {
+  /** `true` enables automatic creation/edit timestamp and author stamping. */
+  enabled: boolean;
+  /** Field name for creation author (default `"created_by"`). */
+  createdByField?: string;
+  /** Field name for creation timestamp (default `"created_at"`). */
+  createdAtField?: string;
+  /** Field name for last-edit author (default `"edited_by"`). */
+  editedByField?: string;
+  /** Field name for last-edit timestamp (default `"edited_at"`). */
+  editedAtField?: string;
+}
+
+/**
  * Visibility of a layer's attribute field.
  * - "hidden": Not shown in the attribute table, identify popup, tooltips, or field pickers, but remains in the data.
  * - "excluded": Removed entirely from the data when the project is shared or exported.
@@ -902,6 +920,10 @@ export interface GeoLibreLayer {
   metadata: Record<string, unknown>;
   beforeId?: string;
   geojson?: FeatureCollection;
+  /**
+   * Automatic editor tracking configuration for feature creation/updates.
+   */
+  editorTracking?: EditorTrackingConfig;
   /**
    * Field-level visibility overrides. Fields marked as "excluded" are physically
    * removed from the data during export and sharing.

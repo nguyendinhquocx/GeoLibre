@@ -1816,6 +1816,7 @@
       "ai": "AI-providers",
       "environmentVariables": "Omgevingsvariabelen",
       "updates": "Update-instellingen",
+      "startupSettings": "Opstartinstellingen",
       "managePlugins": "Plugins beheren",
       "styleManager": "Stijlbeheer",
       "urlOverrideNote": "URL-lay-outparameters hebben voorrang op opgeslagen instellingen."
@@ -1847,7 +1848,10 @@
       },
       "chooseProject": "Project kiezen",
       "noProjectSelected": "Geen project geselecteerd",
+      "globeByDefault": "3D-globe standaard inschakelen",
+      "globeByDefaultHint": "Wordt gebruikt voor de naamloze werkruimte wanneer er geen opstartproject en geen projectlink is opgegeven.",
       "selectError": "Het geselecteerde project kon niet worden gelezen.",
+      "restoring": "Uw opstartproject wordt geopend…",
       "loadWarning": "Het opstartproject is niet beschikbaar. GeoLibre heeft in plaats daarvan de standaardwerkruimte geopend."
     },
     "map": {
@@ -3389,6 +3393,9 @@
     "resultsCleared": "Zoekresultaten gewist.",
     "searching": "STAC-items worden gezocht…",
     "loadingMore": "Meer items worden geladen…",
+    "noMatchesHere": "Niets kwam overeen in dat deel van de catalogus. Laad meer om verder te zoeken.",
+    "treeEmpty": "Leeg",
+    "treeOpenFailed": "Kan deze catalogus niet openen",
     "noResults": "Geen STAC-items komen overeen met deze filters.",
     "searchFailed": "STAC-zoekopdracht mislukt",
     "showing": "{{count}} items worden weergegeven.",
@@ -4367,6 +4374,7 @@
     "deleteField": "Veld verwijderen",
     "joinedColumnTitle": "Gekoppelde kolom, afgeleid uit een koppelingstabel. Bewerk in plaats daarvan de tabel of de koppelingsdefinitie.",
     "virtualColumnTitle": "Virtueel veld, berekend uit een expressie. Bewerk in plaats daarvan de definitie in het stijlpaneel van de laag.",
+    "trackingColumnTitle": "Veld voor bewerkingsregistratie, wordt automatisch bijgehouden. Wijzig de naam in de instellingen voor bewerkingsregistratie van de laag.",
     "deleteFieldConfirm": "Hiermee wordt het veld \"{{field}}\" permanent verwijderd uit elk object in \"{{layer}}\". Stijlen of labels die ernaar verwijzen, worden gewist. Dit kan niet ongedaan worden gemaakt.",
     "addFieldDescription": "Voeg een nieuw veld toe aan elk object in \"{{layer}}\".",
     "fieldName": "Veldnaam",
@@ -4939,6 +4947,21 @@
       "save": "Opslaan",
       "noFields": "De laag heeft geen attribuutvelden om te configureren.",
       "minMaxInvalid": "Min moet kleiner dan of gelijk aan Max zijn."
+    },
+    "editorTracking": {
+      "heading": "Bewerkingsregistratie",
+      "description": "Leg vast wie elk object heeft gemaakt en wie het als laatste heeft gewijzigd. De onderstaande velden worden automatisch ingevuld wanneer objecten worden getekend, bewerkt, berekend of vastgelegd.",
+      "enable": "Bewerkingen in deze laag registreren",
+      "identity": "Uw naam",
+      "identityHint": "Bewerkingen worden vastgelegd als “{{name}}”.",
+      "identityFromSession": "Overgenomen uit de samenwerkingssessie waarin u zit.",
+      "createdByField": "Veld ‘Gemaakt door’",
+      "createdAtField": "Veld ‘Gemaakt op’",
+      "editedByField": "Veld ‘Bewerkt door’",
+      "editedAtField": "Veld ‘Bewerkt op’",
+      "blankName": "Veldnamen mogen niet leeg zijn.",
+      "duplicateName": "Elk registratieveld heeft een eigen naam nodig.",
+      "columnTaken": "‘{{name}}’ is al een attribuutkolom. De registratie zou de waarden ervan overschrijven."
     }
   },
   "vectorExport": {
@@ -4964,6 +4987,13 @@
     "identifyInspectPixels": "Pixelwaarden inspecteren",
     "identifyStopInspectPixels": "Pixelwaarden-inspectie stoppen",
     "identifyUnavailable": "Identificeren is alleen beschikbaar voor vector-, WMS- en COG-lagen",
+    "selectFeaturesMenu": "Objecten selecteren",
+    "selectFeaturesSingle": "Objecten selecteren met een klik",
+    "selectFeaturesRectangle": "Objecten selecteren met een rechthoek",
+    "selectFeaturesPolygon": "Objecten selecteren met een polygoon",
+    "selectFeaturesFreehand": "Objecten selecteren met de vrije hand",
+    "selectFeaturesRadius": "Objecten selecteren met een straal",
+    "selectFeaturesModifiers": "Shift voegt toe, Alt verwijdert en Shift+Alt snijdt. Druk op Esc om te annuleren.",
     "exportGeoTiff": "GeoTIFF (COG)",
     "extractSubset": "Subset extraheren…",
     "stylesMenu": "Stijlen",

@@ -1773,6 +1773,7 @@
       "ai": "AI 제공자",
       "environmentVariables": "환경 변수",
       "updates": "업데이트 설정",
+      "startupSettings": "시작 설정",
       "managePlugins": "플러그인 관리",
       "styleManager": "스타일 관리자",
       "urlOverrideNote": "URL 레이아웃 매개변수가 저장된 설정보다 우선 적용됩니다."
@@ -1804,7 +1805,10 @@
       },
       "chooseProject": "프로젝트 선택",
       "noProjectSelected": "선택된 프로젝트 없음",
+      "globeByDefault": "기본적으로 3D 지구본 사용",
+      "globeByDefaultHint": "시작 프로젝트나 프로젝트 링크가 지정되지 않은 경우 제목 없는 작업 공간에 사용됩니다.",
       "selectError": "선택한 프로젝트를 읽을 수 없습니다.",
+      "restoring": "시작 프로젝트를 여는 중…",
       "loadWarning": "시작 프로젝트를 사용할 수 없습니다. GeoLibre가 대신 기본 작업 공간을 열었습니다."
     },
     "map": {
@@ -3333,6 +3337,9 @@
     "resultsCleared": "검색 결과를 지웠습니다.",
     "searching": "STAC 항목 검색 중…",
     "loadingMore": "항목 더 불러오는 중…",
+    "noMatchesHere": "카탈로그의 해당 부분에서 일치하는 항목이 없습니다. 계속 검색하려면 더 불러오세요.",
+    "treeEmpty": "비어 있음",
+    "treeOpenFailed": "이 카탈로그를 열 수 없습니다",
     "noResults": "이 필터와 일치하는 STAC 항목이 없습니다.",
     "searchFailed": "STAC 검색에 실패했습니다",
     "showing": "{{count}}개 항목을 표시하고 있습니다.",
@@ -4296,6 +4303,7 @@
     "deleteField": "필드 삭제",
     "joinedColumnTitle": "조인 테이블에서 파생된 조인 열입니다. 대신 조인 테이블이나 조인 정의를 편집하세요.",
     "virtualColumnTitle": "표현식으로 계산되는 가상 필드입니다. 대신 레이어의 스타일 패널에서 정의를 편집하세요.",
+    "trackingColumnTitle": "편집 추적 필드로, 자동으로 관리됩니다. 이름은 레이어의 편집 추적 설정에서 변경하세요.",
     "deleteFieldConfirm": "이 작업은 \"{{layer}}\"의 모든 피처에서 필드 \"{{field}}\"를 영구적으로 제거합니다. 이를 참조하는 스타일이나 라벨은 지워집니다. 이 작업은 되돌릴 수 없습니다.",
     "addFieldDescription": "\"{{layer}}\"의 모든 피처에 새 필드를 추가합니다.",
     "fieldName": "필드 이름",
@@ -4864,6 +4872,21 @@
       "save": "저장",
       "noFields": "레이어에 구성할 속성 필드가 없습니다.",
       "minMaxInvalid": "최소값은 최대값보다 작거나 같아야 합니다."
+    },
+    "editorTracking": {
+      "heading": "편집 추적",
+      "description": "각 피처를 누가 만들었고 누가 마지막으로 변경했는지 기록합니다. 피처를 그리거나 편집, 계산, 수집할 때 아래 필드가 자동으로 채워집니다.",
+      "enable": "이 레이어의 편집 추적",
+      "identity": "이름",
+      "identityHint": "편집은 “{{name}}”(으)로 기록됩니다.",
+      "identityFromSession": "참여 중인 공동 작업 세션에서 가져왔습니다.",
+      "createdByField": "‘만든 사람’ 필드",
+      "createdAtField": "‘만든 시간’ 필드",
+      "editedByField": "‘편집한 사람’ 필드",
+      "editedAtField": "‘편집한 시간’ 필드",
+      "blankName": "필드 이름은 비워 둘 수 없습니다.",
+      "duplicateName": "추적 필드마다 다른 이름이 필요합니다.",
+      "columnTaken": "“{{name}}”은(는) 이미 속성 필드입니다. 추적이 해당 값을 덮어씁니다."
     }
   },
   "vectorExport": {
@@ -4889,6 +4912,13 @@
     "identifyInspectPixels": "픽셀 값 검사",
     "identifyStopInspectPixels": "픽셀 값 검사 중지",
     "identifyUnavailable": "식별은 벡터, WMS, COG 레이어에서만 사용할 수 있습니다",
+    "selectFeaturesMenu": "피처 선택",
+    "selectFeaturesSingle": "클릭으로 피처 선택",
+    "selectFeaturesRectangle": "사각형으로 피처 선택",
+    "selectFeaturesPolygon": "폴리곤으로 피처 선택",
+    "selectFeaturesFreehand": "자유형으로 피처 선택",
+    "selectFeaturesRadius": "반경으로 피처 선택",
+    "selectFeaturesModifiers": "Shift는 추가, Alt는 제거, Shift+Alt는 교차입니다. Esc를 눌러 취소합니다.",
     "exportGeoTiff": "GeoTIFF(COG)",
     "extractSubset": "부분 추출…",
     "stylesMenu": "스타일",
