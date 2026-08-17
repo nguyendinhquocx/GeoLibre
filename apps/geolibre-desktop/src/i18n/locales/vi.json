@@ -3349,8 +3349,9 @@
     "collectionsHint": "Giữ Ctrl/Cmd để chọn nhiều bộ sưu tập; kéo cạnh dưới để thay đổi kích thước",
     "limitToExtent": "Giới hạn tìm kiếm trong phạm vi bản đồ hiện tại",
     "bboxLabel": "Hộp giới hạn (tây, nam, đông, bắc)",
-    "addUnsupported": "Chỉ có thể thêm nội dung GeoTIFF/COG và GeoJSON vào bản đồ",
+    "addUnsupported": "Chỉ có thể thêm nội dung GeoTIFF/COG, GeoJSON, GeoParquet và PMTiles vào bản đồ",
     "addFailed": "Không thể thêm nội dung",
+    "addNoSourceLayers": "Kho lưu trữ này không liệt kê lớp nào để vẽ",
     "cogUnsupported": "Máy chủ GeoLibre này không thể hiển thị nội dung GeoTIFF từ xa",
     "footprintLayerName": "Dấu chân tìm kiếm STAC",
     "catalogSearch": "Tìm danh mục công khai từ STAC Index",
@@ -3374,7 +3375,13 @@
     "startDate": "Ngày bắt đầu",
     "noMatchesHere": "Không có kết quả phù hợp ở phần đó của danh mục. Tải thêm để tiếp tục tìm kiếm.",
     "treeEmpty": "Trống",
-    "treeOpenFailed": "Không thể mở danh mục này"
+    "treeOpenFailed": "Không thể mở danh mục này",
+    "formatCog": "COG",
+    "formatGeoJson": "GeoJSON",
+    "formatPmtiles": "PMTiles",
+    "formatParquet": "Parquet",
+    "formatUnknown": "Định dạng không xác định",
+    "notAddable": "không thể thêm"
   },
   "earthdataGis": {
     "showing": "Đang hiển thị {{shown}} trong số {{total}} dịch vụ.",

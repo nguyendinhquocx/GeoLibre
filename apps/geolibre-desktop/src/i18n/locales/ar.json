@@ -3641,9 +3641,16 @@
     "download": "تنزيل",
     "adding": "جارٍ إضافة {{asset}}…",
     "added": "تمت إضافة {{asset}} إلى الخريطة.",
-    "addUnsupported": "يمكن إضافة أصول GeoTIFF/COG وGeoJSON فقط إلى الخريطة",
+    "addUnsupported": "يمكن إضافة أصول GeoTIFF/COG وGeoJSON وGeoParquet وPMTiles فقط إلى الخريطة",
     "addFailed": "تعذّرت إضافة الأصل",
-    "cogUnsupported": "لا يستطيع مضيف GeoLibre هذا عرض أصول GeoTIFF البعيدة"
+    "addNoSourceLayers": "لا يسرد هذا الأرشيف أي طبقات لرسمها",
+    "cogUnsupported": "لا يستطيع مضيف GeoLibre هذا عرض أصول GeoTIFF البعيدة",
+    "formatCog": "COG",
+    "formatGeoJson": "GeoJSON",
+    "formatPmtiles": "PMTiles",
+    "formatParquet": "Parquet",
+    "formatUnknown": "تنسيق غير معروف",
+    "notAddable": "غير قابل للإضافة"
   },
   "earthdataGis": {
     "hint": "ابحث في NASA Earthdata GIS عن خدمات الصور والخرائط والمعالم.",

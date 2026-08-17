@@ -3530,9 +3530,16 @@
     "download": "Скачать",
     "adding": "Добавление {{asset}}…",
     "added": "{{asset}} добавлен на карту.",
-    "addUnsupported": "На карту можно добавить только ресурсы GeoTIFF/COG и GeoJSON",
+    "addUnsupported": "На карту можно добавить только ресурсы GeoTIFF/COG, GeoJSON, GeoParquet и PMTiles",
     "addFailed": "Не удалось добавить ресурс",
-    "cogUnsupported": "Этот хост GeoLibre не может отображать удалённые ресурсы GeoTIFF"
+    "addNoSourceLayers": "В этом архиве нет слоёв для отрисовки",
+    "cogUnsupported": "Этот хост GeoLibre не может отображать удалённые ресурсы GeoTIFF",
+    "formatCog": "COG",
+    "formatGeoJson": "GeoJSON",
+    "formatPmtiles": "PMTiles",
+    "formatParquet": "Parquet",
+    "formatUnknown": "Неизвестный формат",
+    "notAddable": "нельзя добавить"
   },
   "earthdataGis": {
     "hint": "Ищите в NASA Earthdata GIS сервисы изображений, карт и объектов.",

@@ -3362,9 +3362,16 @@
     "download": "Unduh",
     "adding": "Menambahkan {{asset}}…",
     "added": "{{asset}} ditambahkan ke peta.",
-    "addUnsupported": "Hanya aset GeoTIFF/COG dan GeoJSON yang dapat ditambahkan ke peta",
+    "addUnsupported": "Hanya aset GeoTIFF/COG, GeoJSON, GeoParquet, dan PMTiles yang dapat ditambahkan ke peta",
     "addFailed": "Tidak dapat menambahkan aset",
-    "cogUnsupported": "Host GeoLibre ini tidak dapat memvisualisasikan aset GeoTIFF jarak jauh"
+    "addNoSourceLayers": "Arsip ini tidak mencantumkan lapisan untuk digambar",
+    "cogUnsupported": "Host GeoLibre ini tidak dapat memvisualisasikan aset GeoTIFF jarak jauh",
+    "formatCog": "COG",
+    "formatGeoJson": "GeoJSON",
+    "formatPmtiles": "PMTiles",
+    "formatParquet": "Parquet",
+    "formatUnknown": "Format tidak dikenal",
+    "notAddable": "tidak dapat ditambahkan"
   },
   "earthdataGis": {
     "hint": "Cari layanan citra, peta, dan fitur di NASA Earthdata GIS.",

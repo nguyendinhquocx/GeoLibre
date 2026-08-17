@@ -3,9 +3,13 @@ import { fillLayerId, lineLayerId } from "@geolibre/map";
 import type { FeatureCollection, Geometry } from "geojson";
 import type { GeoJSONSource, MapMouseEvent, Map as MapLibreMap } from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibreCogLayerOptions, GeoLibrePlugin } from "../types";
+import { addPMTilesAsset } from "./stac-layers";
 import {
+  assetDisplayFormat,
+  assetFormat,
   connectStac,
   horizontalBbox,
+  isAzureBlobHref,
   isVisualizableAsset,
   itemBbox,
   loadStacIndex,
@@ -21,7 +25,8 @@ import {
   type StacSearchCursor,
 } from "./stac-api";
 import { buildCatalogTree } from "./stac-catalog-tree";
-import { el } from "../panel-dom";
+import { el, setDisabled } from "../panel-dom";
+import { addVectorLayerFromUrl } from "./maplibre-vector";
 
 export const STAC_PLUGIN_ID = "geolibre-stac-catalogs";
 const PANEL_ID = STAC_PLUGIN_ID;
@@ -139,7 +144,14 @@ export interface StacLabels {
   download: string;
   addUnsupported: string;
   addFailed: string;
+  addNoSourceLayers: string;
   cogUnsupported: string;
+  formatCog: string;
+  formatGeoJson: string;
+  formatPmtiles: string;
+  formatParquet: string;
+  formatUnknown: string;
+  notAddable: string;
   showing: (count: number) => string;
   showingOfMatched: (count: number, matched: number) => string;
   adding: (asset: string) => string;
@@ -209,9 +221,17 @@ let labels: StacLabels = {
   zoom: "Zoom",
   add: "Add",
   download: "Download",
-  addUnsupported: "Only GeoTIFF/COG and GeoJSON assets can be added to the map",
+  addUnsupported:
+    "Only GeoTIFF/COG, GeoJSON, GeoParquet, and PMTiles assets can be added to the map",
   addFailed: "Could not add asset",
+  addNoSourceLayers: "This archive lists no layers to draw",
   cogUnsupported: "This GeoLibre host cannot visualize remote GeoTIFF assets",
+  formatCog: "COG",
+  formatGeoJson: "GeoJSON",
+  formatPmtiles: "PMTiles",
+  formatParquet: "Parquet",
+  formatUnknown: "Unknown format",
+  notAddable: "not addable",
   showing: (count) => `Showing ${count} items.`,
   showingOfMatched: (count, matched) => `Showing ${count} of ${matched} items.`,
   adding: (asset) => `Adding ${asset}…`,
@@ -348,7 +368,11 @@ function showDrawBox(map: MapLibreMap, bbox: [number, number, number, number]): 
     id: DRAW_LINE,
     type: "line",
     source: DRAW_SOURCE,
-    paint: { "line-color": "#f59e0b", "line-width": 2, "line-dasharray": [2, 1] },
+    paint: {
+      "line-color": "#f59e0b",
+      "line-width": 2,
+      "line-dasharray": [2, 1],
+    },
   });
 }
 
@@ -497,6 +521,67 @@ function assetLabel(key: string, asset: StacAsset): string {
   return asset.title || key;
 }
 
+function assetFormatLabel(asset: StacAsset): string {
+  switch (assetDisplayFormat(asset)) {
+    case "cog":
+      return labels.formatCog;
+    case "geojson":
+      return labels.formatGeoJson;
+    case "pmtiles":
+      return labels.formatPmtiles;
+    case "parquet":
+      return labels.formatParquet;
+    case null:
+      return labels.formatUnknown;
+  }
+}
+
+function assetOptionLabel(key: string, asset: StacAsset): string {
+  const addability = isVisualizableAsset(asset) ? "" : ` (${labels.notAddable})`;
+  return `${assetLabel(key, asset)} — ${assetFormatLabel(asset)}${addability}`;
+}
+
+type SasSigner = { signUrl(url: string, collectionId: string): Promise<string> };
+let sasManager: Promise<SasSigner> | null = null;
+
+function planetaryComputerSigner(): Promise<SasSigner> {
+  sasManager ??= import("maplibre-gl-planetary-computer")
+    .then((module) => new module.SASTokenManager())
+    .catch((error) => {
+      // Don't let one failed import disable signing for the rest of the session.
+      sasManager = null;
+      throw error;
+    });
+  return sasManager;
+}
+
+/**
+ * Planetary Computer serves several collections — most of the GeoParquet ones — from private
+ * containers that answer 409 without a SAS token, while others (NAIP) read fine anonymously.
+ * Tokens are per-collection and expire within the hour, so they are minted when the asset is
+ * added rather than when the item is parsed, and the upstream manager caches them. Anything
+ * that is not an Azure blob, or that cannot be signed, is read unsigned.
+ *
+ * Only the GeoParquet path signs, because that is the one this branch made addable and it cannot
+ * read a private container at all unsigned. PMTiles and COG read unsigned exactly as they did
+ * before, rather than gaining a token they never had.
+ *
+ * Every one of these formats persists whatever URL it is handed: PMTiles and COG through the
+ * store layer they create, and the vector control through `createVectorStoreLayer`, which records
+ * the URL as both `source.url` and `sourcePath`. A project saved with a signed GeoParquet layer
+ * therefore holds a token that `restoreVectorLayers` replays as-is and never re-signs, so the
+ * layer stops reloading once the token lapses (about an hour). Fixing that properly means minting
+ * the token per request, or re-signing on restore, rather than baking one in at add time.
+ */
+async function readableHref(item: StacItem, href: string): Promise<string> {
+  if (!isAzureBlobHref(href) || !item.collection) return href;
+  try {
+    return await (await planetaryComputerSigner()).signUrl(href, item.collection);
+  } catch {
+    return href;
+  }
+}
+
 async function visualizeAsset(
   item: StacItem,
   key: string,
@@ -505,19 +590,46 @@ async function visualizeAsset(
   signal?: AbortSignal,
 ): Promise<void> {
   const name = `${item.id} — ${assetLabel(key, asset)}`;
-  const value = `${asset.type ?? ""} ${asset.href}`.toLowerCase();
-  if (value.includes("geo+json") || /\.geojson($|\?)/i.test(asset.href)) {
-    const response = await fetch(asset.href, {
-      headers: { Accept: "application/geo+json, application/json" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    const data = (await response.json()) as FeatureCollection;
-    appRef?.addGeoJsonLayer(name, data, asset.href);
-  } else if (appRef?.addCogLayer) {
-    await appRef.addCogLayer(name, asset.href, cogOptions);
-  } else {
-    throw new Error(labels.cogUnsupported);
+  const format = assetFormat(asset);
+  switch (format) {
+    case "pmtiles": {
+      // No appRef check: the layer goes to the store, not through the app API.
+      if (!(await addPMTilesAsset(asset.href, name, signal))) {
+        throw new Error(labels.addNoSourceLayers);
+      }
+      return;
+    }
+    case "geojson": {
+      if (!appRef) throw new Error(labels.addFailed);
+      const response = await fetch(asset.href, {
+        headers: { Accept: "application/geo+json, application/json" },
+        signal,
+      });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const data = (await response.json()) as FeatureCollection;
+      appRef.addGeoJsonLayer(name, data, asset.href);
+      return;
+    }
+    case "parquet": {
+      if (!appRef) throw new Error(labels.addFailed);
+      if (!(await addVectorLayerFromUrl(appRef, await readableHref(item, asset.href), { name }))) {
+        throw new Error(labels.addFailed);
+      }
+      return;
+    }
+    case "cog": {
+      if (!appRef?.addCogLayer) throw new Error(labels.cogUnsupported);
+      await appRef.addCogLayer(name, asset.href, cogOptions);
+      return;
+    }
+    case null:
+      throw new Error(labels.addUnsupported);
+    default: {
+      // A format added to VISUALIZABLE_FORMATS with no branch here fails to compile, rather than
+      // falling through to a renderer that cannot read it.
+      const unhandled: never = format;
+      throw new Error(`Unhandled asset format: ${String(unhandled)}`);
+    }
   }
 }
 
@@ -599,8 +711,10 @@ function buildPanel(container: HTMLElement): () => void {
   searchButton.style.cssText = `${style.primary}flex:1 1 0;`;
   const clearResultsButton = el("button", labels.clearResults);
   clearResultsButton.type = "button";
-  clearResultsButton.disabled = true;
+  // cssText first: it replaces the whole inline declaration, so setting the
+  // disabled look before it would be wiped out.
   clearResultsButton.style.cssText = `${style.button}flex:1 1 0;`;
+  setDisabled(clearResultsButton, true);
   searchActions.append(searchButton, clearResultsButton);
   searchSection.append(
     catalogInfo,
@@ -737,8 +851,8 @@ function buildPanel(container: HTMLElement): () => void {
     selectItem(null, false);
     removeFootprints();
     loadMore.hidden = true;
-    clearResultsButton.disabled = true;
-    searchButton.disabled = false;
+    setDisabled(clearResultsButton, true);
+    setDisabled(searchButton, false);
     if (announce) setStatus(labels.resultsCleared);
   };
 
@@ -796,7 +910,7 @@ function buildPanel(container: HTMLElement): () => void {
         const assetSelect = el("select");
         assetSelect.style.cssText = `${style.input}flex:1 1 140px;width:auto;`;
         for (const [key, asset] of assets) {
-          const option = el("option", assetLabel(key, asset));
+          const option = el("option", assetOptionLabel(key, asset));
           option.value = key;
           assetSelect.append(option);
         }
@@ -818,7 +932,7 @@ function buildPanel(container: HTMLElement): () => void {
           const addable = isVisualizableAsset(asset);
           assetSelect.title = asset.href;
           download.title = asset.href;
-          add.disabled = adding || !addable;
+          setDisabled(add, adding || !addable);
           add.title = addable ? asset.href : labels.addUnsupported;
         };
 
@@ -915,8 +1029,8 @@ function buildPanel(container: HTMLElement): () => void {
     if (!connection) return;
     const search = generation ?? ++searchGeneration;
 
-    searchButton.disabled = true;
-    loadMore.disabled = true;
+    setDisabled(searchButton, true);
+    setDisabled(loadMore, true);
     setStatus(append ? labels.loadingMore : labels.searching);
     try {
       const selectedCollections = Array.from(collectionSelect.selectedOptions)
@@ -952,7 +1066,7 @@ function buildPanel(container: HTMLElement): () => void {
       showFootprints(allItems);
       applySelection(false);
       loadMore.hidden = !nextPage && !searchCursor;
-      clearResultsButton.disabled = allItems.length === 0;
+      setDisabled(clearResultsButton, allItems.length === 0);
       setStatus(searchStatus(response));
     } catch (error) {
       // A search the user has moved on from must not report its failure over the current one.
@@ -960,8 +1074,8 @@ function buildPanel(container: HTMLElement): () => void {
       setStatus(error instanceof Error ? error.message : labels.searchFailed, true);
     } finally {
       if (search === searchGeneration) {
-        searchButton.disabled = false;
-        loadMore.disabled = false;
+        setDisabled(searchButton, false);
+        setDisabled(loadMore, false);
       }
     }
   }
@@ -972,7 +1086,7 @@ function buildPanel(container: HTMLElement): () => void {
   });
   connectButton.addEventListener("click", async () => {
     const url = urlField.input.value.trim();
-    connectButton.disabled = true;
+    setDisabled(connectButton, true);
     setStatus(labels.connecting);
     try {
       connection = await connectStac(url, fetch, controller.signal);
@@ -1004,7 +1118,7 @@ function buildPanel(container: HTMLElement): () => void {
       renderSection.hidden = true;
       setStatus(error instanceof Error ? error.message : labels.connectFailed, true);
     } finally {
-      connectButton.disabled = false;
+      setDisabled(connectButton, false);
     }
   });
   searchButton.addEventListener("click", () => void runSearch(false));

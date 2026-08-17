@@ -7,7 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./derived-geometry": "./src/derived-geometry.ts"
+    "./derived-geometry": "./src/derived-geometry.ts",
+    "./pmtiles-layer": "./src/pmtiles-layer.ts"
   },
   "dependencies": {
     "@geolibre/core": "*",

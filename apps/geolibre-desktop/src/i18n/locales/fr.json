@@ -3418,9 +3418,16 @@
     "download": "Télécharger",
     "adding": "Ajout de {{asset}}…",
     "added": "{{asset}} ajouté à la carte.",
-    "addUnsupported": "Seules les ressources GeoTIFF/COG et GeoJSON peuvent être ajoutées à la carte",
+    "addUnsupported": "Seules les ressources GeoTIFF/COG, GeoJSON, GeoParquet et PMTiles peuvent être ajoutées à la carte",
     "addFailed": "Impossible d'ajouter la ressource",
-    "cogUnsupported": "Cet hôte GeoLibre ne peut pas visualiser les ressources GeoTIFF distantes"
+    "addNoSourceLayers": "Cette archive ne répertorie aucune couche à dessiner",
+    "cogUnsupported": "Cet hôte GeoLibre ne peut pas visualiser les ressources GeoTIFF distantes",
+    "formatCog": "COG",
+    "formatGeoJson": "GeoJSON",
+    "formatPmtiles": "PMTiles",
+    "formatParquet": "Parquet",
+    "formatUnknown": "Format inconnu",
+    "notAddable": "non ajoutable"
   },
   "earthdataGis": {
     "hint": "Recherchez dans NASA Earthdata GIS des services d'imagerie, de cartes et d'entités.",

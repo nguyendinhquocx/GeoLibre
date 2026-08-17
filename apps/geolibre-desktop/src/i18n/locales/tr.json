@@ -3418,9 +3418,16 @@
     "download": "İndir",
     "adding": "{{asset}} ekleniyor…",
     "added": "{{asset}} haritaya eklendi.",
-    "addUnsupported": "Haritaya yalnızca GeoTIFF/COG ve GeoJSON varlıkları eklenebilir",
+    "addUnsupported": "Haritaya yalnızca GeoTIFF/COG, GeoJSON, GeoParquet ve PMTiles varlıkları eklenebilir",
     "addFailed": "Varlık eklenemedi",
-    "cogUnsupported": "Bu GeoLibre ana bilgisayarı uzak GeoTIFF varlıklarını görselleştiremiyor"
+    "addNoSourceLayers": "Bu arşiv çizilecek katman listelemiyor",
+    "cogUnsupported": "Bu GeoLibre ana bilgisayarı uzak GeoTIFF varlıklarını görselleştiremiyor",
+    "formatCog": "COG",
+    "formatGeoJson": "GeoJSON",
+    "formatPmtiles": "PMTiles",
+    "formatParquet": "Parquet",
+    "formatUnknown": "Bilinmeyen biçim",
+    "notAddable": "eklenemez"
   },
   "earthdataGis": {
     "hint": "NASA Earthdata GIS içinde görüntü, harita ve öğe servislerini arayın.",
