@@ -18,6 +18,12 @@ import {
 } from "./project";
 import { initialLayerStyle } from "./layer-defaults";
 import {
+  createDefaultPrintLayout,
+  printLayoutConfigsEqual,
+  scrubPrintLayoutForRemovedLayers,
+  type PrintLayoutConfig,
+} from "./print-layout-config";
+import {
   DEFAULT_LAYER_GROUP_OPACITY,
   normalizeGroupContiguity,
   reorderLayerGroupInPanel,
@@ -208,6 +214,8 @@ export interface AppState {
   preferences: ProjectPreferences;
   projectPlugins: ProjectPluginState | null;
   legend: LegendConfig;
+  /** Print Layout composer settings for the open project (discussion #1992). */
+  printLayout: PrintLayoutConfig;
   storymap: StoryMap | null;
   /** Saved processing pipelines (batch/model chaining; issue #344). */
   models: ProcessingModel[];
@@ -413,6 +421,12 @@ export interface AppState {
   setBasemapOpacity: (opacity: number) => void;
   setPreferences: (preferences: ProjectPreferences) => void;
   setLegend: (legend: LegendConfig) => void;
+  /**
+   * Replace the Print Layout composer settings. A config equal to the current
+   * one is ignored, so re-opening the composer (or a project load seeding the
+   * dialog) never marks the project dirty.
+   */
+  setPrintLayout: (printLayout: PrintLayoutConfig) => void;
   setProjectPlugins: (projectPlugins: ProjectPluginState | null, shouldMarkDirty?: boolean) => void;
   selectLayer: (id: string | null) => void;
   selectFeature: (id: string | null) => void;
@@ -992,6 +1006,7 @@ export const useAppStore = create<AppState>()(
       preferences: DEFAULT_PROJECT_PREFERENCES,
       projectPlugins: null,
       legend: { ...DEFAULT_LEGEND_CONFIG },
+      printLayout: createDefaultPrintLayout(),
       storymap: null,
       models: [],
       styleLibrary: [],
@@ -1283,6 +1298,11 @@ export const useAppStore = create<AppState>()(
       setBasemapOpacity: (opacity) => set({ basemapOpacity: opacity, isDirty: true }),
       setPreferences: (preferences) => set({ preferences, isDirty: true }),
       setLegend: (legend) => set({ legend, isDirty: true }),
+
+      setPrintLayout: (printLayout) =>
+        set((s) =>
+          printLayoutConfigsEqual(s.printLayout, printLayout) ? s : { printLayout, isDirty: true },
+        ),
       // When shouldMarkDirty is false the existing dirty flag is preserved rather
       // than set; it cannot clear the flag (only markSaved() does that).
       setProjectPlugins: (projectPlugins, shouldMarkDirty = true) =>
@@ -1681,6 +1701,9 @@ export const useAppStore = create<AppState>()(
           widgets: scrubWidgetsForRemovedLayers(s.widgets, id),
           comments: scrubCommentsForRemovedLayers(s.comments, id),
           legend: scrubLegendForRemovedLayers(s.legend, id),
+          // Clear a Print Layout data/atlas block built on the removed layer,
+          // so a save that follows the delete cannot write a dangling id.
+          printLayout: scrubPrintLayoutForRemovedLayers(s.printLayout, id),
           selectedLayerId:
             s.selectedLayerId === id
               ? (s.layers.find((l) => l.id !== id)?.id ?? null)
@@ -2026,6 +2049,9 @@ export const useAppStore = create<AppState>()(
               ? scrubCommentsForRemovedLayers(s.comments, removedIds)
               : s.comments,
             legend: removeChildren ? scrubLegendForRemovedLayers(s.legend, removedIds) : s.legend,
+            printLayout: removeChildren
+              ? scrubPrintLayoutForRemovedLayers(s.printLayout, removedIds)
+              : s.printLayout,
             selectedLayerId: selectionRemoved
               ? (layers[layers.length - 1]?.id ?? null)
               : s.selectedLayerId,

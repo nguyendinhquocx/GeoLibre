@@ -184,7 +184,8 @@
     "computing": "地形を計算しています…",
     "partialData": "一部のサンプルに地形データがありませんでした",
     "heading": "方位",
-    "finalHeading": "最終方位"
+    "finalHeading": "最終方位",
+    "bodyNote": "計測対象: {{body}}（球体近似）"
   },
   "statusBar": {
     "elevation": "標高",
@@ -3346,6 +3347,13 @@
     "showingOfMatched": "{{matched}} 件中 {{count}} 件のアイテムを表示しています。",
     "loadMore": "さらに読み込む",
     "renderOptions": "ラスター描画オプション",
+    "renderingEngine": "COG レンダリングエンジン",
+    "engineAuto": "変更しない",
+    "engineWasm": "WebAssembly タイラー (地球儀対応)",
+    "engineGpu": "GPU (deck.gl, メルカトルのみ)",
+    "engineTitiler": "TiTiler サーバー",
+    "engineHint": "どのレンダラーが画像をデコードするか。上の設定と違い、これはレイヤーごとではありません。すでに追加済みのものも含め、地図上のすべてのラスターに適用されます。",
+    "resizeResults": "検索結果のサイズを変更",
     "bands": "バンド",
     "bandsPlaceholder": "例: 1 または 1,2,3（既定: 自動）",
     "colormap": "カラーマップ（単バンドのみ）",
