@@ -101,6 +101,72 @@ describe("Node collaboration relay", () => {
     await assert.rejects(connect(http, "NOTFOUND"), /Unexpected server response: 404/);
   });
 
+  it("allows the hosted GeoLibre web origins to create sessions", async () => {
+    const { http } = await start();
+
+    for (const origin of [
+      "https://geolibre.app",
+      "https://web.geolibre.app",
+      "https://viewer.geolibre.app",
+      "https://studio.geolibre.app",
+      "https://50e58010.geolibre-preview.pages.dev",
+    ]) {
+      const response = await fetch(`${http}/sessions`, {
+        method: "POST",
+        headers: { origin },
+      });
+      assert.equal(response.status, 200, `${origin} should be allowed`);
+    }
+
+    const rejected = await fetch(`${http}/sessions`, {
+      method: "POST",
+      headers: { origin: "https://web.geolibre.app.example.com" },
+    });
+    assert.equal(rejected.status, 403);
+
+    const rejectedPreviewLookalike = await fetch(`${http}/sessions`, {
+      method: "POST",
+      headers: { origin: "https://preview.geolibre-preview.pages.dev.example.com" },
+    });
+    assert.equal(rejectedPreviewLookalike.status, 403);
+
+    for (const origin of [
+      "https://opengeos.org",
+      "https://a.b.geolibre-preview.pages.dev",
+      "https://preview.geolibre-preview.pages.dev:8443",
+    ]) {
+      const response = await fetch(`${http}/sessions`, {
+        method: "POST",
+        headers: { origin },
+      });
+      assert.equal(response.status, 403, `${origin} should be rejected`);
+    }
+  });
+
+  it("makes a configured origin allowlist authoritative", async () => {
+    const { http } = await start();
+    const previous = process.env.ALLOWED_ORIGINS;
+    process.env.ALLOWED_ORIGINS = "https://allowed.example";
+    try {
+      const allowed = await fetch(`${http}/sessions`, {
+        method: "POST",
+        headers: { origin: "https://allowed.example" },
+      });
+      assert.equal(allowed.status, 200);
+
+      for (const origin of ["http://localhost:5173", "https://pr-1.geolibre-preview.pages.dev"]) {
+        const response = await fetch(`${http}/sessions`, {
+          method: "POST",
+          headers: { origin },
+        });
+        assert.equal(response.status, 403, `${origin} should require explicit configuration`);
+      }
+    } finally {
+      if (previous === undefined) delete process.env.ALLOWED_ORIGINS;
+      else process.env.ALLOWED_ORIGINS = previous;
+    }
+  });
+
   it("rejects an oversized session-create body by declared length and by count", async () => {
     const { http } = await start();
 

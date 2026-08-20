@@ -22,7 +22,7 @@ declare global {
     /** Base URL of an Anthropic-messages-compatible endpoint, e.g. a cli-proxy-api. */
     SEARCH_MESSAGES_URL?: string;
     SEARCH_MESSAGES_API_KEY?: string;
-    /** Defaults to claude-sonnet-5. */
+    /** Defaults to gpt-5.6-luna. */
     SEARCH_MESSAGES_MODEL?: string;
   }
 }
@@ -172,7 +172,7 @@ export function resolveSearchBackend(env: Env): "tavily" | "messages" {
   return env.SEARCH_BACKEND?.trim().toLowerCase() === "messages" ? "messages" : "tavily";
 }
 
-const MESSAGES_SEARCH_MODEL_DEFAULT = "claude-sonnet-5";
+const MESSAGES_SEARCH_MODEL_DEFAULT = "gpt-5.6-luna";
 
 // The client contract is Tavily's: {results:[{title,url,content,published_date}],
 // answer}. Anthropic's server-side search returns citable titles and URLs but the
@@ -228,6 +228,12 @@ export function buildMessagesSearchRequest(
 interface MessagesSearchPayload {
   results: { title: string; url: string; content: string; published_date?: string }[];
   answer?: string;
+  /**
+   * Whether the citations could be checked against the search's own hits. False
+   * means the URLs are the model's unverified word — logged, not sent, since the
+   * client's contract is Tavily's.
+   */
+  grounded: boolean;
 }
 
 function extractJsonObject(text: string): unknown {
@@ -280,6 +286,20 @@ export function parseMessagesSearchResponse(data: unknown, limit = 20): Messages
     ? ((parsed as { results: unknown[] }).results as Record<string, unknown>[])
     : [];
 
+  // Whether the backend told us what the search actually found. A gateway that
+  // fronts a non-Anthropic model returns web_search_tool_result blocks with an
+  // empty content array -- the search ran, the citations just never reach us.
+  // Checking claimed URLs against that empty set would drop every result and
+  // leave the client an answer with no sources at all, so grounding is enforced
+  // only when there is something to ground against. The residual trust boundary
+  // is real and worth naming: against a backend that *always* strips the hits,
+  // no URL is ever verified and an invented one would reach the client looking
+  // citable. That case is indistinguishable from a genuinely empty search, so
+  // the flag rides along on the payload and the route logs it -- an operator
+  // pointing SEARCH_MESSAGES_URL at such a backend can see it in the logs
+  // rather than infer it.
+  const grounded = searched.size > 0;
+
   const results = claimed
     .map((entry) => {
       const url = typeof entry?.url === "string" ? entry.url.trim() : "";
@@ -288,7 +308,7 @@ export function parseMessagesSearchResponse(data: unknown, limit = 20): Messages
       // the snippets, so without this an invented link reaches the client
       // looking exactly as citable as a real one.
       const hit = searched.get(url);
-      if (!hit) return undefined;
+      if (grounded && !hit) return undefined;
       // A citation with no extract does not meet the schema the prompt asks for
       // and grounds nothing, so drop it rather than let it stand in for a real
       // result and suppress the raw-hit fallback below.
@@ -297,9 +317,9 @@ export function parseMessagesSearchResponse(data: unknown, limit = 20): Messages
       const published =
         typeof entry.published_date === "string" && entry.published_date.trim()
           ? entry.published_date.trim()
-          : hit.published_date;
+          : hit?.published_date;
       return {
-        title: typeof entry.title === "string" && entry.title ? entry.title : hit.title,
+        title: typeof entry.title === "string" && entry.title ? entry.title : (hit?.title ?? ""),
         url,
         content,
         ...(published ? { published_date: published } : {}),
@@ -313,7 +333,7 @@ export function parseMessagesSearchResponse(data: unknown, limit = 20): Messages
       ? ((parsed as { answer: string }).answer as string)
       : undefined;
 
-  if (results.length > 0) return { results, answer };
+  if (results.length > 0) return { results, answer, grounded };
 
   // No usable JSON: hand back what the search itself found so the caller still
   // has sources to cite, with the model's prose as the answer.
@@ -327,6 +347,7 @@ export function parseMessagesSearchResponse(data: unknown, limit = 20): Messages
       }))
       .slice(0, limit),
     answer: answer ?? (textParts.join("").trim() || undefined),
+    grounded,
   };
 }
 
@@ -613,10 +634,13 @@ async function proxyMessagesSearch(
         message: "Messages search request",
         status: upstream.status,
         resultCount: parsed.results.length,
+        grounded: parsed.grounded,
         colo: request.cf?.colo,
       }),
     );
-    return new Response(JSON.stringify(parsed), { status: 200, headers });
+    // `grounded` is diagnostic, not part of the Tavily-shaped contract.
+    const { grounded: _grounded, ...responseBody } = parsed;
+    return new Response(JSON.stringify(responseBody), { status: 200, headers });
   } finally {
     clearTimeout(deadline);
   }

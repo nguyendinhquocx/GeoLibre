@@ -111,7 +111,7 @@ import {
   type CalcOutputType,
 } from "../../lib/attribute-expression";
 import { attributeFormErrorMessage } from "../../lib/attribute-form-messages";
-import { coerceNumericStringRows } from "../../lib/attribute-charts";
+import { coerceNumericStringRows, pickAnalysisRows } from "../../lib/attribute-charts";
 import { computeRowSelection } from "../../lib/attribute-selection";
 import { RESERVED_PROPERTY_KEYS } from "../../lib/field-collection";
 import {
@@ -667,15 +667,18 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
     () => (adaptAnalysisRows ? coerceNumericStringRows(attributeRows) : attributeRows),
     [adaptAnalysisRows, attributeRows],
   );
-  const analysisFilteredRows = useMemo(
-    () =>
-      adaptAnalysisRows
-        ? filtered.length === attributeRows.length
-          ? analysisRows
-          : coerceNumericStringRows(filtered)
-        : filtered,
-    [adaptAnalysisRows, analysisRows, attributeRows.length, filtered],
-  );
+  // Both subsets are picked out of the already-adapted full-layer rows so a field
+  // keeps the same numeric/text inference whichever statistics scope is showing.
+  const analysisFilteredRows = useMemo(() => {
+    if (!adaptAnalysisRows) return filtered;
+    if (filtered.length === attributeRows.length) return analysisRows;
+    const filteredIds = new Set(filtered.map(({ featureId }) => featureId));
+    return pickAnalysisRows(analysisRows, attributeRows, filteredIds);
+  }, [adaptAnalysisRows, analysisRows, attributeRows, filtered]);
+  const analysisSelectedRows = useMemo(() => {
+    if (!adaptAnalysisRows || selectedIdSet.size === 0) return [];
+    return pickAnalysisRows(analysisRows, attributeRows, selectedIdSet);
+  }, [adaptAnalysisRows, analysisRows, attributeRows, selectedIdSet]);
   const sorted = [...filtered].sort((a, b) => {
     const aValue = sort.key === "__featureId" ? a.featureId : a.properties[sort.key];
     const bValue = sort.key === "__featureId" ? b.featureId : b.properties[sort.key];
@@ -2402,6 +2405,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
         onOpenChange={setStatsOpen}
         rows={analysisRows}
         filteredRows={analysisFilteredRows}
+        selectedRows={analysisSelectedRows}
         columns={discoveredColumns}
         layerName={layer?.name ?? ""}
       />

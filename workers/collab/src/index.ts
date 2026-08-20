@@ -51,6 +51,9 @@ function isAllowedOrigin(originHeader: string | null, envAllowed?: string): bool
         .filter(Boolean)
     : [
         "https://geolibre.app",
+        "https://web.geolibre.app",
+        "https://viewer.geolibre.app",
+        "https://studio.geolibre.app",
         "https://collab.geolibre.app",
         "http://localhost",
         "http://127.0.0.1",
@@ -60,7 +63,19 @@ function isAllowedOrigin(originHeader: string | null, envAllowed?: string): bool
   try {
     const originUrl = new URL(originHeader);
     const host = originUrl.hostname;
-    if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost")) return true;
+    if (!envAllowed) {
+      if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost")) return true;
+      const previewSuffix = ".geolibre-preview.pages.dev";
+      const previewLabel = host.endsWith(previewSuffix) ? host.slice(0, -previewSuffix.length) : "";
+      if (
+        originUrl.protocol === "https:" &&
+        !originUrl.port &&
+        previewLabel &&
+        !previewLabel.includes(".")
+      ) {
+        return true;
+      }
+    }
     return allowedList.some((allowed) => {
       if (allowed === "*") return true;
       try {

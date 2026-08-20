@@ -54,6 +54,7 @@ export function ProcessingMenu({
   const setVectorToolOpen = useAppStore((s) => s.setVectorToolOpen);
   const setStatisticsToolOpen = useAppStore((s) => s.setStatisticsToolOpen);
   const setGeocodeOpen = useAppStore((s) => s.setGeocodeOpen);
+  const setBatchToolsOpen = useAppStore((s) => s.setBatchToolsOpen);
   const setModelBuilderOpen = useAppStore((s) => s.setModelBuilderOpen);
   const setRasterToolOpen = useAppStore((s) => s.setRasterToolOpen);
   const setSegmentationOpen = useAppStore((s) => s.setSegmentationOpen);
@@ -92,8 +93,8 @@ export function ProcessingMenu({
 
   // Section visibility, so dividers never render with nothing on one side when a
   // UI profile (or mobile) hides whole sections. `showGeolibreTools` are the
-  // client tool submenus; `showGeolibreActions` are geocode/model-builder/
-  // segmentation below the in-submenu divider.
+  // client tool submenus; `showGeolibreActions` are geocode/batch/segmentation
+  // below the in-submenu divider.
   const showGeolibreTools =
     (!mobile && show("processing.conversion")) ||
     show("processing.vector") ||
@@ -102,12 +103,13 @@ export function ProcessingMenu({
     (!mobile && show("processing.raster"));
   const showGeolibreActions =
     show("processing.geocode") ||
-    show("processing.modelBuilder") ||
+    show("processing.batchTools") ||
     (!mobile && show("processing.segmentation")) ||
     show("processing.objectDetection") ||
     show("processing.segmentEverything");
   const showGeolibre = showGeolibreTools || showGeolibreActions;
   const showWorkspacesOrServices =
+    show("processing.modelBuilder") ||
     show("processing.history") ||
     show("processing.sqlWorkspace") ||
     show("processing.pythonConsole") ||
@@ -498,9 +500,9 @@ export function ProcessingMenu({
                   {t("toolbar.item.geocode")}
                 </DropdownMenuItem>
               )}
-              {show("processing.modelBuilder") && (
-                <DropdownMenuItem onSelect={() => setModelBuilderOpen(true)}>
-                  {t("toolbar.item.modelBuilder")}
+              {show("processing.batchTools") && (
+                <DropdownMenuItem onSelect={() => setBatchToolsOpen(true)}>
+                  {t("toolbar.item.batchTools")}
                 </DropdownMenuItem>
               )}
               {!mobile && show("processing.segmentation") && (
@@ -528,6 +530,16 @@ export function ProcessingMenu({
         {/* Divide the tool-category submenus (Whitebox, GeoLibre) from the
             workspaces and consoles below. Only when both sides are present. */}
         {(showWhitebox || showGeolibre) && showWorkspacesOrServices && <DropdownMenuSeparator />}
+        {/* Model Builder sits at the top level rather than inside the GeoLibre
+            Toolbox submenu: it is a canvas that composes tools from every
+            toolbox (Whitebox raster and GeoLibre vector alike), so filing it
+            under one of them would misdescribe its reach. It heads the
+            workspaces block with its SQL/Python/notebook/dashboard siblings. */}
+        {show("processing.modelBuilder") && (
+          <DropdownMenuItem onSelect={() => setModelBuilderOpen(true)}>
+            {t("toolbar.item.modelBuilder")}
+          </DropdownMenuItem>
+        )}
         {show("processing.sqlWorkspace") && (
           <DropdownMenuItem onSelect={() => setSqlWorkspaceOpen(true)}>
             {t("toolbar.command.sqlWorkspace")}

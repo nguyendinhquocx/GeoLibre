@@ -32,7 +32,7 @@ describe("AI proxy messages search request", () => {
     const messages = request.messages as { role: string; content: string }[];
     assert.match(messages[0].content, /within the last 30 days/);
     assert.match(request.system as string, /at most 8 results/);
-    assert.equal(request.model, "claude-sonnet-5");
+    assert.equal(request.model, "gpt-5.6-luna");
   });
 
   it("clamps max_results into the documented range", () => {
@@ -184,6 +184,51 @@ describe("AI proxy messages search response", () => {
     );
   });
 
+  it("keeps the model's own citations when the backend surfaced no hits", () => {
+    // cli-proxy-api in front of a non-Anthropic model runs the search but
+    // returns the tool-result block empty, so there is nothing to ground
+    // against; dropping every citation would leave an answer with no sources.
+    const parsed = parseMessagesSearchResponse({
+      content: [
+        { type: "web_search_tool_result", content: [] },
+        {
+          type: "text",
+          text: JSON.stringify({
+            answer: "Six died in Indiana.",
+            results: [
+              { title: "Indiana floods", url: "https://news.example/indiana", content: "six dead" },
+            ],
+          }),
+        },
+      ],
+    });
+    assert.equal(parsed.answer, "Six died in Indiana.");
+    assert.deepEqual(parsed.results, [
+      { title: "Indiana floods", url: "https://news.example/indiana", content: "six dead" },
+    ]);
+    // The URLs went out unverified, so the route can log that it happened.
+    assert.equal(parsed.grounded, false);
+  });
+
+  it("still refuses an invented url once the backend has surfaced any hit", () => {
+    const parsed = parseMessagesSearchResponse({
+      content: [
+        searchBlock,
+        {
+          type: "text",
+          text: JSON.stringify({
+            results: [{ url: "https://invented.example/z", title: "Looks real", content: "c" }],
+          }),
+        },
+      ],
+    });
+    assert.deepEqual(
+      parsed.results.map((r) => r.url),
+      ["https://a.example/x", "https://b.example/y"],
+    );
+    assert.equal(parsed.grounded, true);
+  });
+
   it("falls back to the search hits when every claimed url was invented", () => {
     const parsed = parseMessagesSearchResponse({
       content: [
@@ -264,6 +309,10 @@ describe("AI proxy messages search response", () => {
   });
 
   it("returns an empty envelope for a response with no content", () => {
-    assert.deepEqual(parseMessagesSearchResponse({}), { results: [], answer: undefined });
+    assert.deepEqual(parseMessagesSearchResponse({}), {
+      results: [],
+      answer: undefined,
+      grounded: false,
+    });
   });
 });

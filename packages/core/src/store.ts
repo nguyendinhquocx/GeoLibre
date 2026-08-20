@@ -338,7 +338,12 @@ export interface AppState {
     // Story Map dialog is hidden so the user can pan/zoom/tilt the real map and
     // save the resulting camera back into this chapter (issue #775).
     storymapComposingId: string | null;
+    /** The Batch tools dialog (run one tool across many layers). */
+    batchToolsOpen: boolean;
+    /** The Model Builder canvas panel (author a processing graph). */
     modelBuilderOpen: boolean;
+    /** One-shot request for Model Builder to load a saved model. */
+    modelBuilderRequestedModelId: string | null;
     /** Style Manager dialog visibility (issue #1294). */
     styleManagerOpen: boolean;
     /** Processing History panel visibility (#1292). */
@@ -460,7 +465,9 @@ export interface AppState {
   setStorymapPanelOpen: (open: boolean) => void;
   setStorymapPresenting: (presenting: boolean, returnToEditor?: boolean) => void;
   setStorymapComposing: (chapterId: string | null) => void;
+  setBatchToolsOpen: (open: boolean) => void;
   setModelBuilderOpen: (open: boolean) => void;
+  setModelBuilderRequestedModelId: (id: string | null) => void;
   setProcessingHistoryOpen: (open: boolean) => void;
   /** Open/close Select by Expression, optionally preselecting a target layer. */
   setSelectByExpressionOpen: (open: boolean, layerId?: string | null) => void;
@@ -1058,7 +1065,9 @@ export const useAppStore = create<AppState>()(
         storymapPresenting: false,
         storymapReturnToEditor: false,
         storymapComposingId: null,
+        batchToolsOpen: false,
         modelBuilderOpen: false,
+        modelBuilderRequestedModelId: null,
         styleManagerOpen: false,
         processingHistoryOpen: false,
         selectByExpressionOpen: false,
@@ -1394,7 +1403,10 @@ export const useAppStore = create<AppState>()(
         })),
       setStorymapComposing: (chapterId) =>
         set((s) => ({ ui: { ...s.ui, storymapComposingId: chapterId } })),
+      setBatchToolsOpen: (open) => set((s) => ({ ui: { ...s.ui, batchToolsOpen: open } })),
       setModelBuilderOpen: (open) => set((s) => ({ ui: { ...s.ui, modelBuilderOpen: open } })),
+      setModelBuilderRequestedModelId: (id) =>
+        set((s) => ({ ui: { ...s.ui, modelBuilderRequestedModelId: id } })),
       setProcessingHistoryOpen: (open) =>
         set((s) => ({ ui: { ...s.ui, processingHistoryOpen: open } })),
       setProcessingRerun: (request) => set((s) => ({ ui: { ...s.ui, processingRerun: request } })),
@@ -2230,6 +2242,9 @@ export const useAppStore = create<AppState>()(
             selectByLocationLayerId: null,
             loadEditorFeaturesOpen: false,
             loadEditorFeaturesLayerId: null,
+            // A pending assistant-requested Model Builder load names a model in
+            // the previous project's `savedModels`.
+            modelBuilderRequestedModelId: null,
           },
         }));
         clearHistory();
@@ -2290,6 +2305,9 @@ export const useAppStore = create<AppState>()(
             selectByLocationLayerId: null,
             loadEditorFeaturesOpen: false,
             loadEditorFeaturesLayerId: null,
+            // A pending assistant-requested Model Builder load names a model in
+            // the previous project's `savedModels`.
+            modelBuilderRequestedModelId: null,
           },
         }));
         clearHistory();
