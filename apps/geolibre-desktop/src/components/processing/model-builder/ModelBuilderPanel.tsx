@@ -72,6 +72,14 @@ import {
   searchModelTools,
 } from "../../../lib/model-tool-catalog";
 import {
+  modelProviderCatalog,
+  translateModelToolGroup,
+  translateParameter,
+  translateToolDescription,
+  translateToolGroup,
+  translateToolName,
+} from "../../../lib/processing-tool-i18n";
+import {
   NODE_HEIGHT,
   NODE_WIDTH,
   addDataNode,
@@ -425,7 +433,22 @@ export function ModelBuilderPanel({
   }, [issues]);
 
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
-  const filtered = useMemo(() => searchModelTools(catalog, search), [catalog, search]);
+  // The palette renders translated names and group headings, so the search has
+  // to see them too or a user can only find a tool by its English name.
+  const filtered = useMemo(
+    () =>
+      searchModelTools(catalog, search, (descriptor) => {
+        const catalogName = modelProviderCatalog(descriptor.provider);
+        // Whitebox metadata is not translated, and its raw name/group are
+        // already in the haystack, so there is nothing to add for those.
+        if (!catalogName) return "";
+        return `${translateToolName(t, catalogName, {
+          id: descriptor.toolId,
+          name: descriptor.name,
+        })} ${translateToolGroup(t, descriptor.group)}`;
+      }),
+    [catalog, search, t],
+  );
   const groups = useMemo(() => groupModelTools(filtered), [filtered]);
 
   /**
@@ -1484,29 +1507,42 @@ export function ModelBuilderPanel({
                   groups.map((group) => (
                     <div key={group.group} className="mb-2">
                       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {group.group}
+                        {translateModelToolGroup(t, group)}
                       </p>
-                      {group.tools.map((tool) => (
-                        // A real button, not a bare draggable div: dragging is the
-                        // only other way to add a tool node, so a div here would put
-                        // the panel's core interaction out of reach of the keyboard
-                        // entirely. Activating it drops the node onto the canvas.
-                        <button
-                          key={tool.key}
-                          type="button"
-                          draggable
-                          onDragStart={(event) => {
-                            event.dataTransfer.setData(TOOL_DRAG_TYPE, tool.key);
-                            event.dataTransfer.effectAllowed = "copy";
-                          }}
-                          onClick={() => addToolAtDefault(tool)}
-                          title={tool.description ?? tool.name}
-                          aria-label={t("processing.modelBuilder.addToolNode", { tool: tool.name })}
-                          className="w-full cursor-grab truncate rounded px-1.5 py-1 text-start text-xs hover:bg-accent active:cursor-grabbing"
-                        >
-                          {tool.name}
-                        </button>
-                      ))}
+                      {group.tools.map((tool) => {
+                        const catalog = modelProviderCatalog(tool.provider);
+                        const toolMeta = {
+                          id: tool.toolId,
+                          name: tool.name,
+                          description: tool.description,
+                        };
+                        const name = translateToolName(t, catalog, toolMeta);
+                        // `||`, not `??`: a tool with no description (or one whose
+                        // catalog entry is an empty string) should get the name as
+                        // its tooltip rather than an empty one.
+                        const tooltip = translateToolDescription(t, catalog, toolMeta) || name;
+                        return (
+                          // A real button, not a bare draggable div: dragging is the
+                          // only other way to add a tool node, so a div here would put
+                          // the panel's core interaction out of reach of the keyboard
+                          // entirely. Activating it drops the node onto the canvas.
+                          <button
+                            key={tool.key}
+                            type="button"
+                            draggable
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData(TOOL_DRAG_TYPE, tool.key);
+                              event.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => addToolAtDefault(tool)}
+                            title={tooltip}
+                            aria-label={t("processing.modelBuilder.addToolNode", { tool: name })}
+                            className="w-full cursor-grab truncate rounded px-1.5 py-1 text-start text-xs hover:bg-accent active:cursor-grabbing"
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
                     </div>
                   ))
                 )}
@@ -1790,6 +1826,26 @@ function translateIssue(t: TFunction, issue: ModelGraphIssue): string {
   }
 }
 
+/**
+ * Display name for a tool node, translated where GeoLibre owns the metadata.
+ *
+ * The palette, the canvas card, the inspector header and the run log all name
+ * the same tool, so they resolve it the same way; a raw `descriptor.name` at any
+ * one of them shows an English tool name inside an otherwise translated dialog.
+ * Whitebox descriptors resolve to their catalog text, as everywhere else.
+ */
+function descriptorName(
+  t: TFunction,
+  descriptor: ModelToolDescriptor | undefined,
+  fallback = "",
+): string {
+  if (!descriptor) return fallback;
+  return translateToolName(t, modelProviderCatalog(descriptor.provider), {
+    id: descriptor.toolId,
+    name: descriptor.name,
+  });
+}
+
 /** Display name for a port, translating the two synthetic node ports. */
 function portLabel(t: TFunction, label: string): string {
   if (label === INPUT_NODE_PORT) return t("processing.modelBuilder.outputNode");
@@ -1938,7 +1994,7 @@ const GraphNodeCard = memo(function GraphNodeCard({
         t("processing.modelBuilder.inputNode"))
       : node.kind === "output"
         ? node.name?.trim() || t("processing.modelBuilder.outputNode")
-        : (descriptor?.name ?? node.toolId ?? "");
+        : descriptorName(t, descriptor, node.toolId ?? "");
 
   return (
     // Focusable with a role, so the card can be reached and selected from the
@@ -2126,7 +2182,7 @@ function NodeInspector({
       <div className="flex items-center justify-between gap-2">
         <p className="truncate text-xs font-semibold">
           {node.kind === "tool"
-            ? (descriptor?.name ?? node.toolId)
+            ? descriptorName(t, descriptor, node.toolId ?? "")
             : node.kind === "input"
               ? t("processing.modelBuilder.inputNode")
               : t("processing.modelBuilder.outputNode")}
@@ -2187,7 +2243,13 @@ function NodeInspector({
       {node.kind === "tool" && descriptor && (
         <div className="space-y-2">
           {descriptor.description && (
-            <p className="text-[11px] text-muted-foreground">{descriptor.description}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {translateToolDescription(t, modelProviderCatalog(descriptor.provider), {
+                id: descriptor.toolId,
+                name: descriptor.name,
+                description: descriptor.description,
+              })}
+            </p>
           )}
           {descriptor.parameters.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">
@@ -2197,7 +2259,12 @@ function NodeInspector({
             descriptor.parameters.map((param) => (
               <ParameterField
                 key={param.id}
-                param={param}
+                param={translateParameter(
+                  t,
+                  modelProviderCatalog(descriptor.provider),
+                  descriptor.toolId,
+                  param,
+                )}
                 value={node.parameters?.[param.id]}
                 layerOptions={layers.map((layer) => ({ id: layer.id, name: layer.name }))}
                 onChange={(value) => onParamChange(param.id, value)}
@@ -2382,7 +2449,9 @@ async function executeModelTool({
       signal,
     });
     if (!output)
-      throw new Error(t("processing.modelBuilder.toolNoOutput", { tool: descriptor.name }));
+      throw new Error(
+        t("processing.modelBuilder.toolNoOutput", { tool: descriptorName(t, descriptor) }),
+      );
     return { out: { kind: "vector", geojson: output } };
   }
 
@@ -2424,7 +2493,9 @@ async function executeModelTool({
     }
   }
   if (Object.keys(results).length === 0) {
-    throw new Error(t("processing.modelBuilder.toolNoUsableOutput", { tool: descriptor.name }));
+    throw new Error(
+      t("processing.modelBuilder.toolNoUsableOutput", { tool: descriptorName(t, descriptor) }),
+    );
   }
   return results;
 }

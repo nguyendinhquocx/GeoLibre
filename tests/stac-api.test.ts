@@ -11,6 +11,18 @@ import {
   openCatalogNode,
   searchStacApi,
   searchStaticStac,
+  assetTargets,
+  canAddAsset,
+  isIcechunkAsset,
+  requiresTarget,
+  withItemBounds,
+  type StacItem,
+  zarrCrs,
+  zarrLayerRequest,
+  zarrTargetCheck,
+  zarrStoreTakesKeys,
+  zarrStorePath,
+  zarrTargets,
 } from "../packages/plugins/src/plugins/stac-api";
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -1533,5 +1545,536 @@ test("asset and bbox helpers recognize common STAC data", () => {
       assets: {},
     }),
     [-160, -65, -120, -30],
+  );
+});
+
+test("Zarr assets are recognized by media type and by store extension", () => {
+  assert.equal(
+    assetFormat({ href: "https://example.com/era5.zarr", type: "application/vnd+zarr" }),
+    "zarr",
+  );
+  // A store is a directory, and catalogs write it with or without the trailing slash.
+  assert.equal(assetFormat({ href: "https://example.com/era5.zarr/" }), "zarr");
+  // An href reaching into the store is still Zarr, even from a catalog that declares no type.
+  assert.equal(
+    assetFormat({ href: "https://example.com/scene.zarr/measurements/reflectance/r10m" }),
+    "zarr",
+  );
+  assert.equal(assetFormat({ href: "https://example.com/era5.zarr?v=2" }), "zarr");
+  // Named but out of reach: nothing behind Add speaks abfs, so it is labelled and not offered.
+  assert.equal(assetDisplayFormat({ href: "abfs://era5/ERA5/a.zarr" }), "zarr");
+  assert.equal(assetFormat({ href: "abfs://era5/ERA5/a.zarr" }), null);
+});
+
+test("a Zarr asset's storage options resolve its Azure href", async () => {
+  // Zarr keeps the account under xarray:open_kwargs rather than table:storage_options (era5-pds).
+  const fetcher = (async () =>
+    jsonResponse({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          id: "era5-pds-2020-12-fc",
+          geometry: null,
+          collection: "era5-pds",
+          properties: { datetime: "2020-12-01T00:00:00Z" },
+          assets: {
+            precipitation_amount_1hour_Accumulation: {
+              href: "abfs://era5/ERA5/2020/12/precipitation_amount_1hour_Accumulation.zarr",
+              type: "application/vnd+zarr",
+              "xarray:open_kwargs": { storage_options: { account_name: "cpdataeuwest" } },
+            },
+          },
+        },
+      ],
+      links: [],
+    })) as typeof fetch;
+  const result = await searchStacApi(
+    {
+      url: "https://planetarycomputer.microsoft.com/api/stac/v1/",
+      title: "Planetary Computer",
+      isApi: true,
+      searchUrl: "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+      collections: [],
+      root: {},
+    },
+    { limit: 10 },
+    fetcher,
+  );
+  const asset = result.items[0].assets.precipitation_amount_1hour_Accumulation;
+  assert.equal(
+    asset.href,
+    "https://cpdataeuwest.blob.core.windows.net/era5/ERA5/2020/12/precipitation_amount_1hour_Accumulation.zarr",
+  );
+  assert.equal(assetFormat(asset), "zarr");
+});
+
+test("a Zarr store's drawable targets are its spatial variables", () => {
+  const item = (variables: Record<string, unknown>): StacItem => ({
+    type: "Feature",
+    id: "era5-pds-2020-12-fc",
+    geometry: null,
+    properties: {
+      "cube:dimensions": {
+        lat: { type: "spatial" },
+        lon: { type: "spatial" },
+        time: { type: "temporal" },
+      },
+      "cube:variables": variables,
+    },
+    assets: {},
+  });
+  const era5 = item({
+    time1_bounds: { dimensions: ["time", "nv"] },
+    precip: { dimensions: ["time", "lat", "lon"], unit: "m" },
+    tasmax: { dimensions: ["time", "lat", "lon"], unit: "K" },
+  });
+
+  // An asset keyed by a variable holds that one alone; bounds span no two spatial dimensions.
+  assert.deepEqual(zarrTargets(era5, "precip"), [{ id: "precip", label: "precip (m)" }]);
+  assert.deepEqual(zarrTargets(era5, "data"), [
+    { id: "precip", label: "precip (m)" },
+    { id: "tasmax", label: "tasmax (K)" },
+  ]);
+  assert.deepEqual(zarrTargets(item({ flat: { dimensions: ["time"] } }), "data"), []);
+  // A key that names a variable the store cannot draw holds nothing: the item's other variables
+  // belong to other assets' stores, so offering them would name arrays that are not there.
+  assert.deepEqual(zarrTargets(era5, "time1_bounds"), []);
+
+  // Two spatial dimensions are not enough when a catalog names its axes: a vertical
+  // cross-section spans latitude and depth, and the renderer draws a horizontal raster.
+  const profile: StacItem = {
+    type: "Feature",
+    id: "profile",
+    geometry: null,
+    properties: {
+      "cube:dimensions": {
+        lat: { type: "spatial", axis: "y" },
+        lon: { type: "spatial", axis: "x" },
+        depth: { type: "spatial", axis: "z" },
+      },
+      "cube:variables": {
+        section: { dimensions: ["lat", "depth"], unit: "degC" },
+        surface: { dimensions: ["lat", "lon"], unit: "degC" },
+      },
+    },
+    assets: {},
+  };
+  assert.deepEqual(zarrTargets(profile, "data"), [{ id: "surface", label: "surface (degC)" }]);
+
+  // A cube that labels only some of its axes says less than it appears to, so the pair is judged
+  // only when every spatial dimension it spans is named.
+  const halfLabelled: StacItem = {
+    type: "Feature",
+    id: "half-labelled",
+    geometry: null,
+    properties: {
+      "cube:dimensions": {
+        lat: { type: "spatial", axis: "y" },
+        lon: { type: "spatial" },
+      },
+      "cube:variables": { sst: { dimensions: ["lat", "lon"], unit: "degC" } },
+    },
+    assets: {},
+  };
+  assert.deepEqual(zarrTargets(halfLabelled, "data"), [{ id: "sst", label: "sst (degC)" }]);
+
+  // An axis written in a spelling the extension does not use tells us nothing, so it must not be
+  // read as "not horizontal" — that would drop every variable a such a catalog publishes.
+  const shouted: StacItem = {
+    type: "Feature",
+    id: "shouted",
+    geometry: null,
+    properties: {
+      "cube:dimensions": {
+        lat: { type: "spatial", axis: "Y" },
+        lon: { type: "spatial", axis: "X" },
+      },
+      "cube:variables": { sst: { dimensions: ["lat", "lon"] } },
+    },
+    assets: {},
+  };
+  assert.deepEqual(zarrTargets(shouted, "data"), [{ id: "sst", label: "sst" }]);
+
+  // Nor does a value the extension never defines — a number, a compass word — say "not
+  // horizontal"; it is simply not an axis, and the spatial pair carries the decision instead.
+  const oddAxes: StacItem = {
+    type: "Feature",
+    id: "odd-axes",
+    geometry: null,
+    properties: {
+      "cube:dimensions": {
+        lat: { type: "spatial", axis: 2 },
+        lon: { type: "spatial", axis: "east" },
+      },
+      "cube:variables": { sst: { dimensions: ["lat", "lon"] } },
+    },
+    assets: {},
+  };
+  assert.deepEqual(zarrTargets(oddAxes, "data"), [{ id: "sst", label: "sst" }]);
+
+  // The same cross-section, shouted: an axis is recognized whatever its case, so this stays out.
+  const shoutedSection: StacItem = {
+    type: "Feature",
+    id: "shouted-section",
+    geometry: null,
+    properties: {
+      "cube:dimensions": {
+        lat: { type: "spatial", axis: "Y" },
+        depth: { type: "spatial", axis: "Z" },
+      },
+      "cube:variables": { section: { dimensions: ["lat", "depth"] } },
+    },
+    assets: {},
+  };
+  assert.deepEqual(zarrTargets(shoutedSection, "data"), []);
+  // A list where an object belongs would otherwise yield indices as variable names.
+  assert.deepEqual(
+    zarrTargets({ ...era5, properties: { "cube:variables": ["precip"] } }, "data"),
+    [],
+  );
+});
+
+test("a Zarr layer request carries the store, the array, and the panel's raster options", () => {
+  const inside = "https://objects.eodc.eu/bucket/S2C.zarr/measurements/reflectance/r10m/b02";
+
+  // An href reaching into the store is split: the reader opens the store, then the array within.
+  assert.deepEqual(zarrStorePath(inside), {
+    url: "https://objects.eodc.eu/bucket/S2C.zarr",
+    path: "measurements/reflectance/r10m/b02",
+  });
+  assert.deepEqual(zarrStorePath("https://example.com/demo.zarr"), {
+    url: "https://example.com/demo.zarr",
+  });
+
+  assert.deepEqual(
+    zarrLayerRequest("https://example.com/demo.zarr", "temperature", {
+      colormap: "viridis",
+      rescaleMin: -100,
+      rescaleMax: 100,
+    }),
+    {
+      url: "https://example.com/demo.zarr",
+      variable: "temperature",
+      colormap: "viridis",
+      clim: [-100, 100],
+    },
+  );
+
+  // Half a range is no range: the renderer would have to invent the other bound.
+  assert.deepEqual(zarrLayerRequest("https://example.com/demo.zarr", "t", { rescaleMin: 0 }), {
+    url: "https://example.com/demo.zarr",
+    variable: "t",
+  });
+  assert.deepEqual(zarrLayerRequest("https://example.com/demo.zarr", "t", { rescaleMax: 1 }), {
+    url: "https://example.com/demo.zarr",
+    variable: "t",
+  });
+  // A store addressed inside still opens at its root, with the array as the variable.
+  assert.equal(
+    zarrLayerRequest(inside, "measurements/reflectance/r10m/b02").url,
+    "https://objects.eodc.eu/bucket/S2C.zarr",
+  );
+
+  // A signed href carries a query, which names no part of the array and no part of the key.
+  const signed = "https://acct.blob.core.windows.net/c/S2.zarr/measurements/b02?st=2026&sig=abc";
+  assert.deepEqual(zarrStorePath(signed), {
+    url: "https://acct.blob.core.windows.net/c/S2.zarr?st=2026&sig=abc",
+    path: "measurements/b02",
+  });
+  // The reader appends `/<key>` to whatever it is given, so such a store cannot be read at all.
+  assert.equal(zarrStoreTakesKeys("https://example.com/a.zarr"), true);
+  assert.equal(zarrStoreTakesKeys("https://example.com/a.zarr?sig=abc"), false);
+});
+
+test("a projected Zarr store carries its CRS, and WGS84 stays implicit", () => {
+  const item = (properties: Record<string, unknown>): StacItem => ({
+    type: "Feature",
+    id: "item",
+    geometry: null,
+    properties,
+    assets: {},
+  });
+  const asset = { href: "https://example.com/a.zarr", type: "application/vnd+zarr" };
+
+  // EOPF puts the code on the asset; other catalogs put it on the item or the cube dimensions.
+  assert.equal(zarrCrs(item({}), { ...asset, "proj:code": "epsg:32632" }), "EPSG:32632");
+  assert.equal(zarrCrs(item({}), { ...asset, "proj:epsg": 32633 }), "EPSG:32633");
+  assert.equal(zarrCrs(item({ "proj:code": "EPSG:5070" }), asset), "EPSG:5070");
+  assert.equal(
+    zarrCrs(
+      item({
+        "cube:dimensions": {
+          x: { type: "spatial", reference_system: 32612 },
+          time: { type: "temporal", reference_system: 4326 },
+        },
+      }),
+      asset,
+    ),
+    "EPSG:32612",
+  );
+  // The datacube extension also allows an OGC CRS URI rather than a code.
+  assert.equal(
+    zarrCrs(
+      item({
+        "cube:dimensions": {
+          x: { type: "spatial", reference_system: "http://www.opengis.net/def/crs/EPSG/0/32612" },
+        },
+      }),
+      asset,
+    ),
+    "EPSG:32612",
+  );
+  assert.equal(zarrCrs(item({}), asset), undefined);
+  // A code the renderer already assumes would be noise in the request.
+  assert.deepEqual(zarrLayerRequest("https://example.com/a.zarr", "t", { crs: "EPSG:4326" }), {
+    url: "https://example.com/a.zarr",
+    variable: "t",
+  });
+  assert.equal(
+    zarrLayerRequest("https://example.com/a.zarr", "t", { crs: "EPSG:32632" }).crs,
+    "EPSG:32632",
+  );
+});
+
+test("a Zarr layer records the item's extent, so Zoom to layer has somewhere to go", () => {
+  const item = (bbox?: number[]): StacItem =>
+    ({
+      type: "Feature",
+      id: "item",
+      geometry: null,
+      ...(bbox ? { bbox } : {}),
+      properties: {},
+      assets: {},
+    }) as StacItem;
+
+  assert.deepEqual(withItemBounds({ tileType: "raster" }, item([-114, 37, -109, 42])), {
+    tileType: "raster",
+    bounds: [-114, 37, -109, 42],
+  });
+  // A 3D bbox is flattened to its horizontal part, as the rest of the panel does.
+  assert.deepEqual(
+    withItemBounds({}, item([-114, 37, 100, -109, 42, 900])).bounds,
+    [-114, 37, -109, 42],
+  );
+  // Nothing to record leaves the metadata exactly as it was, rather than an undefined field.
+  assert.deepEqual(withItemBounds({ tileType: "raster" }, item()), { tileType: "raster" });
+});
+
+test("a Zarr variable check says which problem it found, not merely that there was one", async () => {
+  const asked: string[] = [];
+  const serving = (bodies: Record<string, unknown>, status = 404) =>
+    (async (url: string) => {
+      asked.push(String(url));
+      const match = Object.entries(bodies).find(([key]) => String(url).endsWith(key));
+      return match
+        ? new Response(JSON.stringify(match[1]), { status: 200 })
+        : new Response("", { status });
+    }) as unknown as typeof fetch;
+
+  const store = "https://example.com/a.zarr";
+  assert.equal(
+    await zarrTargetCheck(store, "sst", serving({ "sst/zarr.json": { node_type: "array" } })),
+    "array",
+  );
+  // EOPF keys an asset to a group of bands: a real path, and nothing to draw.
+  assert.equal(
+    await zarrTargetCheck(store, "r10m", serving({ "r10m/zarr.json": { node_type: "group" } })),
+    "group",
+  );
+  // Metadata that names nothing is not an invitation to try.
+  assert.equal(await zarrTargetCheck(store, "sst", serving({ "sst/zarr.json": {} })), "group");
+  // A 200 that is not the metadata says nothing: the v2 keys still get their turn.
+  const htmlThenZarray = (async (url: string) =>
+    String(url).endsWith("zarr.json")
+      ? new Response("<html>proxy</html>", { status: 200 })
+      : new Response(JSON.stringify({}), {
+          status: String(url).endsWith("sst/.zarray") ? 200 : 404,
+        })) as unknown as typeof fetch;
+  assert.equal(await zarrTargetCheck(store, "sst", htmlThenZarray), "array");
+
+  // A host answering 200 for every path proves nothing: a `.zarray` that is not metadata is
+  // not an array.
+  const catchAll = (async () =>
+    new Response("<html>index</html>", { status: 200 })) as unknown as typeof fetch;
+  assert.equal(await zarrTargetCheck(store, "sst", catchAll), "unavailable");
+
+  // v2 has no node type: `.zarray` names an array, `.zgroup` names a group.
+  assert.equal(await zarrTargetCheck(store, "sst", serving({ "sst/.zarray": {} })), "array");
+  assert.equal(await zarrTargetCheck(store, "bands", serving({ "bands/.zgroup": {} })), "group");
+
+  // A private container answers 409 (Azure), 403 or 401 — a missing token, not a missing array.
+  for (const status of [401, 403, 409]) {
+    assert.equal(await zarrTargetCheck(store, "sst", serving({}, status)), "unauthorized");
+  }
+  // A bucket without `ListBucket` refuses a key that is merely absent, so the refusal must not end
+  // the search: `.zarray` still answers, and the store is readable after all.
+  const refusesMissing = (async (url: string) =>
+    String(url).endsWith("sst/.zarray")
+      ? new Response(JSON.stringify({}), { status: 200 })
+      : new Response("", { status: 403 })) as unknown as typeof fetch;
+  assert.equal(await zarrTargetCheck(store, "sst", refusesMissing), "array");
+  assert.equal(await zarrTargetCheck(store, "sst", serving({}, 404)), "unavailable");
+
+  // A key cannot be appended after a query, so such a store is named as its own problem rather
+  // than guessed at — `?v=2` is no more a credentials failure than `?sig=x` is a missing array.
+  asked.length = 0;
+  assert.equal(
+    await zarrTargetCheck("https://example.com/a.zarr?sig=x", "sst", serving({})),
+    "unsupported-url",
+  );
+  assert.equal(
+    await zarrTargetCheck("https://example.com/a.zarr?v=2", "sst", serving({})),
+    "unsupported-url",
+  );
+  assert.deepEqual(asked, [], "a store that cannot take keys is never asked for one");
+
+  // A host that rejects every key is unreachable, and says so once every key has been tried.
+  const blocked: string[] = [];
+  const rejecting = (async (url: string) => {
+    blocked.push(String(url));
+    throw new TypeError("Failed to fetch");
+  }) as unknown as typeof fetch;
+  assert.equal(await zarrTargetCheck(store, "sst", rejecting), "unavailable");
+  assert.equal(blocked.length, 3);
+
+  // A gateway that omits CORS headers on its 404s throws for a key that is merely absent, so a
+  // v2 store must not be condemned by the v3 key it never had.
+  const throwsOnV3 = (async (url: string) => {
+    if (String(url).endsWith("zarr.json")) throw new TypeError("Failed to fetch");
+    return String(url).endsWith("sst/.zarray")
+      ? new Response(JSON.stringify({}), { status: 200 })
+      : new Response("", { status: 404 });
+  }) as unknown as typeof fetch;
+  assert.equal(await zarrTargetCheck(store, "sst", throwsOnV3), "array");
+
+  // A refusal already seen still explains a later failure: the host asked for a token first.
+  const refusedThenBlocked = (async (url: string) => {
+    if (String(url).endsWith("zarr.json")) return new Response("", { status: 403 });
+    throw new TypeError("Failed to fetch");
+  }) as unknown as typeof fetch;
+  assert.equal(await zarrTargetCheck(store, "sst", refusedThenBlocked), "unauthorized");
+});
+
+test("Add waits on a choice only for the formats that hold several layers", () => {
+  const zarr = { href: "https://example.com/a.zarr", type: "application/vnd.zarr" };
+  const cog = { href: "https://example.com/a.tif", type: "image/tiff" };
+  const item = (variables: Record<string, unknown>): StacItem => ({
+    type: "Feature",
+    id: "item",
+    geometry: null,
+    properties: {
+      "cube:dimensions": { x: { type: "spatial" }, y: { type: "spatial" } },
+      "cube:variables": variables,
+    },
+    assets: {},
+  });
+  const drawable = item({ AET: { dimensions: ["time", "y", "x"] } });
+
+  // An Icechunk repository is a manifest, not a Zarr hierarchy: the URL reader cannot open it.
+  assert.equal(canAddAsset(drawable, "data", { ...zarr, "icechunk:branch": "main" }), false);
+  assert.equal(isIcechunkAsset(zarr), false);
+  // A catalog may say it once on the item rather than on every asset it publishes.
+  const icechunkItem = {
+    ...drawable,
+    properties: { ...drawable.properties, "icechunk:branch": "main" },
+  } as StacItem;
+  assert.equal(isIcechunkAsset(zarr, icechunkItem), true);
+  assert.equal(canAddAsset(icechunkItem, "data", zarr), false);
+
+  assert.equal(requiresTarget(zarr), true);
+  assert.equal(requiresTarget(cog), false);
+  assert.equal(canAddAsset(drawable, "data", zarr), true);
+  assert.deepEqual(assetTargets(drawable, "data", cog), []);
+  // A store whose variables are all one-dimensional has nothing to draw, so Add stays dead.
+  assert.equal(canAddAsset(item({ flat: { dimensions: ["time"] } }), "data", zarr), false);
+  assert.equal(canAddAsset(drawable, "data", cog), true);
+
+  // A store URL that cannot take keys is answerable without asking the host, so Add is refused up
+  // front rather than enabled and then failed on the click.
+  assert.equal(
+    canAddAsset(drawable, "data", { ...zarr, href: "https://example.com/a.zarr?sig=abc" }),
+    false,
+  );
+});
+
+test("an item names the Zarr account in either spelling, as an asset does", async () => {
+  const fetcher = (async () =>
+    jsonResponse({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          id: "item-level-account",
+          geometry: null,
+          collection: "era5-pds",
+          properties: {
+            datetime: "2020-12-01T00:00:00Z",
+            "xarray:open_kwargs": { storage_options: { account_name: "cpdataeuwest" } },
+          },
+          assets: { data: { href: "abfs://era5/a.zarr", type: "application/vnd+zarr" } },
+        },
+      ],
+      links: [],
+    })) as typeof fetch;
+  const result = await searchStacApi(
+    {
+      url: "https://planetarycomputer.microsoft.com/api/stac/v1/",
+      title: "Planetary Computer",
+      isApi: true,
+      searchUrl: "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+      collections: [],
+      root: {},
+    },
+    { limit: 10 },
+    fetcher,
+  );
+  assert.equal(
+    result.items[0].assets.data.href,
+    "https://cpdataeuwest.blob.core.windows.net/era5/a.zarr",
+  );
+});
+
+test("an asset's own storage options outrank the ones beside them", async () => {
+  const fetcher = (async () =>
+    jsonResponse({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          id: "both-options",
+          geometry: null,
+          collection: "era5-pds",
+          properties: {
+            datetime: "2020-12-01T00:00:00Z",
+            "table:storage_options": { account_name: "itemaccount" },
+          },
+          assets: {
+            tasmax: {
+              href: "abfs://era5/a.zarr",
+              type: "application/vnd+zarr",
+              "table:storage_options": { account_name: "assetaccount" },
+              "xarray:open_kwargs": { storage_options: { account_name: "xarrayaccount" } },
+            },
+          },
+        },
+      ],
+      links: [],
+    })) as typeof fetch;
+  const result = await searchStacApi(
+    {
+      url: "https://planetarycomputer.microsoft.com/api/stac/v1/",
+      title: "Planetary Computer",
+      isApi: true,
+      searchUrl: "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+      collections: [],
+      root: {},
+    },
+    { limit: 10 },
+    fetcher,
+  );
+  assert.equal(
+    result.items[0].assets.tasmax.href,
+    "https://assetaccount.blob.core.windows.net/era5/a.zarr",
   );
 });

@@ -367,6 +367,33 @@ function styleLayerZoomRange(style: LayerStyle): {
   };
 }
 
+/**
+ * Return the first zoom where a zoom-stepped extrusion becomes non-flat.
+ * A zero-height fill-extrusion is still triangulated as 3D geometry by
+ * MapLibre and can produce large tile-boundary shards on the globe. Callers
+ * use this cutoff to render an ordinary fill below it instead.
+ */
+function flatExtrusionCutoff(style: LayerStyle): number | null {
+  if (!style.extrusionAdvancedStyleEnabled || !style.extrusionHeightExpression) return null;
+  try {
+    const expression: unknown = JSON.parse(style.extrusionHeightExpression);
+    if (
+      Array.isArray(expression) &&
+      expression[0] === "step" &&
+      Array.isArray(expression[1]) &&
+      expression[1][0] === "zoom" &&
+      expression[2] === 0 &&
+      typeof expression[3] === "number" &&
+      Number.isFinite(expression[3])
+    ) {
+      return clampLayerZoom(expression[3], MIN_LAYER_ZOOM);
+    }
+  } catch {
+    // Invalid expressions are handled by the existing style-expression path.
+  }
+  return null;
+}
+
 // Intersect a native layer's source-declared zoom range with the user-configured
 // style range, taking the tighter bound on each end. This keeps a tile
 // service's zoom floor/ceiling intact while still letting the user narrow the
@@ -1908,7 +1935,37 @@ function applyVectorDataRenderLayers(
 
   if (profile.hasPolygon) {
     if (layer.style.extrusionEnabled) {
-      removeIfExists(map, fillLayerId(layer.id));
+      const zoomRange = styleLayerZoomRange(layer.style);
+      const flatBelowZoom = flatExtrusionCutoff(layer.style);
+      const hasFlatRange = flatBelowZoom !== null && zoomRange.minzoom < flatBelowZoom;
+      if (hasFlatRange) {
+        ensureLayer(
+          map,
+          fillLayerId(layer.id),
+          {
+            id: fillLayerId(layer.id),
+            type: "fill",
+            ...sourceSpec,
+            minzoom: zoomRange.minzoom,
+            maxzoom: Math.min(zoomRange.maxzoom, flatBelowZoom),
+            filter: withFeatureFilters(layer, [
+              "match",
+              ["geometry-type"],
+              ["Polygon", "MultiPolygon"],
+              true,
+              false,
+            ]),
+            paint: {
+              ...fillPaint(layer.style, opacity),
+              "fill-pattern": (fillPatternId ?? null) as unknown as string,
+            },
+            layout: { visibility },
+          },
+          beforeId,
+        );
+      } else {
+        removeIfExists(map, fillLayerId(layer.id));
+      }
       ensureLayer(
         map,
         fillExtrusionLayerId(layer.id),
@@ -1916,7 +1973,12 @@ function applyVectorDataRenderLayers(
           id: fillExtrusionLayerId(layer.id),
           type: "fill-extrusion",
           ...sourceSpec,
-          ...styleLayerZoomRange(layer.style),
+          ...zoomRange,
+          ...(flatBelowZoom !== null
+            ? {
+                minzoom: Math.min(zoomRange.maxzoom, Math.max(zoomRange.minzoom, flatBelowZoom)),
+              }
+            : {}),
           filter: withFeatureFilters(layer, [
             "match",
             ["geometry-type"],
@@ -2020,7 +2082,7 @@ function applyVectorDataRenderLayers(
     removeSourceIfExists(map, invertedSourceId(layer.id));
   }
 
-  if (!layer.style.extrusionEnabled && (profile.hasLine || profile.hasPolygon)) {
+  if (profile.hasLine || (!layer.style.extrusionEnabled && profile.hasPolygon)) {
     ensureLayer(
       map,
       lineLayerId(layer.id),
@@ -2032,7 +2094,9 @@ function applyVectorDataRenderLayers(
         filter: withFeatureFilters(layer, [
           "match",
           ["geometry-type"],
-          ["LineString", "MultiLineString", "Polygon", "MultiPolygon"],
+          layer.style.extrusionEnabled
+            ? ["LineString", "MultiLineString"]
+            : ["LineString", "MultiLineString", "Polygon", "MultiPolygon"],
           true,
           false,
         ]),
@@ -2092,7 +2156,7 @@ function applyVectorDataRenderLayers(
     removeIfExists(map, lineDecorationLayerId(layer.id));
   }
 
-  if (!layer.style.extrusionEnabled && profile.hasPoint && renderer === "heatmap") {
+  if (profile.hasPoint && renderer === "heatmap") {
     // Heatmap renderer: one density layer, no circle/cluster/marker layers.
     removeIfExists(map, circleLayerId(layer.id));
     removeIfExists(map, markerLayerId(layer.id));
@@ -2117,7 +2181,7 @@ function applyVectorDataRenderLayers(
       },
       beforeId,
     );
-  } else if (!layer.style.extrusionEnabled && profile.hasPoint && renderer === "cluster") {
+  } else if (profile.hasPoint && renderer === "cluster") {
     // Cluster renderer: a bubble + count for aggregated clusters, plus a circle
     // for the individual (unclustered) points. The source carries clusters
     // (geojson source-level clustering, or supercluster tiles on the tiled path).
@@ -2177,7 +2241,7 @@ function applyVectorDataRenderLayers(
       },
       beforeId,
     );
-  } else if (!layer.style.extrusionEnabled && profile.hasPoint) {
+  } else if (profile.hasPoint) {
     // Single (default) renderer: a marker icon per point when a marker is
     // configured, otherwise one circle per point.
     removeIfExists(map, heatmapLayerId(layer.id));
@@ -2259,7 +2323,7 @@ function applyVectorDataRenderLayers(
     removeIfExists(map, clusterCountLayerId(layer.id));
   }
 
-  if (!layer.style.extrusionEnabled && hasTextMarkers) {
+  if (hasTextMarkers) {
     ensureLayer(
       map,
       textLayerId(layer.id),

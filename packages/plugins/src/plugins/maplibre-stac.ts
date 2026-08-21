@@ -12,10 +12,14 @@ import { addPMTilesAsset } from "./stac-layers";
 import {
   assetDisplayFormat,
   assetFormat,
+  assetTargets,
+  canAddAsset,
   connectStac,
   horizontalBbox,
   isAzureBlobHref,
+  isIcechunkAsset,
   isVisualizableAsset,
+  requiresTarget,
   itemBbox,
   loadStacIndex,
   openCatalogNode,
@@ -28,10 +32,18 @@ import {
   type StacNextPage,
   type StacSearchResult,
   type StacSearchCursor,
+  type ZarrTargetCheck,
+  withItemBounds,
+  zarrCrs,
+  zarrLayerRequest,
+  zarrTargetCheck,
+  zarrStorePath,
+  zarrStoreTakesKeys,
 } from "./stac-api";
 import { buildCatalogTree } from "./stac-catalog-tree";
 import { el, setDisabled } from "../panel-dom";
 import { addVectorLayerFromUrl } from "./maplibre-vector";
+import { addZarrRasterLayer } from "./maplibre-components";
 
 export const STAC_PLUGIN_ID = "geolibre-stac-catalogs";
 const PANEL_ID = STAC_PLUGIN_ID;
@@ -190,7 +202,12 @@ export interface StacLabels {
   formatGeoJson: string;
   formatPmtiles: string;
   formatParquet: string;
+  formatZarr: string;
   formatUnknown: string;
+  addNoTarget: string;
+  addIcechunk: string;
+  zarrProblem: (problem: Exclude<ZarrTargetCheck, "array">) => string;
+  chooseTarget: string;
   notAddable: string;
   showing: (count: number) => string;
   showingOfMatched: (count: number, matched: number) => string;
@@ -199,6 +216,14 @@ export interface StacLabels {
   drawnBbox: (bbox: string) => string;
   catalogInfo: (title: string, kind: string) => string;
 }
+
+/** Why a Zarr variable could not be added, in the panel's own words. */
+const ZARR_PROBLEMS: Record<Exclude<ZarrTargetCheck, "array">, string> = {
+  group: "This asset names a group of arrays, not one that can be drawn",
+  unauthorized: "This Zarr store needs credentials GeoLibre cannot supply yet",
+  "unsupported-url": "This Zarr store's address cannot be read one key at a time",
+  unavailable: "This Zarr store could not be opened",
+};
 
 let labels: StacLabels = {
   title: "STAC Catalogs",
@@ -271,7 +296,7 @@ let labels: StacLabels = {
   add: "Add",
   download: "Download",
   addUnsupported:
-    "Only GeoTIFF/COG, GeoJSON, GeoParquet, and PMTiles assets can be added to the map",
+    "Only GeoTIFF/COG, GeoJSON, GeoParquet, PMTiles, and Zarr assets can be added to the map",
   addFailed: "Could not add asset",
   addNoSourceLayers: "This archive lists no layers to draw",
   cogUnsupported: "This GeoLibre host cannot visualize remote GeoTIFF assets",
@@ -279,7 +304,12 @@ let labels: StacLabels = {
   formatGeoJson: "GeoJSON",
   formatPmtiles: "PMTiles",
   formatParquet: "Parquet",
+  formatZarr: "Zarr",
   formatUnknown: "Unknown format",
+  addNoTarget: "This asset lists nothing to draw",
+  addIcechunk: "Icechunk stores cannot be read yet",
+  zarrProblem: (problem) => ZARR_PROBLEMS[problem],
+  chooseTarget: "Choose what to add",
   notAddable: "not addable",
   showing: (count) => `Showing ${count} items.`,
   showingOfMatched: (count, matched) => `Showing ${count} of ${matched} items.`,
@@ -589,13 +619,26 @@ function assetFormatLabel(asset: StacAsset): string {
       return labels.formatPmtiles;
     case "parquet":
       return labels.formatParquet;
+    case "zarr":
+      return labels.formatZarr;
     case null:
       return labels.formatUnknown;
   }
 }
 
-function assetOptionLabel(key: string, asset: StacAsset): string {
-  const addability = isVisualizableAsset(asset) ? "" : ` (${labels.notAddable})`;
+/** The Add button's tooltip: what it would add, or why it will not. */
+function addReason(item: StacItem, key: string, asset: StacAsset): string {
+  if (canAddAsset(item, key, asset)) return asset.href;
+  if (!isVisualizableAsset(asset)) return labels.addUnsupported;
+  if (isIcechunkAsset(asset, item)) return labels.addIcechunk;
+  if (requiresTarget(asset) && !zarrStoreTakesKeys(zarrStorePath(asset.href).url)) {
+    return labels.zarrProblem("unsupported-url");
+  }
+  return labels.addNoTarget;
+}
+
+function assetOptionLabel(item: StacItem, key: string, asset: StacAsset): string {
+  const addability = canAddAsset(item, key, asset) ? "" : ` (${labels.notAddable})`;
   return `${assetLabel(key, asset)} — ${assetFormatLabel(asset)}${addability}`;
 }
 
@@ -646,6 +689,7 @@ async function visualizeAsset(
   asset: StacAsset,
   cogOptions: GeoLibreCogLayerOptions,
   signal?: AbortSignal,
+  target?: string,
 ): Promise<void> {
   const name = `${item.id} — ${assetLabel(key, asset)}`;
   const format = assetFormat(asset);
@@ -672,6 +716,38 @@ async function visualizeAsset(
       if (!appRef) throw new Error(labels.addFailed);
       if (!(await addVectorLayerFromUrl(appRef, await readableHref(item, asset.href), { name }))) {
         throw new Error(labels.addFailed);
+      }
+      return;
+    }
+    case "zarr": {
+      if (!appRef) throw new Error(labels.addFailed);
+      if (isIcechunkAsset(asset, item)) throw new Error(labels.addIcechunk);
+      const variable = target ?? assetTargets(item, key, asset)[0]?.id;
+      if (!variable) throw new Error(labels.addNoTarget);
+      // Deliberately unsigned: a store is read key by key, and a token in the URL cannot survive
+      // being followed by one. A private container therefore fails the check below and says so.
+      const { url } = zarrStorePath(asset.href);
+      const checked = await zarrTargetCheck(url, variable, fetch, signal);
+      if (checked !== "array") throw new Error(labels.zarrProblem(checked));
+
+      const crs = zarrCrs(item, asset);
+      const request = zarrLayerRequest(asset.href, variable, {
+        ...cogOptions,
+        ...(crs ? { crs } : {}),
+      });
+      const layerId = await addZarrRasterLayer(appRef, {
+        ...request,
+        name: `${name} — ${variable}`,
+      });
+      // The renderer places the data from the store's own coordinates and records no extent, so
+      // Zoom to layer has nothing to fly to. The item's bbox is WGS84, which is what it wants.
+      // `addZarrRasterLayer` throws rather than resolving without an id, so the layer is either
+      // in the store or we never got here.
+      const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+      if (layer) {
+        useAppStore
+          .getState()
+          .updateLayer(layerId, { metadata: withItemBounds(layer.metadata, item) });
       }
       return;
     }
@@ -1068,12 +1144,12 @@ function buildPanel(container: HTMLElement): () => void {
         const assetSelect = el("select");
         assetSelect.style.cssText = `${style.input}flex:1 1 140px;width:auto;`;
         for (const [key, asset] of assets) {
-          const option = el("option", assetOptionLabel(key, asset));
+          const option = el("option", assetOptionLabel(item, key, asset));
           option.value = key;
           assetSelect.append(option);
         }
         // Preselect something the user can actually add; assets often lead with metadata.
-        const firstAddable = assets.find(([, asset]) => isVisualizableAsset(asset));
+        const firstAddable = assets.find(([key, asset]) => canAddAsset(item, key, asset));
         if (firstAddable) assetSelect.value = firstAddable[0];
         const selected = (): [string, StacAsset] =>
           assets.find(([key]) => key === assetSelect.value) ?? assets[0];
@@ -1083,25 +1159,43 @@ function buildPanel(container: HTMLElement): () => void {
         const download = el("button", labels.download);
         download.type = "button";
         download.style.cssText = style.button;
+        // Which part of the asset to draw, for the formats that hold more than one.
+        const targetSelect = el("select");
+        targetSelect.style.cssText = `${style.input}flex:1 1 140px;width:auto;`;
+        targetSelect.title = labels.chooseTarget;
         let adding = false;
 
         const syncAsset = (): void => {
-          const [, asset] = selected();
-          const addable = isVisualizableAsset(asset);
+          const [key, asset] = selected();
+          const addable = canAddAsset(item, key, asset);
+          const targets = assetTargets(item, key, asset);
+          // Rebuilt on every sync, including the one right after Add, so keep the user's pick.
+          const chosen = targetSelect.value;
+          targetSelect.innerHTML = "";
+          for (const target of targets) {
+            const option = el("option", target.label);
+            option.value = target.id;
+            targetSelect.append(option);
+          }
+          if (targets.some((target) => target.id === chosen)) targetSelect.value = chosen;
+          // One target is the asset itself; hide a choice the user does not have.
+          targetSelect.hidden = targets.length < 2 || !addable;
           assetSelect.title = asset.href;
           download.title = asset.href;
           setDisabled(add, adding || !addable);
-          add.title = addable ? asset.href : labels.addUnsupported;
+          add.title = addReason(item, key, asset);
         };
 
         assetSelect.addEventListener("change", syncAsset);
         add.addEventListener("click", async () => {
           const [key, asset] = selected();
+          // `visualizeAsset` falls back to the first target itself, so do not decide twice.
+          const target = targetSelect.value || undefined;
           adding = true;
           syncAsset();
           setStatus(labels.adding(assetLabel(key, asset)));
           try {
-            await visualizeAsset(item, key, asset, cogOptions(), controller.signal);
+            await visualizeAsset(item, key, asset, cogOptions(), controller.signal, target);
             setStatus(labels.added(assetLabel(key, asset)));
           } catch (error) {
             setStatus(error instanceof Error ? error.message : labels.addFailed, true);
@@ -1112,7 +1206,7 @@ function buildPanel(container: HTMLElement): () => void {
         });
         download.addEventListener("click", () => appRef?.openExternalUrl?.(selected()[1].href));
         syncAsset();
-        actions.append(assetSelect, add, download);
+        actions.append(assetSelect, targetSelect, add, download);
       }
       card.append(title, subtitle, actions);
       results.append(card);

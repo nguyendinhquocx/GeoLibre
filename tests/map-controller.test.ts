@@ -578,6 +578,97 @@ describe("MapController.syncLayers reconciliation", () => {
     assert.ok(fake.layers.has("layer-r-raster"), "raster layer added");
     assert.deepEqual(internals(controller).layerIds, ["r"]);
   });
+
+  it("keeps line and point sketches visible beside extruded polygons", () => {
+    const { map, fake } = makeFakeMap();
+    const controller = controllerWith(map);
+    const mixed = pointLayer("mixed", {
+      style: { ...DEFAULT_LAYER_STYLE, extrusionEnabled: true },
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [0, 0] } },
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: [
+                [0, 0],
+                [1, 1],
+              ],
+            },
+          },
+          {
+            type: "Feature",
+            properties: { height: 10 },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    controller.syncLayers([mixed]);
+
+    assert.ok(fake.layers.has("layer-mixed-extrusion"));
+    assert.ok(fake.layers.has("layer-mixed-circle"));
+    assert.deepEqual(fake.layers.get("layer-mixed-line")?.filter, [
+      "match",
+      ["geometry-type"],
+      ["LineString", "MultiLineString"],
+      true,
+      false,
+    ]);
+  });
+
+  it("renders zoom-gated extrusions as flat fills below their cutoff", () => {
+    const { map, fake } = makeFakeMap();
+    const controller = controllerWith(map);
+    const layer = pointLayer("massing", {
+      style: {
+        ...DEFAULT_LAYER_STYLE,
+        extrusionEnabled: true,
+        extrusionAdvancedStyleEnabled: true,
+        extrusionHeightExpression:
+          '["step",["zoom"],0,12,["max",0,["to-number",["get","height"],0]]]',
+      },
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { height: 10 },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    controller.syncLayers([layer]);
+
+    assert.equal(fake.layers.get("layer-massing-fill")?.maxzoom, 12);
+    assert.equal(fake.layers.get("layer-massing-extrusion")?.minzoom, 12);
+  });
 });
 
 function vectorTileLayer(id: string, patch: Partial<GeoLibreLayer> = {}): GeoLibreLayer {

@@ -27,6 +27,7 @@ import {
   openVectorLayerPanel,
   setAnnotationLabels,
   setBasemapControlLabels,
+  setGeoEditorLabels,
   setGraticuleLabels,
   setH3Labels,
   setS2Labels,
@@ -112,6 +113,7 @@ import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useViewportHistory } from "../../hooks/useViewportHistory";
 import type { Command } from "../../lib/commands";
 import { IS_MAS_BUILD } from "../../lib/build-flags";
+import { pluginDisplayName } from "../../lib/plugin-display-name";
 import { masHidesDataSource } from "../../lib/mas-build";
 import { IS_STORE_BUILD } from "../../lib/updates";
 import { AddDataDialog, type AddDataKind } from "./AddDataDialog";
@@ -193,6 +195,14 @@ interface TopToolbarProps {
   onAddComment: () => void;
   viewer?: boolean;
 }
+
+/** Translation keys for the reasons a Zarr variable cannot be added. */
+const ZARR_PROBLEM_KEYS = {
+  group: "stacPlugin.zarrProblemGroup",
+  unauthorized: "stacPlugin.zarrProblemUnauthorized",
+  "unsupported-url": "stacPlugin.zarrProblemUnsupportedUrl",
+  unavailable: "stacPlugin.zarrProblemUnavailable",
+} as const;
 
 export function TopToolbar({
   compact = false,
@@ -585,6 +595,10 @@ export function TopToolbar({
       engineTitiler: t("huggingFace.engineTitiler"),
       resetDefaults: t("huggingFace.resetDefaults"),
     });
+    setGeoEditorLabels({
+      attributePanelTitle: t("geoEditorPlugin.attributePanelTitle"),
+      massingHeight: t("geoEditorPlugin.massingHeight"),
+    });
     setGraticuleLabels({
       title: t("graticule.title"),
       getTitle: () => i18n.t("graticule.title"),
@@ -948,7 +962,12 @@ export function TopToolbar({
       formatGeoJson: t("stacPlugin.formatGeoJson"),
       formatPmtiles: t("stacPlugin.formatPmtiles"),
       formatParquet: t("stacPlugin.formatParquet"),
+      formatZarr: t("stacPlugin.formatZarr"),
       formatUnknown: t("stacPlugin.formatUnknown"),
+      addNoTarget: t("stacPlugin.addNoTarget"),
+      addIcechunk: t("stacPlugin.addIcechunk"),
+      zarrProblem: (problem) => t(ZARR_PROBLEM_KEYS[problem]),
+      chooseTarget: t("stacPlugin.chooseTarget"),
       notAddable: t("stacPlugin.notAddable"),
     });
   }, [t]);
@@ -1764,7 +1783,7 @@ export function TopToolbar({
       )
       .map((plugin) => ({
         id: `plugin.${plugin.id}`,
-        title: t("toolbar.command.togglePlugin", { name: plugin.name }),
+        title: t("toolbar.command.togglePlugin", { name: pluginDisplayName(t, plugin) }),
         group: t("toolbar.commandGroup.plugins"),
         keywords: isActive(plugin.id) ? "plugin deactivate" : "plugin activate",
         run: () => toggle(plugin.id, appApi),
