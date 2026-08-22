@@ -13,12 +13,14 @@ import {
   searchStaticStac,
   assetTargets,
   canAddAsset,
+  icechunkBranch,
   isIcechunkAsset,
   requiresTarget,
   withItemBounds,
   type StacItem,
   zarrCrs,
   zarrLayerRequest,
+  zarrReaderTargetCheck,
   zarrTargetCheck,
   zarrStoreTakesKeys,
   zarrStorePath,
@@ -1072,6 +1074,79 @@ test("searchStaticStac traverses child and item links and applies filters", asyn
   );
 });
 
+test("searchStaticStac exposes assets attached directly to a Collection", async () => {
+  const url = "https://example.com/data/collection.json";
+  const root = {
+    type: "Collection",
+    id: "collection-assets",
+    title: "Collection assets",
+    extent: {
+      spatial: {
+        bbox: [
+          [4.8, 52, 5.2, 52.2],
+          [10, 60, 11, 61],
+        ],
+      },
+      temporal: {
+        interval: [
+          ["2020-01-01T00:00:00Z", "2020-12-31T23:59:59Z"],
+          ["2022-01-01T00:00:00Z", "2022-12-31T23:59:59Z"],
+        ],
+      },
+    },
+    assets: {
+      geoparquet: { href: "data.parquet", type: "application/vnd.apache.parquet" },
+      pmtiles: { href: "tiles.pmtiles", type: "application/vnd.pmtiles" },
+    },
+    links: [],
+  };
+
+  const result = await searchStaticStac(
+    { url, title: "Static collection", isApi: false, collections: [], root },
+    { bbox: [10.5, 60.5, 10.6, 60.6], datetime: "2020-06-01", limit: 20 },
+  );
+
+  assert.equal(result.matched, 1);
+  assert.equal(result.items[0].id, "collection-assets::collection-assets");
+  assert.equal(result.items[0].properties.title, "Collection assets");
+  assert.deepEqual(result.items[0].bbox, [4.8, 52, 5.2, 52.2]);
+  assert.equal(result.items[0].assets.geoparquet.href, "https://example.com/data/data.parquet");
+  assert.equal(result.items[0].assets.pmtiles.href, "https://example.com/data/tiles.pmtiles");
+
+  const outsideTime = await searchStaticStac(
+    { url, title: "Static collection", isApi: false, collections: [], root },
+    { datetime: "2021-01-01", limit: 20 },
+  );
+  assert.equal(outsideTime.matched, 0);
+
+  const laterInterval = await searchStaticStac(
+    { url, title: "Static collection", isApi: false, collections: [], root },
+    { datetime: "2022-06-01", limit: 20 },
+  );
+  assert.equal(laterInterval.matched, 1);
+
+  const openEnded = {
+    ...root,
+    extent: { ...root.extent, temporal: { interval: [[null, "2020-12-31T23:59:59Z"]] } },
+  };
+  const beforeOpenEnd = await searchStaticStac(
+    { url, title: "Static collection", isApi: false, collections: [], root: openEnded },
+    { datetime: "1900-01-01", limit: 20 },
+  );
+  assert.equal(beforeOpenEnd.matched, 1);
+
+  const unknownExtents = {
+    ...root,
+    extent: { spatial: { bbox: {} as unknown as number[][] } },
+  };
+  const unknownTime = await searchStaticStac(
+    { url, title: "Static collection", isApi: false, collections: [], root: unknownExtents },
+    { datetime: "2024-01-01", limit: 20 },
+  );
+  assert.equal(unknownTime.matched, 1);
+  assert.equal(unknownTime.items[0].bbox, undefined);
+});
+
 test("searchStaticStac pages through a catalog holding more items than one page fits", async () => {
   const total = 25;
   const docs: Record<string, unknown> = {
@@ -1861,6 +1936,74 @@ test("a Zarr layer records the item's extent, so Zoom to layer has somewhere to 
   assert.deepEqual(withItemBounds({ tileType: "raster" }, item()), { tileType: "raster" });
 });
 
+test("a Zarr variable read through a store reaches the same verdicts", async () => {
+  const asked: string[] = [];
+  const encode = (body: unknown) => new TextEncoder().encode(JSON.stringify(body));
+  const reader = (nodes: Record<string, unknown>) => async (key: string) => {
+    asked.push(key);
+    const match = Object.entries(nodes).find(([name]) => key.endsWith(name));
+    return match ? encode(match[1]) : undefined;
+  };
+
+  // An Icechunk repository is v3, so the array answers on the first key it is asked for.
+  assert.equal(
+    await zarrReaderTargetCheck(reader({ "AET/zarr.json": { node_type: "array" } }), "AET"),
+    "array",
+  );
+  assert.deepEqual(asked, ["/AET/zarr.json"]);
+  assert.equal(
+    await zarrReaderTargetCheck(reader({ "r10m/zarr.json": { node_type: "group" } }), "r10m"),
+    "group",
+  );
+  // A store that answers every key with "no such key" is telling us about the variable, not about
+  // itself: it opened, and does not hold that one. Checked against dynamical.org's public
+  // archive: a variable it does not carry resolves undefined on all three keys.
+  assert.equal(await zarrReaderTargetCheck(reader({}), "nope"), "missing");
+  // A reader that throws on every key — a repository it cannot read at all — is the other verdict.
+  assert.equal(
+    await zarrReaderTargetCheck(async () => {
+      throw new Error("unsupported spec version");
+    }, "AET"),
+    "unavailable",
+  );
+  // Metadata that will not parse is the store failing to answer rather than the variable missing.
+  assert.equal(
+    await zarrReaderTargetCheck(async () => new TextEncoder().encode("not json"), "AET"),
+    "unavailable",
+  );
+  // So is a body that parses but is not a node: the store answered, just not with metadata.
+  assert.equal(await zarrReaderTargetCheck(async () => encode([1, 2, 3]), "AET"), "unavailable");
+  assert.equal(await zarrReaderTargetCheck(async () => encode(null), "AET"), "unavailable");
+  // Nor is a v3 node that names no kind, or names one no store has: it answered, but said nothing.
+  assert.equal(
+    await zarrReaderTargetCheck(reader({ "AET/zarr.json": { shape: [2, 2] } }), "AET"),
+    "unavailable",
+  );
+  assert.equal(
+    await zarrReaderTargetCheck(reader({ "AET/zarr.json": { node_type: "banana" } }), "AET"),
+    "unavailable",
+  );
+
+  // One key refused is not the whole manifest, the same way it is not over HTTP.
+  const refusesV3 = async (key: string) => {
+    if (key.endsWith("zarr.json")) throw new Error("no such key");
+    return key.endsWith("AET/.zarray") ? encode({}) : undefined;
+  };
+  assert.equal(await zarrReaderTargetCheck(refusesV3, "AET"), "array");
+
+  // An abandoned add stops between keys rather than reading the rest of the manifest.
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    zarrReaderTargetCheck(
+      reader({ "AET/zarr.json": { node_type: "array" } }),
+      "AET",
+      controller.signal,
+    ),
+    (error: Error) => error.name === "AbortError",
+  );
+});
+
 test("a Zarr variable check says which problem it found, not merely that there was one", async () => {
   const asked: string[] = [];
   const serving = (bodies: Record<string, unknown>, status = 404) =>
@@ -1882,8 +2025,12 @@ test("a Zarr variable check says which problem it found, not merely that there w
     await zarrTargetCheck(store, "r10m", serving({ "r10m/zarr.json": { node_type: "group" } })),
     "group",
   );
-  // Metadata that names nothing is not an invitation to try.
-  assert.equal(await zarrTargetCheck(store, "sst", serving({ "sst/zarr.json": {} })), "group");
+  // Metadata that names nothing is not an invitation to try — and not a group either: a document
+  // that does not say which kind of node it is has told us about itself, not about the variable.
+  assert.equal(
+    await zarrTargetCheck(store, "sst", serving({ "sst/zarr.json": {} })),
+    "unavailable",
+  );
   // A 200 that is not the metadata says nothing: the v2 keys still get their turn.
   const htmlThenZarray = (async (url: string) =>
     String(url).endsWith("zarr.json")
@@ -1971,8 +2118,9 @@ test("Add waits on a choice only for the formats that hold several layers", () =
   });
   const drawable = item({ AET: { dimensions: ["time", "y", "x"] } });
 
-  // An Icechunk repository is a manifest, not a Zarr hierarchy: the URL reader cannot open it.
-  assert.equal(canAddAsset(drawable, "data", { ...zarr, "icechunk:branch": "main" }), false);
+  // An Icechunk repository is a manifest rather than a Zarr hierarchy, read through its own
+  // reader — so it is addable, and its variables come from the item like any other store's.
+  assert.equal(canAddAsset(drawable, "data", { ...zarr, "icechunk:branch": "main" }), true);
   assert.equal(isIcechunkAsset(zarr), false);
   // A catalog may say it once on the item rather than on every asset it publishes.
   const icechunkItem = {
@@ -1980,7 +2128,32 @@ test("Add waits on a choice only for the formats that hold several layers", () =
     properties: { ...drawable.properties, "icechunk:branch": "main" },
   } as StacItem;
   assert.equal(isIcechunkAsset(zarr, icechunkItem), true);
-  assert.equal(canAddAsset(icechunkItem, "data", zarr), false);
+  assert.equal(canAddAsset(icechunkItem, "data", zarr), true);
+  // A signed URL is no more addable for a repository than for a plain store: the manifest reader
+  // asks for `<store>/<key>` too, so the signature would land in the middle of the request.
+  assert.equal(
+    canAddAsset(icechunkItem, "data", { ...zarr, href: "https://example.com/repo?sig=abc" }),
+    false,
+  );
+
+  // The field is typed as a string but arrives as JSON, so a value that is not one names no branch.
+  assert.equal(icechunkBranch({ ...zarr, "icechunk:branch": "dev" }), "dev");
+  assert.equal(icechunkBranch(zarr, icechunkItem), "main");
+  assert.equal(icechunkBranch({ ...zarr, "icechunk:branch": "  " }), undefined);
+  assert.equal(icechunkBranch({ ...zarr, "icechunk:branch": 7 as unknown as string }), undefined);
+  // A padded name is trimmed rather than sent as written: it reaches a request path.
+  assert.equal(icechunkBranch({ ...zarr, "icechunk:branch": " dev " }), "dev");
+  // An unusable value on the asset falls through to the item rather than overriding it.
+  assert.equal(
+    icechunkBranch({ ...zarr, "icechunk:branch": 7 as unknown as string }, icechunkItem),
+    "main",
+  );
+  // Naming the field at all declares the format, even when the value names no branch: the reader
+  // opens the default branch, where treating it as a plain store would only produce 404s.
+  assert.equal(isIcechunkAsset({ ...zarr, "icechunk:branch": "" }), true);
+  assert.equal(isIcechunkAsset({ ...zarr, "icechunk:branch": 7 as unknown as string }), true);
+  assert.equal(icechunkBranch({ ...zarr, "icechunk:branch": "" }), undefined);
+  assert.equal(canAddAsset(icechunkItem, "data", { ...zarr, "icechunk:branch": "" }), true);
 
   assert.equal(requiresTarget(zarr), true);
   assert.equal(requiresTarget(cog), false);

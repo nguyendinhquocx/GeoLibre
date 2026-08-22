@@ -21,7 +21,6 @@ import {
   openPMTilesLayerPanel,
   openRasterLayerPanel,
   openSplattingLayerPanel,
-  openStacSearchLayerPanel,
   openZarrLayerPanel,
   openThreeDTilesLayerPanel,
   openVectorLayerPanel,
@@ -46,6 +45,7 @@ import {
   setSourceCoopLabels,
   setReverseGeocodeLabels,
   setStacLabels,
+  STAC_PLUGIN_ID,
   setTimelapseLabels,
   DECK_VIZ_PLUGIN_ID,
   DIRECTIONS_PLUGIN_ID,
@@ -199,6 +199,7 @@ interface TopToolbarProps {
 /** Translation keys for the reasons a Zarr variable cannot be added. */
 const ZARR_PROBLEM_KEYS = {
   group: "stacPlugin.zarrProblemGroup",
+  missing: "stacPlugin.zarrProblemMissing",
   unauthorized: "stacPlugin.zarrProblemUnauthorized",
   "unsupported-url": "stacPlugin.zarrProblemUnsupportedUrl",
   unavailable: "stacPlugin.zarrProblemUnavailable",
@@ -965,7 +966,7 @@ export function TopToolbar({
       formatZarr: t("stacPlugin.formatZarr"),
       formatUnknown: t("stacPlugin.formatUnknown"),
       addNoTarget: t("stacPlugin.addNoTarget"),
-      addIcechunk: t("stacPlugin.addIcechunk"),
+      addIcechunkFailed: t("stacPlugin.addIcechunkFailed"),
       zarrProblem: (problem) => t(ZARR_PROBLEM_KEYS[problem]),
       chooseTarget: t("stacPlugin.chooseTarget"),
       notAddable: t("stacPlugin.notAddable"),
@@ -1174,7 +1175,10 @@ export function TopToolbar({
   const addLayer: AddLayerHandlers = {
     vector: () => openVectorLayerPanel(appApi),
     raster: () => openRasterLayerPanel(appApi),
-    stac: () => openStacSearchLayerPanel(appApi),
+    stac: () => {
+      if (isActive(STAC_PLUGIN_ID)) openRightPanel(STAC_PLUGIN_ID);
+      else toggle(STAC_PLUGIN_ID, appApi);
+    },
     flatGeobuf: () => openFlatGeobufAddVectorLayerPanel(appApi),
     pmtiles: () => openPMTilesLayerPanel(appApi),
     zarr: () => openZarrLayerPanel(appApi),
