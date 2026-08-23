@@ -279,6 +279,126 @@ describe("addArcGISLayer (feature layer)", () => {
     assert.deepEqual(fitBoundsCalls, [[-160, 18, -154, 23]]);
   });
 
+  it("reassembles nested rings exported as separate ArcGIS polygons", async () => {
+    const malformedMask = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { NAME: "Mask" },
+          geometry: {
+            type: "MultiPolygon",
+            coordinates: [
+              [
+                [
+                  [0, 0],
+                  [0, 10],
+                  [10, 10],
+                  [10, 0],
+                  [0, 0],
+                ],
+              ],
+              [
+                [
+                  [2, 2],
+                  [8, 2],
+                  [8, 8],
+                  [2, 8],
+                  [2, 2],
+                ],
+              ],
+              [
+                [
+                  [4, 4],
+                  [4, 6],
+                  [6, 6],
+                  [6, 4],
+                  [4, 4],
+                ],
+              ],
+              [
+                [
+                  [9, 1],
+                  [12, 1],
+                  [12, 4],
+                  [9, 4],
+                  [9, 1],
+                ],
+              ],
+            ],
+          },
+        },
+      ],
+    };
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      return jsonResponse(url.includes("/query") ? malformedMask : LAYER_INFO);
+    }) as typeof fetch;
+
+    const id = await addArcGISLayer(app, {
+      layerType: "feature",
+      sourceType: "url",
+      url: SERVICE_URL,
+    });
+    const geometry = useAppStore.getState().layers.find((layer) => layer.id === id)?.geojson
+      ?.features[0].geometry;
+
+    assert.equal(geometry?.type, "MultiPolygon");
+    if (geometry?.type !== "MultiPolygon") return;
+    assert.equal(
+      geometry.coordinates.length,
+      3,
+      "the nested island and overlapping polygon remain separate polygons",
+    );
+    assert.equal(geometry.coordinates[0].length, 2, "the contained ring becomes a hole");
+    assert.deepEqual(geometry.coordinates[1][0][0], [4, 4]);
+  });
+
+  it("leaves disjoint one-ring ArcGIS polygons unchanged", async () => {
+    const disjointGeometry = {
+      type: "MultiPolygon" as const,
+      coordinates: [
+        [
+          [
+            [0, 0],
+            [0, 2],
+            [2, 2],
+            [2, 0],
+            [0, 0],
+          ],
+        ],
+        [
+          [
+            [10, 10],
+            [10, 12],
+            [12, 12],
+            [12, 10],
+            [10, 10],
+          ],
+        ],
+      ],
+    };
+    const response = {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", properties: {}, geometry: disjointGeometry }],
+    };
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      return jsonResponse(url.includes("/query") ? response : LAYER_INFO);
+    }) as typeof fetch;
+
+    const id = await addArcGISLayer(app, {
+      layerType: "feature",
+      sourceType: "url",
+      url: SERVICE_URL,
+    });
+
+    assert.deepEqual(
+      useAppStore.getState().layers.find((layer) => layer.id === id)?.geojson?.features[0].geometry,
+      disjointGeometry,
+    );
+  });
+
   it("adds an interactive layer immediately and queries the current viewport", async () => {
     const requests: URL[] = [];
     // Only the first page of each viewport query is deferred, so the test can

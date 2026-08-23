@@ -377,7 +377,7 @@ the public internet:
 | AI assistant | Off unless configured | Leave `GEOLIBRE_AI_URL` unset, or route it through your own proxy. |
 | Project sharing | `share.geolibre.app` | `GEOLIBRE_SHARE_URL=off`, or your own [projects server](server-api.md). |
 | Collaboration | Off unless configured | Leave `GEOLIBRE_COLLAB_URL` unset, or run `workers/collab-node` yourself. |
-| Telemetry | None | GeoLibre collects no analytics or usage data. See [Privacy Policy](privacy.md). |
+| Telemetry | None | GeoLibre collects no analytics or usage data. The hosted sites (geolibre.app, web.geolibre.app) run Google Analytics, but nothing you deploy does. The Docker image **cannot** turn it on: the `Dockerfile` declares no build argument for it, and the container's CSP does not allow `googletagmanager.com`. A build from source can, by setting `VITE_GEOLIBRE_GA_MEASUREMENT_ID` for `npm run build` with your own measurement ID; there is no runtime variable that enables it. See [Privacy Policy](privacy.md). |
 
 ## Deployment checklist
 

@@ -716,6 +716,8 @@ export function DesktopShell({
   const addImageOverlayLayer = useAppStore((s) => s.addImageOverlayLayer);
   const addTileLayer = useAppStore((s) => s.addTileLayer);
   const addLayerGroup = useAppStore((s) => s.addLayerGroup);
+  const moveLayerGroupToGroup = useAppStore((s) => s.moveLayerGroupToGroup);
+  const moveLayerToGroup = useAppStore((s) => s.moveLayerToGroup);
   const { isActive: isPluginActive, toggle: togglePlugin } = usePluginRegistry();
   const addLayer = useAppStore((s) => s.addLayer);
   const projectGeneration = useAppStore((s) => s.projectGeneration);
@@ -1347,7 +1349,20 @@ export function DesktopShell({
       // Frame ids for each time-animated overlay sequence (keyed by the loader's
       // group marker), so they can be gathered into one layer group afterward.
       const frameGroups = new Map<string, string[]>();
+      // KML Folder ancestry becomes nested GeoLibre groups. Prefix keys with
+      // the source path so identically named folders from separate files do not
+      // get combined when several files are imported in one batch.
+      const kmlGroups = new Map<string, string>();
+      // GeoJSON layer ids contributed by each source file. A folder-aware KML
+      // splits into one layer per placemark, so the final fit needs every id
+      // from that file to frame the whole import rather than one placemark.
+      const layerIdsBySource = new Map<string, string[]>();
+      // Tracked across every record kind (not just the GeoJSON ones) so a file
+      // whose placemarks are followed by an overlay or model is still
+      // recognized as the last source imported.
+      let lastSourcePath: string | null = null;
       for (const layer of importedLayers) {
+        if (layer.path) lastSourcePath = layer.path;
         if (isLoadedKmlSuperOverlay(layer)) {
           lastLayerId = addTileLayer(layer.name || layerNameFromPath(layer.path), {
             tiles: [layer.url],
@@ -1404,17 +1419,42 @@ export function DesktopShell({
           nonGeographic.push(layerName);
           console.warn(
             `[GeoLibre] "${layerName}" declares geographic coordinates but its values are out of range ` +
-              `(max |x| ${Math.round(offRange.maxAbsX).toLocaleString()}, max |y| ${Math.round(offRange.maxAbsY).toLocaleString()} ` +
+              `(max |x| ${Math.round(offRange.maxAbsX).toLocaleString()}, max |y| ${Math.round(
+                offRange.maxAbsY,
+              ).toLocaleString()} ` +
               `over ${offRange.sampled.toLocaleString()} sampled coordinates). The file's CRS is almost certainly ` +
               `mislabelled — reproject it, or correct its .prj/crs, and load it again.`,
           );
         }
         lastLayerId = addGeoJsonLayer(layerName, layer.data, layer.path);
+        if (layer.path) {
+          const sourceIds = layerIdsBySource.get(layer.path) ?? [];
+          sourceIds.push(lastLayerId);
+          layerIdsBySource.set(layer.path, sourceIds);
+        }
+        if (layer.groupPath?.length) {
+          let parentId: string | null = null;
+          const pathParts: string[] = [];
+          for (const folderName of layer.groupPath) {
+            pathParts.push(folderName);
+            const key = `${layer.path}\0${pathParts.join("\0")}`;
+            let groupId = kmlGroups.get(key);
+            if (!groupId) {
+              groupId = addLayerGroup(folderName);
+              if (parentId) moveLayerGroupToGroup(groupId, parentId);
+              kmlGroups.set(key, groupId);
+            }
+            parentId = groupId;
+          }
+          if (parentId) moveLayerToGroup(lastLayerId, parentId);
+        }
       }
 
       setCrsWarning(
         nonGeographic.length > 0
-          ? t("addData.nonGeographicCoordinates", { names: nonGeographic.join(", ") })
+          ? t("addData.nonGeographicCoordinates", {
+              names: nonGeographic.join(", "),
+            })
           : null,
       );
 
@@ -1435,6 +1475,28 @@ export function DesktopShell({
       // stepped through immediately, without the user hunting for the plugin.
       if (hasTimeAnimation && !isPluginActive(TIME_SLIDER_PLUGIN_ID)) {
         togglePlugin(TIME_SLIDER_PLUGIN_ID, createAppAPI(mapControllerRef));
+      }
+
+      // A folder-aware KML becomes one layer per placemark, so framing the last
+      // layer alone would open on a single point. Combine the extents of every
+      // layer the last source contributed and fit that instead.
+      const sourceLayerIds = lastSourcePath ? (layerIdsBySource.get(lastSourcePath) ?? []) : [];
+      if (sourceLayerIds.length > 1) {
+        const sourceLayerIdSet = new Set(sourceLayerIds);
+        const bounds = useAppStore
+          .getState()
+          .layers.filter((layer) => sourceLayerIdSet.has(layer.id))
+          .map(getLayerBounds)
+          .filter((value): value is [number, number, number, number] => value !== null);
+        if (bounds.length) {
+          mapControllerRef.current?.fitBounds([
+            Math.min(...bounds.map((value) => value[0])),
+            Math.min(...bounds.map((value) => value[1])),
+            Math.max(...bounds.map((value) => value[2])),
+            Math.max(...bounds.map((value) => value[3])),
+          ]);
+          return;
+        }
       }
 
       const importedLayer = useAppStore.getState().layers.find((layer) => layer.id === lastLayerId);
@@ -1464,6 +1526,8 @@ export function DesktopShell({
       addTileLayer,
       addLayer,
       addLayerGroup,
+      moveLayerGroupToGroup,
+      moveLayerToGroup,
       isPluginActive,
       togglePlugin,
       t,
@@ -1486,7 +1550,9 @@ export function DesktopShell({
         // pyramid, which a path-less browser File cannot support.
         const layers =
           paths.length === imports.length
-            ? await loadDroppedVectorPaths(paths, { onLargeDataset: confirmLargeVectorDataset })
+            ? await loadDroppedVectorPaths(paths, {
+                onLargeDataset: confirmLargeVectorDataset,
+              })
             : await loadDroppedVectorFiles(
                 imports.map(({ file }) => file),
                 {
@@ -1720,7 +1786,9 @@ export function DesktopShell({
                   setDropError(
                     err instanceof OsmPbfTooLargeError
                       ? t("toolbar.error.osmPbfTooLarge")
-                      : `Could not parse ${name}: ${err instanceof Error ? err.message : String(err)}`,
+                      : `Could not parse ${name}: ${
+                          err instanceof Error ? err.message : String(err)
+                        }`,
                   );
                 }
               }
@@ -1865,7 +1933,9 @@ export function DesktopShell({
             setDropError(
               err instanceof OsmPbfTooLargeError
                 ? t("toolbar.error.osmPbfTooLarge")
-                : `Could not parse ${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+                : `Could not parse ${file.name}: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
             );
             continue;
           }
@@ -2482,7 +2552,9 @@ export function DesktopShell({
                   const file = new File([bytes as BlobPart], fileName ?? `${name}.tif`, {
                     type: "image/tiff",
                   });
-                  await addRasterToMap(createAppAPI(mapControllerRef), file, { name });
+                  await addRasterToMap(createAppAPI(mapControllerRef), file, {
+                    name,
+                  });
                 }}
               />
             </Suspense>

@@ -325,10 +325,6 @@
         "label": "添加 PostgreSQL 图层",
         "description": "在本地启动 Martin，发现 PostGIS 数据源，并以矢量瓦片形式添加数据源。"
       },
-      "iceberg": {
-        "label": "添加 Apache Iceberg 图层",
-        "description": "读取 Iceberg 表（v3 或更高版本）并添加其部分要素。"
-      },
       "deckglViz": {
         "label": "添加 Deck.gl 图层",
         "description": "选择一种 deck.gl 图层类型，然后加载示例数据或上传 CSV/JSON/GeoJSON 文件或 URL。"
@@ -336,6 +332,10 @@
       "video": {
         "label": "添加视频图层",
         "description": "通过提供 MP4 URL 和四个角点坐标，添加已地理配准的视频叠加层。"
+      },
+      "iceberg": {
+        "label": "添加 Apache Iceberg 图层",
+        "description": "读取 Iceberg 表（v3 或更高版本）并添加其部分要素。"
       },
       "polyline": {
         "label": "添加编码折线图层",
@@ -508,14 +508,6 @@
       "noSublayersFound": "该地图服务未提供任何图层。",
       "retrieveError": "无法获取该地图服务的图层。",
       "errorMapServiceUrl": "请输入 ArcGIS MapServer URL。",
-      "rasterFunction": "栅格函数",
-      "serviceDefaultRasterFunction": "服务默认",
-      "retrieveRasterFunctions": "浏览函数",
-      "retrievingRasterFunctions": "正在获取...",
-      "noRasterFunctionsFound": "该影像服务未提供任何栅格函数。",
-      "retrieveRasterFunctionsError": "无法获取该影像服务的栅格函数。",
-      "errorImageServiceUrl": "请输入 ArcGIS ImageServer URL。",
-      "customRenderingRule": "自定义渲染规则",
       "renderingRule": "渲染规则",
       "renderingRulePlaceholder": "{\"rasterFunction\":\"Hillshade\"}",
       "renderingRuleHint": "可选的栅格函数 JSON，由服务端应用。设置渲染规则后将动态绘制该服务，而不使用其缓存切片。",
@@ -528,7 +520,15 @@
       "maxFeaturesPlaceholder": "全部",
       "pagingHint": "要素图层将分页下载。如果服务超时，请降低每次请求的记录数。",
       "loadingProgress": "已加载 {{loaded}}/{{total}} 个要素…",
-      "loadingProgressUnknown": "已加载 {{loaded}} 个要素…"
+      "loadingProgressUnknown": "已加载 {{loaded}} 个要素…",
+      "rasterFunction": "栅格函数",
+      "serviceDefaultRasterFunction": "服务默认",
+      "retrieveRasterFunctions": "浏览函数",
+      "retrievingRasterFunctions": "正在获取...",
+      "noRasterFunctionsFound": "该影像服务未提供任何栅格函数。",
+      "retrieveRasterFunctionsError": "无法获取该影像服务的栅格函数。",
+      "errorImageServiceUrl": "请输入 ArcGIS ImageServer URL。",
+      "customRenderingRule": "自定义渲染规则"
     },
     "gpx": {
       "defaultName": "GPX 图层",
@@ -707,40 +707,6 @@
       "errorSelectTable": "请选择要加载的表。",
       "errorRuntimeMissing": "处理服务器未安装 PostGIS 运行时（psycopg）。请安装 geolibre-server 的 “postgis” 扩展以加载可编辑图层。"
     },
-    "iceberg": {
-      "defaultName": "Iceberg 图层",
-      "notice": "Iceberg 表按需读取一次。该图层是受下方行数限制约束的快照，不会自动重新扫描——请使用图层菜单中的“刷新”重新读取。",
-      "mode": "Iceberg 数据源",
-      "modeTable": "表位置",
-      "modeCatalog": "REST 目录",
-      "location": "表元数据位置",
-      "locationPlaceholder": "https://host/warehouse/table/metadata/v1.metadata.json",
-      "warehouse": "仓库",
-      "warehousePlaceholder": "my_warehouse",
-      "endpoint": "目录端点",
-      "endpointPlaceholder": "https://catalog.example.com/api/catalog",
-      "connect": "连接",
-      "table": "Iceberg 表",
-      "sql": "SQL（可选）",
-      "sqlHint": "可编辑以筛选或重组要渲染的内容。该语句必须返回一个 GEOMETRY 列；保持自动生成的语句不变即可读取整个表。",
-      "selectTable": "选择一个表",
-      "geometryColumn": "几何列",
-      "rowLimit": "行数限制",
-      "rowLimitHint": "图层保存该表的前若干行，最多不超过此限制。该限制不能超过 {{max}} 行。",
-      "rowLimitTruncates": "该表共有 {{total}} 行；图层将包含前 {{limit}} 行。",
-      "statusConnecting": "正在读取 Iceberg 元数据…",
-      "statusInspecting": "正在检查表…",
-      "statusInspected": "{{rows}} 行。几何列：{{column}}（{{crs}}）。",
-      "statusNoGeometry": "共 {{rows}} 行，但未找到 GEOMETRY 列。Iceberg 几何必须使用 v3 几何类型。",
-      "statusTablesFound_other": "找到 {{count}} 个表。请选择一个以继续。",
-      "statusNoTables": "该目录未提供任何表。",
-      "errorLocation": "请输入 Iceberg 表的元数据位置。",
-      "errorWarehouse": "请输入要挂载的 Iceberg 仓库。",
-      "errorEndpoint": "请输入 Iceberg REST 目录端点。",
-      "errorConnect": "无法读取 Iceberg 数据源。",
-      "errorInspect": "无法检查 Iceberg 表。",
-      "errorConnectFirst": "请先连接并选择一个 Iceberg 表。"
-    },
     "video": {
       "defaultName": "视频图层",
       "sampleLabel": "旧金山附近的海浪",
@@ -763,47 +729,6 @@
       "bottomRight": "右下角（经度, 纬度）",
       "bottomLeft": "左下角（经度, 纬度）",
       "cornersNote": "这四个角点用于在地图上对视频进行地理配准。视频必须通过 HTTPS 提供，且主机必须允许跨域请求（CORS），画面才能正常渲染。"
-    },
-    "polyline": {
-      "defaultName": "编码折线",
-      "modePaste": "粘贴文本",
-      "modeFile": "选择文件",
-      "precisionLabel": "精度",
-      "precision5": "5（Google / OSRM）",
-      "precision6": "6（Valhalla / Mapbox）",
-      "unescapeLabel": "取消反斜杠转义（\\\\ 转为 \\）",
-      "delimiterLabel": "折线分隔符",
-      "delimNewline": "换行符（默认）",
-      "delimSemicolon": "分号 (;)",
-      "delimComma": "逗号 (,)",
-      "delimTab": "制表符",
-      "delimCustom": "自定义分隔符",
-      "customDelimPlaceholder": "自定义分隔符（例如 | 或 ---）",
-      "outputGeometryLabel": "输出几何",
-      "separateLines": "独立的 LineString",
-      "multiLineString": "单个 MultiLineString",
-      "textLabel": "编码折线字符串",
-      "placeholder": "粘贴编码折线字符串（例如 _p~iF~ps|U_ulLnnqC_mqNvxq`@）...",
-      "previewInfo": "已解码 {{lines}} 条线，共 {{points}} 个坐标点。",
-      "previewTitle": "解码几何预览",
-      "previewExtent": "范围",
-      "previewLength": "长度",
-      "previewCoordinates": "查看坐标",
-      "previewLine": "线",
-      "previewPoints": "个点",
-      "previewStart": "起点",
-      "previewEnd": "终点",
-      "errorFileMissing": "所选文件为空或无法读取。",
-      "readError": "无法读取折线文件。",
-      "errorChooseFile": "请选择要加载的折线文件。",
-      "errorEmptyInput": "请输入一个或多个编码折线字符串。",
-      "errorNoValidLines": "无法解码出任何有效的折线坐标。",
-      "sampleGoogle": "Google / OSRM（精度 5）",
-      "sampleValhalla": "Valhalla / Mapbox（精度 6）",
-      "sampleEscaped": "转义反斜杠（JSON 字符串格式）",
-      "sampleMultiLine": "多线路线批量（3 段）",
-      "unitMeters": "{{value}} 米",
-      "unitKm": "{{value}} 千米"
     },
     "netcdf": {
       "sampleLabel": "气温",
@@ -872,7 +797,82 @@
       "extrusion": "3D 拉伸",
       "modelUrlPlaceholder": "https://example.com/model.glb"
     },
-    "nonGeographicCoordinates": "{{names}} 中的坐标不是经纬度，因此地图上不会绘制任何内容。坐标参考系标注有误 — 请重新投影数据（或修正 .prj）后再次加载。"
+    "nonGeographicCoordinates": "{{names}} 中的坐标不是经纬度，因此地图上不会绘制任何内容。坐标参考系标注有误 — 请重新投影数据（或修正 .prj）后再次加载。",
+    "iceberg": {
+      "defaultName": "Iceberg 图层",
+      "notice": "Iceberg 表按需读取一次。该图层是受下方行数限制约束的快照，不会自动重新扫描——请使用图层菜单中的“刷新”重新读取。",
+      "mode": "Iceberg 数据源",
+      "modeTable": "表位置",
+      "modeCatalog": "REST 目录",
+      "location": "表元数据位置",
+      "warehouse": "仓库",
+      "endpoint": "目录端点",
+      "connect": "连接",
+      "table": "Iceberg 表",
+      "sql": "SQL（可选）",
+      "selectTable": "选择一个表",
+      "geometryColumn": "几何列",
+      "rowLimit": "行数限制",
+      "statusConnecting": "正在读取 Iceberg 元数据…",
+      "statusInspecting": "正在检查表…",
+      "statusNoTables": "该目录未提供任何表。",
+      "errorLocation": "请输入 Iceberg 表的元数据位置。",
+      "errorWarehouse": "请输入要挂载的 Iceberg 仓库。",
+      "errorEndpoint": "请输入 Iceberg REST 目录端点。",
+      "errorConnect": "无法读取 Iceberg 数据源。",
+      "errorInspect": "无法检查 Iceberg 表。",
+      "errorConnectFirst": "请先连接并选择一个 Iceberg 表。",
+      "locationPlaceholder": "https://host/warehouse/table/metadata/v1.metadata.json",
+      "warehousePlaceholder": "my_warehouse",
+      "endpointPlaceholder": "https://catalog.example.com/api/catalog",
+      "sqlHint": "可编辑以筛选或重组要渲染的内容。该语句必须返回一个 GEOMETRY 列；保持自动生成的语句不变即可读取整个表。",
+      "rowLimitHint": "图层保存该表的前若干行，最多不超过此限制。该限制不能超过 {{max}} 行。",
+      "rowLimitTruncates": "该表共有 {{total}} 行；图层将包含前 {{limit}} 行。",
+      "statusInspected": "{{rows}} 行。几何列：{{column}}（{{crs}}）。",
+      "statusNoGeometry": "共 {{rows}} 行，但未找到 GEOMETRY 列。Iceberg 几何必须使用 v3 几何类型。",
+      "statusTablesFound_other": "找到 {{count}} 个表。请选择一个以继续。"
+    },
+    "polyline": {
+      "defaultName": "编码折线",
+      "modePaste": "粘贴文本",
+      "modeFile": "选择文件",
+      "precisionLabel": "精度",
+      "precision5": "5（Google / OSRM）",
+      "precision6": "6（Valhalla / Mapbox）",
+      "unescapeLabel": "取消反斜杠转义（\\\\ 转为 \\）",
+      "delimiterLabel": "折线分隔符",
+      "delimNewline": "换行符（默认）",
+      "delimSemicolon": "分号 (;)",
+      "delimComma": "逗号 (,)",
+      "delimTab": "制表符",
+      "delimCustom": "自定义分隔符",
+      "customDelimPlaceholder": "自定义分隔符（例如 | 或 ---）",
+      "outputGeometryLabel": "输出几何",
+      "separateLines": "独立的 LineString",
+      "multiLineString": "单个 MultiLineString",
+      "textLabel": "编码折线字符串",
+      "placeholder": "粘贴编码折线字符串（例如 _p~iF~ps|U_ulLnnqC_mqNvxq`@）...",
+      "previewInfo": "已解码 {{lines}} 条线，共 {{points}} 个坐标点。",
+      "previewTitle": "解码几何预览",
+      "previewExtent": "范围",
+      "previewLength": "长度",
+      "previewCoordinates": "查看坐标",
+      "previewLine": "线",
+      "previewPoints": "个点",
+      "previewStart": "起点",
+      "previewEnd": "终点",
+      "errorFileMissing": "所选文件为空或无法读取。",
+      "readError": "无法读取折线文件。",
+      "errorChooseFile": "请选择要加载的折线文件。",
+      "errorEmptyInput": "请输入一个或多个编码折线字符串。",
+      "errorNoValidLines": "无法解码出任何有效的折线坐标。",
+      "sampleGoogle": "Google / OSRM（精度 5）",
+      "sampleValhalla": "Valhalla / Mapbox（精度 6）",
+      "sampleEscaped": "转义反斜杠（JSON 字符串格式）",
+      "sampleMultiLine": "多线路线批量（3 段）",
+      "unitMeters": "{{value}} 米",
+      "unitKm": "{{value}} 千米"
+    }
   },
   "offline": {
     "title": "下载离线区域",
@@ -1856,6 +1856,7 @@
     "description": "配置项目首选项和运行时设置。",
     "saveButton": "保存设置",
     "section": {
+      "language": "语言",
       "map": "地图",
       "layout": "布局",
       "appearance": "外观",
@@ -1879,6 +1880,39 @@
       "managePlugins": "管理插件",
       "styleManager": "样式管理器",
       "urlOverrideNote": "URL 布局参数会覆盖已保存的设置。"
+    },
+    "languagePack": {
+      "title": "语言包",
+      "description": "按需添加 Whitebox 工具名称、参数和帮助文本翻译，而不会增大每个 GeoLibre 安装包。",
+      "manage": "管理语言包",
+      "interfaceLanguage": "界面语言",
+      "installed": "已安装 Whitebox 语言包",
+      "notInstalled": "未安装 Whitebox 语言包",
+      "installedDetail": "{{source}} · 安装于 {{date}}",
+      "installedDetailNoDate": "{{source}} · 已安装",
+      "notInstalledDetail": "下载或导入语言包之前，Whitebox 处理元数据将继续显示为英文。",
+      "downloadsDisabled": "此版本已禁用官方下载。请改为导入语言包文件。",
+      "englishFallback": "Whitebox 会直接提供英文元数据，因此无需额外安装语言包。",
+      "sourceOfficial": "官方下载",
+      "sourceFile": "导入的文件",
+      "download": "下载语言包",
+      "importFile": "导入文件",
+      "remove": "移除语言包",
+      "downloaded": "语言包已下载并应用。",
+      "imported": "{{locale}} 语言包已导入并应用。",
+      "removed": "语言包已移除。Whitebox 元数据现将使用英文。",
+      "privacy": "语言包仅存储在此设备上。下载时只会向 {{host}} 发送语言代码，不会发送任何项目数据。",
+      "privacyLocalOnly": "语言包仅存储在此设备上。此版本不会下载任何内容：请改为导入语言包文件。",
+      "browse": "浏览语言包",
+      "errorInvalidJson": "该文件不是有效的 JSON。",
+      "errorInvalidFormat": "该文件不是有效的 GeoLibre Whitebox 语言包。",
+      "errorUnsupportedVersion": "当前 GeoLibre 版本不支持此语言包版本。",
+      "errorInvalidLocale": "语言包的语言代码无效或与预期不符。",
+      "errorUnsupportedLocale": "GeoLibre 未包含此语言包所需的基础界面语言。",
+      "errorTooLarge": "语言包超过 5 MB 安全限制。",
+      "errorNotFound": "此语言目前尚无官方 Whitebox 语言包。",
+      "errorDownload": "无法下载语言包。请检查网络连接或导入本地文件。",
+      "errorGeneric": "无法安装语言包。"
     },
     "updates": {
       "title": "软件更新",
@@ -2316,7 +2350,6 @@
       "delimitedText": "分隔文本图层",
       "photos": "带地理标记的照片",
       "gpx": "GPX 图层",
-      "polyline": "编码折线",
       "mbtiles": "MBTiles 图层",
       "xyz": "XYZ 图层",
       "wms": "WMS 图层",
@@ -2330,7 +2363,8 @@
       "deckglViz": "Deck.gl 图层",
       "gltfModel": "3D 模型（glTF）",
       "postgres": "PostgreSQL 图层",
-      "iceberg": "Apache Iceberg 图层"
+      "iceberg": "Apache Iceberg 图层",
+      "polyline": "编码折线"
     },
     "conversion": {
       "vectorToVector": "矢量转矢量",
@@ -2417,8 +2451,6 @@
       "dissolve": "融合",
       "boundingBox": "边界框",
       "simplify": "简化",
-      "decodePolyline": "解码折线",
-      "encodePolyline": "将线编码为折线字符串",
       "clip": "裁剪",
       "intersection": "相交",
       "difference": "差集",
@@ -2432,8 +2464,6 @@
       "explode": "打散",
       "aggregate": "按属性聚合",
       "smooth": "平滑",
-      "extractVertices": "提取顶点",
-      "pointsAlongGeometry": "沿几何生成点",
       "grid": "规则格网",
       "voronoi": "泰森多边形 / 德劳内三角网",
       "cellSectors": "基站覆盖扇区",
@@ -2443,11 +2473,15 @@
       "trajectorySpeed": "轨迹速度",
       "detectStops": "检测停留点",
       "spaceTimeProximity": "时空邻近性",
-      "mergeLayers": "合并图层",
       "checkValidity": "检查有效性",
       "fixGeometries": "修复几何",
       "checkTopologyRules": "检查拓扑规则",
-      "fixTopology": "修复拓扑"
+      "fixTopology": "修复拓扑",
+      "decodePolyline": "解码折线",
+      "encodePolyline": "将线编码为折线字符串",
+      "extractVertices": "提取顶点",
+      "pointsAlongGeometry": "沿几何生成点",
+      "mergeLayers": "合并图层"
     },
     "networkTool": {
       "isochrone": "等时圈 / 服务区",
@@ -2628,7 +2662,6 @@
       "subGroupDggs": "DGGS",
       "subGroupH3": "H3",
       "subGroupMovement": "移动与时间",
-      "subGroupDataManagement": "数据管理",
       "subGroupDataQuality": "数据质量",
       "subGroupTerrain": "地形",
       "subGroupReproject": "重投影",
@@ -2774,7 +2807,8 @@
       "storymapEllipsis": "故事地图...",
       "pointerElevationNoticeTitle": "高程会使用公共服务",
       "pointerElevationNoticeDesc": "启用三维地形时，高程直接由地图计算，不会发送任何数据。未启用时将查询公共 Open-Meteo API，指针下方的坐标会离开您的设备。",
-      "batchTools": "批处理工具"
+      "batchTools": "批处理工具",
+      "subGroupDataManagement": "数据管理"
     },
     "plugin": {
       "maplibre-gl-annotations": "注释",
@@ -3484,22 +3518,22 @@
     "addUnsupported": "只有 GeoTIFF/COG、GeoJSON、GeoParquet 和 PMTiles 资源可以添加到地图",
     "addFailed": "无法添加资源",
     "addNoSourceLayers": "此归档未列出可绘制的图层",
-    "addNoTarget": "此资产未列出可绘制的内容",
-    "addIcechunkFailed": "无法打开此 Icechunk 存储库",
-    "zarrProblemGroup": "此资产指向一组数组，而不是可绘制的单个数组",
-    "zarrProblemMissing": "此存储不包含该变量",
-    "zarrProblemUnauthorized": "此 Zarr 存储需要凭据，GeoLibre 目前尚无法提供",
-    "zarrProblemUnsupportedUrl": "此 Zarr 存储的地址无法按键逐个读取",
-    "zarrProblemUnavailable": "无法打开此 Zarr 存储",
-    "chooseTarget": "选择要添加的内容",
     "cogUnsupported": "此 GeoLibre 主机无法可视化远程 GeoTIFF 资源",
     "formatCog": "COG",
     "formatGeoJson": "GeoJSON",
     "formatPmtiles": "PMTiles",
     "formatParquet": "Parquet",
-    "formatZarr": "Zarr",
     "formatUnknown": "未知格式",
-    "notAddable": "无法添加"
+    "notAddable": "无法添加",
+    "addNoTarget": "此资产未列出可绘制的内容",
+    "zarrProblemGroup": "此资产指向一组数组，而不是可绘制的单个数组",
+    "zarrProblemUnauthorized": "此 Zarr 存储需要凭据，GeoLibre 目前尚无法提供",
+    "zarrProblemUnsupportedUrl": "此 Zarr 存储的地址无法按键逐个读取",
+    "zarrProblemUnavailable": "无法打开此 Zarr 存储",
+    "chooseTarget": "选择要添加的内容",
+    "formatZarr": "Zarr",
+    "addIcechunkFailed": "无法打开此 Icechunk 存储库",
+    "zarrProblemMissing": "此存储不包含该变量"
   },
   "earthdataGis": {
     "hint": "在 NASA Earthdata GIS 中搜索影像服务、地图服务和要素服务。",
@@ -4239,6 +4273,25 @@
       "auto": "自动",
       "chooseOutputPath": "选择输出路径",
       "chooseInputPath": "选择输入路径",
+      "startServer": "启动服务器",
+      "stopServer": "停止服务器",
+      "loadingTools": "正在加载…",
+      "lockedPrefix": "[已锁定] ",
+      "missingRequiredParameter": "缺少必填参数：{{label}}",
+      "sidecarCannotReadBrowserFiles": "Sidecar 无法读取 {{label}} 的浏览器所选文件。请本地运行（WASM），或输入 sidecar 可访问的文件系统路径。",
+      "selectedLayersMissing": "{{label}} 的一个或多个所选图层已不存在。",
+      "layerMissingGeoJson": "图层“{{layer}}”没有 {{label}} 可用的内存 GeoJSON。",
+      "layerNotFetchable": "无法获取图层“{{layer}}”以用于 {{label}}。",
+      "layerMissingPath": "图层“{{layer}}”没有可用于 {{label}} 的文件系统路径。",
+      "importOutputFailed": "无法导入 Whitebox 输出。",
+      "showingSnapshotOnly": "仅显示 GitHub 目录。",
+      "liveCatalogEmpty": "实时目录为空。仅显示 GitHub 目录。",
+      "jobStatus": {
+        "pending": "等待中",
+        "running": "正在运行",
+        "succeeded": "已成功",
+        "failed": "已失败"
+      },
       "categoryGeneral": "常规",
       "categoryAll": "全部（{{total}}）",
       "errorLoadSnapshot": "无法加载 Whitebox 工具目录快照。",
@@ -4294,6 +4347,24 @@
       "run": "运行",
       "outputPlaceholder": "输出将显示在此处。",
       "resolutionRange": "分辨率（0-{{max}}）"
+    },
+    "toolGroup": {
+      "analysis": "分析",
+      "clip": "裁剪",
+      "dataQuality": "数据质量",
+      "dggs": "DGGS",
+      "geometry": "几何",
+      "join": "连接",
+      "movementTime": "移动与时间",
+      "network": "网络",
+      "overlay": "叠加",
+      "rasterToVector": "栅格转矢量",
+      "reproject": "重投影",
+      "select": "选择",
+      "spatialStatistics": "空间统计",
+      "terrain": "地形",
+      "vectorToRaster": "矢量转栅格",
+      "dataManagement": "数据管理"
     },
     "toolMeta": {
       "vector": {
@@ -4614,36 +4685,6 @@
             }
           }
         },
-        "extract-vertices": {
-          "name": "提取顶点",
-          "description": "将输入要素的每个顶点转换为点，保留原始属性并添加 vertex_index 和 part_index 列（同名的源属性将被覆盖）",
-          "params": {
-            "layer": {
-              "label": "输入图层"
-            }
-          }
-        },
-        "points-along-geometry": {
-          "name": "沿几何生成点",
-          "description": "沿线和多边形边界按固定距离间隔生成点；始终包含首尾顶点。每个点都会获得一个 distance 列（同名的源属性将被覆盖）",
-          "params": {
-            "layer": {
-              "label": "输入图层"
-            },
-            "interval": {
-              "label": "间隔",
-              "description": "生成点之间的距离"
-            },
-            "units": {
-              "label": "单位",
-              "options": {
-                "kilometers": "千米",
-                "meters": "米",
-                "miles": "英里"
-              }
-            }
-          }
-        },
         "grid": {
           "name": "规则格网",
           "description": "在指定范围内生成规则的矩形格网（渔网）。范围来源：当前地图视图、图层范围或手动输入的边界框。",
@@ -4738,46 +4779,6 @@
                 "meters": "米",
                 "miles": "英里"
               }
-            }
-          }
-        },
-        "decode-polyline": {
-          "name": "解码折线",
-          "description": "将属性字段中的编码折线字符串解码为 LineString 矢量图层",
-          "params": {
-            "layer": {
-              "label": "输入图层"
-            },
-            "field": {
-              "label": "折线字段",
-              "description": "包含编码折线字符串的属性字段"
-            },
-            "precision": {
-              "label": "精度",
-              "options": {
-                "5": "5（Google / OSRM）",
-                "6": "6（Valhalla / Mapbox）"
-              }
-            }
-          }
-        },
-        "encode-polyline": {
-          "name": "将线编码为折线字符串",
-          "description": "将 LineString 和 MultiLineString 几何编码为编码折线属性字符串",
-          "params": {
-            "layer": {
-              "label": "输入图层"
-            },
-            "precision": {
-              "label": "精度",
-              "options": {
-                "5": "5（Google / OSRM）",
-                "6": "6（Valhalla / Mapbox）"
-              }
-            },
-            "targetField": {
-              "label": "输出字段名称",
-              "description": "用于存储编码折线的属性列名称（默认：polyline）"
             }
           }
         },
@@ -5123,24 +5124,6 @@
             }
           }
         },
-        "merge-layers": {
-          "name": "合并图层",
-          "description": "将多个矢量图层合并为一个，并合并其属性架构（缺失的属性将为 null）",
-          "params": {
-            "layers": {
-              "label": "输入图层",
-              "description": "选择两个或更多图层；按显示顺序依次拼接"
-            },
-            "addSourceField": {
-              "label": "添加来源图层字段",
-              "description": "记录每个输出要素的来源图层名称"
-            },
-            "sourceFieldName": {
-              "label": "来源字段名称",
-              "description": "用于存储来源图层名称的字段名称"
-            }
-          }
-        },
         "check-validity": {
           "name": "检查有效性",
           "description": "查找几何无效的要素（GEOS 规则：自相交环、位于外壳之外的孔洞等）并在地图上标记",
@@ -5213,6 +5196,94 @@
             "dryRun": {
               "label": "仅预览（试运行）",
               "description": "报告将要应用的修复，而不创建修复后的图层。"
+            }
+          }
+        },
+        "extract-vertices": {
+          "name": "提取顶点",
+          "description": "将输入要素的每个顶点转换为点，保留原始属性并添加 vertex_index 和 part_index 列（同名的源属性将被覆盖）",
+          "params": {
+            "layer": {
+              "label": "输入图层"
+            }
+          }
+        },
+        "points-along-geometry": {
+          "name": "沿几何生成点",
+          "description": "沿线和多边形边界按固定距离间隔生成点；始终包含首尾顶点。每个点都会获得一个 distance 列（同名的源属性将被覆盖）",
+          "params": {
+            "layer": {
+              "label": "输入图层"
+            },
+            "interval": {
+              "label": "间隔",
+              "description": "生成点之间的距离"
+            },
+            "units": {
+              "label": "单位",
+              "options": {
+                "kilometers": "千米",
+                "meters": "米",
+                "miles": "英里"
+              }
+            }
+          }
+        },
+        "decode-polyline": {
+          "name": "解码折线",
+          "description": "将属性字段中的编码折线字符串解码为 LineString 矢量图层",
+          "params": {
+            "layer": {
+              "label": "输入图层"
+            },
+            "field": {
+              "label": "折线字段",
+              "description": "包含编码折线字符串的属性字段"
+            },
+            "precision": {
+              "label": "精度",
+              "options": {
+                "5": "5（Google / OSRM）",
+                "6": "6（Valhalla / Mapbox）"
+              }
+            }
+          }
+        },
+        "encode-polyline": {
+          "name": "将线编码为折线字符串",
+          "description": "将 LineString 和 MultiLineString 几何编码为编码折线属性字符串",
+          "params": {
+            "layer": {
+              "label": "输入图层"
+            },
+            "precision": {
+              "label": "精度",
+              "options": {
+                "5": "5（Google / OSRM）",
+                "6": "6（Valhalla / Mapbox）"
+              }
+            },
+            "targetField": {
+              "label": "输出字段名称",
+              "description": "用于存储编码折线的属性列名称（默认：polyline）"
+            }
+          }
+        },
+        "merge-layers": {
+          "name": "合并图层",
+          "description": "将多个矢量图层合并为一个，并合并其属性架构（缺失的属性将为 null）",
+          "params": {
+            "layers": {
+              "label": "输入图层",
+              "description": "选择两个或更多图层；按显示顺序依次拼接"
+            },
+            "addSourceField": {
+              "label": "添加来源图层字段",
+              "description": "记录每个输出要素的来源图层名称"
+            },
+            "sourceFieldName": {
+              "label": "来源字段名称",
+              "description": "用于存储来源图层名称的字段名称"
             }
           }
         }
@@ -5298,6 +5369,66 @@
         }
       },
       "statistics": {
+        "kernel-density": {
+          "params": {
+            "cellSize": {
+              "label": "单元大小 (km)"
+            },
+            "layer": {
+              "label": "点图层"
+            },
+            "weightField": {
+              "label": "权重字段（可选）",
+              "description": "为每个点加权的数值字段；留空 = 等权重。"
+            },
+            "bandwidth": {
+              "label": "搜索半径 / 带宽 (km)"
+            }
+          },
+          "name": "核密度估计（热力图）",
+          "description": "使用四次核函数由点估算密度表面，输出为格网单元。"
+        },
+        "emerging-hot-spot": {
+          "name": "新兴热点分析（时空立方体）",
+          "description": "由带时间戳的点构建时空立方体（渔网格网 × 等长时间步），并将每个单元分类为新增、加强、持续、减弱、零星、振荡或历史热点/冷点。对每个时间切片运行 Getis-Ord Gi*，然后对每个单元的 Gi* 序列进行 Mann-Kendall 趋势检验。在客户端运行，类似 ArcGIS 新兴热点分析。",
+          "params": {
+            "layer": {
+              "label": "点图层"
+            },
+            "timeField": {
+              "label": "时间字段",
+              "description": "每个点的时间戳：ISO 日期/时间字符串或纪元时间（秒或毫秒）。"
+            },
+            "cellSize": {
+              "label": "单元大小 (km)",
+              "description": "每个正方形空间分箱的边长，单位为千米。"
+            },
+            "timeStep": {
+              "label": "时间步间隔"
+            },
+            "timeStepUnit": {
+              "label": "时间步单位",
+              "options": {
+                "hours": "小时",
+                "days": "天",
+                "weeks": "周"
+              }
+            },
+            "weightField": {
+              "label": "权重字段（可选）",
+              "description": "在每个时空分箱内求和的数值字段，而不是对点计数；留空 = 对点计数。"
+            },
+            "confidence": {
+              "label": "置信水平",
+              "description": "分箱被判定为热点/冷点以及趋势判定的显著性阈值。",
+              "options": {
+                "90": "90%",
+                "95": "95%",
+                "99": "99%"
+              }
+            }
+          }
+        },
         "global-morans-i": {
           "name": "全局莫兰指数",
           "description": "度量数值属性在整个图层上的总体空间自相关。",
@@ -5392,178 +5523,14 @@
               "label": "点图层"
             }
           }
-        },
-        "kernel-density": {
-          "name": "核密度估计（热力图）",
-          "description": "使用四次核函数由点估算密度表面，输出为格网单元。",
-          "params": {
-            "layer": {
-              "label": "点图层"
-            },
-            "weightField": {
-              "label": "权重字段（可选）",
-              "description": "为每个点加权的数值字段；留空 = 等权重。"
-            },
-            "bandwidth": {
-              "label": "搜索半径 / 带宽 (km)"
-            },
-            "cellSize": {
-              "label": "单元大小 (km)"
-            }
-          }
-        },
-        "emerging-hot-spot": {
-          "name": "新兴热点分析（时空立方体）",
-          "description": "由带时间戳的点构建时空立方体（渔网格网 × 等长时间步），并将每个单元分类为新增、加强、持续、减弱、零星、振荡或历史热点/冷点。对每个时间切片运行 Getis-Ord Gi*，然后对每个单元的 Gi* 序列进行 Mann-Kendall 趋势检验。在客户端运行，类似 ArcGIS 新兴热点分析。",
-          "params": {
-            "layer": {
-              "label": "点图层"
-            },
-            "timeField": {
-              "label": "时间字段",
-              "description": "每个点的时间戳：ISO 日期/时间字符串或纪元时间（秒或毫秒）。"
-            },
-            "cellSize": {
-              "label": "单元大小 (km)",
-              "description": "每个正方形空间分箱的边长，单位为千米。"
-            },
-            "timeStep": {
-              "label": "时间步间隔"
-            },
-            "timeStepUnit": {
-              "label": "时间步单位",
-              "options": {
-                "hours": "小时",
-                "days": "天",
-                "weeks": "周"
-              }
-            },
-            "weightField": {
-              "label": "权重字段（可选）",
-              "description": "在每个时空分箱内求和的数值字段，而不是对点计数；留空 = 对点计数。"
-            },
-            "confidence": {
-              "label": "置信水平",
-              "description": "分箱被判定为热点/冷点以及趋势判定的显著性阈值。",
-              "options": {
-                "90": "90%",
-                "95": "95%",
-                "99": "99%"
-              }
-            }
-          }
         }
       },
       "raster": {
-        "hillshade": {
-          "name": "山体阴影",
-          "description": "由高程模型计算晕渲地貌（山体阴影）栅格。",
-          "params": {
-            "azimuth": {
-              "label": "方位角（度）"
-            },
-            "altitude": {
-              "label": "高度角（度）"
-            },
-            "z_factor": {
-              "label": "Z 因子"
-            }
-          }
-        },
-        "slope": {
-          "name": "坡度",
-          "description": "由高程模型计算坡度（陡峭程度）。",
-          "params": {
-            "units": {
-              "label": "单位",
-              "options": {
-                "degrees": "度",
-                "percent": "百分比"
-              }
-            },
-            "z_factor": {
-              "label": "Z 因子"
-            }
-          }
-        },
-        "aspect": {
-          "name": "坡向",
-          "description": "由高程模型计算坡向（最陡坡的罗盘方向）。"
-        },
-        "reproject": {
-          "name": "重投影",
-          "description": "将栅格变换到另一个坐标参考系。",
-          "params": {
-            "dst_crs": {
-              "label": "目标坐标参考系",
-              "description": "权威机构代码，例如 EPSG:3857 或 EPSG:4326。"
-            },
-            "resampling": {
-              "label": "重采样",
-              "options": {
-                "nearest": "最近邻",
-                "bilinear": "双线性",
-                "cubic": "三次卷积"
-              }
-            }
-          }
-        },
-        "resample": {
-          "name": "重采样",
-          "description": "将栅格重采样为不同的像元大小（分辨率）。",
-          "params": {
-            "resolution": {
-              "label": "目标像元大小",
-              "description": "输出像元大小，以栅格坐标参考系的单位计。"
-            },
-            "resampling": {
-              "label": "重采样",
-              "options": {
-                "nearest": "最近邻",
-                "bilinear": "双线性",
-                "cubic": "三次卷积"
-              }
-            }
-          }
-        },
-        "clip-extent": {
-          "name": "按范围裁剪",
-          "description": "将栅格裁剪到边界框（使用栅格的坐标参考系）。",
-          "params": {
-            "minx": {
-              "label": "最小 X"
-            },
-            "miny": {
-              "label": "最小 Y"
-            },
-            "maxx": {
-              "label": "最大 X"
-            },
-            "maxy": {
-              "label": "最大 Y"
-            }
-          }
-        },
-        "clip-mask": {
-          "name": "按掩膜图层裁剪",
-          "description": "将栅格裁剪到矢量掩膜文件的几何范围。",
-          "params": {
-            "mask_path": {
-              "label": "掩膜图层",
-              "description": "其几何定义裁剪区域的 GeoJSON 文件。它会自动重投影到栅格的坐标参考系（没有 CRS 的 GeoJSON 视为 WGS84）。"
-            },
-            "crop": {
-              "label": "裁剪到掩膜范围"
-            },
-            "all_touched": {
-              "label": "包含所有接触到的像元"
-            }
-          }
-        },
         "polygonize": {
-          "name": "栅格转面",
-          "description": "将栅格波段按像元值转换为矢量多边形。",
           "params": {
+            "field": {
+              "label": "值字段名称"
+            },
             "band": {
               "label": "波段"
             },
@@ -5573,11 +5540,10 @@
                 "4": "4 连通",
                 "8": "8 连通"
               }
-            },
-            "field": {
-              "label": "值字段名称"
             }
-          }
+          },
+          "name": "栅格转面",
+          "description": "将栅格波段按像元值转换为矢量多边形。"
         },
         "contour": {
           "name": "等值线",
@@ -5795,26 +5761,113 @@
               "description": "以像元计的奇数邻域大小（3 = 3×3）。最大为 25。"
             }
           }
+        },
+        "hillshade": {
+          "name": "山体阴影",
+          "description": "由高程模型计算晕渲地貌（山体阴影）栅格。",
+          "params": {
+            "azimuth": {
+              "label": "方位角（度）"
+            },
+            "altitude": {
+              "label": "高度角（度）"
+            },
+            "z_factor": {
+              "label": "Z 因子"
+            }
+          }
+        },
+        "slope": {
+          "name": "坡度",
+          "description": "由高程模型计算坡度（陡峭程度）。",
+          "params": {
+            "units": {
+              "label": "单位",
+              "options": {
+                "degrees": "度",
+                "percent": "百分比"
+              }
+            },
+            "z_factor": {
+              "label": "Z 因子"
+            }
+          }
+        },
+        "aspect": {
+          "name": "坡向",
+          "description": "由高程模型计算坡向（最陡坡的罗盘方向）。"
+        },
+        "reproject": {
+          "name": "重投影",
+          "description": "将栅格变换到另一个坐标参考系。",
+          "params": {
+            "dst_crs": {
+              "label": "目标坐标参考系",
+              "description": "权威机构代码，例如 EPSG:3857 或 EPSG:4326。"
+            },
+            "resampling": {
+              "label": "重采样",
+              "options": {
+                "nearest": "最近邻",
+                "bilinear": "双线性",
+                "cubic": "三次卷积"
+              }
+            }
+          }
+        },
+        "resample": {
+          "name": "重采样",
+          "description": "将栅格重采样为不同的像元大小（分辨率）。",
+          "params": {
+            "resolution": {
+              "label": "目标像元大小",
+              "description": "输出像元大小，以栅格坐标参考系的单位计。"
+            },
+            "resampling": {
+              "label": "重采样",
+              "options": {
+                "nearest": "最近邻",
+                "bilinear": "双线性",
+                "cubic": "三次卷积"
+              }
+            }
+          }
+        },
+        "clip-extent": {
+          "name": "按范围裁剪",
+          "description": "将栅格裁剪到边界框（使用栅格的坐标参考系）。",
+          "params": {
+            "minx": {
+              "label": "最小 X"
+            },
+            "miny": {
+              "label": "最小 Y"
+            },
+            "maxx": {
+              "label": "最大 X"
+            },
+            "maxy": {
+              "label": "最大 Y"
+            }
+          }
+        },
+        "clip-mask": {
+          "name": "按掩膜图层裁剪",
+          "description": "将栅格裁剪到矢量掩膜文件的几何范围。",
+          "params": {
+            "mask_path": {
+              "label": "掩膜图层",
+              "description": "其几何定义裁剪区域的 GeoJSON 文件。它会自动重投影到栅格的坐标参考系（没有 CRS 的 GeoJSON 视为 WGS84）。"
+            },
+            "crop": {
+              "label": "裁剪到掩膜范围"
+            },
+            "all_touched": {
+              "label": "包含所有接触到的像元"
+            }
+          }
         }
       }
-    },
-    "toolGroup": {
-      "analysis": "分析",
-      "clip": "裁剪",
-      "dataManagement": "数据管理",
-      "dataQuality": "数据质量",
-      "dggs": "DGGS",
-      "geometry": "几何",
-      "join": "连接",
-      "movementTime": "移动与时间",
-      "network": "网络",
-      "overlay": "叠加",
-      "rasterToVector": "栅格转矢量",
-      "reproject": "重投影",
-      "select": "选择",
-      "spatialStatistics": "空间统计",
-      "terrain": "地形",
-      "vectorToRaster": "矢量转栅格"
     }
   },
   "segmentation": {
@@ -5936,6 +5989,7 @@
     "editValues": "编辑属性值",
     "editTitleFinishGeometry": "请先完成几何编辑再编辑属性",
     "editTitleReadOnly": "通过“添加矢量图层”添加的图层不支持编辑",
+    "editTitleCapabilityDisabled": "此图层已禁用编辑",
     "editTitleUseSaveCancel": "使用“保存”或“取消”完成编辑",
     "exitEditMode": "退出编辑模式",
     "editTitleDuckdb": "在内存中编辑显示的 DuckDB 查询属性",
@@ -5961,6 +6015,7 @@
     "dashboard": "仪表盘",
     "exportSelectedLayer": "导出所选图层",
     "exportTitleDisabled": "导出需要基于 GeoJSON 的图层",
+    "exportTitleCapabilityDisabled": "此图层已禁用导出",
     "cancelEdits": "取消属性编辑",
     "searchPlaceholder": "搜索属性...",
     "searchAria": "搜索属性",
@@ -6643,6 +6698,7 @@
     "identifyInspectPixels": "检查像素值",
     "identifyStopInspectPixels": "停止检查像素值",
     "identifyUnavailable": "识别功能仅适用于矢量、WMS 和 COG 图层",
+    "identifyCapabilityDisabled": "此图层已禁用查询",
     "selectFeaturesMenu": "选择要素",
     "selectFeaturesSingle": "点击选择要素",
     "selectFeaturesRectangle": "矩形选择要素",
@@ -6806,13 +6862,11 @@
     "refreshVectorControlError": "无法刷新此图层。请尝试重新打开“添加矢量图层”面板。",
     "refreshed": "已刷新。",
     "refreshedCount": "已刷新 {{count}} 个要素。",
-    "refreshedTruncated": "已刷新 {{total}} 个要素中的 {{shown}} 个。",
     "refreshError": "无法刷新此图层。",
     "exportNeedsFeatures": "导出需要包含要素的矢量图层。",
     "exportedWithWarnings": "图层已导出。{{warnings}}",
     "exported": "图层已导出。",
     "exportLayerError": "无法导出此图层。",
-    "exportPolyline": "编码折线（精度 {{precision}}）",
     "refreshIntervals": {
       "off": "关闭",
       "s15": "15 秒",
@@ -6820,7 +6874,9 @@
       "m1": "1 分钟",
       "m5": "5 分钟",
       "m15": "15 分钟"
-    }
+    },
+    "refreshedTruncated": "已刷新 {{total}} 个要素中的 {{shown}} 个。",
+    "exportPolyline": "编码折线（精度 {{precision}}）"
   },
   "timeSliderSymbology": {
     "bands": "波段",
@@ -7234,5 +7290,60 @@
     "mapPoint": "地图点",
     "reply": "回复",
     "replyPlaceholder": "写下回复..."
+  },
+  "samgeoPlugin": {
+    "panelTitle": "SamGeo 分割",
+    "intro": "使用 SAM3 通过文本、点、边界框或自动掩膜对影像进行分割。",
+    "apiUrl": "SamGeo API 地址",
+    "checkConnection": "检查连接",
+    "notChecked": "未检查",
+    "checking": "正在检查…",
+    "connected": "已连接",
+    "unavailable": "不可用：{{error}}",
+    "image": "图像",
+    "imageSource": "图像来源",
+    "imageUpload": "上传文件",
+    "noRasterLayers": "未加载任何栅格图层",
+    "layerUnreadable": "该图层没有可读取的 GeoTIFF 源；请先导出该图层，或改为上传文件。",
+    "docsLink": "如何搭建 SamGeo API",
+    "mode": "模式",
+    "modeText": "文本提示",
+    "modePoints": "点提示",
+    "modeBox": "边界框（查找相似对象）",
+    "modeAutomatic": "自动（全部分割）",
+    "modelId": "模型 ID",
+    "sam2ModelId": "SAM2 模型",
+    "automaticHint": "自动模式使用 SAM2 的掩膜生成器，可分割每一个对象；SAM3 仅响应提示。",
+    "textPrompt": "文本提示",
+    "confidence": "置信度阈值",
+    "minSize": "最小掩膜尺寸（像素）",
+    "maxSize": "最大掩膜尺寸（0 = 不限制）",
+    "backend": "后端",
+    "foregroundPoint": "+ 前景点",
+    "backgroundPoint": "− 背景点",
+    "clickForeground": "在地图上点击以添加前景点。",
+    "clickBackground": "在地图上点击以添加背景点。",
+    "pointAdded": "已添加点。",
+    "drawBox": "在地图上绘制边界框",
+    "dragBox": "在地图上拖拽出一个矩形。",
+    "boxAdded": "已添加边界框。",
+    "boxSummary": "边界框：{{box}}",
+    "noBox": "尚未绘制边界框。",
+    "pointSummary": "前景 {{foreground}} 个，背景 {{background}} 个",
+    "pointsPerSide": "每边点数",
+    "predIou": "预测 IoU 阈值",
+    "stability": "稳定性阈值",
+    "clearPrompts": "清除提示",
+    "promptsCleared": "已清除提示。",
+    "segment": "分割",
+    "chooseImage": "请先选择一幅图像。",
+    "enterPrompt": "请输入文本提示。",
+    "addPoint": "请至少添加一个前景点。",
+    "drawBoxFirst": "请先绘制一个边界框。",
+    "segmenting": "正在分割…",
+    "noObjects": "未找到任何对象。",
+    "added": "已添加 {{count}} 个要素{{layer}}。",
+    "badResponse": "SamGeo API 未返回 GeoJSON FeatureCollection。",
+    "unknownProjection": "结果不是 WGS84 坐标，且图像未携带可读取的投影信息，因此无法放置到地图上。请使用带地理参考的 GeoTIFF。"
   }
 }

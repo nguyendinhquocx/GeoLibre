@@ -43,6 +43,8 @@ type RasterLayerManager = {
 type ControlWithManager = {
   _layerManager?: RasterLayerManager;
   getRaster?: (id: string) => RasterInfoLike | undefined;
+  getEngine?: () => string;
+  setEngine?: (engine: "maplibre-gl-raster") => void;
 };
 type RasterInfoLike = {
   source?: { kind: "url"; url: string } | { kind: "file"; fileName: string; objectUrl: string };
@@ -82,6 +84,15 @@ function readRasterReversed(layer: GeoLibreLayer): boolean {
     !Array.isArray(raw) &&
     (raw as Record<string, unknown>).reversed === true
   );
+}
+
+/** Reads the persisted raster render mode, defaulting like the control. */
+function readRasterMode(layer: GeoLibreLayer): string {
+  const raw = layer.metadata.rasterState;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "rgb";
+  return typeof (raw as Record<string, unknown>).mode === "string"
+    ? String((raw as Record<string, unknown>).mode)
+    : "rgb";
 }
 
 // Per-layer classification state and built GPU textures. Module-global to
@@ -232,7 +243,8 @@ function ensureTexture(manager: RasterLayerManager, entry: ClassificationEntry):
  * @param control - The mounted raster control (for `_rebuild`).
  */
 function reconcile(control: unknown): void {
-  const manager = (control as ControlWithManager)._layerManager;
+  const rasterControl = control as ControlWithManager;
+  const manager = rasterControl._layerManager;
   if (!manager) return;
 
   const layers = useAppStore.getState().layers;
@@ -255,6 +267,19 @@ function reconcile(control: unknown): void {
         changed = true;
       }
       continue;
+    }
+
+    // Discrete and custom colormaps are injected into the deck.gl GPU
+    // pipeline. The alternate WASM and TiTiler engines bypass that pipeline,
+    // so leaving either selected makes the UI report classification while the
+    // map still draws a continuous ramp. Move to the renderer that can honor
+    // the requested symbology; the control's engine picker updates with it.
+    if (
+      readRasterMode(layer) === "single" &&
+      rasterControl.getEngine?.() !== "maplibre-gl-raster" &&
+      typeof rasterControl.setEngine === "function"
+    ) {
+      rasterControl.setEngine("maplibre-gl-raster");
     }
 
     // Reverse lives on rasterState (the control renders it for built-in ramps;

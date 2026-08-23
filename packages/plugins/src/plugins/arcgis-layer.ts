@@ -2,12 +2,14 @@
 
 import { DEFAULT_LAYER_STYLE, type GeoLibreLayer, useAppStore } from "@geolibre/core";
 import type { HostedLayer, VectorTileLayer } from "@esri/maplibre-arcgis";
-import type { Feature, FeatureCollection } from "geojson";
+import type { Feature, FeatureCollection, MultiPolygon, Position } from "geojson";
 import type * as maplibregl from "maplibre-gl";
 import type { GeoLibreAppAPI } from "../types";
 
 export type ArcGISLayerType = "feature" | "vector-tile" | "map-service" | "image-service";
 export type ArcGISSourceType = "url" | "portal-item";
+
+const MAX_ARCGIS_RING_REPAIR_PARTS = 64;
 
 /**
  * Every {@link ArcGISLayerType}, as a runtime list so a stored value (a saved
@@ -1832,6 +1834,7 @@ async function fetchArcGISGeoJson(
   if (json.type !== "FeatureCollection" || !Array.isArray(json.features)) {
     throw new Error("The ArcGIS feature layer did not return GeoJSON features.");
   }
+  const features = json.features.map(repairArcGISNestedPolygonRings);
   // ArcGIS caps a single query at the service's maxRecordCount and flags the
   // shortfall with `exceededTransferLimit`. In `f=geojson` output that flag is
   // not always where the `f=json` output puts it — some servers only nest it
@@ -1840,10 +1843,190 @@ async function fetchArcGISGeoJson(
   // genuinely last one.
   return {
     ...json,
+    features,
     exceededTransferLimit: Boolean(
       json.exceededTransferLimit || json.properties?.exceededTransferLimit,
     ),
   };
+}
+
+/**
+ * Reassemble rings that ArcGIS exported as separate one-ring polygons.
+ *
+ * ArcGIS determines shell/hole membership from its own winding convention. If
+ * a service contains rings wound the other way around, `f=geojson` can emit a
+ * MultiPolygon whose nested rings are all independent polygons. MapLibre then
+ * fills the intended holes. This guarded containment heuristic is limited to
+ * small all-one-ring exports; ordinary polygons, structured multipolygons,
+ * large multipart features, and boundary-touching rings pass through
+ * unchanged rather than risk destructive reclassification.
+ */
+function repairArcGISNestedPolygonRings(feature: Feature): Feature {
+  const geometry = feature.geometry;
+  if (
+    geometry?.type !== "MultiPolygon" ||
+    geometry.coordinates.length < 2 ||
+    geometry.coordinates.length > MAX_ARCGIS_RING_REPAIR_PARTS ||
+    geometry.coordinates.some((polygon) => polygon.length !== 1)
+  ) {
+    return feature;
+  }
+
+  const rings = geometry.coordinates.map(([ring]) => ({
+    area: signedRingArea(ring),
+    bounds: ringBounds(ring),
+    depth: 0,
+    parent: -1,
+    ring,
+  }));
+  // Planar containment is ambiguous across the antimeridian. Leave those
+  // geometries untouched rather than risk turning a separate polygon into a
+  // hole; MapLibre already handles their original GeoJSON representation.
+  if (rings.some(({ ring }) => ringCrossesAntimeridian(ring))) return feature;
+
+  for (let child = 0; child < rings.length; child += 1) {
+    let parentArea = Number.POSITIVE_INFINITY;
+    for (let candidate = 0; candidate < rings.length; candidate += 1) {
+      if (candidate === child || Math.abs(rings[candidate].area) <= Math.abs(rings[child].area)) {
+        continue;
+      }
+      if (
+        boundsContain(rings[candidate].bounds, rings[child].bounds) &&
+        Math.abs(rings[candidate].area) < parentArea &&
+        ringStrictlyContains(rings[candidate].ring, rings[child].ring)
+      ) {
+        rings[child].parent = candidate;
+        parentArea = Math.abs(rings[candidate].area);
+      }
+    }
+  }
+
+  if (!rings.some((ring) => ring.parent !== -1)) return feature;
+  const depthOf = (index: number): number => {
+    const parent = rings[index].parent;
+    return parent === -1 ? 0 : depthOf(parent) + 1;
+  };
+  rings.forEach((ring, index) => {
+    ring.depth = depthOf(index);
+  });
+
+  const coordinates: MultiPolygon["coordinates"] = [];
+  rings.forEach((entry, index) => {
+    if (entry.depth % 2 !== 0) return;
+    const polygon: Position[][] = [orientRing(entry.ring, true)];
+    rings.forEach((candidate) => {
+      if (candidate.parent === index && candidate.depth % 2 === 1) {
+        polygon.push(orientRing(candidate.ring, false));
+      }
+    });
+    coordinates.push(polygon);
+  });
+
+  return { ...feature, geometry: { ...geometry, coordinates } };
+}
+
+function signedRingArea(ring: Position[]): number {
+  let twiceArea = 0;
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    twiceArea += ring[index][0] * ring[index + 1][1] - ring[index + 1][0] * ring[index][1];
+  }
+  return twiceArea / 2;
+}
+
+type RingBounds = [west: number, south: number, east: number, north: number];
+
+function ringBounds(ring: Position[]): RingBounds {
+  return ring.reduce<RingBounds>(
+    (bounds, position) => [
+      Math.min(bounds[0], position[0]),
+      Math.min(bounds[1], position[1]),
+      Math.max(bounds[2], position[0]),
+      Math.max(bounds[3], position[1]),
+    ],
+    [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, -Infinity, -Infinity],
+  );
+}
+
+function boundsContain(container: RingBounds, child: RingBounds): boolean {
+  return (
+    container[0] <= child[0] &&
+    container[1] <= child[1] &&
+    container[2] >= child[2] &&
+    container[3] >= child[3]
+  );
+}
+
+function ringCrossesAntimeridian(ring: Position[]): boolean {
+  return ring
+    .slice(0, -1)
+    .some((position, index) => Math.abs(position[0] - ring[index + 1][0]) > 180);
+}
+
+function orientRing(ring: Position[], counterClockwise: boolean): Position[] {
+  return signedRingArea(ring) > 0 === counterClockwise ? ring : [...ring].reverse();
+}
+
+function pointInRing(point: Position, ring: Position[]): boolean {
+  let inside = false;
+  for (let current = 0, previous = ring.length - 1; current < ring.length; previous = current++) {
+    const [x1, y1] = ring[current];
+    const [x2, y2] = ring[previous];
+    if (
+      y1 > point[1] !== y2 > point[1] &&
+      point[0] < ((x2 - x1) * (point[1] - y1)) / (y2 - y1) + x1
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function ringStrictlyContains(container: Position[], child: Position[]): boolean {
+  return (
+    child.slice(0, -1).every((point) => pointInRing(point, container)) &&
+    !ringsIntersect(container, child)
+  );
+}
+
+function ringsIntersect(first: Position[], second: Position[]): boolean {
+  for (let firstIndex = 0; firstIndex < first.length - 1; firstIndex += 1) {
+    for (let secondIndex = 0; secondIndex < second.length - 1; secondIndex += 1) {
+      if (
+        segmentsIntersect(
+          first[firstIndex],
+          first[firstIndex + 1],
+          second[secondIndex],
+          second[secondIndex + 1],
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function segmentsIntersect(a: Position, b: Position, c: Position, d: Position): boolean {
+  const cross = (start: Position, end: Position, point: Position): number =>
+    (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (point[0] - start[0]);
+  const abC = cross(a, b, c);
+  const abD = cross(a, b, d);
+  const cdA = cross(c, d, a);
+  const cdB = cross(c, d, b);
+  if (abC === 0 && pointOnSegment(c, a, b)) return true;
+  if (abD === 0 && pointOnSegment(d, a, b)) return true;
+  if (cdA === 0 && pointOnSegment(a, c, d)) return true;
+  if (cdB === 0 && pointOnSegment(b, c, d)) return true;
+  return abC > 0 !== abD > 0 && cdA > 0 !== cdB > 0;
+}
+
+function pointOnSegment(point: Position, start: Position, end: Position): boolean {
+  return (
+    point[0] >= Math.min(start[0], end[0]) &&
+    point[0] <= Math.max(start[0], end[0]) &&
+    point[1] >= Math.min(start[1], end[1]) &&
+    point[1] <= Math.max(start[1], end[1])
+  );
 }
 
 async function resolveFeatureLayerUrl(

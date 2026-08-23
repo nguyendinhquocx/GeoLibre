@@ -10,6 +10,7 @@ import {
   useAppStore,
   validateAttributeFormValues,
   excludeHiddenFieldsFromGeojson,
+  resolveLayerCapabilities,
   type AttributeFormConfig,
   type AttributeFormFieldConfig,
   type AttributeFormFieldError,
@@ -507,7 +508,8 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   const attributeRows: AttributeTableRow[] = isDuckDBLayer
     ? duckDBRowsToAttributeRows(duckdbRows)
     : geojsonRows;
-  const hasAttributeSource = Boolean(layer?.geojson || isDuckDBLayer);
+  const layerCaps = resolveLayerCapabilities(layer);
+  const hasAttributeSource = Boolean((layer?.geojson || isDuckDBLayer) && layerCaps.query);
   // Add Vector Layer (geojson-mode) layers render from a MapLibre source the
   // control owns, and their `layer.geojson` is dropped when a project is saved.
   // Edits made here would neither redraw on the map nor survive a save, so the
@@ -787,7 +789,8 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   // Column management mutates layer.geojson/style/metadata, so it is offered
   // only for in-store, editable GeoJSON layers — not DuckDB query results or
   // Add Vector Layer layers (whose geojson is not persisted).
-  const canManageColumns = Boolean(layer?.geojson) && !isDuckDBLayer && !isReadOnlyVectorLayer;
+  const canManageColumns =
+    Boolean(layer?.geojson) && !isDuckDBLayer && !isReadOnlyVectorLayer && layerCaps.update;
 
   const columnWidth = (key: SortKey) =>
     columnWidths[key] ??
@@ -956,7 +959,11 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   };
 
   const saveDrafts = () => {
-    if (!layer || !hasEdits || hasInvalidDrafts || hasFormErrors) return;
+    // Re-read the capability here rather than trusting the disabled state:
+    // edit mode (and the dialogs below) can be open across a project reload or
+    // a collaborator's change that revokes the capability, and the commit would
+    // otherwise still run.
+    if (!layer || !layerCaps.update || !hasEdits || hasInvalidDrafts || hasFormErrors) return;
 
     if (isDuckDBLayer) {
       updateDuckDBLayerRows(layer.id, applyDraftsToDuckDBRows(attributeRows, drafts));
@@ -1052,7 +1059,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   };
 
   const commitColumnRename = () => {
-    if (suppressColumnBlurRef.current || !editingColumn || !layer) {
+    if (suppressColumnBlurRef.current || !editingColumn || !layer || !canManageColumns) {
       suppressColumnBlurRef.current = false;
       return;
     }
@@ -1111,7 +1118,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   };
 
   const confirmDeleteColumn = () => {
-    if (!layer || !columnPendingDelete) return;
+    if (!layer || !canManageColumns || !layerCaps.delete || !columnPendingDelete) return;
     const patch = deleteColumn(layer, columnPendingDelete);
     if (patch) updateLayer(layer.id, patch);
     // Drop a sort that pointed at the deleted column, which would otherwise
@@ -1153,7 +1160,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   };
 
   const confirmAddColumn = () => {
-    if (!layer || !canSubmitNewColumn) return;
+    if (!layer || !canManageColumns || !canSubmitNewColumn) return;
     const patch = addColumn(
       layer,
       discoveredColumns,
@@ -1328,7 +1335,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
     calcPreview.kind !== "syntax";
 
   const confirmCalculate = () => {
-    if (!layer || !calcCanSubmit) return;
+    if (!layer || !canManageColumns || !calcCanSubmit) return;
     const targetName = calcMode === "create" ? calcNewNameTrimmed : calcTargetField;
     const scope =
       calcSelectedOnly && selectedFeatureIds.length > 0 ? new Set(selectedFeatureIds) : undefined;
@@ -1495,7 +1502,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
-              disabled={readOnlyColumns.has(col)}
+              disabled={readOnlyColumns.has(col) || !layerCaps.delete}
               onSelect={() => setColumnPendingDelete(col)}
             >
               <Trash2 className="me-2 h-3.5 w-3.5" />
@@ -1525,7 +1532,8 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
     <section
       ref={tableSectionRef}
       aria-label={t("attributeTable.title")}
-      className="relative flex shrink-0 flex-col border-t bg-card"
+      data-collapsed={collapsed || undefined}
+      className="geolibre-attribute-table-panel relative flex shrink-0 flex-col border-t bg-card"
       style={{ height: collapsed ? undefined : tableHeight }}
     >
       {!collapsed ? (
@@ -1533,7 +1541,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
           role="separator"
           aria-orientation="horizontal"
           aria-label={t("attributeTable.resize")}
-          className="absolute -top-1 left-0 right-0 z-20 h-2 cursor-row-resize select-none border-t border-transparent hover:border-primary"
+          className="geolibre-attribute-table-resize-handle absolute -top-1 start-0 end-0 z-20 h-2 cursor-row-resize select-none border-t border-transparent hover:border-primary"
           onMouseDown={startTableResize}
         />
       ) : null}
@@ -1565,17 +1573,19 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
           size="sm"
           className="ms-auto h-7 px-2"
           title={
-            isGeometryEditing
-              ? t("attributeTable.editTitleFinishGeometry")
-              : isReadOnlyVectorLayer
-                ? t("attributeTable.editTitleReadOnly")
-                : isEditing
-                  ? hasEdits
-                    ? t("attributeTable.editTitleUseSaveCancel")
-                    : t("attributeTable.exitEditMode")
-                  : isDuckDBLayer
-                    ? t("attributeTable.editTitleDuckdb")
-                    : t("attributeTable.editValues")
+            !layerCaps.update
+              ? t("attributeTable.editTitleCapabilityDisabled")
+              : isGeometryEditing
+                ? t("attributeTable.editTitleFinishGeometry")
+                : isReadOnlyVectorLayer
+                  ? t("attributeTable.editTitleReadOnly")
+                  : isEditing
+                    ? hasEdits
+                      ? t("attributeTable.editTitleUseSaveCancel")
+                      : t("attributeTable.exitEditMode")
+                    : isDuckDBLayer
+                      ? t("attributeTable.editTitleDuckdb")
+                      : t("attributeTable.editValues")
           }
           aria-label={
             isEditing && !hasEdits
@@ -1584,6 +1594,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
           }
           disabled={
             !hasAttributeSource ||
+            !layerCaps.update ||
             isReadOnlyVectorLayer ||
             isGeometryEditing ||
             (isEditing && hasEdits)
@@ -1607,7 +1618,9 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
                   : t("attributeTable.saveEdits")
           }
           aria-label={t("attributeTable.saveEdits")}
-          disabled={!isEditing || !hasEdits || hasInvalidDrafts || hasFormErrors}
+          disabled={
+            !isEditing || !layerCaps.update || !hasEdits || hasInvalidDrafts || hasFormErrors
+          }
           onClick={saveDrafts}
         >
           <Save className="h-3.5 w-3.5" />
@@ -1756,12 +1769,14 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
               size="sm"
               className="h-7 px-2"
               title={
-                layer?.geojson
-                  ? t("attributeTable.exportSelectedLayer")
-                  : t("attributeTable.exportTitleDisabled")
+                !layerCaps.export
+                  ? t("attributeTable.exportTitleCapabilityDisabled")
+                  : layer?.geojson
+                    ? t("attributeTable.exportSelectedLayer")
+                    : t("attributeTable.exportTitleDisabled")
               }
               aria-label={t("attributeTable.exportSelectedLayer")}
-              disabled={!layer?.geojson}
+              disabled={!layer?.geojson || !layerCaps.export}
             >
               <Download className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{t("attributeTable.buttons.export")}</span>
@@ -2117,7 +2132,11 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
             <Button variant="outline" onClick={() => setColumnPendingDelete(null)}>
               {t("common.cancel")}
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteColumn}>
+            <Button
+              variant="destructive"
+              disabled={!canManageColumns || !layerCaps.delete}
+              onClick={confirmDeleteColumn}
+            >
               {t("attributeTable.deleteField")}
             </Button>
           </div>
@@ -2208,7 +2227,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
             <Button variant="outline" onClick={() => setAddingColumn(false)}>
               {t("common.cancel")}
             </Button>
-            <Button disabled={!canSubmitNewColumn} onClick={confirmAddColumn}>
+            <Button disabled={!canManageColumns || !canSubmitNewColumn} onClick={confirmAddColumn}>
               {t("attributeTable.addField")}
             </Button>
           </div>
@@ -2409,7 +2428,7 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
             <Button variant="outline" onClick={() => setCalcOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button disabled={!calcCanSubmit} onClick={confirmCalculate}>
+            <Button disabled={!canManageColumns || !calcCanSubmit} onClick={confirmCalculate}>
               {t("attributeTable.buttons.calculate")}
             </Button>
           </div>

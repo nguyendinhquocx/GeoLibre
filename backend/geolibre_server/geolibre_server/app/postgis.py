@@ -273,6 +273,13 @@ class PostgisWriteRequest(BaseModel):
     # session between the read and this save survive. When omitted, every row
     # absent from the payload is deleted (full-table diff).
     baseline_keys: Optional[list] = None
+    # The layer's declared capabilities, forwarded by the client so a save
+    # cannot quietly perform an operation the layer's own configuration
+    # disallows. This is a consistency guard, not an access-control boundary:
+    # the sidecar has no independent record of a table's capabilities, so a
+    # caller that omits the field (or sends its own) is trusted. Anything that
+    # must hold against an untrusted caller belongs in database grants.
+    capabilities: Optional[dict[str, bool]] = None
 
 
 def _connect(connection: str) -> Any:
@@ -688,6 +695,13 @@ def postgis_write(request: PostgisWriteRequest) -> dict[str, Any]:
         geom_ident = sql.Identifier(info["geometry_column"])
         geom_param = _geometry_param(sql, info["srid"])
 
+        # Absent flags default to allowed, matching the frontend's inference
+        # for a layer that declares no explicit capabilities.
+        caps = request.capabilities or {}
+        allow_create = caps.get("create", True)
+        allow_update = caps.get("update", True)
+        allow_delete = caps.get("delete", True)
+
         skipped: set[str] = set()
         inserted = updated = 0
         try:
@@ -800,6 +814,11 @@ def postgis_write(request: PostgisWriteRequest) -> dict[str, Any]:
                                 for column in columns
                             ):
                                 continue
+                            if not allow_update:
+                                raise HTTPException(
+                                    status_code=403,
+                                    detail="Layer capability excludes feature updates.",
+                                )
                             assignments = [
                                 sql.SQL("{col} = ").format(col=geom_ident)
                                 + (geom_param if geometry_value is not None else sql.SQL("NULL"))
@@ -831,6 +850,11 @@ def postgis_write(request: PostgisWriteRequest) -> dict[str, Any]:
                             # is inserted explicitly so client-assigned keys
                             # survive; a GENERATED ALWAYS identity column rejects
                             # explicit values unless the insert overrides it.
+                            if not allow_create:
+                                raise HTTPException(
+                                    status_code=403,
+                                    detail="Layer capability excludes feature creation.",
+                                )
                             insert_columns = list(columns)
                             insert_values = list(values)
                             overriding = sql.SQL("")
@@ -873,6 +897,11 @@ def postgis_write(request: PostgisWriteRequest) -> dict[str, Any]:
                 to_delete = sorted(deletable - kept_keys, key=lambda value: str(value))
                 deleted = 0
                 if to_delete:
+                    if not allow_delete:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Layer capability excludes feature deletion.",
+                        )
                     # Compare as text so the (JSON-native) keys match uuid /
                     # numeric / date key columns; both sides render the same
                     # canonical form the /read endpoint serialized. Known edge:

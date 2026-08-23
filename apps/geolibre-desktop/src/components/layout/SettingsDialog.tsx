@@ -54,6 +54,7 @@ import {
   LayoutPanelTop,
   MessageSquare,
   Moon,
+  PackageCheck,
   Palette,
   PanelLeft,
   PanelRight,
@@ -66,10 +67,22 @@ import {
   Type,
   Trash2,
   TriangleAlert,
+  Upload,
   Puzzle,
+  LoaderCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ChangeEvent,
+  type ReactElement,
+  type RefObject,
+} from "react";
 import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   DEFAULT_DESKTOP_LAYOUT_SETTINGS,
   DEFAULT_UI_PROFILE_SETTINGS,
@@ -95,6 +108,18 @@ import { COORDINATE_FORMATS, normalizeCoordinateFormat } from "../../lib/coordin
 import { THEME_SCHEMES, normalizeHexColor, type ThemeScheme } from "../../lib/theme-schemes";
 import { IS_MAS_BUILD } from "../../lib/build-flags";
 import { pluginDisplayName } from "../../lib/plugin-display-name";
+import {
+  LANGUAGE_PACK_MAX_BYTES,
+  LanguagePackError,
+  languagePackBaseUrl,
+  type InstalledLanguagePack,
+} from "../../lib/language-pack";
+import {
+  downloadLanguagePack,
+  getInstalledLanguagePack,
+  installLanguagePackFile,
+  removeLanguagePack,
+} from "../../i18n";
 import { resolveShareHost, shareHostLabel } from "../../lib/share-geolibre";
 import { IS_STORE_BUILD, type UpdateNotificationLevel } from "../../lib/updates";
 import { ensureStartupProjectSnapshot, openProjectFile } from "../../lib/tauri-io";
@@ -128,6 +153,7 @@ import {
 import { AiSectionContent } from "./AiSectionContent";
 
 export type SettingsSection =
+  | "language"
   | "map"
   | "layout"
   | "appearance"
@@ -182,11 +208,35 @@ interface SettingsDialogProps {
   onToggleThemeMode: () => void;
 }
 
+type TransComponents = Record<string, ReactElement>;
+
+type SettingsTransProps = {
+  i18nKey: "settings.env.tokenDescription" | "settings.env.cesiumTokenDescription";
+  values?: { shareHost: string };
+  components?: TransComponents;
+};
+
+// TS 7 exhausts its instantiation depth when it expands Trans's catalog-wide
+// generics from this large generated locale type. Keep the key union explicit.
+const SettingsTrans = Trans as ComponentType<SettingsTransProps>;
+
+const cesiumTokenComponents: TransComponents = {
+  tokenLink: (
+    <a
+      className="underline"
+      href="https://ion.cesium.com/tokens"
+      target="_blank"
+      rel="noreferrer noopener"
+    />
+  ),
+};
+
 const SECTION_ITEMS: Array<{
   id: SettingsSection;
   labelKey: `settings.section.${SettingsSection}`;
   icon: typeof MapPinned;
 }> = [
+  { id: "language", labelKey: "settings.section.language", icon: Languages },
   { id: "map", labelKey: "settings.section.map", icon: MapPinned },
   { id: "layout", labelKey: "settings.section.layout", icon: LayoutPanelTop },
   {
@@ -247,6 +297,47 @@ interface DraftDesktopSettings {
   uiProfile: UiProfileSettings;
   updates: UpdateSettings;
   startup: StartupSettings;
+}
+
+/**
+ * The bare host to name in the privacy notice. A configured base URL may carry a
+ * scheme and a path (a self-hosted mirror often does); the notice only needs to
+ * say which host the locale code is sent to.
+ */
+function languagePackHostname(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
+/**
+ * The "installed from X on Y" line for an installed language pack.
+ *
+ * `installedAt` comes back from IndexedDB, which the i18n layer already treats
+ * as untrusted for the pack payload; the record's own timestamp gets the same
+ * treatment here. `Intl.DateTimeFormat.prototype.format` throws a `RangeError`
+ * on an invalid `Date`, and this renders inside the dialog, so an unparseable
+ * timestamp would take the whole Settings pane down. Drop the date instead.
+ */
+function installedPackDetail(
+  t: TFunction,
+  language: string,
+  installed: InstalledLanguagePack,
+): string {
+  const source =
+    installed.source === "download"
+      ? t("settings.languagePack.sourceOfficial")
+      : t("settings.languagePack.sourceFile");
+  const installedAt = new Date(installed.installedAt);
+  if (Number.isNaN(installedAt.getTime())) {
+    return t("settings.languagePack.installedDetailNoDate", { source });
+  }
+  return t("settings.languagePack.installedDetail", {
+    source,
+    date: new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(installedAt),
+  });
 }
 
 function createDraftId(): string {
@@ -396,6 +487,16 @@ export function SettingsDialog({
   const shareBaseUrl = shareHostState.baseUrl;
   const shareHost = shareHostLabel();
   const shareSettingsUrl = shareBaseUrl ? `${shareBaseUrl}/settings` : null;
+  const shareTokenComponents: TransComponents = {
+    tokenLink: (
+      <a
+        className="underline"
+        href={shareSettingsUrl ?? undefined}
+        target="_blank"
+        rel="noreferrer noopener"
+      />
+    ),
+  };
   // No usable host (sharing turned off, or a configured address that was
   // rejected) means the token field is dead: it would authenticate against a
   // server this deployment never talks to. Say so instead of rendering guidance
@@ -418,6 +519,22 @@ export function SettingsDialog({
   const showSettingsItem = (id: string) => isMenuItemVisible(desktopSettings.uiProfile, id);
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<SettingsSection>("map");
+  const [installedLanguagePack, setInstalledLanguagePack] = useState<InstalledLanguagePack | null>(
+    null,
+  );
+  const [languagePackBusy, setLanguagePackBusy] = useState<"download" | "import" | "remove" | null>(
+    null,
+  );
+  const [languagePackNotice, setLanguagePackNotice] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+  // One source for both the Download button and the catalog link below, so a
+  // build that points `VITE_LANGUAGE_PACK_BASE_URL` at a self-hosted mirror (or
+  // opts out of external CDNs entirely) can never offer a link to a host it does
+  // not download from.
+  const languagePackHost = languagePackBaseUrl();
+  const languagePackDownloadsEnabled = languagePackHost.length > 0;
   // Browser and Comments are dockable right panels: the registry owns whether
   // they are on screen and `registerPersistedRightPanel` mirrors that into
   // `layout.browserPanelVisible` / `layout.commentsPanelVisible`, so the toggle
@@ -433,6 +550,7 @@ export function SettingsDialog({
   // after the focus lands so a later open without a focus request stays put.
   const [pendingFocus, setPendingFocus] = useState<SettingsFocusTarget | null>(null);
   const shareTokenInputRef = useRef<HTMLInputElement>(null);
+  const languagePackFileRef = useRef<HTMLInputElement>(null);
   // The native color input in the Appearance pane. The accent-color dropdown's
   // "Custom" entry deep-links here so picking a custom color is reachable
   // without a third-level menu (#718).
@@ -626,6 +744,24 @@ export function SettingsDialog({
     setError(null);
     setLiveProjection(mapControllerRef.current?.readProjection() ?? null);
   }, [open, mapControllerRef]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getInstalledLanguagePack(language)
+      .then((installed) => {
+        if (!cancelled) setInstalledLanguagePack(installed);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          console.error("[GeoLibre] Failed to read the installed language pack", loadError);
+          setInstalledLanguagePack(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, language]);
 
   // Let other panels deep-link into a specific Settings section (e.g. the AI
   // Assistant onboarding card opens the AI Providers section to add credentials).
@@ -1205,6 +1341,88 @@ export function SettingsDialog({
     setOpen(false);
   };
 
+  const languagePackErrorMessage = (packError: unknown): string => {
+    if (!(packError instanceof LanguagePackError)) {
+      return t("settings.languagePack.errorGeneric");
+    }
+    switch (packError.code) {
+      case "invalid-json":
+        return t("settings.languagePack.errorInvalidJson");
+      case "invalid-format":
+      case "invalid-translations":
+      case "empty-pack":
+        return t("settings.languagePack.errorInvalidFormat");
+      case "unsupported-version":
+        return t("settings.languagePack.errorUnsupportedVersion");
+      case "invalid-locale":
+        return t("settings.languagePack.errorInvalidLocale");
+      case "unsupported-locale":
+        return t("settings.languagePack.errorUnsupportedLocale");
+      case "too-large":
+        return t("settings.languagePack.errorTooLarge");
+      case "not-found":
+        return t("settings.languagePack.errorNotFound");
+      case "download-failed":
+        return t("settings.languagePack.errorDownload");
+    }
+  };
+
+  const handleLanguagePackDownload = async () => {
+    setLanguagePackBusy("download");
+    setLanguagePackNotice(null);
+    try {
+      const installed = await downloadLanguagePack(language);
+      setInstalledLanguagePack(installed);
+      setLanguagePackNotice({ kind: "success", text: t("settings.languagePack.downloaded") });
+    } catch (packError) {
+      setLanguagePackNotice({ kind: "error", text: languagePackErrorMessage(packError) });
+    } finally {
+      setLanguagePackBusy(null);
+    }
+  };
+
+  const handleLanguagePackFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    // `parseLanguagePack` enforces the same limit, but only after `file.text()`
+    // has already buffered the whole file. Checking the declared size first
+    // turns a mistakenly picked multi-gigabyte file into a clean error rather
+    // than a tab that reads it into memory before rejecting it.
+    if (file.size > LANGUAGE_PACK_MAX_BYTES) {
+      setLanguagePackNotice({ kind: "error", text: t("settings.languagePack.errorTooLarge") });
+      return;
+    }
+    setLanguagePackBusy("import");
+    setLanguagePackNotice(null);
+    try {
+      const installed = await installLanguagePackFile(await file.text());
+      if (installed.locale === language) setInstalledLanguagePack(installed);
+      setLanguagePackNotice({
+        kind: "success",
+        text: t("settings.languagePack.imported", { locale: installed.locale }),
+      });
+    } catch (packError) {
+      setLanguagePackNotice({ kind: "error", text: languagePackErrorMessage(packError) });
+    } finally {
+      setLanguagePackBusy(null);
+    }
+  };
+
+  const handleLanguagePackRemove = async () => {
+    setLanguagePackBusy("remove");
+    setLanguagePackNotice(null);
+    try {
+      await removeLanguagePack(language);
+      setInstalledLanguagePack(null);
+      setLanguagePackNotice({ kind: "success", text: t("settings.languagePack.removed") });
+    } catch (packError) {
+      setLanguagePackNotice({ kind: "error", text: languagePackErrorMessage(packError) });
+    } finally {
+      setLanguagePackBusy(null);
+    }
+  };
+
   const renderSectionButton = (item: (typeof SECTION_ITEMS)[number]) => {
     const Icon = item.icon;
     return (
@@ -1258,6 +1476,16 @@ export function SettingsDialog({
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
+                  setSection("language");
+                  setOpen(true);
+                }}
+              >
+                <PackageCheck className="me-2 h-3.5 w-3.5" />
+                {t("settings.languagePack.manage")}
+              </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
@@ -1547,6 +1775,151 @@ export function SettingsDialog({
               {SECTION_ITEMS.filter((item) => isSectionVisible(item.id)).map(renderSectionButton)}
             </nav>
             <div className="min-h-0 min-w-0 overflow-y-auto p-6">
+              {effectiveSection === "language" ? (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-sm font-semibold">{t("settings.languagePack.title")}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {t("settings.languagePack.description")}
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="settings-language-pack-locale">
+                      {t("settings.languagePack.interfaceLanguage")}
+                    </Label>
+                    <Select
+                      id="settings-language-pack-locale"
+                      value={language}
+                      onChange={(event) => {
+                        setLanguagePackNotice(null);
+                        setLanguage(event.target.value);
+                      }}
+                    >
+                      {languageOptions.map((option) => (
+                        <option key={option.code} value={option.code}>
+                          {option.nativeName === option.englishName
+                            ? option.nativeName
+                            : `${option.nativeName} (${option.englishName})`}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-4">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={cn(
+                          "mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full",
+                          installedLanguagePack
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <PackageCheck className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">
+                          {installedLanguagePack
+                            ? t("settings.languagePack.installed")
+                            : t("settings.languagePack.notInstalled")}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {installedLanguagePack
+                            ? installedPackDetail(t, language, installedLanguagePack)
+                            : language === "en"
+                              ? t("settings.languagePack.englishFallback")
+                              : languagePackDownloadsEnabled
+                                ? t("settings.languagePack.notInstalledDetail")
+                                : t("settings.languagePack.downloadsDisabled")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {language !== "en" && languagePackDownloadsEnabled ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleLanguagePackDownload}
+                          disabled={languagePackBusy !== null}
+                        >
+                          {languagePackBusy === "download" ? (
+                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <DownloadCloud className="h-3.5 w-3.5" />
+                          )}
+                          {t("settings.languagePack.download")}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={languagePackBusy !== null}
+                        onClick={() => languagePackFileRef.current?.click()}
+                      >
+                        {languagePackBusy === "import" ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5" />
+                        )}
+                        {t("settings.languagePack.importFile")}
+                      </Button>
+                      {installedLanguagePack ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={languagePackBusy !== null}
+                          onClick={handleLanguagePackRemove}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {t("settings.languagePack.remove")}
+                        </Button>
+                      ) : null}
+                      <input
+                        ref={languagePackFileRef}
+                        className="hidden"
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleLanguagePackFile}
+                      />
+                    </div>
+                  </div>
+                  {languagePackNotice ? (
+                    <p
+                      className={cn(
+                        "text-sm",
+                        languagePackNotice.kind === "error"
+                          ? "text-destructive"
+                          : "text-emerald-700 dark:text-emerald-300",
+                      )}
+                      role={languagePackNotice.kind === "error" ? "alert" : "status"}
+                    >
+                      {languagePackNotice.text}
+                    </p>
+                  ) : null}
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {languagePackHost
+                      ? t("settings.languagePack.privacy", {
+                          host: languagePackHostname(languagePackHost),
+                        })
+                      : t("settings.languagePack.privacyLocalOnly")}
+                    {languagePackHost ? (
+                      <>
+                        {" "}
+                        <a
+                          className="inline-flex items-center gap-1 underline underline-offset-2"
+                          href={languagePackHost}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
+                          {t("settings.languagePack.browse")}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+              ) : null}
               {effectiveSection === "map" ? (
                 <div className="space-y-5">
                   <div className="flex items-center justify-between gap-3">
@@ -2368,21 +2741,12 @@ export function SettingsDialog({
                     {shareTokenUsable ? (
                       <>
                         <p className="text-xs text-muted-foreground">
-                          <Trans
+                          <SettingsTrans
                             i18nKey="settings.env.tokenDescription"
                             values={{ shareHost }}
-                            components={{
-                              // Non-null here: this branch requires shareBaseUrl,
-                              // which is what shareSettingsUrl is derived from.
-                              tokenLink: (
-                                <a
-                                  className="underline"
-                                  href={shareSettingsUrl ?? undefined}
-                                  target="_blank"
-                                  rel="noreferrer noopener"
-                                />
-                              ),
-                            }}
+                            // Non-null here: this branch requires shareBaseUrl,
+                            // which is what shareSettingsUrl is derived from.
+                            components={shareTokenComponents}
                           />
                         </p>
                         <Input
@@ -2407,18 +2771,9 @@ export function SettingsDialog({
                   <div className="space-y-2 border-t pt-5">
                     <h3 className="text-sm font-semibold">{t("settings.env.cesiumTokenTitle")}</h3>
                     <p className="text-xs text-muted-foreground">
-                      <Trans
+                      <SettingsTrans
                         i18nKey="settings.env.cesiumTokenDescription"
-                        components={{
-                          tokenLink: (
-                            <a
-                              className="underline"
-                              href="https://ion.cesium.com/tokens"
-                              target="_blank"
-                              rel="noreferrer noopener"
-                            />
-                          ),
-                        }}
+                        components={cesiumTokenComponents}
                       />
                     </p>
                     <Input
@@ -2689,7 +3044,13 @@ export function SettingsDialog({
           {error ? (
             <div className="border-t px-6 py-2 text-sm text-destructive">{error}</div>
           ) : null}
-          {effectiveSection === "ai" && (editingProfileId || isCreatingProfile) ? (
+          {effectiveSection === "language" ? (
+            <div className="flex justify-end border-t px-6 py-4">
+              <Button type="button" onClick={() => setOpen(false)}>
+                {t("common.close")}
+              </Button>
+            </div>
+          ) : effectiveSection === "ai" && (editingProfileId || isCreatingProfile) ? (
             <div className="border-t px-6 py-4 text-center text-xs text-muted-foreground">
               {t("settings.ai.profileEditSaveHint")}
             </div>

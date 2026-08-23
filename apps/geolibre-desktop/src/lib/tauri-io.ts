@@ -20,7 +20,7 @@ import {
 } from "@tauri-apps/plugin-fs";
 import type { StartupSettings } from "../hooks/useDesktopSettings";
 import { unzip } from "fflate";
-import type { FeatureCollection } from "geojson";
+import type { Feature, FeatureCollection } from "geojson";
 import i18next from "i18next";
 import { combine, parseDbf, parseShp } from "shpjs";
 import {
@@ -59,6 +59,7 @@ import { parseGpxLayer } from "./gpx";
 import { isTauri } from "./is-tauri";
 import { SHAPEFILE_COMPANION_EXTENSIONS, shapefileCompanionPathsFromSelection } from "./mas-build";
 import {
+  KML_FOLDER_PATH_PROPERTY,
   parseKmlGroundOverlays,
   parseKmlModels,
   parseKmlText,
@@ -273,6 +274,8 @@ export interface LoadedVectorLayer {
   data: FeatureCollection;
   name?: string;
   path: string;
+  /** Enclosing KML Folder names, reconstructed as nested layer groups. */
+  groupPath?: string[];
 }
 
 /**
@@ -474,6 +477,61 @@ function mergeFeatureCollections(collections: FeatureCollection[]): FeatureColle
     type: "FeatureCollection",
     features: collections.flatMap((collection) => collection.features),
   };
+}
+
+/**
+ * Split folder-aware KML placemarks into layers that can occupy distinct groups.
+ *
+ * Only placemarks that actually sit inside a `<Folder>` become their own layer;
+ * everything else stays merged into a single layer, as it was before folder
+ * support. A real-world export is often a handful of foldered placemarks among
+ * hundreds of flat ones, and splitting those too would turn one cheap layer add
+ * into hundreds of store mutations and layer-panel rows.
+ */
+export function splitKmlFolderLayers(
+  collection: FeatureCollection,
+  path: string,
+): LoadedVectorLayer[] {
+  const hasFolderMetadata = collection.features.some((feature) =>
+    Array.isArray(feature.properties?.[KML_FOLDER_PATH_PROPERTY]),
+  );
+  if (!hasFolderMetadata) return [{ data: collection, path }];
+
+  const layers: LoadedVectorLayer[] = [];
+  // Placemarks outside any Folder, gathered into the one merged layer below.
+  const ungrouped: Feature[] = [];
+  collection.features.forEach((feature, index) => {
+    const properties = { ...(feature.properties ?? {}) };
+    const rawPath = properties[KML_FOLDER_PATH_PROPERTY];
+    delete properties[KML_FOLDER_PATH_PROPERTY];
+    const groupPath = Array.isArray(rawPath)
+      ? rawPath.filter((part): part is string => typeof part === "string" && part.trim() !== "")
+      : [];
+    const stripped: Feature = { ...feature, properties };
+    if (groupPath.length === 0) {
+      ungrouped.push(stripped);
+      return;
+    }
+    const name =
+      typeof properties.name === "string" && properties.name.trim() !== ""
+        ? properties.name
+        : `Placemark ${index + 1}`;
+    layers.push({
+      data: { type: "FeatureCollection", features: [stripped] },
+      name,
+      path,
+      groupPath,
+    });
+  });
+
+  // Store insertion is top-first, so feed placemarks in reverse document order
+  // to keep their visible layer/group order aligned with Google Earth. The
+  // merged ungrouped layer is added first so it settles below the folders.
+  layers.reverse();
+  if (ungrouped.length > 0) {
+    layers.unshift({ data: { type: "FeatureCollection", features: ungrouped }, path });
+  }
+  return layers;
 }
 
 function normalizeShapefileResult(value: unknown): FeatureCollection {
@@ -973,7 +1031,9 @@ async function loadShapefileZip(
   }
   if (shouldRouteToDuckDb(unzipped.file.data.byteLength)) {
     console.info(
-      `[GeoLibre] "${unzipped.file.name}" is ${Math.round(unzipped.file.data.byteLength / (1024 * 1024))} MB uncompressed; reading it with DuckDB instead of shpjs to keep the parse off the main thread.`,
+      `[GeoLibre] "${unzipped.file.name}" is ${Math.round(
+        unzipped.file.data.byteLength / (1024 * 1024),
+      )} MB uncompressed; reading it with DuckDB instead of shpjs to keep the parse off the main thread.`,
     );
     return loadDuckDbVector(unzipped.file, options);
   }
@@ -1476,9 +1536,9 @@ async function fetchDaeAsGlbDataUrl(href: string): Promise<{
     const daeBytes = new Blob([daeText]).size;
     if (daeBytes > MAX_DAE_SOURCE_BYTES) {
       console.warn(
-        `Skipping a KML model: "${href}" is ${Math.round(daeBytes / (1024 * 1024))} MB, over the ${Math.round(
-          MAX_DAE_SOURCE_BYTES / (1024 * 1024),
-        )} MB limit.`,
+        `Skipping a KML model: "${href}" is ${Math.round(
+          daeBytes / (1024 * 1024),
+        )} MB, over the ${Math.round(MAX_DAE_SOURCE_BYTES / (1024 * 1024))} MB limit.`,
       );
       return null;
     }
@@ -1677,7 +1737,9 @@ async function loadKmzLayers(
             entries,
             options,
           );
-          if (features.features.length > 0) layers.push({ data: features, path });
+          if (features.features.length > 0) {
+            layers.push(...splitKmlFolderLayers(features, path));
+          }
         } catch (error) {
           // Declining the oversized-vector prompt must not throw away the
           // pyramid, which is already registered and loads on its own.
@@ -1713,7 +1775,7 @@ async function loadKmzLayers(
   let cancellation: unknown;
   try {
     const features = await kmzVectorFeatures(kmlFiles, entries, options);
-    if (features.features.length > 0) layers.push({ data: features, path });
+    if (features.features.length > 0) layers.push(...splitKmlFolderLayers(features, path));
   } catch (error) {
     if (!isVectorLoadCancelled(error)) throw error;
     cancellation = error;
@@ -2027,7 +2089,9 @@ async function loadBrowserVectorFile(
   // route here would be misleading for a container near the threshold.
   if (streamViaDuckDb && ROUTABLE_TEXT_EXTENSIONS.has(extension)) {
     console.info(
-      `[GeoLibre] "${file.name}" is ${Math.round(file.size / (1024 * 1024))} MB; streaming it through DuckDB instead of the in-memory reader.`,
+      `[GeoLibre] "${file.name}" is ${Math.round(
+        file.size / (1024 * 1024),
+      )} MB; streaming it through DuckDB instead of the in-memory reader.`,
     );
   }
 
@@ -2322,7 +2386,9 @@ async function loadTauriVectorFile(
   // See `loadBrowserVectorFile`: containers decide their own routing later.
   if (streamViaDuckDb && ROUTABLE_TEXT_EXTENSIONS.has(extension)) {
     console.info(
-      `[GeoLibre] "${browserSafeFileName(path)}" is ${Math.round((sizeBytes ?? 0) / (1024 * 1024))} MB; streaming it through DuckDB instead of the in-memory reader.`,
+      `[GeoLibre] "${browserSafeFileName(path)}" is ${Math.round(
+        (sizeBytes ?? 0) / (1024 * 1024),
+      )} MB; streaming it through DuckDB instead of the in-memory reader.`,
     );
   }
 
@@ -2733,7 +2799,10 @@ export async function openLocalDataFilesWithFallback(
     });
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
     return Promise.all(
-      paths.map(async (path) => ({ data: toArrayBuffer(await readFile(path)), path })),
+      paths.map(async (path) => ({
+        data: toArrayBuffer(await readFile(path)),
+        path,
+      })),
     );
   }
 
@@ -2747,7 +2816,10 @@ export async function openLocalDataFilesWithFallback(
         const files = Array.from(input.files ?? []);
         resolve(
           await Promise.all(
-            files.map(async (file) => ({ data: await file.arrayBuffer(), path: file.name })),
+            files.map(async (file) => ({
+              data: await file.arrayBuffer(),
+              path: file.name,
+            })),
           ),
         );
       } catch (error) {
@@ -2931,13 +3003,18 @@ export class RecentProjectGoneError extends Error {
  */
 const startupSnapshotIo: StartupSnapshotIo = {
   write: async (file, content) => {
-    await mkdir(STARTUP_SNAPSHOT_DIR, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    await mkdir(STARTUP_SNAPSHOT_DIR, {
+      baseDir: BaseDirectory.AppLocalData,
+      recursive: true,
+    });
     await writeTextFile(`${STARTUP_SNAPSHOT_DIR}/${file}`, content, {
       baseDir: BaseDirectory.AppLocalData,
     });
   },
   read: (file) =>
-    readTextFile(`${STARTUP_SNAPSHOT_DIR}/${file}`, { baseDir: BaseDirectory.AppLocalData }),
+    readTextFile(`${STARTUP_SNAPSHOT_DIR}/${file}`, {
+      baseDir: BaseDirectory.AppLocalData,
+    }),
 };
 
 /**
@@ -3301,7 +3378,9 @@ export async function loadDroppedVectorFiles(
           // fallback for an overlay-only KML can return an empty collection, and
           // an empty vector layer alongside the overlay is just clutter.
           const vector = await loadBrowserVectorFile(file, [], options);
-          if (vector.data.features.length > 0) layers.push(vector);
+          if (vector.data.features.length > 0) {
+            layers.push(...splitKmlFolderLayers(vector.data, vector.path));
+          }
         } catch (error) {
           // Declining the oversized-vector prompt, or a genuine parse failure,
           // still leaves any ground overlays/models already added above (a real
@@ -3589,7 +3668,9 @@ export async function loadDroppedVectorPaths(
           // Only add a vector layer when it actually has features (an overlay-only
           // KML's DuckDB fallback can return an empty collection).
           const vector = await loadTauriVectorFile(path, options);
-          if (vector.data.features.length > 0) layers.push(vector);
+          if (vector.data.features.length > 0) {
+            layers.push(...splitKmlFolderLayers(vector.data, vector.path));
+          }
         } catch (error) {
           // Declining the oversized-vector prompt, or a genuine parse failure,
           // still leaves any ground overlays/models already added above (a real

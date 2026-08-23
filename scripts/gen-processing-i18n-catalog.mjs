@@ -1,19 +1,19 @@
 #!/usr/bin/env node
-// Regenerate the English baseline for GeoLibre's processing tool metadata in
+// Regenerate the English baseline for processing tool metadata in
 // apps/geolibre-desktop/src/i18n/locales/en.json.
 //
-// Usage: node scripts/gen-processing-i18n-catalog.mjs
-//        node scripts/gen-processing-i18n-catalog.mjs --check
+// Usage: node --import tsx scripts/gen-processing-i18n-catalog.mjs
+//        node --import tsx scripts/gen-processing-i18n-catalog.mjs --check
 //
 // Tool names, descriptions, group labels, parameter labels/help text and select
-// option labels live in `@geolibre/processing`, a package with no i18n access.
-// The Processing dialogs render them through `lib/processing-tool-i18n.ts`,
-// which resolves `processing.toolMeta.<catalog>.<toolId>.…` and falls back to
-// the registry's own string. This script writes those registry strings into
-// `en.json` so translators have a target: English is already correct without
-// them (that is what the fallback is for), but a key absent from `en.json`
-// cannot be added to any other locale — `tests/i18n-catalogs.test.ts` rejects a
-// locale key with no English counterpart.
+// option labels live in registries that have no i18n access. The Processing
+// dialogs render them through `lib/processing-tool-i18n.ts`, which resolves
+// `processing.toolMeta.<catalog>.<toolId>.…` and falls back to the registry's
+// own string. This script writes those registry strings into `en.json` so
+// translators have a target: English is already correct without them (that is
+// what the fallback is for), but a key absent from `en.json` cannot be added to
+// any other locale — `tests/i18n-catalogs.test.ts` rejects a locale key with no
+// English counterpart.
 //
 // So: after adding or renaming a tool, a parameter or a select option, re-run
 // this and commit the result, or the new strings stay untranslatable. Drift is
@@ -22,9 +22,10 @@
 // `--check` exits non-zero (without writing) when the catalog is out of date,
 // for use in CI.
 //
-// Existing translations are never touched: only the `processing.toolMeta` and
-// `processing.toolGroup` subtrees of en.json are rewritten, and the other
-// locales are left alone.
+// Existing translations are never touched: only the bundled registries under
+// `processing.toolMeta` and `processing.toolGroup` are rewritten. Whitebox
+// metadata is intentionally absent; it falls back to runtime English and can be
+// supplied through an optional external GeoLibre language pack.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -40,27 +41,17 @@ import { toolGroupKey } from "../apps/geolibre-desktop/src/lib/processing-tool-i
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const enPath = join(repoRoot, "apps/geolibre-desktop/src/i18n/locales/en.json");
-
-/**
- * Catalog name → tools, matching `ProcessingToolCatalog`. Tool ids are unique
- * within a registry but not across them (`reproject` is both a vector and a
- * raster tool), which is why the catalog name is part of every key.
- */
-const CATALOGS = {
-  vector: VECTOR_TOOLS,
-  network: NETWORK_TOOLS,
-  statistics: STATISTICS_TOOLS,
-  raster: RASTER_TOOLS,
-};
-
 /** Build the `processing.toolMeta` subtree from the registries. */
-function buildToolMeta() {
+function buildToolMeta(CATALOGS) {
   const meta = {};
   for (const [catalog, tools] of Object.entries(CATALOGS)) {
     const entries = {};
     for (const tool of tools) {
-      const entry = { name: tool.name };
-      if (tool.description) entry.description = tool.description;
+      const entry = {
+        name: tool.name,
+      };
+      const desc = tool.description;
+      if (desc) entry.description = desc;
       const params = {};
       for (const param of tool.parameters ?? []) {
         const paramEntry = { label: param.label };
@@ -85,13 +76,13 @@ function buildToolMeta() {
  * across catalogs ("Analysis" appears in more than one), so they collapse into
  * one namespace keyed by `toolGroupKey` and are translated once.
  */
-function buildToolGroups() {
+function buildToolGroups(CATALOGS) {
   // Null-prototype: `toolGroupKey` can produce an inherited member name — a
   // group labelled "Constructor" slugs to `constructor` — and on a plain object
   // the collision lookup below would read `Object.prototype.constructor` and
   // throw on the very first tool in that group.
   const groups = Object.create(null);
-  for (const tools of Object.values(CATALOGS)) {
+  for (const [catalog, tools] of Object.entries(CATALOGS)) {
     for (const tool of tools) {
       if (!tool.group) continue;
       const key = toolGroupKey(tool.group);
@@ -115,33 +106,63 @@ function buildToolGroups() {
   return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)));
 }
 
-const catalog = JSON.parse(readFileSync(enPath, "utf8"));
-const before = JSON.stringify(catalog);
-catalog.processing = {
-  ...catalog.processing,
-  toolMeta: buildToolMeta(),
-  toolGroup: buildToolGroups(),
-};
-// Two-space indent + trailing newline: what the other catalogs use, and what
-// the pre-commit JSON hooks expect.
-const next = `${JSON.stringify(catalog, null, 2)}\n`;
+async function main() {
+  /**
+   * Catalog name → tools, matching `ProcessingToolCatalog`. Tool ids are unique
+   * within a registry but not across them (`reproject` is both a vector and a
+   * raster tool), which is why the catalog name is part of every key.
+   */
+  const CATALOGS = {
+    vector: VECTOR_TOOLS,
+    network: NETWORK_TOOLS,
+    statistics: STATISTICS_TOOLS,
+    raster: RASTER_TOOLS,
+  };
 
-if (process.argv.includes("--check")) {
-  const current = readFileSync(enPath, "utf8");
-  if (current !== next) {
-    console.error(
-      "en.json's processing.toolMeta/toolGroup are out of date.\n" +
-        "Run: node scripts/gen-processing-i18n-catalog.mjs",
+  const catalog = JSON.parse(readFileSync(enPath, "utf8"));
+  const before = JSON.stringify(catalog);
+  const {
+    categories: _optionalCategories,
+    menuTool: _optionalMenuTools,
+    menuSubcategory: _optionalMenuSubcategories,
+    ...bundledWhiteboxMessages
+  } = catalog.processing.whitebox;
+  catalog.processing = {
+    ...catalog.processing,
+    toolMeta: buildToolMeta(CATALOGS),
+    toolGroup: buildToolGroups(CATALOGS),
+    whitebox: bundledWhiteboxMessages,
+  };
+  // Two-space indent + trailing newline: what the other catalogs use, and what
+  // the pre-commit JSON hooks expect.
+  const next = `${JSON.stringify(catalog, null, 2)}\n`;
+
+  if (process.argv.includes("--check")) {
+    const current = readFileSync(enPath, "utf8");
+    if (current !== next) {
+      console.error(
+        "en.json's processing tool metadata is out of date.\n" +
+          "Run: node --import tsx scripts/gen-processing-i18n-catalog.mjs",
+      );
+      process.exit(1);
+    }
+    console.log("en.json processing tool metadata is up to date.");
+  } else {
+    writeFileSync(enPath, next);
+    const changed = before !== JSON.stringify(catalog);
+    console.log(
+      changed
+        ? `Updated ${enPath} (${Object.keys(catalog.processing.toolMeta).length} catalogs).`
+        : `${enPath} already up to date.`,
     );
-    process.exit(1);
   }
-  console.log("en.json processing tool metadata is up to date.");
-} else {
-  writeFileSync(enPath, next);
-  const changed = before !== JSON.stringify(catalog);
-  console.log(
-    changed
-      ? `Updated ${enPath} (${Object.keys(catalog.processing.toolMeta).length} catalogs).`
-      : `${enPath} already up to date.`,
-  );
+}
+
+// Only generate when invoked directly, so tests can import the pure builders
+// without loading WASM manifests or touching en.json.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
 }
