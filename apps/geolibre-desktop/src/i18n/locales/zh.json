@@ -684,7 +684,7 @@
       "errorConnectFirst": "请先连接到 PostgreSQL。",
       "errorNoVectorLayers": "所选的 Martin 数据源没有矢量图层。",
       "errorSelectSource": "请选择要添加的 Martin 数据源。",
-      "desktopOnlyNotice": "PostgreSQL 图层仅在 GeoLibre 桌面版中可用。此功能需要运行本地 Martin 瓦片服务器，而网页应用无法启动它。",
+      "desktopOnlyNotice": "PostgreSQL 图层仅在 GeoLibre 桌面版中可用。此功能需要运行本地 Martin 瓦片服务器，而网页版和移动版应用无法启动它。",
       "savedConnection": "已保存的连接",
       "selectSavedConnection": "选择已保存的连接",
       "connectionString": "PostgreSQL 连接字符串",
@@ -6183,6 +6183,15 @@
     "addClass": "添加分类",
     "removeClass": "移除分类",
     "beforeIdSavedUnavailable": "已保存（不可用）",
+    "blendMode": "混合",
+    "blendModeFor": "{{name}} 的混合模式",
+    "blendModes": {
+      "normal": "正常",
+      "multiply": "正片叠底",
+      "screen": "滤色",
+      "lighten": "变亮",
+      "add": "线性减淡"
+    },
     "raster": {
       "greyscale": "灰度",
       "greyscaleHint": "切换灰度底图（将饱和度降至最低）",

@@ -56,6 +56,19 @@ export {
 } from "./derived-geometry";
 export { ResetBearingControl } from "./reset-bearing-control";
 export { MaptoolkitLogoControl } from "./maptoolkit-logo-control";
+export {
+  LAYER_OPACITY_FOR_BLEND,
+  blendModeForNativeLayer,
+  blendSpecFor,
+  installLayerBlendModes,
+  isBlending,
+  layerBlendModesSupported,
+  resetLayerBlendModes,
+  subscribeLayerBlendModeSupport,
+  syncLayerBlendModes,
+  type BlendConstants,
+  type BlendSpec,
+} from "./layer-blend-modes";
 export { isPlaceholderLayer, placeholderMessage } from "./placeholders";
 export {
   buildProtomapsBasemapStyle,

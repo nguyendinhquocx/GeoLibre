@@ -1,6 +1,10 @@
 import {
+  BLEND_MODES,
+  DEFAULT_BLEND_MODE,
   DEFAULT_LAYER_STYLE,
+  controlRendersLayer,
   isInitialLayerStyle,
+  type BlendMode,
   type DiagramField,
   type GeoLibreLayer,
   type DiagramSizeMode,
@@ -50,7 +54,11 @@ import {
   countAtlasDroppedDiagrams,
   getVectorLayerPropertyValues,
 } from "@geolibre/plugins";
-import { type MapController } from "@geolibre/map";
+import {
+  layerBlendModesSupported,
+  subscribeLayerBlendModeSupport,
+  type MapController,
+} from "@geolibre/map";
 import type { ParseKeys, TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { AttributeFormSection } from "./AttributeFormSection";
@@ -86,6 +94,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { loadedVectorTileFeatures } from "../../hooks/useVectorTileGeometryBackfill";
 import { clamp } from "../../lib/clamp";
@@ -1672,6 +1681,16 @@ export function StylePanel({
     [layer?.type, layer?.geojson],
   );
 
+  // Blend-mode support is decided when the map installs its render wrappers,
+  // which can happen after this panel first renders, so subscribe rather than
+  // read the module state once. Kept above the early returns below so the hook
+  // order stays stable.
+  const blendModesSupported = useSyncExternalStore(
+    subscribeLayerBlendModeSupport,
+    layerBlendModesSupported,
+    layerBlendModesSupported,
+  );
+
   const resizeHandle = (
     <div
       role="separator"
@@ -1755,6 +1774,7 @@ export function StylePanel({
   // for it (#1445). The plugin declares that with `paintMode: "plugin"`; the
   // panel then offers only what actually reaches the layer.
   const isPluginPaintedLayer = pluginOwnsPaint(layer);
+  const blendModeSelectId = `blend-mode-${layer.id}`;
   // Opacity survives the suppression when (and only when) the plugin bridged a
   // setter for it; otherwise the slider would be the same inert control.
   const hasBridgedOpacity = isPluginPaintedLayer && supportsBridgedOpacity(layer.id);
@@ -2175,6 +2195,33 @@ export function StylePanel({
       />
     </div>
   );
+  // How the layer composites onto the map beneath it (opengeos/GeoLibre#1981).
+  // Blending is applied while MapLibre draws the layer, so a layer painted by a
+  // plugin (`paintMode`) or rendered by a control (`customLayerType`: 3D Tiles,
+  // Gaussian splats, LiDAR, the COG raster engine, Add Vector Layer) can never
+  // honour it -- offering the menu there would only persist a mode nothing
+  // applies. `blendModesSupported` additionally drops it on a `maplibre-gl`
+  // build whose render seams moved; see `@geolibre/map`'s `layer-blend-modes`.
+  const blendModeControl =
+    !isPluginPaintedLayer && !controlRendersLayer(layer) && blendModesSupported ? (
+      <div className="space-y-2">
+        <Label htmlFor={blendModeSelectId}>{t("style.blendMode")}</Label>
+        <Select
+          id={blendModeSelectId}
+          aria-label={t("style.blendModeFor", { name: layer.name })}
+          value={styleValue(style, "blendMode") ?? DEFAULT_BLEND_MODE}
+          onChange={(event) =>
+            setLayerStyle(layer.id, { blendMode: event.target.value as BlendMode })
+          }
+        >
+          {BLEND_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {t(`style.blendModes.${mode}` as ParseKeys)}
+            </option>
+          ))}
+        </Select>
+      </div>
+    ) : null;
   const usesAttributeSymbology =
     draftVectorStyleMode === "graduated" || draftVectorStyleMode === "categorized";
   const vectorClassificationSchemeOptions =
@@ -4670,6 +4717,7 @@ export function StylePanel({
               step={0.05}
               onChange={(value) => setLayerOpacity(layer.id, value)}
             />
+            {blendModeControl}
             {!isDeckRasterLayer && (
               <>
                 <RasterStyleSlider
@@ -4811,6 +4859,7 @@ export function StylePanel({
         <ScrollArea className="flex-1">
           <div className="space-y-4 p-3 pe-5">
             {beforeIdControl}
+            {blendModeControl}
             {/* A NetCDF grid baked to pixels has no MapLibre paint properties,
                 so it lands in this branch; its colormap/limits are re-applied
                 by re-baking the image rather than by a style property. The
@@ -4877,6 +4926,7 @@ export function StylePanel({
               min/max zoom range, so hide the controls rather than show a
               silently-ignored setting. */}
           {!elevation3dActive && zoomRangeControls}
+          {blendModeControl}
           {hasExtrusionControls && (
             <div className="space-y-2">
               <Label>{t("style.visualization")}</Label>

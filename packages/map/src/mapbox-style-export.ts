@@ -27,6 +27,21 @@ const DEFAULT_GLYPHS_URL = "https://demotiles.maplibre.org/font/{fontstack}/{ran
 /** Font stack used for exported label layers (a widely available default). */
 const DEFAULT_TEXT_FONT = ["Open Sans Regular", "Arial Unicode MS Regular"];
 
+/**
+ * Strip the `*-layer-opacity` properties `fillPaint` / `linePaint` emit to
+ * elect MapLibre's blend-mode composite path (see `layer-blend-modes`).
+ *
+ * They are MapLibre 6 additions that Mapbox GL rejects outright, and an
+ * exported style is a portable fragment meant to drop into either renderer.
+ * Nothing is lost by dropping them: a blend mode is a GeoLibre render-loop
+ * concern with no style-spec representation, so it cannot travel in a style
+ * file at all.
+ */
+function withoutLayerOpacity<T extends Record<string, unknown>>(paint: T): T {
+  const { "fill-layer-opacity": _fill, "line-layer-opacity": _line, ...rest } = paint;
+  return rest as unknown as T;
+}
+
 const MIN_LAYER_ZOOM = DEFAULT_LAYER_STYLE.minZoom;
 const MAX_LAYER_ZOOM = DEFAULT_LAYER_STYLE.maxZoom;
 
@@ -323,7 +338,7 @@ export function buildMapboxStyle(
         source: sourceKey,
         ...zoom,
         filter: withRuleVisibility(POLYGON_FILTER),
-        paint: fillPaint(style, opacity),
+        paint: withoutLayerOpacity(fillPaint(style, opacity)),
         layout: { visibility },
       } as LayerSpecification);
     }
@@ -336,7 +351,7 @@ export function buildMapboxStyle(
       source: sourceKey,
       ...zoom,
       filter: withRuleVisibility(LINE_FILTER),
-      paint: linePaint(style, opacity),
+      paint: withoutLayerOpacity(linePaint(style, opacity)),
       layout: { visibility },
     } as LayerSpecification);
   }

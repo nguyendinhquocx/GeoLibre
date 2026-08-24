@@ -10,6 +10,75 @@ The **Layers panel** on the left lists every layer in the project, from the topm
 - **Order**: drag a layer to reorder it, or use the move up and move down actions. Layers higher in the list draw on top. The basemap (**Background**) always stays at the bottom.
 - **Opacity**: each layer has an opacity slider from 0 to 100 percent.
 
+## Blend modes
+
+The [Style panel](styling.md) carries a **Blend** menu, above the symbology
+controls, that sets how a layer's colours combine with the map below it.
+Opacity dilutes a layer; a blend mode mixes it, so the layers underneath still
+read through at full saturation.
+
+The classic use is shading: put a hillshade, a terrain raster, or a dark
+basemap under a thematic fill or an aerial image, set the top layer to
+**Multiply**, and the relief shows through the colour instead of being hidden by
+it. Lowering opacity instead would wash out both.
+
+| Mode | What it does | Typical use |
+| --- | --- | --- |
+| **Normal** | Ordinary transparency — the default | Everything else |
+| **Multiply** | Darkens: the two colours are multiplied | Colour or imagery over a hillshade; adding shadow |
+| **Screen** | Lightens: the inverse of Multiply | Lifting a dark layer out of a dark basemap |
+| **Lighten** | Keeps whichever colour is brighter | Overlaying bright features without darkening the map |
+| **Add** | Sums the colours, clipping toward white | Glow effects, heat and density overlays |
+
+Blending applies to a layer's fills, outlines, points, markers, and raster
+tiles. **Labels are deliberately excluded** and always draw normally, so place
+names stay legible over a multiplied hillshade.
+
+!!! warning "Overlapping points and 3D buildings blend twice"
+
+    Polygons, lines, and raster tiles blend as a whole layer: two overlapping
+    polygons in the same layer combine with the map beneath them, not with each
+    other. Points and 3D extrusions cannot, because MapLibre provides no
+    layer-level compositing step for them, so each symbol blends separately.
+    Where two point symbols overlap on screen the overlap is blended twice and
+    reads noticeably darker under Multiply than the rest of the symbol.
+
+    If that shows in your map, reduce the overlap (a smaller radius, clustering,
+    or a scale-dependent minimum zoom), or convert the points to polygons.
+
+A blend mode is saved with the project and travels with a copied style, but it
+is a GeoLibre rendering setting with no equivalent in the MapLibre or Mapbox
+style specification, so it is dropped when you export a layer's style to a style
+file, SLD, or QML.
+
+!!! note "Why these five modes"
+
+    MapLibre draws every layer into one WebGL canvas and offers no per-layer
+    blending API, so GeoLibre applies these modes inside the renderer using the
+    GPU's fixed-function blend stage. That stage can express these five and no
+    more. Photoshop-style modes such as Overlay, Colour Dodge, and Soft Light
+    need to read the colours already on the canvas from inside a shader, which
+    is not possible here without an extra full-frame copy on every draw. Darken
+    and Subtract are not offered either: their GPU equations also act on the
+    transparency channel, which would erase the map wherever the layer does not
+    cover it. See [maplibre-gl-js#8073](https://github.com/maplibre/maplibre-gl-js/pull/8073)
+    for the upstream work that would widen this list.
+
+Blending is applied while MapLibre draws a layer, so it reaches only the layers
+GeoLibre itself styles. The following are drawn or styled elsewhere, and so have
+no Blend menu:
+
+- **3D Tiles, Gaussian splats, LiDAR point clouds, and deck.gl overlays**, which
+  draw with their own WebGL renderer instead of MapLibre's.
+- **Cloud-Optimized GeoTIFFs** added through **Add Data > Raster Layer**, for
+  the same reason on their default rendering engine.
+- **Vector layers added through Add Data > Vector Layer**, which do draw through
+  MapLibre but are styled by their own control rather than by GeoLibre, so there
+  is no point at which the blend mode could be applied.
+
+Everything else blends: local and remote GeoJSON, ordinary raster layers (XYZ,
+WMS, WMTS), PMTiles, MBTiles, and vector tiles.
+
 ## Per-layer actions
 
 Each layer exposes a set of actions:

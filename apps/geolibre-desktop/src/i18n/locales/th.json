@@ -684,7 +684,7 @@
       "errorConnectFirst": "เชื่อมต่อ PostgreSQL ก่อน",
       "errorNoVectorLayers": "แหล่งข้อมูล Martin ที่เลือกไม่มีเลเยอร์เวกเตอร์",
       "errorSelectSource": "เลือกแหล่งข้อมูล Martin ที่ต้องการเพิ่ม",
-      "desktopOnlyNotice": "เลเยอร์ PostgreSQL ใช้ได้เฉพาะใน GeoLibre Desktop เท่านั้น เนื่องจากฟีเจอร์นี้เรียกใช้เซิร์ฟเวอร์ไทล์ Martin ในเครื่อง ซึ่งเว็บแอปไม่สามารถเปิดใช้ได้",
+      "desktopOnlyNotice": "เลเยอร์ PostgreSQL ใช้ได้เฉพาะใน GeoLibre Desktop เท่านั้น เนื่องจากฟีเจอร์นี้เรียกใช้เซิร์ฟเวอร์ไทล์ Martin ในเครื่อง ซึ่งเว็บแอปและแอปบนมือถือไม่สามารถเปิดใช้ได้",
       "savedConnection": "การเชื่อมต่อที่บันทึกไว้",
       "selectSavedConnection": "เลือกการเชื่อมต่อที่บันทึกไว้",
       "connectionString": "สตริงการเชื่อมต่อ PostgreSQL",
@@ -6183,6 +6183,15 @@
     "addClass": "เพิ่มชั้นข้อมูล",
     "removeClass": "นำชั้นข้อมูลออก",
     "beforeIdSavedUnavailable": "บันทึกไว้ (ไม่พร้อมใช้งาน)",
+    "blendMode": "การผสม",
+    "blendModeFor": "โหมดการผสมของ{{name}}",
+    "blendModes": {
+      "normal": "ปกติ",
+      "multiply": "คูณ",
+      "screen": "สกรีน",
+      "lighten": "ทำให้สว่าง",
+      "add": "บวก"
+    },
     "raster": {
       "greyscale": "โทนสีเทา",
       "greyscaleHint": "เปิด/ปิดแผนที่ฐานโทนสีเทา (ลดความอิ่มตัวของสีลงต่ำสุด)",

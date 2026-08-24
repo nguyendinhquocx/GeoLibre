@@ -774,3 +774,51 @@ conversions), the dialog falls back to it automatically when the sidecar or its
 extra is unavailable. See [Processing Tools](user-guide/processing.md) for what
 each engine does, and [AI Segmentation](user-guide/segmentation.md) for the
 separate `samgeo-api` model server.
+
+## Linux desktop troubleshooting
+
+### A blank window on a CPU without AVX
+
+On x86-64 CPUs with no AVX (Intel Celeron and Pentium N-series, Atom, and
+anything older than Sandy Bridge), WebKitGTK can kill its own renderer as soon
+as GeoLibre puts WebAssembly to work, leaving a window that never paints.
+The crash is a `SIGILL` in `WebKitWebProcess`: JavaScriptCore's WebAssembly
+tier-up runs a hand-written trampoline that spills the XMM registers with AVX
+instructions without checking whether the CPU has them
+([issue 2087](https://github.com/opengeos/GeoLibre/issues/2087)).
+
+The desktop app works around this on its own. On Linux it checks for AVX at
+startup, and on a CPU without it pins two JavaScriptCore options off before the
+web process starts:
+
+```bash
+JSC_useWasmOSR=false
+JSC_useBBQTierUpChecks=false
+```
+
+Both are needed; together they keep WebAssembly off the tier-up path that runs
+that trampoline. WebAssembly still runs and is still baseline compiled, so the
+cost is bounded: on WebKitGTK 2.52.6 a DuckDB-WASM query took about 2x longer,
+against 34x with the WebAssembly JIT disabled outright.
+
+The two options only work as a pair, so GeoLibre treats them as one decision.
+Turning either one back on is the opt-out and leaves both alone:
+
+```bash
+JSC_useWasmOSR=true geolibre
+```
+
+Setting one of them to `false` yourself is not an opt-out: GeoLibre keeps your
+value and still applies the other half, since half the workaround costs
+WebAssembly performance without keeping the renderer alive.
+
+Or, if a renderer crash persists, fall back to disabling the WebAssembly JIT
+entirely:
+
+```bash
+JSC_useBBQJIT=false geolibre
+```
+
+The check is a runtime CPU feature test, not a model or release-date list, so
+machines that do have AVX are untouched, as are arm64 machines, which never
+reach that code.

@@ -684,7 +684,7 @@
       "errorConnectFirst": "Trước tiên hãy kết nối với PostgreSQL.",
       "errorNoVectorLayers": "Nguồn Martin đã chọn không có lớp vectơ.",
       "errorSelectSource": "Đọc danh mục Martin...",
-      "desktopOnlyNotice": "Các lớp PostgreSQL chỉ có sẵn trong GeoLibre Desktop. Tính năng này chạy một máy chủ ô Martin cục bộ mà ứng dụng web không thể khởi chạy.",
+      "desktopOnlyNotice": "Các lớp PostgreSQL chỉ có sẵn trong GeoLibre Desktop. Tính năng này chạy một máy chủ ô Martin cục bộ mà ứng dụng web và di động không thể khởi chạy.",
       "savedConnection": "Kết nối đã lưu",
       "selectSavedConnection": "Chọn kết nối đã lưu",
       "connectionString": "Chuỗi kết nối PostgreSQL",
@@ -6280,6 +6280,15 @@
     "addClass": "Thêm lớp",
     "removeClass": "Xóa lớp",
     "beforeIdSavedUnavailable": "Đã lưu (không có sẵn)",
+    "blendMode": "Hòa trộn",
+    "blendModeFor": "Chế độ hòa trộn cho {{name}}",
+    "blendModes": {
+      "normal": "Bình thường",
+      "multiply": "Nhân",
+      "screen": "Màn hình",
+      "lighten": "Làm sáng",
+      "add": "Cộng"
+    },
     "joins": {
       "statsUnmatchedJoin_other": "{{count}} không đánh giá được các tính năng (ô rỗng)",
       "empty": "Đính kèm các cột từ một lớp hoặc bảng khác bằng cách khớp các trường khóa. Các cột đã tham gia cập nhật khi bảng tham gia thay đổi và tiếp tục tồn tại với dự án.",

@@ -13,6 +13,7 @@ import {
   type ManagedRasterBasemap,
 } from "maplibre-gl-basemap-control";
 import type { GeoLibreAppAPI, GeoLibreMapControlPosition, GeoLibrePlugin } from "../types";
+import { installBasemapThumbnails } from "./basemap-thumbnails";
 
 const basemapEnv = (
   import.meta as ImportMeta & {
@@ -135,6 +136,7 @@ export function setBasemapControlLabels(next: Partial<BasemapControlLabels>): vo
 }
 
 let basemapControl: BasemapControl | null = null;
+let thumbnails: ReturnType<typeof installBasemapThumbnails> | null = null;
 // GeoLibre layer ids of registered raster basemaps, keyed by basemap id. In
 // multiple mode several raster basemaps can be registered at once.
 const registeredRasterLayers = new Map<string, string>();
@@ -190,6 +192,8 @@ export const maplibreBasemapControlPlugin: GeoLibrePlugin = {
     // style basemap or a removal can unregister them (the module state does not
     // survive a new session).
     relinkRestoredRasterBasemaps();
+    thumbnails?.dispose();
+    thumbnails = installBasemapThumbnails(basemapControl);
     // Seed the fresh control instance with every basemap already on the map —
     // the active style basemap plus any stacked rasters we just relinked — so
     // the reopened panel highlights them as active and a re-click on a stacked
@@ -219,6 +223,8 @@ export const maplibreBasemapControlPlugin: GeoLibrePlugin = {
     // reactivation relinks them from the store via relinkRestoredRasterBasemaps
     // (the same path a reopened project takes). See #1113 follow-up.
     registeredRasterLayers.clear();
+    thumbnails?.dispose();
+    thumbnails = null;
     app.removeMapControl(basemapControl);
     basemapControl = null;
     // Drop any pending style-failure fallback so a later reactivation cannot
@@ -329,6 +335,7 @@ function handleBasemapChange(app: GeoLibreAppAPI, event: BasemapControlEventPayl
   // before touching the layer manager, so an unrecognized future source type
   // does not evict the raster overlays without replacing the style.
   if (source.type !== "style" && source.type !== "vector-style") return;
+  thumbnails?.pause();
   // Provider style basemaps (Amazon Location, MapTiler, Mapbox, ...) carry a
   // templated source.url with `{api-key}`/`{aws-region}` placeholders that the
   // control substitutes from the user's credentials. Apply the resolved URL the

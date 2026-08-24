@@ -103,6 +103,30 @@ describe("buildMapboxStyle base document", () => {
   });
 });
 
+describe("MapLibre-only paint properties", () => {
+  it("never exports the *-layer-opacity keys that elect the blend composite", () => {
+    // `fillPaint`/`linePaint` always emit these (they have to: `ensureLayer`
+    // only writes the keys it is handed, so clearing a blend mode has to write
+    // the 1 back). They are MapLibre 6 additions that Mapbox GL rejects
+    // outright, and an exported style is a portable fragment meant to drop into
+    // either renderer, so `withoutLayerOpacity` strips them on the way out.
+    // Without this assertion a new call site that forgot to route through it
+    // would leak them into every exported style with nothing to catch it.
+    for (const blendMode of ["normal", "multiply"] as const) {
+      const { style: doc } = buildMapboxStyle(layer({ style: style({ blendMode }) }), polygons());
+      for (const exported of doc.layers) {
+        const paint = (exported as { paint?: Record<string, unknown> }).paint ?? {};
+        for (const key of Object.keys(paint)) {
+          assert.ok(
+            !key.endsWith("-layer-opacity"),
+            `${exported.id} exported the MapLibre-only "${key}" (blendMode ${blendMode})`,
+          );
+        }
+      }
+    }
+  });
+});
+
 describe("data-driven renderers", () => {
   it("categorized maps to a match expression on circle-color", () => {
     const { style: doc } = buildMapboxStyle(

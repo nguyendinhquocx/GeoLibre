@@ -699,7 +699,7 @@
       "errorConnectFirst": "ჯერ დაუკავშირდით PostgreSQL-ს.",
       "errorNoVectorLayers": "არჩეულ Martin წყაროს ვექტორული შრეები არ აქვს.",
       "errorSelectSource": "აირჩიეთ დასამატებელი Martin წყარო.",
-      "desktopOnlyNotice": "PostgreSQL შრეები ხელმისაწვდომია მხოლოდ GeoLibre Desktop-ში. ეს ფუნქცია უშვებს ლოკალურ Martin ფილების სერვერს, რომლის გაშვებაც ვებ-აპლიკაციას არ შეუძლია.",
+      "desktopOnlyNotice": "PostgreSQL შრეები ხელმისაწვდომია მხოლოდ GeoLibre Desktop-ში. ეს ფუნქცია უშვებს ლოკალურ Martin ფილების სერვერს, რომლის გაშვებაც ვებ- და მობილურ აპლიკაციებს არ შეუძლიათ.",
       "savedConnection": "შენახული კავშირი",
       "selectSavedConnection": "აირჩიეთ შენახული კავშირი",
       "connectionString": "PostgreSQL-ის კავშირის სტრიქონი",
@@ -6257,6 +6257,15 @@
     "addClass": "კლასის დამატება",
     "removeClass": "კლასის მოშორება",
     "beforeIdSavedUnavailable": "შენახული (მიუწვდომელი)",
+    "blendMode": "შერევა",
+    "blendModeFor": "{{name}}-ის შერევის რეჟიმი",
+    "blendModes": {
+      "normal": "ჩვეულებრივი",
+      "multiply": "გამრავლება",
+      "screen": "ეკრანი",
+      "lighten": "გაღიავება",
+      "add": "მიმატება"
+    },
     "raster": {
       "greyscale": "ნაცრისფერი",
       "greyscaleHint": "ნაცრისფერი ბაზური რუკის გადართვა (გაჯერებას მინიმუმამდე ამცირებს)",

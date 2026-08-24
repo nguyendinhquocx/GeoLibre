@@ -14,6 +14,11 @@ import {
   stripAutoFidColumn,
   wkbRowsToFeatureCollection,
 } from "./duckdb-geometry";
+import {
+  GEOPARQUET_METADATA_COLUMN,
+  geoParquetMetadataSql,
+  geoParquetSourceCrs,
+} from "./geoparquet-crs";
 import { confirmLargeDataset, type DuckDbVectorLoadOptions } from "./duckdb-vector-guard";
 import { readDxfCodepage, recodeCadFeatureCollection } from "./cad-encoding";
 import { ensureGpkgFeatureCount } from "./gpkg-ogr-contents";
@@ -439,6 +444,33 @@ function crsSql(fileName: string, includeWkt: boolean): string {
 }
 
 /**
+ * The CRS a GeoParquet file declares in its `geo` file metadata, or null when it
+ * carries none, declares WGS84, or the metadata cannot be read.
+ *
+ * A failure is swallowed the way the `ST_Read_Meta` path below swallows one: the
+ * overwhelmingly common case is a plain Parquet with no `geo` key at all, and a
+ * file whose coordinates are already lon/lat must still load.
+ *
+ * `geometryColumn` is the column the loader detected, so a file carrying several
+ * geometry columns in different CRSs resolves the one actually being read rather
+ * than whichever the document calls primary.
+ */
+async function readGeoParquetCrs(
+  connection: duckdb.AsyncDuckDBConnection,
+  fileName: string,
+  geometryColumn?: string,
+): Promise<string | null> {
+  try {
+    const row = rowsFromResult(await connection.query(geoParquetMetadataSql(fileName)))[0];
+    const metadata = row?.[GEOPARQUET_METADATA_COLUMN];
+    return geoParquetSourceCrs(typeof metadata === "string" ? metadata : null, geometryColumn);
+  } catch (err) {
+    console.warn("[GeoLibre] Could not read GeoParquet CRS metadata; reprojection skipped.", err);
+    return null;
+  }
+}
+
+/**
  * Resolve the source CRS of a vector file as a string ST_Transform accepts —
  * `AUTHORITY:CODE` when GDAL identified one, otherwise the raw WKT definition,
  * else a shapefile's `.prj` sidecar text, or null when the file carries no
@@ -452,12 +484,14 @@ async function readSourceCrs(
   connection: duckdb.AsyncDuckDBConnection,
   file: DuckDbVectorFile,
   prjCrs: string | null,
+  geometryColumn?: string,
 ): Promise<string | null> {
-  // GeoParquet CRS is not read via ST_Read_Meta, so reprojection is skipped.
-  // A spec-valid GeoParquet file not stored in WGS84 will render with wrong
-  // coordinates; revisit if/when DuckDB exposes its CRS metadata here.
+  // GeoParquet is read with `read_parquet`, not GDAL, so `ST_Read_Meta` reports
+  // nothing about it. Its CRS is read from the file's own `geo` metadata
+  // instead, without which a file in a projected CRS loads in raw metres and
+  // draws nothing (issue #2086).
   if (isParquetExtension(file.extension)) {
-    return null;
+    return await readGeoParquetCrs(connection, file.name, geometryColumn);
   }
 
   let row: Record<string, unknown> | undefined;
@@ -677,7 +711,8 @@ export async function loadDuckDbVectorFile(
     // Resolved up front (ST_Read_Meta does not materialize geometry) so the
     // surface-WKB fallback below can reuse it.
     const sourceCrs =
-      options.overrideSourceCrs?.trim() || (await readSourceCrs(connection, file, prjCrs));
+      options.overrideSourceCrs?.trim() ||
+      (await readSourceCrs(connection, file, prjCrs, detected.column));
 
     // Tracks whether the large-dataset guard already confirmed, so the
     // surface-WKB fallback does not prompt a second time (or skip it entirely

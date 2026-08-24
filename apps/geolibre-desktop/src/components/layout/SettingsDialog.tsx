@@ -378,7 +378,7 @@ function cloneDesktopSettings(settings: DesktopSettings): DraftDesktopSettings {
       hiddenMenuItems: [...settings.uiProfile.hiddenMenuItems],
     },
     updates: { ...settings.updates },
-    startup: { ...settings.startup },
+    startup: { ...settings.startup, center: [...settings.startup.center] },
   };
 }
 
@@ -1115,6 +1115,23 @@ export function SettingsDialog({
     setError(null);
   };
 
+  // Ignore a cleared field (valueAsNumber is NaN) so it does not silently fall
+  // back to the hardcoded default on save; the last valid value is kept.
+  const updateStartupCenterValue = (index: 0 | 1, value: number) => {
+    if (!Number.isFinite(value)) return;
+    setDraftDesktopSettings((current) => {
+      const center: StartupSettings["center"] = [...current.startup.center];
+      center[index] = value;
+      return { ...current, startup: { ...current.startup, center } };
+    });
+    setError(null);
+  };
+
+  const updateStartupZoom = (value: number) => {
+    if (!Number.isFinite(value)) return;
+    updateDraftStartupSettings({ zoom: value });
+  };
+
   const chooseStartupProject = async () => {
     try {
       const result = await openProjectFile();
@@ -1128,6 +1145,18 @@ export function SettingsDialog({
       console.error("Could not select a startup project.", error);
       setError(t("settings.startup.selectError"));
     }
+  };
+
+  const applyCurrentStartupView = () => {
+    const view = mapControllerRef.current?.readView();
+    if (!view) {
+      setError(t("settings.startup.viewUnavailable"));
+      return;
+    }
+    updateDraftStartupSettings({
+      center: [roundCoordinate(view.center[0]), roundCoordinate(view.center[1])],
+      zoom: Number(view.zoom.toFixed(2)),
+    });
   };
 
   // Live updates from the Settings dropdown's Interface submenu (not the draft,
@@ -2972,6 +3001,71 @@ export function SettingsDialog({
                       </span>
                     </span>
                   </label>
+                  <div className="space-y-3 rounded-md border p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm">{t("settings.startup.defaultView")}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {t("settings.startup.defaultViewHint")}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={applyCurrentStartupView}
+                      >
+                        <Crosshair className="h-3.5 w-3.5" />
+                        {t("settings.startup.useCurrentView")}
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="settings-startup-longitude">
+                          {t("settings.startup.longitude")}
+                        </Label>
+                        <Input
+                          id="settings-startup-longitude"
+                          type="number"
+                          min={-180}
+                          max={180}
+                          step="0.000001"
+                          value={draftDesktopSettings.startup.center[0]}
+                          onChange={(event) =>
+                            updateStartupCenterValue(0, event.target.valueAsNumber)
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="settings-startup-latitude">
+                          {t("settings.startup.latitude")}
+                        </Label>
+                        <Input
+                          id="settings-startup-latitude"
+                          type="number"
+                          min={-90}
+                          max={90}
+                          step="0.000001"
+                          value={draftDesktopSettings.startup.center[1]}
+                          onChange={(event) =>
+                            updateStartupCenterValue(1, event.target.valueAsNumber)
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="settings-startup-zoom">{t("settings.startup.zoom")}</Label>
+                        <Input
+                          id="settings-startup-zoom"
+                          type="number"
+                          min={0}
+                          max={24}
+                          step={0.25}
+                          value={draftDesktopSettings.startup.zoom}
+                          onChange={(event) => updateStartupZoom(event.target.valueAsNumber)}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : null}
               {effectiveSection === "updates" ? (

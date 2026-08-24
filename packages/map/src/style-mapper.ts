@@ -15,6 +15,7 @@ import {
   type LayerStyle,
 } from "@geolibre/core";
 import type { ExpressionSpecification, PropertyValueSpecification } from "maplibre-gl";
+import { LAYER_OPACITY_FOR_BLEND, isBlending, layerBlendModesSupported } from "./layer-blend-modes";
 
 function styleValue<K extends keyof LayerStyle>(style: LayerStyle, key: K): LayerStyle[K] {
   return style[key] ?? DEFAULT_LAYER_STYLE[key];
@@ -34,6 +35,20 @@ function scaleByOpacity(
   ) as PropertyValueSpecification<number>;
 }
 
+/**
+ * The `*-layer-opacity` a fill or line layer renders with: just under 1 while
+ * the layer blends, so MapLibre flattens it into a scratch framebuffer and
+ * composites it in the single draw `layer-blend-modes` applies the mode to.
+ *
+ * Also gated on support, so a build where the render wrappers failed to install
+ * is fully inert rather than only visually inert: a project saved with a blend
+ * mode would otherwise still pay for a render-to-texture pass per blended
+ * layer, compositing a mode that nothing is left to apply.
+ */
+function layerOpacityForBlend(style: LayerStyle): number {
+  return isBlending(style.blendMode) && layerBlendModesSupported() ? LAYER_OPACITY_FOR_BLEND : 1;
+}
+
 export function fillPaint(style: LayerStyle, opacity: number) {
   return {
     "fill-color": vectorFillColorValue(style) as PropertyValueSpecification<string>,
@@ -48,6 +63,11 @@ export function fillPaint(style: LayerStyle, opacity: number) {
     // expression mode it also applies the user's expression to the hairline
     // outline (matching the separate line layer that draws the polygon stroke).
     "fill-outline-color": vectorLineColorValue(style) as PropertyValueSpecification<string>,
+    // Elects MapLibre's render-to-texture composite so the layer blends as one
+    // surface instead of once per overlapping polygon. Always emitted (rather
+    // than only while blending) because `ensureLayer` only writes the paint
+    // keys it is handed, so clearing a blend mode has to restore the 1.
+    "fill-layer-opacity": layerOpacityForBlend(style),
   };
 }
 
@@ -76,6 +96,8 @@ export function linePaint(style: LayerStyle, opacity: number) {
     "line-color": vectorLineColorValue(style) as PropertyValueSpecification<string>,
     "line-width": lineWidthValue(style) as unknown as PropertyValueSpecification<number>,
     "line-opacity": scaleByOpacity(simpleStyleNumberValue(style, "stroke-opacity", 1), opacity),
+    // See the note on `fill-layer-opacity` in fillPaint.
+    "line-layer-opacity": layerOpacityForBlend(style),
   };
 }
 

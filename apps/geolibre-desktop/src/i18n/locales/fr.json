@@ -699,7 +699,7 @@
       "errorConnectFirst": "Connectez-vous d'abord à PostgreSQL.",
       "errorNoVectorLayers": "La source Martin sélectionnée n'a pas de couches vectorielles.",
       "errorSelectSource": "Sélectionnez une source Martin à ajouter.",
-      "desktopOnlyNotice": "Les couches PostgreSQL ne sont disponibles que dans GeoLibre Desktop. Cette fonctionnalité exécute un serveur de tuiles Martin local, que l'application web ne peut pas lancer.",
+      "desktopOnlyNotice": "Les couches PostgreSQL ne sont disponibles que dans GeoLibre Desktop. Cette fonctionnalité exécute un serveur de tuiles Martin local, que les applications web et mobiles ne peuvent pas lancer.",
       "savedConnection": "Connexion enregistrée",
       "selectSavedConnection": "Sélectionner une connexion enregistrée",
       "connectionString": "Chaîne de connexion PostgreSQL",
@@ -6257,6 +6257,15 @@
     "addClass": "Ajouter une classe",
     "removeClass": "Supprimer la classe",
     "beforeIdSavedUnavailable": "Enregistré (indisponible)",
+    "blendMode": "Fusion",
+    "blendModeFor": "Mode de fusion de {{name}}",
+    "blendModes": {
+      "normal": "Normal",
+      "multiply": "Produit",
+      "screen": "Superposition",
+      "lighten": "Éclaircir",
+      "add": "Addition"
+    },
     "raster": {
       "greyscale": "Niveaux de gris",
       "greyscaleHint": "Basculer un fond de carte en niveaux de gris (réduit la saturation au minimum)",

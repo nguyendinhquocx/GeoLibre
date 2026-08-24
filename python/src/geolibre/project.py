@@ -338,6 +338,10 @@ DEFAULT_LAYER_STYLE: dict[str, Any] = {
     "rasterSaturation": 0,
     "rasterContrast": 0,
     "rasterHueRotate": 0,
+    # How the layer composites onto the map beneath it. "normal" is ordinary
+    # alpha compositing; see BLEND_MODES in packages/core/src/types.ts for the
+    # full set the app accepts.
+    "blendMode": "normal",
 }
 
 # Mirror of DEFAULT_PROJECT_PREFERENCES in packages/core/src/types.ts.

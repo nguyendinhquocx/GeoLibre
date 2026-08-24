@@ -699,7 +699,7 @@
       "errorConnectFirst": "Stellen Sie zuerst eine Verbindung zu PostgreSQL her.",
       "errorNoVectorLayers": "Die ausgewählte Martin-Quelle hat keine Vektorebenen.",
       "errorSelectSource": "Wählen Sie eine Martin-Quelle zum Hinzufügen aus.",
-      "desktopOnlyNotice": "PostgreSQL-Ebenen sind nur in GeoLibre Desktop verfügbar. Diese Funktion startet einen lokalen Martin-Kachelserver, den die Web-App nicht starten kann.",
+      "desktopOnlyNotice": "PostgreSQL-Ebenen sind nur in GeoLibre Desktop verfügbar. Diese Funktion startet einen lokalen Martin-Kachelserver, den die Web- und Mobil-Apps nicht starten können.",
       "savedConnection": "Gespeicherte Verbindung",
       "selectSavedConnection": "Gespeicherte Verbindung auswählen",
       "connectionString": "PostgreSQL-Verbindungszeichenfolge",
@@ -6257,6 +6257,15 @@
     "addClass": "Klasse hinzufügen",
     "removeClass": "Klasse entfernen",
     "beforeIdSavedUnavailable": "Gespeichert (nicht verfügbar)",
+    "blendMode": "Mischen",
+    "blendModeFor": "Mischmodus für {{name}}",
+    "blendModes": {
+      "normal": "Normal",
+      "multiply": "Multiplizieren",
+      "screen": "Negativ multiplizieren",
+      "lighten": "Aufhellen",
+      "add": "Addieren"
+    },
     "raster": {
       "greyscale": "Graustufen",
       "greyscaleHint": "Graustufen-Basiskarte umschalten (setzt die Sättigung auf ihr Minimum)",

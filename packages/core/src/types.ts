@@ -366,6 +366,47 @@ export type LabelTransform = "none" | "uppercase" | "lowercase";
 /** Duplicate-label handling offered for {@link LabelStyle.dedupe}. */
 export type LabelDedupe = "off" | "unique" | "concatenate";
 
+/**
+ * Cartographic blend modes offered for {@link LayerStyle.blendMode}.
+ *
+ * The list is bounded by what WebGL *fixed-function* blending can express --
+ * one `blendFunc` factor pair plus one `blendEquation` -- because that is the
+ * only blend state MapLibre's renderer exposes, and it applies to colour and
+ * alpha together. Two consequences shaped this list:
+ *
+ * - Modes needing the destination colour inside a fragment shader (`overlay`,
+ *   `color-dodge`, `soft-light`, `difference`, and the non-separable HSL modes)
+ *   are absent. MapLibre draws straight into the map framebuffer, which a
+ *   shader cannot sample, so computing them would need an extra copy pass.
+ * - `darken` and `subtract` are absent even though `MIN` and
+ *   `FUNC_REVERSE_SUBTRACT` look like they would serve. Both also apply to the
+ *   alpha channel, where they drive the map canvas transparent: `MIN` takes the
+ *   whole canvas to `min(0, dst) = 0` everywhere the layer does not cover, and
+ *   `FUNC_REVERSE_SUBTRACT` leaves `dstA - srcA` inside it. Correcting either
+ *   needs `blendEquationSeparate` / `blendFuncSeparate`, which MapLibre's state
+ *   tracker does not offer.
+ *
+ * Every mode here leaves the canvas opaque and leaves the map untouched
+ * wherever the layer contributes nothing. See `docs/user-guide/layers.md`.
+ */
+export const BLEND_MODES = ["normal", "multiply", "screen", "lighten", "add"] as const;
+
+/**
+ * How a layer's pixels combine with the map beneath it. `"normal"` is ordinary
+ * alpha compositing (the default, and what every layer did before blend modes
+ * existed). See {@link BLEND_MODES}.
+ */
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+/**
+ * The mode a layer renders with unless it says otherwise. Declared separately
+ * from {@link DEFAULT_LAYER_STYLE} so consumers get a non-optional
+ * {@link BlendMode} to fall back to: `blendMode` is optional on
+ * {@link LayerStyle}, so `DEFAULT_LAYER_STYLE.blendMode` is typed
+ * `BlendMode | undefined` however it is initialized.
+ */
+export const DEFAULT_BLEND_MODE: BlendMode = "normal";
+
 export interface LayerStyle {
   minZoom: number;
   maxZoom: number;
@@ -569,6 +610,15 @@ export interface LayerStyle {
   rasterSaturation: number;
   rasterContrast: number;
   rasterHueRotate: number;
+  /**
+   * How this layer composites onto whatever is drawn beneath it. `"normal"`
+   * (the default) is ordinary alpha compositing; `"multiply"` is the classic
+   * cartographic case of laying colour over a hillshade so the relief still
+   * reads through. Applies to the layer's own rendered geometry and raster
+   * tiles, not to its labels, which stay legible on top. See
+   * {@link BLEND_MODES} for the available modes and why the list is what it is.
+   */
+  blendMode?: BlendMode;
 }
 
 export const DEFAULT_LAYER_STYLE: LayerStyle = {
@@ -682,6 +732,7 @@ export const DEFAULT_LAYER_STYLE: LayerStyle = {
   rasterSaturation: 0,
   rasterContrast: 0,
   rasterHueRotate: 0,
+  blendMode: DEFAULT_BLEND_MODE,
 };
 
 /**

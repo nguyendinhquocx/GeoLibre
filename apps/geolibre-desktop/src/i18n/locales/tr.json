@@ -699,7 +699,7 @@
       "errorConnectFirst": "Önce PostgreSQL'e bağlanın.",
       "errorNoVectorLayers": "Seçilen Martin kaynağının vektör katmanı yok.",
       "errorSelectSource": "Eklenecek bir Martin kaynağı seçin.",
-      "desktopOnlyNotice": "PostgreSQL katmanları yalnızca GeoLibre Masaüstü'nde kullanılabilir. Bu özellik, web uygulamasının başlatamadığı yerel bir Martin döşeme sunucusu çalıştırır.",
+      "desktopOnlyNotice": "PostgreSQL katmanları yalnızca GeoLibre Masaüstü'nde kullanılabilir. Bu özellik, web ve mobil uygulamaların başlatamadığı yerel bir Martin döşeme sunucusu çalıştırır.",
       "savedConnection": "Kayıtlı bağlantı",
       "selectSavedConnection": "Kayıtlı bağlantı seç",
       "connectionString": "PostgreSQL bağlantı dizesi",
@@ -6257,6 +6257,15 @@
     "addClass": "Sınıf ekle",
     "removeClass": "Sınıfı kaldır",
     "beforeIdSavedUnavailable": "Kaydedildi (kullanılamıyor)",
+    "blendMode": "Karışım",
+    "blendModeFor": "{{name}} için karışım modu",
+    "blendModes": {
+      "normal": "Normal",
+      "multiply": "Çarpma",
+      "screen": "Ekran",
+      "lighten": "Açıklaştır",
+      "add": "Toplama"
+    },
     "raster": {
       "greyscale": "Gri tonlama",
       "greyscaleHint": "Bir gri tonlamalı temel haritayı aç/kapat (doygunluğu minimuma indirir)",
