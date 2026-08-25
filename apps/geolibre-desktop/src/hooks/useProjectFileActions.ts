@@ -47,6 +47,8 @@ import { shareAuthorizedFetch } from "../lib/share-gallery";
 import { normalizeProjectUrl } from "../lib/urls";
 import { recordExplicitProjectSave } from "../lib/project-history-session";
 import {
+  canSaveVectorFileReferences,
+  durableVectorDataChoice,
   rememberProjectSaveChoices,
   reusableCredentialChoice,
   reusableVectorDataChoice,
@@ -62,6 +64,7 @@ import {
 } from "../lib/qgis-project-import";
 import { importArcgisProject, type ArcgisProjectImportWarning } from "../lib/arcgis-project-import";
 import type { MapControllerRef } from "../components/layout/toolbar/constants";
+import { IS_MAS_BUILD } from "../lib/build-flags";
 
 /** A pending "strip credentials before saving?" prompt. */
 export interface CredentialStripPrompt {
@@ -110,11 +113,13 @@ export interface EmbedVectorDataPrompt {
   /** Total embedded size in bytes, for the size warning. */
   bytes: number;
   /**
-   * Desktop hosts can save the layers as file references (reloaded from disk on
-   * reopen) instead of embedding, so the "don't embed" choice is labelled and
-   * described differently than on the web (where it discards the data).
+   * Non-sandboxed desktop hosts can save layers as file references (reloaded
+   * from disk on reopen) instead of embedding. Mac App Store builds are desktop
+   * hosts too, but must embed because their file access expires after relaunch.
    */
   desktop: boolean;
+  /** Whether the host can persist a path-only project that survives relaunch. */
+  allowFileReferences: boolean;
   /** Project generation that opened the prompt. */
   projectGeneration: number;
   resolve: (choice: "embed" | "noembed" | "cancel") => void;
@@ -839,6 +844,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
         count,
         bytes,
         desktop,
+        allowFileReferences: canSaveVectorFileReferences(desktop, IS_MAS_BUILD),
         projectGeneration: promptProjectGeneration,
         resolve,
       });
@@ -905,8 +911,11 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   // be embedded (no filesystem path), so the prompt offers Embed or Save
   // without data. On desktop they can also be saved as file references that
   // reload from disk on reopen, so the prompt offers Embed or Save file
-  // references. Returns the layers override to serialize, an empty result to use
-  // the live layers as-is, or "cancel" to abort the save.
+  // references. The Mac App Store build is the exception: its sandbox drops
+  // access to user-selected files once the process exits, so references cannot
+  // reload and Embed is the only durable mode (see the guard below). Returns
+  // the layers override to serialize, an empty result to use the live layers
+  // as-is, or "cancel" to abort the save.
   const resolveLayersForSave = async (): Promise<{ layers?: GeoLibreLayer[] } | "cancel"> => {
     const state = useAppStore.getState();
     const embeddable = await materializeEmbeddableVectorLayers(state.layers);
@@ -926,14 +935,29 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     // per-project choice is remembered. On desktop that second case cannot
     // arise: "without data" writes file references, so nothing is discarded.
     const discardedLayerIds = isTauri() ? [] : [...embeddable.keys()];
-    const rememberedVectorChoice = reusableVectorDataChoice(remembered, {
+    const reusableChoice = reusableVectorDataChoice(remembered, {
       embedBytes: bytes,
       warningBytes: LARGE_EMBED_WARNING_BYTES,
       discardedLayerIds,
     });
-    const choice =
+    // A remembered choice the durability guard below would have to override is
+    // not reusable: silently upgrading it to Embed would skip the prompt, and
+    // with it both the large-data warning and the acknowledged-size bookkeeping
+    // that a silent reuse deliberately leaves alone.
+    const rememberedVectorChoice =
+      reusableChoice !== undefined &&
+      durableVectorDataChoice(reusableChoice, IS_MAS_BUILD) !== reusableChoice
+        ? undefined
+        : reusableChoice;
+    const requestedChoice =
       rememberedVectorChoice ??
       (await askEmbedVectorData(count, bytes, isTauri(), state.projectGeneration));
+    // A Mac App Store app receives temporary access to user-selected files.
+    // That access expires when the sandboxed process exits, so a path-only
+    // project cannot restore its local vectors after the next launch. Embed is
+    // the only durable save mode there. Keep this guard behind the dialog as
+    // well, so an old remembered "reference" choice cannot bypass it.
+    const choice = durableVectorDataChoice(requestedChoice, IS_MAS_BUILD);
     if (choice === "cancel") return "cancel";
     // A project can be opened while a prompt is visible. Do not apply that
     // prompt's answer to the replacement project or continue saving stale data.

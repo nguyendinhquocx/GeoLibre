@@ -250,9 +250,11 @@ export function ProjectFileDialogs({ projectFiles }: ProjectFileDialogsProps) {
             <DialogTitle>{t("toolbar.item.embedVectorTitle")}</DialogTitle>
             <DialogDescription>
               {t(
-                projectFiles.embedVectorDataPrompt?.desktop
+                projectFiles.embedVectorDataPrompt?.allowFileReferences
                   ? "toolbar.item.embedVectorDescDesktop"
-                  : "toolbar.item.embedVectorDesc",
+                  : projectFiles.embedVectorDataPrompt?.desktop
+                    ? "toolbar.item.embedVectorDescMas"
+                    : "toolbar.item.embedVectorDesc",
                 {
                   count: projectFiles.embedVectorDataPrompt?.count ?? 0,
                   size: formatByteSize(projectFiles.embedVectorDataPrompt?.bytes ?? 0),
@@ -277,16 +279,19 @@ export function ProjectFileDialogs({ projectFiles }: ProjectFileDialogsProps) {
             >
               {t("common.cancel")}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => projectFiles.resolveEmbedVectorDataPrompt("noembed")}
-            >
-              {t(
-                projectFiles.embedVectorDataPrompt?.desktop
-                  ? "toolbar.item.embedVectorReferenceButton"
-                  : "toolbar.item.embedVectorSkipButton",
-              )}
-            </Button>
+            {projectFiles.embedVectorDataPrompt?.allowFileReferences ||
+            !projectFiles.embedVectorDataPrompt?.desktop ? (
+              <Button
+                variant="outline"
+                onClick={() => projectFiles.resolveEmbedVectorDataPrompt("noembed")}
+              >
+                {t(
+                  projectFiles.embedVectorDataPrompt?.desktop
+                    ? "toolbar.item.embedVectorReferenceButton"
+                    : "toolbar.item.embedVectorSkipButton",
+                )}
+              </Button>
+            ) : null}
             <Button onClick={() => projectFiles.resolveEmbedVectorDataPrompt("embed")}>
               {t("toolbar.item.embedVectorEmbedButton")}
             </Button>

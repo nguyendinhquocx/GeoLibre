@@ -494,6 +494,304 @@ def test_add_raster_url_not_served(monkeypatch, m):
     assert _last_layer(m)["source"]["url"] == "https://e/dem.tif"
 
 
+def _fake_xarray_modules(monkeypatch):
+    """Install tiny xarray/rioxarray stand-ins for conversion unit tests."""
+
+    class Rio:
+        def __init__(self, owner):
+            self.owner = owner
+            self.crs = owner.crs
+
+        def set_spatial_dims(self, *, x_dim, y_dim, inplace):
+            assert not inplace
+            self.owner.spatial_dims = (x_dim, y_dim)
+            return self.owner
+
+        def write_crs(self, crs, *, inplace):
+            assert not inplace
+            self.owner.crs = crs
+            self.crs = crs
+            return self.owner
+
+        def write_nodata(self, nodata, *, inplace):
+            assert not inplace
+            self.owner.nodata = nodata
+            return self.owner
+
+        def to_raster(self, path, **options):
+            self.owner.raster_options = options
+            path.write_bytes(b"fake geotiff")
+
+    class DataArray:
+        def __init__(self, dims=("lat", "lon"), crs=None):
+            self.dims = dims
+            self.crs = crs
+            self.rio = Rio(self)
+
+        def isel(self, indexers):
+            self.indexers = indexers
+            return self
+
+    class Dataset(DataArray):
+        def __init__(self, variables):
+            super().__init__()
+            self.data_vars = variables
+
+        def __getitem__(self, key):
+            return self.data_vars[key]
+
+        def __setitem__(self, key, value):
+            self.data_vars[key] = value
+
+        def copy(self):
+            """Model xarray's shallow copy: a new Dataset over the same variables."""
+            duplicate = Dataset(dict(self.data_vars))
+            duplicate.dims = self.dims
+            duplicate.crs = self.crs
+            duplicate.rio.crs = self.crs
+            return duplicate
+
+    monkeypatch.setitem(
+        sys.modules, "xarray", types.SimpleNamespace(DataArray=DataArray, Dataset=Dataset)
+    )
+    monkeypatch.setitem(sys.modules, "rioxarray", types.SimpleNamespace())
+    return DataArray, Dataset
+
+
+def test_add_raster_xarray_dataarray_materializes_geotiff(monkeypatch, m):
+    DataArray, _ = _fake_xarray_modules(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        gmod,
+        "register_local_file",
+        lambda path: captured.update(path=path) or "http://127.0.0.1/xarray.tif",
+    )
+
+    array = DataArray()
+    m.add_raster(array, colormap="viridis", array_args={"nodata": -9999, "compress": "LZW"})
+
+    assert array.spatial_dims == ("lon", "lat")
+    assert array.crs == "EPSG:4326"
+    assert array.nodata == -9999
+    assert array.raster_options == {"driver": "COG", "compress": "LZW"}
+    assert captured["path"].read_bytes() == b"fake geotiff"
+    assert _last_layer(m)["source"]["url"] == "http://127.0.0.1/xarray.tif"
+    m.close()
+    assert not captured["path"].exists()
+
+
+def test_add_raster_xarray_dataset_selects_variable(monkeypatch, m):
+    DataArray, Dataset = _fake_xarray_modules(monkeypatch)
+    selected = DataArray(dims=("time", "y", "x"), crs="EPSG:3857")
+    dataset = Dataset({"temperature": selected})
+    monkeypatch.setattr(gmod, "register_local_file", lambda _path: "http://local/x.tif")
+
+    m.add_raster(
+        dataset,
+        array_args={"variable": "temperature", "isel": {"time": 0}},
+    )
+
+    assert selected.indexers == {"time": 0}
+    assert selected.spatial_dims == ("x", "y")
+    m.close()
+
+
+def test_add_raster_xarray_dataset_applies_nodata_to_each_variable(monkeypatch, m):
+    DataArray, Dataset = _fake_xarray_modules(monkeypatch)
+    red = DataArray()
+    green = DataArray()
+    dataset = Dataset({"red": red, "green": green})
+    monkeypatch.setattr(gmod, "register_local_file", lambda _path: "http://local/rgb.tif")
+
+    m.add_raster(dataset, array_args={"nodata": 255})
+
+    assert red.nodata == 255
+    assert green.nodata == 255
+    # The GeoTIFF must be written from the copy, not from the caller's Dataset.
+    assert not hasattr(dataset, "raster_options")
+    m.close()
+
+
+def test_add_raster_xarray_requires_recognizable_spatial_dims(monkeypatch, m):
+    DataArray, _ = _fake_xarray_modules(monkeypatch)
+    with pytest.raises(ValueError, match="Could not identify x/y dimensions"):
+        m.add_raster(DataArray(dims=("row", "column")))
+
+
+def test_add_raster_xarray_temp_file_removed_without_close(monkeypatch):
+    """The finalizer must clean up when the user never calls Map.close()."""
+    monkeypatch.setattr(gmod, "serve_app", lambda *_a, **_k: "http://127.0.0.1:0/")
+    monkeypatch.setattr(gmod, "app_port", lambda: 0)
+    DataArray, _ = _fake_xarray_modules(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        gmod,
+        "register_local_file",
+        lambda path: captured.update(path=path) or "http://local/x.tif",
+    )
+
+    unregistered = []
+    monkeypatch.setattr(gmod, "unregister_local_file", unregistered.append)
+
+    widget = Map()
+    widget.add_raster(DataArray())
+    assert captured["path"].exists()
+
+    assert widget._raster_cleanup.alive
+    widget._raster_cleanup()  # what weakref runs at interpreter exit
+    assert not captured["path"].exists()
+    assert widget._temporary_rasters == []
+    # The static server's token goes with the file, so a looping session does
+    # not leave a registry entry per materialization behind.
+    assert unregistered == [captured["path"]]
+
+
+def test_add_raster_xarray_round_trip_with_real_rioxarray(monkeypatch, m):
+    """Pin real rioxarray behavior the fake modules above cannot model.
+
+    The Dataset nodata path copies the Dataset and reassigns every variable,
+    which drops rio's cached spatial dims (hence the explicit re-set) but not
+    the CRS, which lives in each variable's ``spatial_ref``. Assert the written
+    COG really keeps both, so a rioxarray change is caught here rather than by
+    a user staring at an unplaced raster.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    rasterio = pytest.importorskip("rasterio")
+    np = pytest.importorskip("numpy")
+
+    dataset = xr.Dataset(
+        {
+            "red": (("lat", "lon"), np.zeros((4, 5), dtype="float32")),
+            "green": (("lat", "lon"), np.ones((4, 5), dtype="float32")),
+        },
+        coords={"lat": np.linspace(40, 30, 4), "lon": np.linspace(-100, -90, 5)},
+    )
+    captured = {}
+    monkeypatch.setattr(
+        gmod,
+        "register_local_file",
+        lambda path: captured.update(path=path) or "http://local/ds.tif",
+    )
+
+    m.add_raster(dataset, array_args={"nodata": 255})
+
+    with rasterio.open(captured["path"]) as src:
+        assert src.crs.to_string() == "EPSG:4326"  # inferred from lon/lat
+        assert src.count == 2
+        assert src.nodata == 255
+        assert src.driver == "GTiff"  # what rasterio reports for a COG
+    m.close()
+    assert not captured["path"].exists()
+
+
+def test_add_raster_xarray_uses_xyz_tiles_on_colab(monkeypatch, m):
+    DataArray, _ = _fake_xarray_modules(monkeypatch)
+    monkeypatch.setattr(Map, "_running_on_colab", staticmethod(lambda: True))
+    captured = {}
+    monkeypatch.setattr(
+        gmod,
+        "register_raster_tiles",
+        lambda path, **options: (
+            captured.update(path=path, options=options)
+            or "http://127.0.0.1:1234/_geolibre_tiles/token/{z}/{x}/{y}.png"
+        ),
+    )
+
+    m.add_raster(
+        DataArray(),
+        name="Temperature",
+        bands=[1],
+        colormap="turbo",
+        rescale=[[-5, 35]],
+    )
+
+    layer = _last_layer(m)
+    assert layer["type"] == "xyz"
+    assert layer["name"] == "Temperature"
+    assert "_geolibre_tiles/token/{z}/{x}/{y}.png" in layer["source"]["tiles"][0]
+    assert captured["options"] == {
+        "bands": [1],
+        "colormap": "turbo",
+        "rescale": [[-5, 35]],
+    }
+
+
+def test_add_cog_on_colab_computes_bounds_from_the_local_raster(monkeypatch, m, tmp_path):
+    """The Colab tile branch reads the raster's own extent, reprojected to WGS84."""
+    rasterio = pytest.importorskip("rasterio")
+    np = pytest.importorskip("numpy")
+    from rasterio.transform import from_bounds
+
+    raster = tmp_path / "dem.tif"
+    with rasterio.open(
+        raster,
+        "w",
+        driver="GTiff",
+        width=4,
+        height=4,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_bounds(-120, 30, -100, 45, 4, 4),
+    ) as dst:
+        dst.write(np.zeros((1, 4, 4), dtype="float32"))
+
+    monkeypatch.setattr(Map, "_running_on_colab", staticmethod(lambda: True))
+    monkeypatch.setattr(
+        gmod,
+        "register_raster_tiles",
+        lambda path, **_options: "http://127.0.0.1:1234/_geolibre_tiles/t/{z}/{x}/{y}.png",
+    )
+    # "~" is what GDAL will not expand on its own, so hand add_cog that form.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    m.add_cog("~/dem.tif", name="DEM")
+
+    bounds = _last_layer(m)["source"]["bounds"]
+    assert bounds == pytest.approx([-120, 30, -100, 45], abs=1e-6)
+
+
+def test_add_cog_on_colab_tolerates_an_unreadable_raster(monkeypatch, m, tmp_path):
+    """A file rasterio cannot open still yields a layer, just without bounds."""
+    raster = tmp_path / "not-a.tif"
+    raster.write_bytes(b"fake geotiff")
+    monkeypatch.setattr(Map, "_running_on_colab", staticmethod(lambda: True))
+    monkeypatch.setattr(
+        gmod,
+        "register_raster_tiles",
+        lambda path, **_options: "http://127.0.0.1:1234/_geolibre_tiles/t/{z}/{x}/{y}.png",
+    )
+
+    m.add_cog(raster, name="DEM")
+
+    assert _last_layer(m)["source"].get("bounds") is None
+
+
+def test_add_raster_accepts_deprecated_url_keyword(m):
+    """The pre-rename `url=` keyword still works, with a DeprecationWarning."""
+    with pytest.warns(DeprecationWarning, match="add_raster\\(url=...\\) is deprecated"):
+        m.add_raster(url="https://e/dem.tif", name="DEM")
+    assert _last_layer(m)["source"]["url"] == "https://e/dem.tif"
+
+
+def test_add_raster_rejects_source_and_url_together(m):
+    with pytest.raises(TypeError, match="deprecated alias"):
+        m.add_raster("https://e/a.tif", url="https://e/b.tif")
+
+
+def test_add_raster_requires_a_source(m):
+    with pytest.raises(TypeError, match="missing required argument"):
+        m.add_raster()
+
+
+def test_add_raster_rejects_non_raster_object(monkeypatch, m):
+    _fake_xarray_modules(monkeypatch)
+    with pytest.raises(TypeError, match="xarray DataArray/Dataset"):
+        m.add_raster(object())
+
+
 # -- markers --------------------------------------------------------------
 
 

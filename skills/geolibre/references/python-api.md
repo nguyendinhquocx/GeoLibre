@@ -46,7 +46,9 @@ m.add_geoparquet(data, name="GeoParquet")
 m.add_flatgeobuf(data, name="FlatGeobuf")
 m.add_csv(data, x="longitude", y="latitude", name="CSV")
 m.add_cog(url, name="COG", bands=None, colormap=None, rescale=None)
-m.add_raster(...)                                     # same, incl. a local GeoTIFF
+m.add_raster(source, name="Raster", bands=None, colormap=None, rescale=None,
+             array_args=None)                         # same, plus xarray DataArray/Dataset
+             # `url=` still works as a deprecated keyword alias of `source`
 m.add_tile_layer(url, name, tile_size=256, attribution=None)
 m.add_ee_layer(ee_object, vis_params=None, name="Earth Engine", shown=True,
                opacity=1.0)
@@ -87,14 +89,59 @@ m.add_heatmap(points, radius=35, intensity=1)
 m.add_polyline(...)
 ```
 
+### In-memory xarray rasters
+
+`add_raster` also accepts an `xarray.DataArray` or `xarray.Dataset`, which needs
+`pip install "geolibre[raster]"` (xarray + rioxarray + rasterio + rio-tiler). The kernel
+writes it to a temporary GeoTIFF — Cloud-Optimized by default. Locally the app
+range-reads that COG directly. In Colab, whose proxy does not preserve COG byte
+ranges, rio-tiler renders ordinary PNG XYZ tiles in the kernel instead.
+
+```python
+m.add_raster(data_array, name="Temperature", colormap="viridis")
+m.add_raster(dataset, name="Temperature",
+             array_args={"variable": "temperature", "isel": {"time": 0}})
+```
+
+`array_args` is used only for xarray input (passing it with a URL or path warns
+and is ignored). It takes:
+
+| Key | Meaning |
+| --- | --- |
+| `variable` | Pick one variable out of a `Dataset` (otherwise every variable becomes a band). |
+| `isel` | Mapping of dimension name → index, applied with `.isel()` to drop extra dimensions (time, depth). |
+| `x_dim` / `y_dim` | Spatial dimension names, when they are not `x`/`y`, `lon`/`lat`, or `longitude`/`latitude`. |
+| `crs` | CRS to write, e.g. `"EPSG:3857"`. |
+| `nodata` | Nodata value to write. |
+
+Anything else in `array_args` is forwarded to `rio.to_raster` (`compress`, and
+so on). `driver` only *defaults* to `"COG"`, so passing
+`array_args={"driver": "GTiff"}` really does write a plain GeoTIFF instead.
+
+Only `lon`/`lat` and `longitude`/`latitude` dimensions imply EPSG:4326. Any
+other object must already carry a CRS (`.rio.write_crs(...)`) or be given
+`array_args={"crs": ...}` — otherwise `add_raster` raises. It also raises when
+the x/y dimensions cannot be identified, when `variable` names something the
+Dataset does not have, and when a `Dataset` has no data variables.
+
+The temporary GeoTIFF is removed by `m.close()`, and, if that is never called,
+when the `Map` is garbage collected or the interpreter exits normally; a killed
+kernel leaves the file in the system temp directory. Because the file is
+session-scoped, **a project saved with an xarray layer will not reopen it
+later** — write the raster to a hosted COG and pass its URL for anything
+durable.
+
 ### Local files vs. hosted URLs
 
 `add_raster` / `add_cog` accept a **local** GeoTIFF path on the kernel host: the
-bundled localhost server serves it so the app can read it. That only works where
-the **browser can reach the kernel's localhost** — local Jupyter, VS Code. On
-Colab, JupyterHub, or any remote kernel, pass a hosted URL. The served URL is
-also session-scoped, so a saved project or exported HTML will not restore a
-local raster later. **For anything durable or shareable, use a hosted URL.**
+bundled localhost server serves it so the app can read it. This works directly
+in local Jupyter and VS Code. Colab uses kernel-rendered PNG XYZ tiles instead
+of browser COG reads. JupyterHub can route the COG through the kernel port
+when `jupyter-server-proxy` is available. A deployment that can only
+serve the static app extension cannot expose kernel files, so use a hosted URL.
+The served URL is session-scoped, so a saved project or exported HTML will not
+restore a local raster later. **For anything durable or shareable, use a hosted
+URL.**
 
 ## Camera, basemap, layers
 

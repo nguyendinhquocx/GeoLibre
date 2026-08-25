@@ -98,7 +98,19 @@ repos:
         language: system
         pass_filenames: false
 
-  - repo: https://github.com/kynan/nbstripout
-    rev: 0.9.1
+  # Strip every tracked notebook on every commit, not only notebooks included
+  # in that commit. This prevents locally executed outputs from lingering when
+  # a contributor commits an unrelated file. Note the blast radius that buys:
+  # nbstripout rewrites in place, so outputs a contributor is holding onto in
+  # an unstaged notebook are erased from the working copy by any commit at all.
+  # Narrowing this to staged files would reopen exactly the gap it closes; the
+  # tradeoff is documented in docs/contributing.md.
+  - repo: local
     hooks:
-      - id: nbstripout
+      - id: strip-notebook-outputs
+        name: strip all tracked notebook outputs
+        entry: python scripts/strip-notebook-outputs.py
+        language: python
+        additional_dependencies: [nbstripout==0.9.1]
+        pass_filenames: false
+        always_run: true
