@@ -5,15 +5,27 @@ import {
   effectiveLayerRenderState,
   getActiveEllipsoid,
   isDuckDBQueryLayer,
+  isInlineImageValue,
+  isPopupClickEnabled,
+  isPopupHoverEnabled,
+  isSafePopupUrl,
   NETCDF_IMAGE_SOURCE_KIND,
   PHOTO_FULL_PROPERTY,
   PHOTO_PROPERTY,
+  resolveConfiguredPopupTitle,
+  resolvePopupBody,
+  resolvePopupRows,
+  resolvePopupTitle,
+  stringifyPopupValue,
   useAppStore,
+  type FieldVisibility,
   type GeoLibreLayer,
+  type LayerPopupConfig,
   type PointerElevationResolver,
+  type PopupRow,
 } from "@geolibre/core";
 import * as maplibregl from "maplibre-gl";
-import type { Polygon } from "geojson";
+import type { Feature, Polygon } from "geojson";
 import { memo, useEffect, useMemo, useRef } from "react";
 import {
   circleLayerId,
@@ -40,6 +52,14 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "maplibre-gl-layer-control/style.css";
 import "./layer-control-overrides.css";
 
+/**
+ * Dispatched when a feature-selection gesture arms. `featureSelectionActive` is
+ * a ref rather than store state, so the map overlays that must stand down for a
+ * gesture (the hover tooltip) have nothing to subscribe to — a gesture armed
+ * from a menu produces no pointer event, and a tip already open under a
+ * motionless cursor would sit there until the first drag.
+ */
+const FEATURE_SELECTION_BEGIN_EVENT = "geolibre:feature-selection-begin";
 const PANEL_RESIZE_START_EVENT = "geolibre:panel-resize-start";
 const PANEL_RESIZE_END_EVENT = "geolibre:panel-resize-end";
 const WMS_PROXY_PATH = "/__geolibre_wms_proxy";
@@ -147,84 +167,238 @@ interface GeoLibreTimeSliderBridge {
   ) => Promise<TimeSliderPixelIdentifyBridgeResult | null>;
 }
 
-function stringifyIdentifyValue(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+/**
+ * The author's popup design for a layer, plus what the renderer needs to apply
+ * it. Every field is optional: the WMS, pixel and status popups pass none of
+ * it and get exactly the rendering they always had.
+ */
+interface IdentifyPopupOptions {
+  popup?: LayerPopupConfig;
+  fieldVisibility?: Record<string, FieldVisibility>;
+  /** The real feature, when the caller has one — feeds geometry-aware expressions. */
+  feature?: Feature | null;
+  /** Map zoom for `["zoom"]` in the title/body expressions. */
+  zoom?: number;
+}
+
+/** The document language, so formatted numbers and dates follow the UI locale. */
+function documentLocale(): string | undefined {
+  const lang = typeof document !== "undefined" ? document.documentElement.lang.trim() : "";
+  return lang || undefined;
+}
+
+/**
+ * Draw one resolved value into its cell. `"auto"` keeps the historical
+ * behavior (sanitized KML description markup, inline base64 images as
+ * thumbnails, everything else as text); the explicit kinds render what the
+ * author asked for, and fall back to text when the value cannot support it
+ * (a `link` whose value is not an http(s) URL, an `image` that is not one).
+ */
+function renderPopupValue(cell: HTMLElement, row: PopupRow): void {
+  if (row.kind === "image") {
+    if (isSafePopupUrl(row.value, true)) {
+      const image = document.createElement("img");
+      // Trimmed, because that is the copy isSafePopupUrl actually validated —
+      // as in the link branch below.
+      image.src = row.value.trim();
+      image.alt = row.label;
+      image.loading = "lazy";
+      image.className = "max-h-40 max-w-full rounded";
+      cell.appendChild(image);
+      return;
+    }
+    cell.textContent = row.text;
+    return;
+  }
+
+  if (row.kind === "link") {
+    if (isSafePopupUrl(row.value)) {
+      const link = document.createElement("a");
+      link.href = row.value.trim();
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.className = "break-all underline";
+      link.textContent = row.linkLabel ?? row.text;
+      cell.appendChild(link);
+      return;
+    }
+    cell.textContent = row.text;
+    return;
+  }
+
+  if (row.kind === "auto") {
+    // Render known KML description structures as sanitized markup. Requiring a
+    // supported tag keeps ordinary text such as "Elevation <500m>" intact.
+    if (
+      row.field === "description" &&
+      typeof row.value === "string" &&
+      /<(?:a|b|br|div|em|i|p|span|strong|table|tbody|td|th|thead|tr)\b/i.test(row.value)
+    ) {
+      appendSanitizedKmlDescription(cell, row.value);
+      return;
+    }
+    // Render inline image data URLs (e.g. a geotagged-photo or field-collection
+    // thumbnail) as an actual thumbnail rather than a multi-kilobyte string.
+    // Match base64 raster images only, excluding SVG (which can carry scripts)
+    // so an untrusted GeoJSON value can't smuggle one in.
+    if (isInlineImageValue(row.value)) {
+      const image = document.createElement("img");
+      image.src = row.value;
+      image.alt = row.field;
+      image.loading = "lazy";
+      image.className = "max-h-40 max-w-full rounded";
+      cell.appendChild(image);
+      return;
+    }
+  }
+
+  cell.textContent = row.text;
 }
 
 function createIdentifyPopupElement(
   layerName: string,
   properties: Record<string, unknown>,
   featureId?: string | number,
+  options: IdentifyPopupOptions = {},
 ): HTMLElement {
+  const { popup, fieldVisibility, feature, zoom } = options;
+  const locale = documentLocale();
+
   const root = document.createElement("div");
   root.className =
     "geolibre-identify-popup-root flex min-w-[min(18rem,calc(100vw-48px))] max-w-[min(520px,calc(100vw-48px))] flex-col text-xs";
 
   const title = document.createElement("div");
-  title.className = "mb-2 font-semibold text-foreground";
-  title.textContent = layerName;
+  // Leave room for MapLibre's close button, which sits in the same corner the
+  // heading would otherwise run into.
+  title.className = "mb-2 pe-6 font-semibold text-foreground";
+  title.textContent = resolvePopupTitle(layerName, properties, popup, {
+    feature,
+    zoom,
+    fieldVisibility,
+  });
   root.appendChild(title);
 
   const rows = document.createElement("div");
   rows.className = "geolibre-identify-popup-rows pe-2";
   root.appendChild(rows);
 
-  const appendRow = (key: string, value: unknown) => {
-    const row = document.createElement("div");
-    row.className = "grid grid-cols-[minmax(5rem,0.45fr)_1fr] gap-2 border-t py-1";
+  // An author-supplied body expression replaces the whole body outright — the
+  // field table AND the synthetic id row. The point of it is a sentence
+  // instead of rows, and a raw feature id dangling under that sentence would
+  // undo it. The designer disables the "Show the feature id row" checkbox
+  // while a body expression is set, so the UI does not offer a control that
+  // cannot take effect.
+  const body = resolvePopupBody(properties, popup, { feature, zoom, fieldVisibility });
+  if (body !== null) {
+    const paragraph = document.createElement("div");
+    paragraph.className = "whitespace-pre-wrap break-words text-foreground";
+    paragraph.textContent = body;
+    rows.appendChild(paragraph);
+    return root;
+  }
+
+  const appendRow = (row: PopupRow) => {
+    const rowElement = document.createElement("div");
+    rowElement.className = "grid grid-cols-[minmax(5rem,0.45fr)_1fr] gap-2 border-t py-1";
 
     const keyCell = document.createElement("div");
     keyCell.className = "break-words font-medium text-muted-foreground";
-    keyCell.textContent = key;
+    keyCell.textContent = row.label;
 
     const valueCell = document.createElement("div");
     valueCell.className = "break-words text-foreground";
-    // Render known KML description structures as sanitized markup. Requiring a
-    // supported tag keeps ordinary text such as "Elevation <500m>" intact.
-    if (
-      key === "description" &&
-      typeof value === "string" &&
-      /<(?:a|b|br|div|em|i|p|span|strong|table|tbody|td|th|thead|tr)\b/i.test(value)
-    ) {
-      appendSanitizedKmlDescription(valueCell, value);
-      // Render inline image data URLs (e.g. a geotagged-photo or field-collection
-      // thumbnail) as an actual thumbnail rather than a multi-kilobyte string.
-      // Match base64 raster images only, excluding SVG (which can carry scripts)
-      // so an untrusted GeoJSON value can't smuggle one in.
-    } else if (typeof value === "string" && /^data:image\/(?!svg)[\w.+-]+;base64,/i.test(value)) {
-      const image = document.createElement("img");
-      image.src = value;
-      image.alt = key;
-      image.loading = "lazy";
-      image.className = "max-h-40 max-w-full rounded";
-      valueCell.appendChild(image);
-    } else {
-      valueCell.textContent = stringifyIdentifyValue(value);
-    }
+    renderPopupValue(valueCell, row);
 
-    row.append(keyCell, valueCell);
-    rows.appendChild(row);
+    rowElement.append(keyCell, valueCell);
+    rows.appendChild(rowElement);
   };
 
-  if (featureId != null) appendRow("id", featureId);
+  const showFeatureId = featureId != null && popup?.showFeatureId !== false;
+  if (showFeatureId) {
+    appendRow({
+      field: "id",
+      label: "id",
+      value: featureId,
+      text: stringifyPopupValue(featureId),
+      kind: "auto",
+    });
+  }
 
-  // Skip the full-resolution image: it is an internal companion to the
-  // thumbnail, so Identify shouldn't decode a multi-megapixel data URL just to
-  // show a second copy of the same photo in the same small box. Filter before
-  // the empty-state check so a feature whose only property is `photo_full` still
-  // reports "No attributes" rather than rendering an empty panel.
-  const entries = Object.entries(properties).filter(
-    ([key]) => key !== PHOTO_FULL_KEY && !key.startsWith("__geolibre_"),
-  );
-  if (entries.length === 0 && featureId == null) {
+  // resolvePopupRows drops GeoLibre's internal columns and the heavy
+  // full-resolution photo twin, and applies the author's field list, order,
+  // labels and formatting. Its result is empty for a feature with nothing to
+  // show, which is what the "No attributes" state reports.
+  const resolved = resolvePopupRows(properties, {
+    popup,
+    fieldVisibility,
+    locale,
+  });
+  if (resolved.length === 0 && !showFeatureId) {
     const empty = document.createElement("div");
     empty.className = "text-muted-foreground";
     empty.textContent = "No attributes";
     rows.appendChild(empty);
   } else {
-    for (const [key, value] of entries) appendRow(key, value);
+    for (const row of resolved) appendRow(row);
+  }
+
+  return root;
+}
+
+/**
+ * The hover tooltip's content: the layer's popup title over the fields the
+ * author flagged for hover. Kept deliberately small — this follows the pointer,
+ * so it shows the one or two fields that name the feature, never the table.
+ */
+function createHoverTooltipElement(
+  layerName: string,
+  properties: Record<string, unknown>,
+  options: IdentifyPopupOptions = {},
+): HTMLElement | null {
+  const { popup, fieldVisibility, feature, zoom } = options;
+  const rows = resolvePopupRows(properties, {
+    popup,
+    fieldVisibility,
+    hover: true,
+    locale: documentLocale(),
+  });
+  const configuredTitle = resolveConfiguredPopupTitle(properties, popup, {
+    feature,
+    zoom,
+    fieldVisibility,
+  });
+  // Nothing to say: no flagged field, and no title the author configured, so
+  // the tip would be a box repeating the layer name the user can already read
+  // in the Layers panel. Keyed on whether a title was configured rather than on
+  // whether it happens to equal the layer name — a feature legitimately called
+  // the same thing as its layer still deserves its tooltip.
+  if (rows.length === 0 && configuredTitle === null) return null;
+  const title = configuredTitle ?? layerName;
+
+  const root = document.createElement("div");
+  root.className = "geolibre-hover-tooltip-root flex max-w-[16rem] flex-col gap-0.5 text-xs";
+
+  const heading = document.createElement("div");
+  heading.className = "font-semibold text-foreground";
+  heading.textContent = title;
+  root.appendChild(heading);
+
+  for (const row of rows) {
+    const line = document.createElement("div");
+    line.className = "flex gap-1.5 text-foreground";
+    const label = document.createElement("span");
+    label.className = "shrink-0 text-muted-foreground";
+    label.textContent = row.label;
+    const value = document.createElement("span");
+    value.className = "min-w-0 break-words";
+    // A tooltip is a one-line read, so a link shows as its text rather than as
+    // a clickable anchor — the tip has `pointer-events: none` and could not be
+    // clicked anyway. Image rows never reach here: resolvePopupRows drops them
+    // from the hover subset rather than printing a data URL.
+    value.textContent = row.text;
+    line.append(label, value);
+    root.appendChild(line);
   }
 
   return root;
@@ -285,9 +459,6 @@ function createIdentifyMessagePopupElement(layerName: string, message: string): 
   return createIdentifyPopupElement(layerName, { status: message });
 }
 
-/** Match an inline base64 raster image (excludes SVG, which can carry scripts). */
-const INLINE_IMAGE_DATA_URL = /^data:image\/(?!svg)[\w.+-]+;base64,/i;
-
 // Feature-property keys for geotagged/field-collection photos, from the shared
 // @geolibre/core schema: the popup shows the light thumbnail while the fullscreen
 // viewer and "Save image" use the embedded full-resolution image.
@@ -297,7 +468,7 @@ const PHOTO_FULL_KEY = PHOTO_FULL_PROPERTY;
 /** Return the value at `key` when it is an inline raster image data URL. */
 function imageDataUrlAt(properties: Record<string, unknown>, key: string): string | null {
   const value = properties[key];
-  return typeof value === "string" && INLINE_IMAGE_DATA_URL.test(value) ? value : null;
+  return isInlineImageValue(value) ? value : null;
 }
 
 /**
@@ -309,7 +480,7 @@ function imageDataUrlAt(properties: Record<string, unknown>, key: string): strin
  */
 function findPhotoDataUrl(properties: Record<string, unknown>): string | null {
   for (const [key, value] of Object.entries(properties)) {
-    if (key !== PHOTO_FULL_KEY && typeof value === "string" && INLINE_IMAGE_DATA_URL.test(value)) {
+    if (key !== PHOTO_FULL_KEY && isInlineImageValue(value)) {
       return value;
     }
   }
@@ -1149,6 +1320,7 @@ export const MapCanvas = memo(function MapCanvas({
   const previousDuckDBSelectionLayerId = useRef<string | null>(null);
   const identifyPopup = useRef<maplibregl.Popup | null>(null);
   const photoPopup = useRef<maplibregl.Popup | null>(null);
+  const hoverTooltip = useRef<maplibregl.Popup | null>(null);
   // Set for the duration of a map selection gesture. The other click handlers
   // bound to the same map (Identify, geotagged-photo popups) read it and bail,
   // so a rectangle drag or a polygon vertex click never also opens a popup.
@@ -1457,6 +1629,7 @@ export const MapCanvas = memo(function MapCanvas({
         canvas.style.cursor = "";
       });
       featureSelectionActive.current = true;
+      window.dispatchEvent(new Event(FEATURE_SELECTION_BEGIN_EVENT));
 
       let points: maplibregl.Point[] = [];
       let dragging = false;
@@ -1741,6 +1914,15 @@ export const MapCanvas = memo(function MapCanvas({
     // Identify button would light up while Identify itself did nothing.
     cancelFeatureSelection.current?.();
 
+    // An author can turn the click popup off for a layer they only want
+    // hovered (or only styled). Identify then does nothing for it rather than
+    // opening a popup the shared map was designed without.
+    if (!isPopupClickEnabled(layer.popup)) {
+      identifyPopup.current?.remove();
+      identifyPopup.current = null;
+      return;
+    }
+
     // COG layers are identified by the raster control's pixel inspector (driven
     // by useRasterIdentify in the desktop app), not this vector/WMS feature
     // query. Bail so the two don't both register a map-click handler. (Only
@@ -1889,7 +2071,11 @@ export const MapCanvas = memo(function MapCanvas({
 
         selectFeature(result.featureId);
         showIdentifyPopup(
-          createIdentifyPopupElement(layer.name, result.properties, result.featureId),
+          createIdentifyPopupElement(layer.name, result.properties, result.featureId, {
+            popup: layer.popup,
+            fieldVisibility: layer.fieldVisibility,
+            zoom: map.getZoom(),
+          }),
         );
         return;
       }
@@ -1912,7 +2098,12 @@ export const MapCanvas = memo(function MapCanvas({
       selectFeature(featureId);
 
       showIdentifyPopup(
-        createIdentifyPopupElement(layer.name, feature.properties ?? {}, featureId ?? feature.id),
+        createIdentifyPopupElement(layer.name, feature.properties ?? {}, featureId ?? feature.id, {
+          popup: layer.popup,
+          fieldVisibility: layer.fieldVisibility,
+          feature,
+          zoom: map.getZoom(),
+        }),
       );
     };
 
@@ -2028,6 +2219,190 @@ export const MapCanvas = memo(function MapCanvas({
       removePhotoPopup();
     };
   }, [photoLayerKey]);
+
+  // Hover tooltips (#2113): a lightweight tip following the pointer over the
+  // layers whose author turned one on, showing the fields they flagged for
+  // hover. Keyed on the ids AND the popup blocks, so editing the tooltip's
+  // fields in the Style panel rebinds immediately.
+  const hoverTooltipKey = useMemo(
+    () =>
+      layers
+        // Group-aware, like the Identify handler and the selection query: a
+        // layer whose own switch is on can still be hidden by its group, and
+        // binding pointer handlers to it would be binding to something the
+        // user cannot see. `applyGroupEffects` also sets the synced MapLibre
+        // layer's visibility to `none`, so nothing fires today either way —
+        // this keeps the two from drifting if that ever stops being true.
+        .filter(
+          (layer) =>
+            effectiveLayerRenderState(layer, layerGroups).visible &&
+            isPopupHoverEnabled(layer.popup),
+        )
+        .map((layer) => `${layer.id}\u0000${JSON.stringify(layer.popup ?? {})}`)
+        .join("\u0001"),
+    [layers, layerGroups],
+  );
+
+  useEffect(() => {
+    const map = controller.current?.getMap();
+    if (!map || !hoverTooltipKey) return;
+    const hoverLayerIds = hoverTooltipKey.split("\u0001").map((part) => part.split("\u0000")[0]);
+
+    // The pointer move that has not been drawn yet, and the frame that will
+    // draw it. `mousemove` fires far more often than the screen refreshes, and
+    // each tip rebuilds a small DOM tree, so moves are coalesced to one render
+    // per frame rather than one per event.
+    let pending: {
+      layerId: string;
+      feature: maplibregl.MapGeoJSONFeature;
+      lngLat: maplibregl.LngLat;
+    } | null = null;
+    let pendingFrame = 0;
+    // A `mouseleave` waiting for the same frame to decide. One logical layer
+    // renders as several MapLibre style layers (a polygon's fill and its own
+    // stroke, a point's circle and its marker), and this effect binds to each
+    // of them, so crossing from a feature's fill onto that feature's own
+    // stroke fires `mouseleave` on the first and `mousemove` on the second
+    // from a single pointer event. Removing on the spot would tear the popup
+    // down and rebuild it on every such crossing — and if the leave arrived
+    // after the move, it would cancel the redraw and blank the tip until the
+    // pointer moved again. Deferring the decision to the frame lets a move
+    // anywhere in the same layer outvote the leave.
+    let pendingLeave = false;
+
+    /** Drop the tooltip now, discarding anything waiting on a frame. */
+    const removeTooltip = () => {
+      pending = null;
+      pendingLeave = false;
+      if (pendingFrame) {
+        cancelAnimationFrame(pendingFrame);
+        pendingFrame = 0;
+      }
+      hoverTooltip.current?.remove();
+      hoverTooltip.current = null;
+    };
+
+    const drawPending = () => {
+      pendingFrame = 0;
+      const next = pending;
+      const leaving = pendingLeave;
+      pending = null;
+      pendingLeave = false;
+      // A move seen this frame means the pointer is still over one of this
+      // layer's style layers, whichever one it left.
+      if (!next) {
+        if (leaving) removeTooltip();
+        return;
+      }
+      // Read the layer from the store rather than from a captured array, so an
+      // edit to the tooltip's fields shows on the very next pointer move.
+      const layer = useAppStore.getState().layers.find((item) => item.id === next.layerId);
+      if (!layer) {
+        removeTooltip();
+        return;
+      }
+      const content = createHoverTooltipElement(layer.name, next.feature.properties ?? {}, {
+        popup: layer.popup,
+        fieldVisibility: layer.fieldVisibility,
+        feature: next.feature,
+        zoom: map.getZoom(),
+      });
+      if (!content) {
+        removeTooltip();
+        return;
+      }
+      if (!hoverTooltip.current) {
+        hoverTooltip.current = new maplibregl.Popup({
+          className: "geolibre-hover-tooltip",
+          closeButton: false,
+          closeOnClick: false,
+          // The tip must never sit under the cursor, or it would steal the
+          // pointer from the feature and flicker itself in and out.
+          offset: 12,
+          maxWidth: "280px",
+        }).addTo(map);
+      }
+      hoverTooltip.current.setLngLat(next.lngLat).setDOMContent(content);
+    };
+
+    const handleLeave = () => {
+      pendingLeave = true;
+      if (!pendingFrame) pendingFrame = requestAnimationFrame(drawPending);
+    };
+
+    /** Build the pointer handler for one hovered layer. */
+    const moveHandlerFor = (layerId: string) => (event: maplibregl.MapLayerMouseEvent) => {
+      // A selection gesture owns the pointer while it draws, and the Identify
+      // crosshair means the user is about to click for the full popup: neither
+      // wants a tip trailing the cursor.
+      if (featureSelectionActive.current || useAppStore.getState().identifyLayerId) {
+        removeTooltip();
+        return;
+      }
+      const feature = event.features?.[0];
+      if (!feature) {
+        removeTooltip();
+        return;
+      }
+      pending = { layerId, feature, lngLat: event.lngLat };
+      pendingLeave = false;
+      if (!pendingFrame) pendingFrame = requestAnimationFrame(drawPending);
+    };
+
+    // Style-layer id -> the handler bound to it, so unbinding detaches the very
+    // same function reference MapLibre was given.
+    let bound: {
+      id: string;
+      move: (event: maplibregl.MapLayerMouseEvent) => void;
+    }[] = [];
+    const unbind = () => {
+      for (const entry of bound) {
+        map.off("mousemove", entry.id, entry.move);
+        map.off("mouseleave", entry.id, handleLeave);
+      }
+      bound = [];
+    };
+    const bind = () => {
+      unbind();
+      const layersById = new Map(useAppStore.getState().layers.map((layer) => [layer.id, layer]));
+      for (const layerId of hoverLayerIds) {
+        const layer = layersById.get(layerId);
+        if (!layer) continue;
+        const move = moveHandlerFor(layerId);
+        for (const styleLayerId of identifyStyleLayerIds(layer)) {
+          if (!map.getLayer(styleLayerId)) continue;
+          map.on("mousemove", styleLayerId, move);
+          map.on("mouseleave", styleLayerId, handleLeave);
+          bound.push({ id: styleLayerId, move });
+        }
+      }
+    };
+
+    bind();
+    // syncLayers creates the style layers and then dispatches this event, so
+    // re-bind on it to catch layers that did not exist yet on the first run.
+    window.addEventListener("geolibre-layer-labels-change", bind);
+    // A selection gesture takes the pointer the same way Identify does, and can
+    // be armed from a menu with the cursor sitting still on a hovered feature.
+    window.addEventListener(FEATURE_SELECTION_BEGIN_EVENT, removeTooltip);
+    // Identify is armed from the toolbar, with no pointer event to hide a tip
+    // that is already open. `mouseleave` does not fire under a motionless
+    // cursor, so without this the tooltip would sit there while the Identify
+    // popup opened beside it. Same off->on guard as the photo-popup effect:
+    // this listener runs on every store change, so testing the current value
+    // alone would keep clearing a tip the user is still reading.
+    const unsubscribeIdentify = useAppStore.subscribe((state, prev) => {
+      if (state.identifyLayerId && !prev.identifyLayerId) removeTooltip();
+    });
+
+    return () => {
+      window.removeEventListener("geolibre-layer-labels-change", bind);
+      window.removeEventListener(FEATURE_SELECTION_BEGIN_EVENT, removeTooltip);
+      unsubscribeIdentify();
+      unbind();
+      removeTooltip();
+    };
+  }, [hoverTooltipKey]);
 
   useEffect(() => {
     controller.current?.applyView(mapView);

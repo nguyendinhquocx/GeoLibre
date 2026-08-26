@@ -880,6 +880,85 @@ export interface AttributeFormConfig {
 }
 
 /**
+ * How a popup renders one field's value (issue #2113). `"auto"` reproduces the
+ * untyped rendering the Identify popup has always done — sanitized KML
+ * `description` markup, an inline `data:image/*;base64` value as a thumbnail,
+ * anything else stringified. The remaining kinds are explicit author choices
+ * so a popup never has to guess from the value.
+ */
+export type PopupFieldKind = "auto" | "text" | "number" | "date" | "link" | "image";
+
+/** How a `"date"` field's value is written out. */
+export type PopupDateFormat = "date" | "datetime" | "time" | "iso" | "year";
+
+/** Value formatting for one popup field. Every part is optional. */
+export interface PopupFieldFormat {
+  /** Fixed number of decimals for a `"number"` field. */
+  decimals?: number;
+  /** Group thousands with the locale's separator (`"number"` fields). */
+  thousands?: boolean;
+  /** Date rendering for a `"date"` field; defaults to `"date"`. */
+  dateFormat?: PopupDateFormat;
+  /** Text placed before the formatted value. */
+  prefix?: string;
+  /** Text placed after the formatted value, e.g. a unit suffix. */
+  suffix?: string;
+  /** Link text for a `"link"` field; the value itself is used when unset. */
+  linkLabel?: string;
+}
+
+/** One field's entry in a layer's popup configuration. */
+export interface PopupFieldConfig {
+  /** Feature property key. */
+  field: string;
+  /** Display label shown instead of the raw field name. */
+  label?: string;
+  /** How the value renders; defaults to `"auto"`. */
+  kind?: PopupFieldKind;
+  format?: PopupFieldFormat;
+  /** Include this field in the hover tooltip's short subset. */
+  hover?: boolean;
+}
+
+/**
+ * Per-layer configuration for what a viewer sees when they interact with a
+ * feature (issue #2113): which fields the Identify popup shows, in what order,
+ * under what labels and formatting, plus an optional hover tooltip.
+ *
+ * A layer with no `popup` block behaves exactly as it did before this existed:
+ * the layer name as the heading, then every property as a key/value row.
+ * {@link GeoLibreLayer.fieldVisibility} stays authoritative — a `"hidden"` or
+ * `"excluded"` field is dropped even when a popup config names it.
+ */
+export interface LayerPopupConfig {
+  /** `false` suppresses the Identify popup for this layer. Defaults to `true`. */
+  click?: boolean;
+  /** `true` shows a hover tooltip built from the `hover` fields. Defaults to `false`. */
+  hover?: boolean;
+  /** Field whose value titles the popup instead of the layer name. */
+  titleField?: string;
+  /**
+   * MapLibre expression source producing the popup title. Wins over
+   * {@link titleField}; when it fails or produces nothing the title falls
+   * through to `titleField`, and only then to the layer name.
+   */
+  titleExpression?: string;
+  /**
+   * MapLibre expression source producing the whole popup body as text, for
+   * authors who want a sentence rather than a table. When it evaluates, it
+   * replaces the field rows.
+   */
+  bodyExpression?: string;
+  /** `false` drops the synthetic `id` row. Defaults to `true`. */
+  showFeatureId?: boolean;
+  /**
+   * The fields to show and their order. An empty or absent list keeps today's
+   * behavior: every visible property, in the feature's own key order.
+   */
+  fields?: PopupFieldConfig[];
+}
+
+/**
  * A virtual field attached to a vector layer (QGIS Field Calculator → "Create
  * virtual field", issue #1321): a column defined by a MapLibre expression that
  * recomputes live instead of being written once as static values. The engine
@@ -920,6 +999,65 @@ export interface LayerVirtualField {
    * the whole column.
    */
   errorCount?: number;
+}
+
+/**
+ * Quick filters (issue #2114): the data-driven filter controls a layer offers
+ * in its Quick Filters section. What persists is the *control state* — field,
+ * kind, chosen values — not the compiled output; `quick-filters.ts` compiles it
+ * to a MapLibre filter at sync time so a saved filter can always be reopened
+ * and edited.
+ */
+
+/** Which control a quick filter renders, and how it compiles. */
+export type QuickFilterKind = "categorical" | "range" | "date" | "text";
+
+/** The comparison a `text` quick filter applies (always case-insensitive). */
+export type QuickFilterTextOperator = "contains" | "startsWith" | "equals";
+
+/**
+ * How a date field stores its values, deciding whether a `date` quick filter
+ * compares ISO text or epoch numbers. `iso` covers both `YYYY-MM-DD` and full
+ * `YYYY-MM-DDTHH:MM:SSZ` timestamps: only the leading `YYYY-MM-DD` slice is
+ * compared, so a trailing time, a milliseconds fraction, or a `Z` cannot break
+ * a boundary. Mirrors (deliberately, in a smaller form) the value kinds the
+ * Time Slider's `detectValueKind` reports.
+ */
+export type QuickFilterDateKind = "iso" | "epochMs" | "epochS";
+
+/** A single filter control persisted on a layer. */
+export interface LayerQuickFilter {
+  /** Stable id, used as the React key and for edits/removal. */
+  id: string;
+  /** The feature property this control narrows. */
+  field: string;
+  kind: QuickFilterKind;
+  /**
+   * `false` keeps the control configured but inert, so a filter can be muted
+   * without losing the values chosen for it. Defaults to enabled.
+   */
+  enabled?: boolean;
+  /**
+   * `categorical`: the chosen values. An empty (or omitted) selection means
+   * "every value" and compiles to nothing — unchecking the last box clears the
+   * filter rather than emptying the map.
+   */
+  values?: (string | number | boolean)[];
+  /** `range`: inclusive bounds. `null`/omitted leaves that side open. */
+  min?: number | null;
+  max?: number | null;
+  /**
+   * `date`: inclusive `YYYY-MM-DD` bounds. The end day is included in full, so
+   * a timestamp field filtered to a single day keeps that whole day.
+   */
+  start?: string | null;
+  end?: string | null;
+  /** `date`: how the field stores its values. Defaults to `iso`. */
+  dateKind?: QuickFilterDateKind;
+  /** `text`: the comparison. Defaults to `contains`. */
+  operator?: QuickFilterTextOperator;
+  /** `text`: the needle. Blank means no constraint. */
+  text?: string;
 }
 
 /** Persisted refresh policy and most recent synchronization result for a layer. */
@@ -1011,6 +1149,11 @@ export interface GeoLibreLayer {
    */
   attributeForm?: AttributeFormConfig;
   /**
+   * Popup and hover-tooltip design for this layer, authored in the Style
+   * panel's Popup section. Absent means the default full-property dump.
+   */
+  popup?: LayerPopupConfig;
+  /**
    * Persistent attribute joins applied to this layer's features, in order.
    * The joined columns are materialized into `geojson` feature properties (so
    * the attribute table, Expression Builder, styling, and labels all see them)
@@ -1037,6 +1180,15 @@ export interface GeoLibreLayer {
   timeFilter?: unknown[];
   /** Transient MapLibre expression applied by the iframe embed API. */
   embedFilter?: unknown[];
+  /**
+   * Data-driven filter controls authored in the layer's Quick Filters section
+   * (issue #2114). Unlike {@link timeFilter} and {@link embedFilter} this is
+   * persisted control *state*, not a compiled expression: `@geolibre/map`
+   * compiles it at sync time (see `compileQuickFilters`) and combines the
+   * result with the transient filters and the rule-based visibility filter, so
+   * a host page's filter and a user's filter narrow the layer together.
+   */
+  quickFilters?: LayerQuickFilter[];
   sourcePath?: string;
   /**
    * Id of the {@link LayerGroup} this layer belongs to, or `undefined` when the
@@ -1971,6 +2123,8 @@ export interface LayerLibraryEntry {
   virtualFields?: LayerVirtualField[];
   /** Per-field edit-widget/constraint configuration to reapply. */
   attributeForm?: AttributeFormConfig;
+  /** Popup/tooltip design to reapply. */
+  popup?: LayerPopupConfig;
   /**
    * Embedded features, present only for a layer whose source cannot be
    * re-read (in-memory features) or whose local file may be unavailable.

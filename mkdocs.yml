@@ -84,6 +84,7 @@ nav:
   - Reference:
       - Architecture: architecture.md
       - Self-Hosting: self-hosting.md
+      - Server API: server-api.md
       - Android: android.md
       - iOS: ios.md
       - Mac App Store: mac-app-store.md
@@ -99,6 +100,7 @@ nav:
       - Notebook Panel: notebook.md
       - Roadmap: roadmap.md
       - Contributing: contributing.md
+      - Maintenance Notes: maintenance.md
       - How to Cite: citation.md
       - Acknowledgements: acknowledgements.md
       - Privacy Policy: privacy.md

@@ -1,20 +1,28 @@
 import {
+  compileQuickFilters,
   controlRendersLayer,
   DEFAULT_LAYER_STYLE,
-  type GeoLibreLayer,
-  type ExternalNativePaintBridge,
   generatorCircleRadiusValue,
   geojsonHasZCoordinates,
   getExternalNativePaintBridge,
-  type LayerStyle,
   pluginOwnsPaint,
   proportionalRadiusExpression,
   ruleBasedVisibilityFilter,
   shouldUseTiledRendering,
   styleValue,
+  type ExternalNativePaintBridge,
+  type GeoLibreLayer,
+  type LayerStyle,
   validateMapExpression,
 } from "@geolibre/core";
-import { normalizePMTilesUrl, PMTILES_PROTOCOL, pmtilesVectorLayerId } from "./pmtiles-layer";
+import {
+  normalizePMTilesUrl,
+  PMTILES_PROTOCOL,
+  pmtilesControlLayerId,
+  pmtilesIdNamesSourceLayer,
+  pmtilesLayerKinds,
+  pmtilesVectorLayerId,
+} from "./pmtiles-layer";
 import { encodeVectorTileLayerPart } from "./vector-tile-layer-ids";
 import { addProtocol, config } from "maplibre-gl";
 import type { GeoJSON } from "geojson";
@@ -156,9 +164,13 @@ function unclusteredPointFilter(hasTextMarkers: boolean): maplibregl.FilterSpeci
  * the transient {@link GeoLibreLayer.timeFilter} (a Time-Slider-bound layer
  * only renders features inside the current timeline window), the transient
  * {@link GeoLibreLayer.embedFilter} (the embed API's `setFilter`, set by the
- * host page that frames the app), and the rule-based visibility filter (a
- * rule-based layer whose else rule is switched off hides features matching no
- * rule — see {@link ruleBasedVisibilityFilter}). Returns the geometry filter
+ * host page that frames the app), the persisted
+ * {@link GeoLibreLayer.quickFilters} compiled by `compileQuickFilters` (the
+ * layer's own data-driven filter controls), and the rule-based visibility
+ * filter (a rule-based layer whose else rule is switched off hides features
+ * matching no rule — see {@link ruleBasedVisibilityFilter}). They are combined
+ * with `all`, so a host page's filter and a user's quick filter narrow the
+ * layer together instead of clobbering each other. Returns the geometry filter
  * unchanged when none applies, so the common path
  * produces an identical spec and `ensureLayer` performs no filter update.
  *
@@ -167,6 +179,14 @@ function unclusteredPointFilter(hasTextMarkers: boolean): maplibregl.FilterSpeci
  * `["all", ...]` wrap would drop every cluster whenever a window or rule filter
  * is active. Per-feature layers (fill, line, point, heatmap, text) filter
  * correctly.
+ *
+ * The corollary, shared by every filter in this set: MapLibre clusters at the
+ * *source*, from the layer's raw features, and no layer filter can change what
+ * a cluster already aggregated. So while a point layer renders as clusters, the
+ * bubbles and their counts describe the unfiltered data even though the
+ * unclustered points respect the filter. Filtering a clustered layer by its
+ * individual features means either switching the renderer off clustering or
+ * narrowing the source data itself, neither of which a per-feature filter does.
  *
  * Tile-backed layers (vector tiles, vector MBTiles) use this too. The filter is
  * an expression evaluated per feature as each tile decodes, so it needs no local
@@ -190,6 +210,8 @@ function withFeatureFilters(
   if (Array.isArray(layer.embedFilter) && layer.embedFilter.length > 0) {
     filters.push(layer.embedFilter);
   }
+  const quickFilter = compileQuickFilters(layer.quickFilters);
+  if (quickFilter) filters.push(quickFilter);
   const ruleFilter = ruleBasedVisibilityFilter(layer.style);
   if (ruleFilter) filters.push(ruleFilter);
   if (layer.metadata?.sourceKind === "annotation") {
@@ -242,8 +264,9 @@ function nativeLayerSupportsFilter(type: string): boolean {
 /**
  * The active per-feature filters GeoLibre applies on top of an external
  * layer's own filters: the transient Time-Slider window, the embed API's
- * host-set `setFilter` expression, and the rule-based hide-unmatched filter
- * (see {@link ruleBasedVisibilityFilter}). Empty when none applies.
+ * host-set `setFilter` expression, the layer's compiled quick filters, and the
+ * rule-based hide-unmatched filter (see {@link ruleBasedVisibilityFilter}).
+ * Empty when none applies.
  */
 function externalFeatureFilterExtras(layer: GeoLibreLayer): unknown[] {
   const extras: unknown[] = [];
@@ -254,6 +277,8 @@ function externalFeatureFilterExtras(layer: GeoLibreLayer): unknown[] {
   if (Array.isArray(layer.embedFilter) && layer.embedFilter.length > 0) {
     extras.push(layer.embedFilter);
   }
+  const quickFilter = compileQuickFilters(layer.quickFilters);
+  if (quickFilter) extras.push(quickFilter);
   const ruleFilter = ruleBasedVisibilityFilter(layer.style);
   if (ruleFilter) extras.push(ruleFilter);
   return extras;
@@ -278,7 +303,8 @@ function combineExternalFilters(
 
 /**
  * Apply (or clear) GeoLibre's per-feature filters — a Time-Slider window, the
- * embed API's host-set `setFilter` expression, and the rule-based
+ * embed API's host-set `setFilter` expression, the layer's compiled quick
+ * filters, and the rule-based
  * hide-unmatched filter (see {@link ruleBasedVisibilityFilter}, and
  * {@link externalFeatureFilterExtras} for the set this reads)
  * — on an external-native vector layer that a control owns and paints itself
@@ -291,8 +317,8 @@ function combineExternalFilters(
  *
  * @param map - The MapLibre map.
  * @param nativeLayerId - A control-owned native layer id.
- * @param layer - The store layer (reads `timeFilter`, `embedFilter`, and the
- *   rule filter).
+ * @param layer - The store layer (reads `timeFilter`, `embedFilter`,
+ *   `quickFilters`, and the rule filter).
  */
 function applyExternalNativeFeatureFilters(
   map: maplibregl.Map,
@@ -912,18 +938,9 @@ function ensurePMTilesExternalLayer(
   }
 
   for (const sourceLayer of sourceLayers) {
-    const fillId = getPMTilesNativeLayerId(
-      nativeLayerIds,
-      pmtilesVectorLayerId(sourceId, sourceLayer, "fill"),
-    );
-    const lineId = getPMTilesNativeLayerId(
-      nativeLayerIds,
-      pmtilesVectorLayerId(sourceId, sourceLayer, "line"),
-    );
-    const circleId = getPMTilesNativeLayerId(
-      nativeLayerIds,
-      pmtilesVectorLayerId(sourceId, sourceLayer, "circle"),
-    );
+    const fillId = getPMTilesNativeLayerId(nativeLayerIds, sourceId, sourceLayer, "fill");
+    const lineId = getPMTilesNativeLayerId(nativeLayerIds, sourceId, sourceLayer, "line");
+    const circleId = getPMTilesNativeLayerId(nativeLayerIds, sourceId, sourceLayer, "circle");
 
     ensureLayer(
       map,
@@ -1116,20 +1133,10 @@ function getPMTilesRenderableSourceLayers(
 ): string[] {
   const sourceLayers = getPMTilesSourceLayers(layer);
   const savedSourceLayers = sourceLayers.filter((sourceLayer) =>
-    hasPMTilesNativeSourceLayer(nativeLayerIds, sourceId, sourceLayer),
+    pmtilesIdNamesSourceLayer(nativeLayerIds, sourceId, sourceLayer),
   );
 
   return savedSourceLayers.length > 0 ? savedSourceLayers : sourceLayers;
-}
-
-function hasPMTilesNativeSourceLayer(
-  nativeLayerIds: string[],
-  sourceId: string,
-  sourceLayer: string,
-): boolean {
-  return ["fill", "line", "circle"].some((kind) =>
-    nativeLayerIds.includes(pmtilesVectorLayerId(sourceId, sourceLayer, kind)),
-  );
 }
 
 function getPMTilesSourceLayers(layer: GeoLibreLayer): string[] {
@@ -1142,8 +1149,20 @@ function getPMTilesSourceLayers(layer: GeoLibreLayer): string[] {
     : [];
 }
 
-function getPMTilesNativeLayerId(nativeLayerIds: string[], fallbackId: string): string {
-  return nativeLayerIds.find((nativeLayerId) => nativeLayerId === fallbackId) ?? fallbackId;
+/**
+ * The id this source layer is already drawn under, or the one to draw it under. Both schemes are
+ * consulted — see `pmtilesControlLayerId` — or a control-added layer gets a second set over it.
+ */
+function getPMTilesNativeLayerId(
+  nativeLayerIds: string[],
+  sourceId: string,
+  sourceLayer: string,
+  kind: (typeof pmtilesLayerKinds)[number],
+): string {
+  const encoded = pmtilesVectorLayerId(sourceId, sourceLayer, kind);
+  if (nativeLayerIds.includes(encoded)) return encoded;
+  const raw = pmtilesControlLayerId(sourceId, sourceLayer, kind);
+  return nativeLayerIds.includes(raw) ? raw : encoded;
 }
 
 function isWaybackExternalRasterLayer(layer: GeoLibreLayer): boolean {
@@ -1931,6 +1950,7 @@ function applyVectorDataRenderLayers(
   const hasFeatureFilter =
     (Array.isArray(layer.timeFilter) && layer.timeFilter.length > 0) ||
     (Array.isArray(layer.embedFilter) && layer.embedFilter.length > 0) ||
+    compileQuickFilters(layer.quickFilters) !== null ||
     ruleBasedVisibilityFilter(layer.style) !== null;
 
   if (profile.hasPolygon) {
@@ -3629,10 +3649,16 @@ function moveLayer(map: maplibregl.Map, id: string, beforeId?: string): void {
   }
 }
 
+/** The external sources a set of layers draws from — what a removal must not pull out from under. */
+export function externalSourceIdsFor(layers: readonly GeoLibreLayer[]): Set<string> {
+  return new Set(layers.flatMap((layer) => getExternalSourceIds(layer)));
+}
+
 export function removeLayerFromMap(
   map: maplibregl.Map,
   layerId: string,
   layer?: GeoLibreLayer,
+  survivingSourceIds?: ReadonlySet<string>,
 ): void {
   // Drop cached paint-bridge state so a later layer reusing this id never
   // skips a fresh opacity/visibility apply against a new bridge.
@@ -3667,6 +3693,25 @@ export function removeLayerFromMap(
   ]) {
     if (map.getLayer(id)) map.removeLayer(id);
   }
+  // An archive's source layers share one source, so it goes only once nothing draws from it. The
+  // store half covers a layer that survives this sync; the map half covers its siblings inside one
+  // — deleting a folder removes its children in a single pass, and MapLibre reports removing a
+  // source still under a style layer as an error the user can do nothing about.
+  const stillInUse = survivingSourceIds ?? new Set<string>();
+  // Only an external source can be shared — the derived ids below are this layer's alone — so the
+  // map is asked at most once, and only when a shareable source is actually up for removal. Walked
+  // layer by layer rather than read from `getStyle()`, which serializes the whole document.
+  const shareable = new Set(getExternalSourceIds(layer));
+  let drawnSources: Set<string> | undefined;
+  const stillDrawn = (src: string): boolean => {
+    drawnSources ??= new Set(
+      map
+        .getLayersOrder()
+        .map((styleLayerId) => map.getLayer(styleLayerId)?.source)
+        .filter((source): source is string => typeof source === "string"),
+    );
+    return drawnSources.has(src);
+  };
   for (const src of [
     ...getExternalSourceIds(layer),
     sourceId(layerId),
@@ -3674,7 +3719,9 @@ export function removeLayerFromMap(
     invertedSourceId(layerId),
     generatorSourceId(layerId),
   ]) {
-    if (src && map.getSource(src)) map.removeSource(src);
+    if (!src || stillInUse.has(src) || !map.getSource(src)) continue;
+    if (shareable.has(src) && stillDrawn(src)) continue;
+    map.removeSource(src);
   }
   // Drop radius-override tracking for the removed layer's native ids so a
   // later layer reusing an id never inherits a stale restore.
@@ -3688,9 +3735,16 @@ export function removeLayerFromMap(
   unregisterGeoJsonVtSource(layerId);
   // Free an in-memory PMTiles archive (an offline basemap extract) this layer
   // referenced; a no-op for remote pmtiles:// URLs.
+  //
+  // Refcounted the way the shared source above is: a split archive is several layers reading one
+  // set of bytes, so freeing them when the first child goes would leave its siblings resolving
+  // tiles against a protocol entry that no longer exists.
   if (layer?.type === "pmtiles") {
     const url = stringSource(layer.source.url) ?? layer.sourcePath;
-    if (typeof url === "string") unregisterPMTilesArchive(url);
+    const heldByASibling = getExternalSourceIds(layer).some(
+      (src) => stillInUse.has(src) || stillDrawn(src),
+    );
+    if (typeof url === "string" && !heldByASibling) unregisterPMTilesArchive(url);
   }
 }
 

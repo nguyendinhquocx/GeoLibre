@@ -24,8 +24,10 @@ import {
   isStyleLibraryTargetLayer,
   canSaveLayerToLibrary,
   captureLayerLibraryEntry,
+  clearQuickFilterValues,
   createLayerLibraryEntryId,
   copyableLayerStyleKind,
+  hasActiveQuickFilter,
   pluginOwnsPaint,
   supportsBridgedOpacity,
   useAppStore,
@@ -143,6 +145,7 @@ import {
   Eye,
   EyeOff,
   FilePlus2,
+  Filter,
   Folder,
   FolderMinus,
   FolderOpen,
@@ -693,9 +696,11 @@ export function LayerPanel({
   }, [selectedPlanet, basemapStyleUrl]);
   const setLayerVisibility = useAppStore((s) => s.setLayerVisibility);
   const setLayerOpacity = useAppStore((s) => s.setLayerOpacity);
+  const setLayerQuickFilters = useAppStore((s) => s.setLayerQuickFilters);
   const reorderLayer = useAppStore((s) => s.reorderLayer);
   const moveLayer = useAppStore((s) => s.moveLayer);
   const moveLayersRelative = useAppStore((s) => s.moveLayersRelative);
+  const addGeoJsonLayer = useAppStore((s) => s.addGeoJsonLayer);
   const removeLayer = useAppStore((s) => s.removeLayer);
   const updateLayer = useAppStore((s) => s.updateLayer);
   const copyLayerStyle = useAppStore((s) => s.copyLayerStyle);
@@ -1210,6 +1215,38 @@ export function LayerPanel({
     setEditingLayerId(null);
     setEditingName("");
   };
+
+  /** Copy the editor-managed Sketches overlay into an ordinary project layer. */
+  const exportSketchesAsLayer = useCallback(
+    (layer: GeoLibreLayer, clearAfterExport = false) => {
+      if (
+        layer.metadata.sourceKind !== SKETCHES_SOURCE_KIND ||
+        !Array.isArray(layer.geojson?.features) ||
+        layer.geojson.features.length === 0 ||
+        (clearAfterExport && !canEditLayer(layer.id))
+      ) {
+        return;
+      }
+
+      const baseName = t("layers.exportedSketchesName");
+      const names = new Set(useAppStore.getState().layers.map((item) => item.name));
+      let name = baseName;
+      for (let suffix = 2; names.has(name); suffix += 1) name = `${baseName} ${suffix}`;
+
+      const id = addGeoJsonLayer(name, structuredClone(layer.geojson));
+      updateLayer(id, {
+        opacity: layer.opacity,
+        visible: layer.visible,
+        style: structuredClone(layer.style),
+      });
+      if (layer.groupId) moveLayersToGroup([id], layer.groupId);
+      if (clearAfterExport) {
+        updateLayer(layer.id, { geojson: { type: "FeatureCollection", features: [] } });
+      }
+      selectLayer(id);
+    },
+    [addGeoJsonLayer, canEditLayer, moveLayersToGroup, selectLayer, t, updateLayer],
+  );
 
   const clearRefreshStatusTimer = useCallback((layerId: string) => {
     const timer = refreshStatusTimersRef.current.get(layerId);
@@ -3426,6 +3463,16 @@ export function LayerPanel({
                           />
                         </span>
                       )}
+                      {/* A quick filter hides features, so say so on the row:
+                          without this a filtered layer reads as missing data. */}
+                      {hasActiveQuickFilter(layer) && (
+                        <span title={t("quickFilters.layerFilteredHint")}>
+                          <Filter
+                            className="h-3 w-3 shrink-0 text-primary"
+                            aria-label={t("quickFilters.layerFilteredHint")}
+                          />
+                        </span>
+                      )}
                       <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
                         {layerTypeLabel(layer, t)}
                       </span>
@@ -3645,6 +3692,22 @@ export function LayerPanel({
                               {t("layers.openStylePanel")}
                             </DropdownMenuItem>
                           )}
+                          {/* Clearing keeps the controls the author configured
+                              and only empties what they were answered with, so
+                              the next question does not start from scratch. */}
+                          {hasActiveQuickFilter(layer) && (
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                setLayerQuickFilters(
+                                  layer.id,
+                                  clearQuickFilterValues(layer.quickFilters),
+                                )
+                              }
+                            >
+                              <Filter className="me-2 h-3.5 w-3.5" />
+                              {t("quickFilters.clearAll")}
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             onSelect={() => {
                               addLayerGroup(undefined, moveIds);
@@ -3692,6 +3755,33 @@ export function LayerPanel({
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
+                          {layer.metadata.sourceKind === SKETCHES_SOURCE_KIND && (
+                            <>
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger
+                                  disabled={
+                                    !Array.isArray(layer.geojson?.features) ||
+                                    layer.geojson.features.length === 0
+                                  }
+                                >
+                                  <FilePlus2 className="h-3.5 w-3.5" />
+                                  {t("layers.exportSketchesAsLayer")}
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  <DropdownMenuItem onSelect={() => exportSketchesAsLayer(layer)}>
+                                    {t("layers.exportSketchesKeep")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={!layerEditable}
+                                    onSelect={() => exportSketchesAsLayer(layer, true)}
+                                  >
+                                    {t("layers.exportSketchesClear")}
+                                  </DropdownMenuItem>
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
                           {canMaterializeDuckDB && (
                             <>
                               <DropdownMenuItem

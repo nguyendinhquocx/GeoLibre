@@ -343,11 +343,117 @@ rewritten on every apply: `addedFields` lists the output columns the join added
 against the loaded layer set on project open, so a saved copy of the joined
 output self-heals if the join table changed.
 
+A vector layer may carry **quick filters** (Layer properties → Quick filters):
+data-driven filter controls that narrow what the layer draws without anyone
+writing a MapLibre expression. What persists is the *control state*, never the
+compiled output, so a saved filter can always be reopened and changed:
+
+```json
+{
+  "quickFilters": [
+    {
+      "id": "uuid",
+      "field": "state",
+      "kind": "categorical",
+      "values": ["OR", "WA"]
+    },
+    { "id": "uuid", "field": "pop", "kind": "range", "min": 200000, "max": null },
+    {
+      "id": "uuid",
+      "field": "founded",
+      "kind": "date",
+      "dateKind": "iso",
+      "start": "1840-01-01",
+      "end": "1900-12-31"
+    },
+    { "id": "uuid", "field": "name", "kind": "text", "operator": "contains", "text": "port" }
+  ]
+}
+```
+
+`kind` picks the control and the comparison: `categorical` (checkboxes over
+`values`), `range` (inclusive numeric `min`/`max`, either side `null` for an
+open bound), `date` (inclusive `YYYY-MM-DD` `start`/`end`), and `text`
+(case-insensitive `contains` / `startsWith` / `equals` against `text`).
+`dateKind` says how the field stores its timestamps — `iso` (the default,
+comparing the leading `YYYY-MM-DD` of ISO text), `epochMs`, or `epochS` — and
+`enabled: false` mutes a control without discarding what it was answered with.
+A control with nothing chosen places no constraint, so an emptied selection
+shows every feature rather than none.
+
+A quick filter narrows the *rendered* features, so a point layer using the
+cluster renderer is an exception worth noting: MapLibre clusters at the source,
+from the layer's whole dataset, so cluster bubbles and their counts describe the
+unfiltered data while clustering is on (as they already do for a Time Slider
+window or a rule filter).
+
+The compiled filter is combined with the transient `timeFilter` and
+`embedFilter` and with the rule-based renderer's hide-unmatched filter under a
+single `all`, so a host page's `setFilter`, a Time Slider window, and a user's
+quick filter narrow the layer together instead of replacing one another. Quick
+filters are also shown in the read-only `layout=viewer` chrome: filtering is a
+way of reading a shared map, not of editing it.
+
 When a `geojson` layer enables `style.simpleStyleEnabled`, individual features
 may override the layer style with [simplestyle-spec](https://github.com/mapbox/simplestyle-spec)
 properties (`stroke`, `fill`, `stroke-width`, `fill-opacity`, ...). GeoLibre also
 honors a per-feature `text-color` on text-marker points (used by the Annotations
 layer), falling back to `style.textColor` when a feature does not set it.
+
+A vector layer may carry a `popup` block (Style panel → Popup): the design for
+what a viewer sees when they click or hover a feature. It decides which fields
+appear, in what order, under what labels and value formatting, what titles the
+popup, and whether a hover tooltip follows the pointer:
+
+```json
+{
+  "popup": {
+    "click": true,
+    "hover": true,
+    "titleField": "name",
+    "showFeatureId": false,
+    "fields": [
+      {
+        "field": "pop_max",
+        "label": "Population",
+        "kind": "number",
+        "format": { "thousands": true, "suffix": " people" },
+        "hover": true
+      },
+      { "field": "region", "label": "Region" },
+      { "field": "homepage", "kind": "link", "format": { "linkLabel": "City website" } }
+    ]
+  }
+}
+```
+
+Every key is optional, and **a layer with no `popup` block keeps the historical
+behavior**: the layer name as the heading, then every property as a row. `click`
+defaults to `true` (`false` suppresses the Identify popup); `hover` defaults to
+`false`. `fields` narrows and orders what is shown — an absent or empty list
+means every visible field, in the data's own order — and a listed field the
+feature does not carry is skipped rather than printed empty. Each field's `kind`
+is one of `auto` (the untyped rendering: sanitized KML `description` markup and
+inline `data:image/*;base64` values as thumbnails), `text`, `number`, `date`,
+`link`, or `image`, and `format` carries `decimals`, `thousands`, `dateFormat`
+(`date` | `datetime` | `time` | `iso` | `year`), `prefix`, `suffix`, and
+`linkLabel`. `hover: true` on a field puts it in the tooltip's short subset; a
+tooltip with no flagged field shows the title alone, or nothing when the title
+is just the layer name.
+
+`titleField` leads the popup with a feature's own value instead of the layer
+name; `titleExpression` (a MapLibre expression source) wins over it, and both
+fall back to the layer name when they produce nothing. `bodyExpression`
+replaces the whole body — the field rows and the `id` row with them — with a
+sentence built from the feature's properties, so `showFeatureId` has no effect
+while one is set.
+
+`fieldVisibility` stays authoritative: a field marked `"hidden"` or
+`"excluded"` never reaches a popup, even when the `popup` block names it — the
+popup design selects from what is visible, it cannot re-expose what the author
+hid. That holds for the expressions too: `titleExpression` and `bodyExpression`
+are evaluated against the visible properties only, so a `["get", …]` cannot
+pull back a hidden column or one of GeoLibre's internal ones. Raster pixel identify goes through a different path and ignores `popup`.
 
 ## Layer types
 

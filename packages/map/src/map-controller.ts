@@ -45,6 +45,7 @@ import {
 } from "./geojson-loader";
 import {
   mbtilesStyleLayerIds,
+  externalSourceIdsFor,
   removeLayerFromMap,
   styleValuesEqual,
   syncLayer,
@@ -1242,9 +1243,11 @@ export class MapController {
     const nextIds = layers.map((l) => l.id);
     const nextIdSet = new Set(nextIds);
     const previousLayers = new Map(this.syncedLayers.map((layer) => [layer.id, layer]));
+    // Built once for the whole pass: every removal below asks the same question of the same list.
+    const survivingSourceIds = externalSourceIdsFor(layers);
     for (const id of this.layerIds) {
       if (!nextIdSet.has(id)) {
-        removeLayerFromMap(map, id, previousLayers.get(id));
+        removeLayerFromMap(map, id, previousLayers.get(id), survivingSourceIds);
       }
     }
 

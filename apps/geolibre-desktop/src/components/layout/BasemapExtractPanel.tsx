@@ -703,6 +703,9 @@ export function BasemapExtractPanel({ open, onClose, mapControllerRef }: Basemap
         setBasemapStyleUrl(registerOfflineBasemapStyle(layerId, style));
         trackStyledBasemap(layerId, `${layerId}.pmtiles`);
       } else {
+        // One layer, deliberately: an extract is a backdrop to draw over, not the thing being
+        // inspected, so it stays a single row rather than being split per source layer the way an
+        // archive added from the PMTiles control or a STAC asset is.
         addLayer(
           createPMTilesStoreLayer({
             id: layerId,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { syncLayer } from "../packages/map/src/layer-sync";
 import {
+  createPMTilesArchiveLayers,
   createPMTilesStoreLayer,
   type PMTilesStoreLayerOptions,
 } from "../packages/map/src/pmtiles-layer";
@@ -118,5 +119,89 @@ describe("syncing a layer from createPMTilesStoreLayer", () => {
       "layer-1-water_20lines-line",
       "layer-1-water_20lines-circle",
     ]);
+  });
+});
+
+// An archive the PMTiles control added and GeoLibre kept whole carries the ids the *control* built,
+// which spell the source layer's name raw where this package percent-encodes it. Recognising only
+// the encoded form, the sync decides the source layer has no native layer and adds a second trio on
+// top of the control's — drawn twice, and only the control's copy answers the panel.
+describe("syncing a layer that carries the PMTiles control's own ids", () => {
+  it("draws under the control's ids for a name it spells differently", () => {
+    const sourceLayer = "zones residentielles";
+    const layer = createPMTilesStoreLayer({
+      ...archive,
+      sourceLayers: [sourceLayer],
+      nativeLayerIds: ["fill", "line", "circle"].map((kind) => `layer-1-${sourceLayer}-${kind}`),
+    });
+    const { map, addedLayers } = makeMapStub();
+
+    syncLayer(map as never, layer);
+
+    assert.deepEqual(
+      addedLayers.map((added) => added.id),
+      ["fill", "line", "circle"].map((kind) => `layer-1-${sourceLayer}-${kind}`),
+      "no encoded second set beside the control's",
+    );
+  });
+
+  it("still derives encoded ids when the layer carries none of its own", () => {
+    const sourceLayer = "zones residentielles";
+    const layer = createPMTilesStoreLayer({ ...archive, sourceLayers: [sourceLayer] });
+    const { map, addedLayers } = makeMapStub();
+
+    syncLayer(map as never, layer);
+
+    assert.deepEqual(
+      addedLayers.map((added) => added.id),
+      ["fill", "line", "circle"].map((kind) => `layer-1-zones_20residentielles-${kind}`),
+    );
+  });
+});
+
+// A split archive draws from the same MapLibre layers the control made, so each part must carry the
+// ids that name *its* source layer. Deriving encoded ones instead puts a second trio on top of the
+// control's, and only the control's copy answers the panel.
+describe("syncing one part of a split archive the control added", () => {
+  it("draws under the control's ids for the source layer that part holds", () => {
+    const names = ["roads", "zones residentielles"];
+    const parts = createPMTilesArchiveLayers({
+      ...archive,
+      sourceLayers: names,
+      nativeLayerIds: names.flatMap((name) =>
+        ["fill", "line", "circle"].map((kind) => `layer-1-${name}-${kind}`),
+      ),
+    });
+    assert.equal(parts.length, 2, "the archive did split");
+
+    const added = parts.flatMap((part) => {
+      const { map, addedLayers } = makeMapStub();
+      syncLayer(map as never, part);
+      return addedLayers.map((layer) => layer.id);
+    });
+
+    assert.deepEqual(
+      added,
+      names.flatMap((name) => ["fill", "line", "circle"].map((kind) => `layer-1-${name}-${kind}`)),
+      "each part took the control's own ids, and none derived an encoded second set",
+    );
+  });
+
+  it("derives ids for a part the control never drew", () => {
+    const parts = createPMTilesArchiveLayers({
+      ...archive,
+      sourceLayers: ["roads", "water"],
+      nativeLayerIds: ["fill", "line", "circle"].map((kind) => `layer-1-roads-${kind}`),
+    });
+    const water = parts.find((part) => part.name === "water")!;
+    const { map, addedLayers } = makeMapStub();
+
+    syncLayer(map as never, water);
+
+    assert.deepEqual(
+      addedLayers.map((layer) => layer.id),
+      ["fill", "line", "circle"].map((kind) => `layer-1-water-${kind}`),
+      "derived from the archive's source, not borrowed from `roads`",
+    );
   });
 });

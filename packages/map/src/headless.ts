@@ -9,7 +9,7 @@
  */
 import type { GeoLibreLayer } from "@geolibre/core";
 import type * as maplibregl from "maplibre-gl";
-import { removeLayerFromMap, syncLayer } from "./layer-sync";
+import { externalSourceIdsFor, removeLayerFromMap, syncLayer } from "./layer-sync";
 import { installMapTransformCompat as _installMapTransformCompat } from "./map-transform-compat";
 export { installMapTransformCompat } from "./map-transform-compat";
 
@@ -36,8 +36,13 @@ export function createLayerSync(map: maplibregl.Map): LayerSync {
     sync(layers) {
       const nextIds = new Set(layers.map((layer) => layer.id));
       const previousById = new Map(synced.map((layer) => [layer.id, layer]));
+      // Every layer in `layers` is on the map when this sync ends — including the ones the reorder
+      // loop below takes off and puts straight back — so a source any of them draws from stays.
+      const survivingSourceIds = externalSourceIdsFor(layers);
       for (const previous of synced) {
-        if (!nextIds.has(previous.id)) removeLayerFromMap(map, previous.id, previous);
+        if (!nextIds.has(previous.id)) {
+          removeLayerFromMap(map, previous.id, previous, survivingSourceIds);
+        }
       }
 
       // Input order is bottom-to-top: each addLayer without an anchor lands on
@@ -60,7 +65,7 @@ export function createLayerSync(map: maplibregl.Map): LayerSync {
       }
       for (let index = rebuildFrom; index < layers.length; index += 1) {
         const previous = previousById.get(layers[index].id);
-        if (previous) removeLayerFromMap(map, layers[index].id, previous);
+        if (previous) removeLayerFromMap(map, layers[index].id, previous, survivingSourceIds);
       }
 
       for (const layer of layers) syncLayer(map, layer);
