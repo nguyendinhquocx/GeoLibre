@@ -73,6 +73,30 @@ m.to_project()["mapView"]["center"]
 
 ## API
 
+### Dash
+
+Install the optional Dash integration with `pip install "geolibre[dash]"`.
+`DashMap` is a Dash component and exposes map interactions as callback
+properties while retaining GeoLibre's existing map implementation:
+
+```python
+from dash import Dash, Input, Output, html
+from geolibre import DashMap
+
+app = Dash(__name__)
+m = DashMap(center=(-119.0, 39.8), zoom=12, basemap="dark", height="800px")
+app.layout = html.Div([m, html.Div(id="click-output")])
+
+@app.callback(Output("click-output", "children"), Input(m, "clickData"))
+def show_click(click_data):
+    return "Click the map" if click_data is None else str(click_data)
+```
+
+The click payload has the form `{"lngLat": {"lng": ..., "lat": ...},
+"features": [...]}`. `selectionData` is also available for Dash callbacks;
+`viewData` is reserved for future camera-event support. The existing
+`Map.on_click()` API is unchanged.
+
 | Method | Description |
 | --- | --- |
 | `Map(center, zoom, basemap=, height=, layout=, theme=)` | Create a map. `layout` is `"embed"`, `"full"`, or `"maponly"`. |

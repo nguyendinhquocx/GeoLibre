@@ -6,6 +6,7 @@ import {
 import { buildProjectEgressSnapshot } from "../lib/build-project-snapshot";
 import {
   addRasterToMap,
+  setRasterRenderEngine,
   addZarrRasterLayer,
   buildSelectorTimeBinding,
   queryZarrLayer,
@@ -45,6 +46,7 @@ import {
   maplibreNaturalEarthPlugin,
   maplibreHuggingFacePlugin,
   maplibreGeoLensPlugin,
+  maplibreVantorPlugin,
   maplibreOvertureMapsPlugin,
   queryOvertureFeatures,
   maplibreGraticulePlugin,
@@ -91,6 +93,7 @@ import {
 import type { MapController } from "@geolibre/map";
 import type {
   GeoLibreCogLayerOptions,
+  GeoLibreCogRenderEngine,
   GeoLibreDeckGL,
   GeoLibreExternalNativeLayerRegistration,
   GeoLibreFileDialogOptions,
@@ -192,6 +195,7 @@ manager.registerAll([
   maplibreNasaEarthdataPlugin,
   maplibreEnviroAtlasPlugin,
   maplibreNationalMapPlugin,
+  maplibreVantorPlugin,
   maplibreEarthdataGisPlugin,
   maplibreOpenAerialMapPlugin,
   maplibreArcGisHubPlugin,
@@ -954,6 +958,7 @@ export function createAppAPI(mapControllerRef?: RefObject<MapController | null>)
         ...(options?.beforeLayerId ? { beforeId: options.beforeLayerId } : {}),
       });
     },
+    setCogRenderEngine: (engine: GeoLibreCogRenderEngine) => setRasterRenderEngine(api, engine),
     // Zarr goes through the components plugin's shared @carbonplan/zarr-layer
     // control for the same reason as addCogLayer: the host owns the renderer, so
     // a plugin does not bundle (and fail to activate) a second copy.

@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 import { DEFAULT_LAYER_STYLE, type LayerStyle } from "@geolibre/core";
 import type { FeatureCollection } from "geojson";
 import { buildMapboxStyle, type ExportableLayer } from "../packages/map/src/mapbox-style-export";
-import { applyMapboxStyleImport, parseMapboxStyle } from "../packages/map/src/mapbox-style-import";
+import { v8 } from "@maplibre/maplibre-gl-style-spec";
+import {
+  applyMapboxStyleImport,
+  parseMapboxStyle,
+  SPEC_DEFAULT_COLOR,
+} from "../packages/map/src/mapbox-style-import";
 
 function style(patch: Partial<LayerStyle> = {}): LayerStyle {
   return { ...DEFAULT_LAYER_STYLE, ...patch };
@@ -1156,5 +1161,134 @@ describe("switched-off else rule round-trip (#1312)", () => {
     const result = applyMapboxStyleImport(DEFAULT_LAYER_STYLE, imported);
     assert.equal(result.vectorStyleMode, "rule-based");
     assert.equal(result.vectorRules.find((rule) => rule.isElse)?.enabled, undefined);
+  });
+});
+
+// #2125: dropping the whole stack over one colourless class imported a sixteen-class fault style
+// as a single colour.
+describe("a stacked style whose class layer names no colour", () => {
+  const stacked = (second: Record<string, unknown>) =>
+    parseMapboxStyle({
+      layers: [
+        {
+          id: "a",
+          type: "line",
+          "source-layer": "faults",
+          paint: { "line-color": "#e60000" },
+          filter: ["==", ["get", "class"], "a"],
+        },
+        {
+          id: "b",
+          type: "line",
+          "source-layer": "faults",
+          paint: second,
+          filter: ["==", ["get", "class"], "b"],
+        },
+      ],
+    } as never);
+
+  it("gives it the spec's default and keeps the rest of the rules", () => {
+    const result = applyMapboxStyleImport(DEFAULT_LAYER_STYLE, stacked({ "line-width": 2 }));
+
+    assert.equal(result.vectorStyleMode, "rule-based");
+    assert.deepEqual(
+      result.vectorRules.filter((rule) => !rule.isElse).map((rule) => [rule.label, rule.color]),
+      [
+        ["b", "#000000"],
+        ["a", "#e60000"],
+      ],
+      "the colourless class is drawn black, and the coloured one keeps its colour",
+    );
+  });
+
+  // An exporter writing `null` means the same thing as omitting the property — MapLibre reads both
+  // as unset and paints the default — so it must not cost the stack its rules.
+  it("treats an explicit null colour as naming none", () => {
+    const result = applyMapboxStyleImport(DEFAULT_LAYER_STYLE, stacked({ "line-color": null }));
+
+    assert.equal(result.vectorStyleMode, "rule-based");
+    assert.deepEqual(
+      result.vectorRules.filter((rule) => !rule.isElse).map((rule) => [rule.label, rule.color]),
+      [
+        ["b", "#000000"],
+        ["a", "#e60000"],
+      ],
+    );
+  });
+
+  // Absent is not the same as present-and-not-a-flat-colour: an expression is a colour this
+  // renderer cannot carry, and flattening it to black would import the style wrong rather than
+  // declining to import it as rules.
+  for (const [label, paint] of [
+    ["a data expression", { "line-color": ["get", "colour"] }],
+    ["a zoom interpolation", { "line-color": ["interpolate", ["linear"], ["zoom"], 0, "#fff"] }],
+  ] as const) {
+    it(`still declines the stack when a class carries ${label}`, () => {
+      const result = applyMapboxStyleImport(DEFAULT_LAYER_STYLE, stacked(paint));
+
+      assert.notEqual(result.vectorStyleMode, "rule-based");
+    });
+  }
+
+  // The spec's default only applies where nothing else paints the feature: `line-color`'s `requires`
+  // excludes `line-pattern`, and a gradient or a fill pattern takes over the same way. Reading these
+  // as black would import an ArcGIS hatch class as a solid colour.
+  for (const [label, paint] of [
+    ["a line pattern", { "line-pattern": "hatch" }],
+    [
+      "a line gradient",
+      { "line-gradient": ["interpolate", ["linear"], ["line-progress"], 0, "#fff"] },
+    ],
+  ] as const) {
+    it(`declines the stack when a colourless class carries ${label}`, () => {
+      const result = applyMapboxStyleImport(DEFAULT_LAYER_STYLE, stacked(paint));
+
+      assert.equal(result.vectorStyleMode, "single", "the pattern is not imported as black");
+      assert.equal(result.strokeColor, "#e60000", "and the first class is imported as before");
+    });
+  }
+
+  // A class naming both keeps the colour it names: the pattern check only decides what an *absent*
+  // colour means, so a style that combined before still does.
+  it("still reads a colour that a class names alongside a pattern", () => {
+    const result = applyMapboxStyleImport(
+      DEFAULT_LAYER_STYLE,
+      stacked({ "line-color": "#00ff00", "line-pattern": "hatch" }),
+    );
+
+    assert.equal(result.vectorStyleMode, "rule-based");
+    assert.deepEqual(
+      result.vectorRules.filter((rule) => !rule.isElse).map((rule) => [rule.label, rule.color]),
+      [
+        ["b", "#00ff00"],
+        ["a", "#e60000"],
+      ],
+    );
+  });
+});
+
+// The spec is a dependency here but not of `@geolibre/map`, so the mirrored constant is checked
+// against it rather than trusted.
+describe("the colour a layer with no colour of its own is drawn in", () => {
+  it("is what the style spec says for every property this importer stacks", () => {
+    for (const [type, property] of [
+      ["fill", "fill-color"],
+      ["line", "line-color"],
+      ["circle", "circle-color"],
+    ] as const) {
+      assert.equal(
+        v8[`paint_${type}`]?.[property]?.default,
+        SPEC_DEFAULT_COLOR,
+        `${property} still defaults to the colour mapbox-style-import assumes`,
+      );
+    }
+  });
+
+  it("is not what the spec says a patterned line is drawn in", () => {
+    assert.deepEqual(
+      v8.paint_line?.["line-color"]?.requires,
+      [{ "!": "line-pattern" }],
+      "line-pattern still overrides line-color, so COLOR_OVERRIDING_PAINT must still list it",
+    );
   });
 });

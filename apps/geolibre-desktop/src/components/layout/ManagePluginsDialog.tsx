@@ -46,7 +46,7 @@ import {
   uninstallPluginArchiveFromFile,
   upgradeExternalPlugin,
 } from "../../hooks/usePlugins";
-import type { InstalledWebPlugin } from "../../lib/external-plugins";
+import { pluginManifestUrlsForIds, type InstalledWebPlugin } from "../../lib/external-plugins";
 import {
   fetchPluginRegistry,
   isNewerVersion,
@@ -218,7 +218,13 @@ export function ManagePluginsDialog({
   const isUpgradeable = useCallback(
     (entry: PluginRegistryEntry) => {
       const loaded = loadedVersions.get(entry.id);
-      return isInstalled(entry) && loaded !== undefined && isNewerVersion(entry.version, loaded);
+      const ownsLoadedPlugin = pluginManifestUrlsForIds([entry.id]).includes(entry.manifestUrl);
+      return (
+        isInstalled(entry) &&
+        ownsLoadedPlugin &&
+        loaded !== undefined &&
+        isNewerVersion(entry.version, loaded)
+      );
     },
     [isInstalled, loadedVersions],
   );
@@ -381,7 +387,15 @@ export function ManagePluginsDialog({
     setSettingsError(null);
   }, [newManifestUrl, installUrl]);
 
-  const entries = registry.status === "ready" ? registry.entries : EMPTY_ENTRIES;
+  const registryEntries = registry.status === "ready" ? registry.entries : EMPTY_ENTRIES;
+  // A registry entry whose id is already provided by GeoLibre (or by a bundled
+  // drop-in) must not offer an Install button: the loader would reject it as an
+  // id collision. Keep entries that were previously installed by URL visible
+  // so users can remove that old installation after a plugin moves built-in.
+  const entries = useMemo(
+    () => registryEntries.filter((entry) => isInstalled(entry) || !loadedVersions.has(entry.id)),
+    [isInstalled, loadedVersions, registryEntries],
+  );
   const installedCount = useMemo(() => entries.filter(isInstalled).length, [entries, isInstalled]);
   const upgradeableCount = useMemo(
     () => entries.filter(isUpgradeable).length,

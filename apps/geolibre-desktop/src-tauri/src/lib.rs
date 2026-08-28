@@ -4019,6 +4019,27 @@ fn linux_uses_nvidia_renderer(
         || nvidia_is_primary_gpu(drm_root)
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+enum LinuxDmabufWorkaround {
+    Disable,
+    ForceShm,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_dmabuf_workaround(
+    webkit_version: (u32, u32),
+    uses_nvidia: bool,
+) -> Option<LinuxDmabufWorkaround> {
+    if webkit_version < (2, 48) || (uses_nvidia && webkit_version < (2, 52)) {
+        Some(LinuxDmabufWorkaround::Disable)
+    } else if uses_nvidia {
+        Some(LinuxDmabufWorkaround::ForceShm)
+    } else {
+        None
+    }
+}
+
 /// JavaScriptCore options that keep WebKitGTK's WebAssembly tier-up off its
 /// OSR-entry path (see `configure_linux_webkit`). Both are needed: the first
 /// covers OSR entry out of the WebAssembly interpreter, the second the loop
@@ -4073,12 +4094,12 @@ fn configure_linux_webkit() {
     // graphics stacks, leaving the Tauri window blank, so it used to be
     // disabled here unconditionally. Disabling it also forces a slow readback
     // compositing path that visibly drops MapLibre pan/zoom FPS, and the
-    // allocation bugs are fixed on most current graphics stacks, so keep the
-    // workaround only for versions older than 2.48 and Nvidia renderers, where
-    // GBM allocation failures still occur on current WebKitGTK. An explicit
-    // user/distributor value always wins (per WebKit semantics, "0" keeps
-    // DMABUF on and any other value disables it). Only set the default when
-    // unset.
+    // allocation bugs are fixed on most current graphics stacks. Nvidia's GBM
+    // allocation still fails on current drivers, but WebKitGTK 2.52 added a
+    // modern shared-memory fallback that avoids both the blank window and the
+    // slow legacy renderer selected by WEBKIT_DISABLE_DMABUF_RENDERER. Keep the
+    // legacy escape hatch for older WebKitGTK. An explicit user/distributor
+    // value always wins.
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         let webkit_version = unsafe {
             (
@@ -4088,14 +4109,23 @@ fn configure_linux_webkit() {
         };
         let prime_offload = std::env::var_os("__NV_PRIME_RENDER_OFFLOAD");
         let glx_vendor = std::env::var_os("__GLX_VENDOR_LIBRARY_NAME");
-        if webkit_version < (2, 48)
-            || linux_uses_nvidia_renderer(
+        let uses_nvidia = webkit_version >= (2, 48)
+            && linux_uses_nvidia_renderer(
                 Path::new("/sys/class/drm"),
                 prime_offload.as_deref(),
                 glx_vendor.as_deref(),
-            )
-        {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            );
+        match linux_dmabuf_workaround(webkit_version, uses_nvidia) {
+            Some(LinuxDmabufWorkaround::Disable) => {
+                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            }
+            Some(LinuxDmabufWorkaround::ForceShm) => {
+                if std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none() {
+                    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "0");
+                    std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
+                }
+            }
+            None => {}
         }
     }
     // WebAssembly tier-up kills the renderer on x86-64 CPUs without AVX
@@ -4161,8 +4191,9 @@ mod tests {
     };
     #[cfg(target_os = "linux")]
     use super::{
-        cpu_supports_avx, jsc_option_is_off, linux_needs_wasm_osr_workaround,
-        linux_uses_nvidia_renderer, nvidia_is_primary_gpu, WASM_OSR_ENTRY_JSC_OPTIONS,
+        cpu_supports_avx, jsc_option_is_off, linux_dmabuf_workaround,
+        linux_needs_wasm_osr_workaround, linux_uses_nvidia_renderer, nvidia_is_primary_gpu,
+        LinuxDmabufWorkaround, WASM_OSR_ENTRY_JSC_OPTIONS,
     };
     // Everything these imports feed is compiled out of the `mas` build, so the
     // tests that exercise it (and their scaffolding) are gated with it.
@@ -4297,6 +4328,24 @@ mod tests {
             Some(OsStr::new("0")),
             Some(OsStr::new("mesa")),
         ));
+    }
+
+    #[cfg(all(target_os = "linux", not(feature = "mas")))]
+    #[test]
+    fn selects_modern_shm_fallback_for_current_nvidia_webkitgtk() {
+        assert_eq!(
+            linux_dmabuf_workaround((2, 47), false),
+            Some(LinuxDmabufWorkaround::Disable)
+        );
+        assert_eq!(
+            linux_dmabuf_workaround((2, 51), true),
+            Some(LinuxDmabufWorkaround::Disable)
+        );
+        assert_eq!(
+            linux_dmabuf_workaround((2, 52), true),
+            Some(LinuxDmabufWorkaround::ForceShm)
+        );
+        assert_eq!(linux_dmabuf_workaround((2, 52), false), None);
     }
 
     // Regression for issue #2087: on an x86-64 CPU without AVX, WebKitGTK's

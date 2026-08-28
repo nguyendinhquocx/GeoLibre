@@ -1,6 +1,6 @@
 {
   "name": "@geolibre/plugins",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -11,6 +11,7 @@
     "./geo-editor-geometry": "./src/plugins/geo-editor-geometry.ts",
     "./local-netcdf": "./src/plugins/local-netcdf.ts",
     "./maplibre-graticule": "./src/plugins/maplibre-graticule.ts",
+    "./maplibre-vantor/style.css": "./src/plugins/vantor/styles.css",
     "./raster-symbology": "./src/plugins/raster-symbology.ts",
     "./right-panel-registry": "./src/right-panel-registry.ts",
     "./zarr-time-axis": "./src/plugins/zarr-time-axis.ts"
@@ -38,7 +39,7 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@turf/union": "^7.4.0",
     "a5-js": "^0.9.0",
-    "cog-tiler-wasm": "^0.3.4",
+    "cog-tiler-wasm": "^0.3.5",
     "dggal": "^0.0.6",
     "geotiff": "^3.0.5",
     "geotiff-geokeys-to-proj4": "^2026.8.16",
@@ -63,7 +64,7 @@
     "maplibre-gl-national-map": "^0.1.1",
     "maplibre-gl-overture-maps": "^0.3.2",
     "maplibre-gl-planetary-computer": "^0.4.0",
-    "maplibre-gl-raster": "^0.14.8",
+    "maplibre-gl-raster": "^0.14.10",
     "maplibre-gl-splat": "^0.2.8",
     "maplibre-gl-streetview": "^0.7.0",
     "maplibre-gl-swipe": "^0.11.2",

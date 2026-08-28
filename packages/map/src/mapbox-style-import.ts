@@ -364,6 +364,19 @@ function isLegacyLayerFilter(filter: unknown[]): boolean {
   );
 }
 
+/** The spec default for `fill-color`, `line-color` and `circle-color`. Mirrored; a test guards it. */
+export const SPEC_DEFAULT_COLOR = "#000000";
+
+/**
+ * What draws the feature instead of each colour, so that colour's default does not apply. The spec
+ * says so for `line-pattern` (`line-color`'s `requires`); the other two on renderer behaviour.
+ */
+const COLOR_OVERRIDING_PAINT: Record<string, string[]> = {
+  "fill-color": ["fill-pattern"],
+  "line-color": ["line-pattern", "line-gradient"],
+  "circle-color": [],
+};
+
 /**
  * Combine a stack of filtered, flat-color Mapbox layers into GeoLibre rules.
  * Mapbox draws later layers over earlier ones, so reverse the stack to preserve
@@ -375,13 +388,25 @@ function parseStackedLayerColors(
   paintProperty: string,
 ): ParsedColor | null {
   if (layers.length < 2) return null;
-  const entries = layers.map((layer) => ({
-    id: asString(layer.id),
-    filter: asArray(layer.filter),
-    color: asString((layer.paint ?? {})[paintProperty]),
-    minZoom: clampZoom(layer.minzoom),
-    maxZoom: clampZoom(layer.maxzoom),
-  }));
+  const entries = layers.map((layer) => {
+    const paint = layer.paint ?? {};
+    const rawColor = paint[paintProperty];
+    return {
+      id: asString(layer.id),
+      filter: asArray(layer.filter),
+      // No colour named (absent or `null`) means the spec default, unless something else paints the
+      // feature. A colour named as anything but a flat string still disqualifies the stack. Nothing
+      // here reads `layout.visibility` — hidden classes are a separate, pre-existing bug.
+      color:
+        rawColor == null
+          ? (COLOR_OVERRIDING_PAINT[paintProperty] ?? []).some((key) => paint[key] != null)
+            ? null
+            : SPEC_DEFAULT_COLOR
+          : asString(rawColor),
+      minZoom: clampZoom(layer.minzoom),
+      maxZoom: clampZoom(layer.maxzoom),
+    };
+  });
   if (
     entries.some(
       (entry) => !entry.filter || isLegacyLayerFilter(entry.filter) || entry.color === null,

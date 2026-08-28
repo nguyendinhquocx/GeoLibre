@@ -47,6 +47,14 @@ export {
   kernelDensityTool,
   emergingHotSpotTool,
   emergingPattern,
+  compositeScoreTool,
+  computeCompositeScores,
+  normalizeFieldValues,
+  numericFieldValue,
+  type CompositeAggregation,
+  type CompositeNullHandling,
+  type CompositeScoreOptions,
+  type CompositeScoreResult,
 } from "./statistics-tools";
 export {
   H3_TOOLS,
@@ -176,8 +184,10 @@ export {
   type FocalStatistic,
 } from "./raster-client";
 export {
+  LOCAL_SIDECAR_URL,
   checkSidecarHealth,
   setSidecarAuthToken,
+  setSidecarFetch,
   clearRemoteWhiteboxCatalogSnapshotCache,
   fetchConversionJob,
   fetchConversionStatus,

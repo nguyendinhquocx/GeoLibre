@@ -240,6 +240,7 @@ export {
 export { isRecoverableNonTiledRasterError } from "./plugins/non-tiled-raster-error";
 export {
   addRasterToMap,
+  setRasterRenderEngine,
   prepareRasterControl,
   applyRasterLayerOrder,
   closeRasterLayerPanel,
@@ -551,6 +552,7 @@ export {
   type GeoLensLabels,
   type GeoLensSampleServer,
 } from "./plugins/maplibre-geolens";
+export { maplibreVantorPlugin, VANTOR_PLUGIN_ID } from "./plugins/maplibre-vantor";
 export {
   buildListObjectsUrl,
   buildObjectUrl,
