@@ -211,6 +211,8 @@ export function useEmbedApi(
     const runCommand = async (command: EmbedCommand): Promise<unknown> => {
       switch (command.type) {
         case "loadProject":
+          if (!useAppStore.getState().deploymentCapabilities.has("project:edit"))
+            throw new Error("Missing project:edit capability");
           await loadProjectFromUrl(command.url);
           return;
         case "setView":
@@ -220,6 +222,8 @@ export function useEmbedApi(
           applyHighlight(command);
           return;
         case "openTool":
+          if (!useAppStore.getState().deploymentCapabilities.has("processing:run"))
+            throw new Error("Missing processing:run capability");
           applyOpenTool(command);
           return;
         case "setLayerVisibility":
@@ -241,11 +245,15 @@ export function useEmbedApi(
         }
         case "addLayer": {
           const state = useAppStore.getState();
+          if (!state.deploymentCapabilities.has("data:add"))
+            throw new Error("Missing data:add capability");
           const layer = buildEmbedLayer(command.spec, state.layers);
           state.addLayer(layer, command.spec.beforeId);
           return layer.id;
         }
         case "addData": {
+          if (!useAppStore.getState().deploymentCapabilities.has("data:add"))
+            throw new Error("Missing data:add capability");
           const abort = new AbortController();
           dataLoadAborts.add(abort);
           const result = await queueDataLoad(() =>
@@ -273,6 +281,8 @@ export function useEmbedApi(
           return result.layerIds;
         }
         case "exportImage": {
+          if (!useAppStore.getState().deploymentCapabilities.has("export:data"))
+            throw new Error("Missing export:data capability");
           const map = controller()?.getMap();
           if (!map) throw new Error("The map is not ready yet");
           return captureMapImage(map).image.toDataURL("image/png");

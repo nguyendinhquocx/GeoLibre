@@ -66,6 +66,14 @@ ARG VITE_GEOLIBRE_COLLAB_URL=
 # see docs/self-hosting.md. Build-time only: the flag is baked into the bundle,
 # so it cannot be flipped at RUN time the way the embed/share/collab URLs can.
 ARG GEOLIBRE_NO_EXTERNAL_CDN=
+# Comma-separated list of the deployment capabilities the interface may offer
+# (project:edit, data:add, processing:run, export:data, plugins:install,
+# settings:manage), or "none" to grant nothing — for a kiosk or classroom
+# instance. Unset grants everything, so an existing build is unchanged. See
+# docs/deployment-capabilities.md. Build-time only: unlike the embed/share/
+# collab URLs, the entrypoint does not yet publish this into the runtime
+# config, so it cannot be flipped with -e on a prebuilt image (issue #1673).
+ARG VITE_GEOLIBRE_CAPABILITIES=
 ENV GEOLIBRE_APP_BASE=${GEOLIBRE_APP_BASE}
 ENV VITE_GEE_OAUTH_CLIENT_ID=${VITE_GEE_OAUTH_CLIENT_ID}
 ENV VITE_MAPILLARY_ACCESS_TOKEN=${VITE_MAPILLARY_ACCESS_TOKEN}
@@ -74,6 +82,7 @@ ENV VITE_GEOLIBRE_EMBED_ORIGINS=${VITE_GEOLIBRE_EMBED_ORIGINS}
 ENV VITE_GEOLIBRE_SHARE_URL=${VITE_GEOLIBRE_SHARE_URL}
 ENV VITE_GEOLIBRE_COLLAB_URL=${VITE_GEOLIBRE_COLLAB_URL}
 ENV GEOLIBRE_NO_EXTERNAL_CDN=${GEOLIBRE_NO_EXTERNAL_CDN}
+ENV VITE_GEOLIBRE_CAPABILITIES=${VITE_GEOLIBRE_CAPABILITIES}
 
 # The `prebuild` hook of apps/geolibre-desktop runs scripts/build-jupyterlite.mjs,
 # which generates the site the Notebook panel embeds. That script is best-effort

@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useDesktopSettingsStore } from "../../../hooks/useDesktopSettings";
+import { projectMenuItemCapability } from "../../../lib/deployment-gates";
 import { isMenuItemVisible } from "../../../lib/ui-profile";
 import type { ShareHostStatus } from "../../../lib/share-geolibre";
 import { formatRecentProjectTime, type ToolbarChrome } from "./constants";
@@ -101,8 +102,16 @@ export function ProjectMenu({
   const forgetRecentProject = useAppStore((s) => s.forgetRecentProject);
   const clearRecentProjects = useAppStore((s) => s.clearRecentProjects);
   const setStorymapPanelOpen = useAppStore((s) => s.setStorymapPanelOpen);
+  const deploymentCapabilities = useAppStore((s) => s.deploymentCapabilities);
   const uiProfile = useDesktopSettingsStore((s) => s.desktopSettings.uiProfile);
-  const show = (id: string) => isMenuItemVisible(uiProfile, id);
+  // Two independent gates, and the deployment's comes first: the interface
+  // profile is a decluttering preference the user can undo, while a capability
+  // the deployment withheld is not on offer at all (issue #1673).
+  const show = (id: string) => {
+    const required = projectMenuItemCapability(id);
+    if (required && !deploymentCapabilities.has(required)) return false;
+    return isMenuItemVisible(uiProfile, id);
+  };
   // A deployment that turned sharing off should not advertise it; one that named
   // a host we rejected should say so rather than leave the user wondering.
   const shareHidden = shareHostStatus === "disabled";

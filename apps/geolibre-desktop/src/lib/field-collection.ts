@@ -78,6 +78,25 @@ export function isCollectionLayer(layer: CollectionLayerLike): boolean {
   return layer.type === "geojson" && layer.metadata?.[FIELD_COLLECTION_FLAG] === true;
 }
 
+/**
+ * Pick the capture target when the Field Collection dialog opens.
+ *
+ * The target belongs to the collection *session*, not to the dialog, so a layer
+ * the user switched to earlier survives closing and reopening the dialog.
+ *
+ * `currentId` distinguishes three states that the dialog's own `""` cannot:
+ * `null` means the session has no target yet, so fall back to the first
+ * collection layer; `""` means the user deliberately chose the "new layer"
+ * setup step and must be left there even when the project has layers to offer;
+ * an id is kept if it is still a collection layer, and falls back to the first
+ * one when it has been removed.
+ */
+export function resolveTargetLayer(collectionLayerIds: string[], currentId: string | null): string {
+  if (currentId === "") return "";
+  if (currentId && collectionLayerIds.includes(currentId)) return currentId;
+  return collectionLayerIds[0] ?? "";
+}
+
 /** Read a layer's stored collection schema, defaulting to an empty schema. */
 export function getSchema(layer: CollectionLayerLike): CollectionSchema {
   const raw = layer.metadata?.[COLLECTION_SCHEMA_KEY];

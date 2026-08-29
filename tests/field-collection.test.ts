@@ -21,6 +21,7 @@ import {
   minVertices,
   parseOptions,
   PHOTO_PROPERTY,
+  resolveTargetLayer,
   slugifyKey,
   validateForm,
 } from "../apps/geolibre-desktop/src/lib/field-collection";
@@ -206,6 +207,33 @@ describe("collection layer helpers", () => {
     assert.deepEqual(getSchema({ type: "geojson", metadata: { collectionSchema: 42 } }), {
       fields: [],
     });
+  });
+});
+
+describe("resolveTargetLayer", () => {
+  it("keeps the session's current target across reopening the dialog", () => {
+    assert.equal(resolveTargetLayer(["culverts", "water", "signs"], "water"), "water");
+  });
+
+  it("falls back to the first collection layer when there is no target yet", () => {
+    assert.equal(resolveTargetLayer(["culverts", "water"], null), "culverts");
+  });
+
+  it("falls back to the first layer when the target was removed", () => {
+    assert.equal(resolveTargetLayer(["culverts", "water"], "gone"), "culverts");
+  });
+
+  it("returns the new-layer setup step when the project has no collection layers", () => {
+    assert.equal(resolveTargetLayer([], null), "");
+    assert.equal(resolveTargetLayer([], ""), "");
+    assert.equal(resolveTargetLayer([], "gone"), "");
+  });
+
+  it("keeps a deliberately chosen new-layer setup step even when layers exist", () => {
+    // "" is the user having picked "New collection layer…"; null is a session
+    // that has not chosen a target at all. Only the latter takes the fallback.
+    assert.equal(resolveTargetLayer(["culverts", "water"], ""), "");
+    assert.equal(resolveTargetLayer(["culverts", "water"], null), "culverts");
   });
 });
 

@@ -436,6 +436,24 @@ docker build --build-arg VITE_WELCOME_DISABLED=1 -t geolibre .
 Individual links can also opt out at runtime with `?welcome=0`. See
 [Embedding & Sharing](user-guide/embedding.md#url-parameters).
 
+#### Limiting what the deployment can do
+
+For a kiosk, an exhibit terminal, or a classroom instance, name the
+capabilities the interface may offer. Unset (the default) grants everything, so
+existing deployments are unchanged:
+
+```bash
+docker build \
+  --build-arg VITE_GEOLIBRE_CAPABILITIES="project:edit,data:add,processing:run,export:data" \
+  -t geolibre-classroom .
+```
+
+That example drops plugin installs and Settings. `none` grants nothing at all.
+This removes the affordances — menus, command palette entries, shortcuts,
+drag-and-drop, embed commands — but does **not** restrict the server, so keep
+the protections above in place too. See
+[Deployment Capabilities](deployment-capabilities.md).
+
 #### Driving an embedded map from a host page
 
 To let a page that frames the app talk to the live map over `postMessage` (fly to

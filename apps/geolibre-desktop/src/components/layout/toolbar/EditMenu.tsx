@@ -38,6 +38,7 @@ import {
   invertLayerSelection,
   zoomToSelection,
 } from "../../../lib/selection-actions";
+import { editMenuItemCapability } from "../../../lib/deployment-gates";
 import { isMenuItemVisible } from "../../../lib/ui-profile";
 import type { ToolbarChrome } from "./constants";
 
@@ -87,7 +88,14 @@ export function EditMenu({ chrome, mapControllerRef }: EditMenuProps) {
   const selectionCount = useAppStore((s) => s.selectedFeatureIds.length);
   const hasSelection = activeLayerSelectable && selectionCount > 0;
   const uiProfile = useDesktopSettingsStore((s) => s.desktopSettings.uiProfile);
-  const show = (id: string) => isMenuItemVisible(uiProfile, id);
+  const deploymentCapabilities = useAppStore((s) => s.deploymentCapabilities);
+  // Same dual gate as ProjectMenu: the deployment's capability first (not on
+  // offer at all), then the interface profile (decluttering the user can undo).
+  const show = (id: string) => {
+    const required = editMenuItemCapability(id);
+    if (required && !deploymentCapabilities.has(required)) return false;
+    return isMenuItemVisible(uiProfile, id);
+  };
 
   const handleExportSelection = () => {
     const layer = useAppStore

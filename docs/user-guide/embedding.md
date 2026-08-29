@@ -294,6 +294,16 @@ by the [Python package](../python.md)) to the same origins. As extra hardening
 you can stop other sites from framing the app at all by adding
 `Content-Security-Policy: frame-ancestors <your origins>` at your reverse proxy.
 
+The allowlist decides *who* may send commands. To narrow *which* commands exist
+at all — so a trusted host page still cannot turn the embed into a
+general-purpose data-fetching proxy — build with
+[deployment capabilities](../deployment-capabilities.md). A denied command
+rejects with `Missing <capability> capability` rather than silently doing
+nothing: `loadProject` needs `project:edit`, `addLayer` and `addData` need
+`data:add`, `openTool` needs `processing:run`, and `exportImage` needs
+`export:data`. The rest — `setView`, `highlight`, layer visibility — are
+unprivileged and always available.
+
 ### The typed client
 
 `@geolibre/embed` is a dependency-free ESM package published to npm from each

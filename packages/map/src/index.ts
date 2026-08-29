@@ -1,4 +1,11 @@
-export { MapCanvas, type MapCanvasProps, type MapDiagnosticEvent } from "./MapCanvas";
+export {
+  MapCanvas,
+  type MapCanvasIdentifyAllLabels,
+  type MapCanvasProps,
+  type MapCanvasRasterIdentify,
+  type MapCanvasRasterIdentifyResult,
+  type MapDiagnosticEvent,
+} from "./MapCanvas";
 export {
   FEATURE_SELECTION_EVENT,
   featuresIntersectingPolygon,
@@ -24,6 +31,7 @@ export {
 export {
   MapController,
   createMapController,
+  defaultBlankBackgroundColor,
   type BuiltInMapControl,
   DEFAULT_BUILT_IN_CONTROL_VISIBILITY,
   TERRAIN_SETTINGS_EVENT,

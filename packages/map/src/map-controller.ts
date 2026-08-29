@@ -93,6 +93,14 @@ const DEFAULT_MAX_PITCH = 85;
 const FIT_BOUNDS_PADDING = 40;
 const BLANK_BACKGROUND_LAYER_ID = "geolibre-blank-background";
 const BLANK_BACKGROUND_COLOR = "#ffffff";
+const DARK_BLANK_BACKGROUND_COLOR = "#262626";
+
+/** Theme-aware default used when a Blank background has no saved custom color. */
+export function defaultBlankBackgroundColor(
+  dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
+): string {
+  return dark ? DARK_BLANK_BACKGROUND_COLOR : BLANK_BACKGROUND_COLOR;
+}
 const LAYER_CONTROL_EXCLUDED_LAYERS = [
   BLANK_BACKGROUND_LAYER_ID,
   highlightFillLayerId(),
@@ -510,6 +518,7 @@ export class MapController {
   private pendingMapboxStyleAbort: AbortController | null = null;
   private basemapVisible = true;
   private basemapOpacity = 1;
+  private blankBackgroundColor: string | null = null;
   private mapPreferences: MapPreferences = DEFAULT_PROJECT_PREFERENCES.map;
   private basemapOriginalPaintValues = new Map<string, Map<string, unknown>>();
   private syncedLayers: GeoLibreLayer[] = [];
@@ -604,6 +613,7 @@ export class MapController {
       if (this.terrainEnablePending) this.autoEnableTerrain();
       this.applyBasemapVisibility();
       this.applyBasemapOpacity();
+      this.setBlankBackgroundColor(this.blankBackgroundColor);
       this.addLayerControl();
     };
     this.map.on("style.load", handleStyleReady);
@@ -1135,6 +1145,17 @@ export class MapController {
     this.basemapOpacity = opacity;
     this.applyBasemapOpacity();
     this.syncLayerControlState();
+  }
+
+  setBlankBackgroundColor(color: string | null): void {
+    this.blankBackgroundColor = color;
+    if (this.basemapStyleUrl !== BLANK_BASEMAP || !this.map?.getLayer(BLANK_BACKGROUND_LAYER_ID))
+      return;
+    this.map.setPaintProperty(
+      BLANK_BACKGROUND_LAYER_ID,
+      "background-color",
+      color ?? defaultBlankBackgroundColor(),
+    );
   }
 
   applyView(view: MapViewState): void {

@@ -77,6 +77,8 @@ import {
   fetchDesktopSettings,
   sharedSettingsLanguage,
 } from "./lib/desktop-settings-url";
+import { parseDeploymentCapabilities, useAppStore } from "@geolibre/core";
+import { readDeploymentEnvValue } from "./lib/deployment-env";
 
 installDiagnosticsCapture();
 let nativeSidecarFetchReady: Promise<void> = Promise.resolve();
@@ -132,6 +134,20 @@ if (isTauri()) {
 // Recover from chunks orphaned by a web redeploy (stale lazy import → 404). A
 // no-op in the desktop build, whose chunks are bundled locally.
 installStaleChunkReload();
+
+// What this deployment is allowed to do (issue #1673). Read once, before the
+// app renders, so no surface ever paints with the full grant and then retracts
+// it. Comes from the deployment/build env only — never from a URL parameter or
+// a project file — because a capability a visitor can hand themselves is not a
+// restriction. An absent value keeps the default full grant, so existing
+// deployments are unchanged.
+const configuredCapabilities = readDeploymentEnvValue("VITE_GEOLIBRE_CAPABILITIES");
+if (configuredCapabilities) {
+  useAppStore
+    .getState()
+    .setDeploymentCapabilities(parseDeploymentCapabilities(configuredCapabilities));
+}
+
 // "Web app" here means the *build*, never anything the visitor controls: the
 // desktop shell and the Jupyter embed wheel are compiled without the gate, but a
 // hosted deployment gates every request. In particular this must NOT consult

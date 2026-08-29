@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { create } from "zustand";
 import { shallow } from "zustand/shallow";
 import { temporal } from "zundo";
+import { ALL_DEPLOYMENT_CAPABILITIES, type DeploymentCapability } from "./deployment-capabilities";
 import {
   getHistoryCoalesceMs,
   getMaxHistoryFeatureCount,
@@ -15,6 +16,7 @@ import {
   createDefaultMapView,
   createEmptyProject,
   DEFAULT_PROJECT_NAME,
+  normalizeBlankBackgroundColor,
 } from "./project";
 import { initialLayerStyle } from "./layer-defaults";
 import {
@@ -217,6 +219,7 @@ export interface AppState {
   basemapStyleUrl: string;
   basemapVisible: boolean;
   basemapOpacity: number;
+  blankBackgroundColor: string | null;
   layers: GeoLibreLayer[];
   layerGroups: LayerGroup[];
   preferences: ProjectPreferences;
@@ -278,6 +281,11 @@ export interface AppState {
    * `null` when the set is empty). A single click leaves exactly one id here.
    */
   selectedFeatureIds: string[];
+  /**
+   * Store-layer id targeted by Identify, or {@link IDENTIFY_ALL_LAYERS_ID} for
+   * the map-level mode that queries every visible queryable layer — vector,
+   * DuckDB query, WMS, COG, NetCDF image and time-slider raster alike.
+   */
   identifyLayerId: string | null;
   pointerCoords: [number, number] | null;
   /**
@@ -303,6 +311,16 @@ export interface AppState {
   metadata: Record<string, unknown>;
   recentProjects: RecentProjectEntry[];
   attributeFilter: string;
+  /**
+   * What this *deployment* is allowed to do (issue #1673). Set once at startup
+   * from the deployment configuration; never from a project file, a URL
+   * parameter, or anything else the visitor controls, and never edited from the
+   * UI. Defaults to the full set so an unconfigured build behaves as before.
+   *
+   * Excluded from the project file and from undo history: it describes the
+   * server that served the app, not the document being edited.
+   */
+  deploymentCapabilities: ReadonlySet<DeploymentCapability>;
   // Ephemeral live-collaboration session state (issue #307). Deliberately
   // excluded from the project file (project.ts never reads it) and from undo
   // history (partialize never lists it).
@@ -432,6 +450,7 @@ export interface AppState {
   restoreEarthBasemap: (styleUrl: string) => void;
   setBasemapVisible: (visible: boolean) => void;
   setBasemapOpacity: (opacity: number) => void;
+  setBlankBackgroundColor: (color: string | null) => void;
   setPreferences: (preferences: ProjectPreferences) => void;
   setLegend: (legend: LegendConfig) => void;
   /**
@@ -574,6 +593,11 @@ export interface AppState {
   ) => void;
   setProjectPath: (path: string | null) => void;
   setProjectName: (name: string) => void;
+  /**
+   * Narrow what this deployment may do. Intended for the startup path only —
+   * calling it later would leave already-rendered surfaces stale.
+   */
+  setDeploymentCapabilities: (capabilities: Iterable<DeploymentCapability>) => void;
   setRecentProjects: (projects: RecentProjectEntry[]) => void;
   rememberRecentProject: (entry: RecentProjectEntry) => void;
   forgetRecentProject: (path: string) => void;
@@ -732,6 +756,9 @@ export interface AppState {
   deleteComment: (commentId: string) => void;
   setComments: (comments: ProjectComment[]) => void;
 }
+
+/** Reserved Identify target for querying every visible queryable layer at once. */
+export const IDENTIFY_ALL_LAYERS_ID = "__geolibre_identify_all_layers__";
 
 const MAX_RECENT_PROJECTS = 10;
 
@@ -1029,6 +1056,7 @@ export const useAppStore = create<AppState>()(
       basemapStyleUrl: DEFAULT_BASEMAP,
       basemapVisible: true,
       basemapOpacity: 1,
+      blankBackgroundColor: null,
       layers: [],
       layerGroups: [],
       preferences: DEFAULT_PROJECT_PREFERENCES,
@@ -1060,6 +1088,7 @@ export const useAppStore = create<AppState>()(
       metadata: {},
       recentProjects: [],
       attributeFilter: "",
+      deploymentCapabilities: ALL_DEPLOYMENT_CAPABILITIES,
       collaboration: DEFAULT_COLLABORATION_STATE,
       ui: {
         processingOpen: false,
@@ -1326,6 +1355,8 @@ export const useAppStore = create<AppState>()(
         })),
       setBasemapVisible: (visible) => set({ basemapVisible: visible, isDirty: true }),
       setBasemapOpacity: (opacity) => set({ basemapOpacity: opacity, isDirty: true }),
+      setBlankBackgroundColor: (color) =>
+        set({ blankBackgroundColor: normalizeBlankBackgroundColor(color), isDirty: true }),
       setPreferences: (preferences) => set({ preferences, isDirty: true }),
       setLegend: (legend) => set({ legend, isDirty: true }),
 
@@ -1679,6 +1710,8 @@ export const useAppStore = create<AppState>()(
 
       setProjectPath: (path) => set({ projectPath: path }),
       setProjectName: (name) => set({ projectName: name, isDirty: true }),
+      setDeploymentCapabilities: (capabilities) =>
+        set({ deploymentCapabilities: new Set(capabilities) }),
       setRecentProjects: (projects) => set({ recentProjects: normalizeRecentProjects(projects) }),
       rememberRecentProject: (entry) =>
         set((s) => ({
@@ -2355,6 +2388,7 @@ export const useAppStore = create<AppState>()(
         basemapStyleUrl: s.basemapStyleUrl,
         basemapVisible: s.basemapVisible,
         basemapOpacity: s.basemapOpacity,
+        blankBackgroundColor: s.blankBackgroundColor,
         storymap: s.storymap,
         comments: s.comments,
       }),
@@ -2372,6 +2406,7 @@ export const useAppStore = create<AppState>()(
         a.basemapStyleUrl === b.basemapStyleUrl &&
         a.basemapVisible === b.basemapVisible &&
         a.basemapOpacity === b.basemapOpacity &&
+        a.blankBackgroundColor === b.blankBackgroundColor &&
         a.storymap === b.storymap &&
         shallow(a.layers, b.layers) &&
         shallow(a.comments, b.comments) &&
