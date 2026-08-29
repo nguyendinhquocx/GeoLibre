@@ -11,7 +11,7 @@
 // reduce clutter and which the user can turn back on. A denied capability is a
 // statement by whoever stood the deployment up.
 
-import type { DeploymentCapability } from "@geolibre/core";
+import type { AppPrivilege, DeploymentCapability } from "@geolibre/core";
 import type { Command } from "./commands";
 
 /**
@@ -81,6 +81,138 @@ export function filterCommandsByCapabilities(
   return commands.filter((command) => {
     const required = commandCapability(command.id);
     return !required || capabilities.has(required);
+  });
+}
+
+// The same job for the *application privilege* vocabulary (`AppPrivilege`,
+// issue #1672), which is finer-grained than the deployment one and describes
+// what the session's role may do rather than what the build may offer. Both
+// tables live here for the reason this module exists: the palette, the cheat
+// sheet, and the global shortcut layer call a command's `run()` without going
+// near the menu it also appears in, so a gate applied only to the menu is not a
+// gate. A command must clear both vocabularies to survive.
+
+/**
+ * What a command requires from the application privilege model.
+ *
+ * Two modes, because the two real cases differ: an Add Data command is admitted
+ * by *either* add privilege (one dialog takes a local file and a URL, so it
+ * cannot be split more finely), while a sidecar-backed tool needs *both*
+ * `processing:run` and `processing:sidecar` — it is a processing tool first, and
+ * the sidecar is how it runs.
+ */
+export interface CommandPrivilegeRule {
+  /** The privileges named by the rule. */
+  privileges: readonly AppPrivilege[];
+  /** `any`: one grant admits the command. `all`: every listed privilege is required. */
+  mode: "any" | "all";
+}
+
+/** A rule satisfied by any one of the listed privileges. */
+function any(...privileges: AppPrivilege[]): CommandPrivilegeRule {
+  return { privileges, mode: "any" };
+}
+
+/** A rule requiring every listed privilege. */
+function all(...privileges: AppPrivilege[]): CommandPrivilegeRule {
+  return { privileges, mode: "all" };
+}
+
+/**
+ * The application privileges each command family needs, keyed by command-id
+ * prefix.
+ *
+ * Ordered like `COMMAND_CAPABILITY_PREFIXES`: first matching prefix wins, so a
+ * specific id can be listed ahead of the family prefix it belongs to.
+ */
+const COMMAND_PRIVILEGE_PREFIXES: ReadonlyArray<readonly [string, CommandPrivilegeRule]> = [
+  // A review comment annotates the project rather than bringing data in.
+  ["add.comment", any("layers:edit")],
+  // The Add Data panels take a local file and a URL through the same dialog, so
+  // a command here cannot be classified more finely than "may bring in data at
+  // all". Either privilege admits it; a finer split would have to live in the
+  // panel, where the user picks a file or types a URL.
+  ["add.", any("layers:add-local", "layers:add-remote")],
+  ["proc.assistant", any("assistant:use")],
+  // The three sidecar-backed families: AI Segmentation, Format Conversion
+  // (`proc.conversion.*`), and the Raster tools (`proc.raster.*`). They need
+  // `processing:run` as well as `processing:sidecar` — a sidecar tool is a
+  // processing tool first, and the sidecar is only how it runs. The Processing
+  // menu gates all three the same way (`sidecarDenied`), and the two tables
+  // disagreeing is what leaves an action greyed out in a menu but live in the
+  // palette. `proc.vector.*` is deliberately absent: Turf runs client-side.
+  ["proc.segmentation", all("processing:run", "processing:sidecar")],
+  ["proc.conversion.", all("processing:run", "processing:sidecar")],
+  ["proc.raster.", all("processing:run", "processing:sidecar")],
+  // Two catalog browsers filed under `proc.` that add remote imagery rather than
+  // run a tool. Classified with the Processing menu's own gates for them, so the
+  // palette and the menu agree.
+  ["proc.planetary-computer", any("layers:add-remote")],
+  ["proc.earth-engine", any("layers:add-remote")],
+  ["proc.", any("processing:run")],
+  // The print layout designer exists to produce a rendering; Share and
+  // collaboration both put the project on a server outside this machine. Matches
+  // how the Project menu gates the same three actions.
+  ["project.print-layout", any("export:image")],
+  ["project.share", any("project:share")],
+  ["project.collaborate", any("project:share")],
+  // Covers `project.save-as` as well as `project.save`.
+  ["project.save", any("project:save")],
+  ["plugin.", any("plugins:install")],
+  ["settings.manage-plugins", any("plugins:install")],
+  ["settings.", any("settings:manage")],
+  // `project.new` / `project.open-*`, `control.`, `view.`, and `help.` are
+  // unprivileged: this vocabulary has no "may author the project at all" term,
+  // and the rest move the camera, toggle decorations, and open documentation.
+];
+
+/**
+ * The privilege rule a command must satisfy, or undefined when it requires none.
+ *
+ * @param id - The command id, e.g. `"proc.whitebox"`.
+ * @returns The rule, or undefined for unprivileged commands.
+ */
+export function commandAppPrivileges(id: string): CommandPrivilegeRule | undefined {
+  for (const [prefix, rule] of COMMAND_PRIVILEGE_PREFIXES) {
+    if (id.startsWith(prefix)) return rule;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a set of granted privileges satisfies a rule.
+ *
+ * @param rule - The rule from {@link commandAppPrivileges}.
+ * @param granted - The privileges the session's role holds.
+ * @returns Whether the command may run.
+ */
+function satisfies(rule: CommandPrivilegeRule, granted: ReadonlySet<AppPrivilege>): boolean {
+  return rule.mode === "all"
+    ? rule.privileges.every((privilege) => granted.has(privilege))
+    : rule.privileges.some((privilege) => granted.has(privilege));
+}
+
+/**
+ * Drop commands the session's role is not allowed to run.
+ *
+ * The counterpart to {@link filterCommandsByCapabilities} for the application
+ * privilege model. The toolbar menus *disable* what a role withholds, so the
+ * user can see it exists and read why; the palette, cheat sheet, and shortcut
+ * layer have no such affordance and call `run()` directly, so they drop it
+ * instead — the same treatment the deployment gate gives.
+ *
+ * @param commands - The command registry.
+ * @param privileges - What the session's role may do.
+ * @returns The commands whose required privilege is granted.
+ */
+export function filterCommandsByPrivileges(
+  commands: Command[],
+  privileges: readonly AppPrivilege[],
+): Command[] {
+  const granted = new Set<AppPrivilege>(privileges);
+  return commands.filter((command) => {
+    const rule = commandAppPrivileges(command.id);
+    return !rule || satisfies(rule, granted);
   });
 }
 

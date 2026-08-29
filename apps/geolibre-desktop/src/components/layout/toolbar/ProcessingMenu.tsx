@@ -1,4 +1,4 @@
-import { type NetworkToolKind, useAppStore } from "@geolibre/core";
+import { type NetworkToolKind, useAppCapability, useAppStore } from "@geolibre/core";
 import { isEarthEngineAvailable } from "@geolibre/plugins";
 import {
   Button,
@@ -23,7 +23,16 @@ import { masHidesMenuItem } from "../../../lib/mas-build";
 import { isMenuItemVisible } from "../../../lib/ui-profile";
 import { whiteboxMenuSubcategorySlug } from "../../../lib/processing-tool-i18n";
 import { WHITEBOX_MENU_CATALOG } from "../../../lib/whitebox-menu-catalog";
+import { CapabilityNotice, capabilityNoticeId, useCapabilityReason } from "./CapabilityNotice";
 import type { ToolbarChrome } from "./constants";
+
+// aria-describedby targets for the "your role does not allow this" explanations.
+// One per privilege rather than one per item: several denied entries share a
+// reason, and an element may be described by an id it does not own.
+const ASSISTANT_DENIED_ID = "processing-menu-assistant-denied";
+const PROCESSING_DENIED_ID = "processing-menu-processing-denied";
+const SIDECAR_DENIED_ID = "processing-menu-sidecar-denied";
+const ADD_REMOTE_DENIED_ID = "processing-menu-add-remote-denied";
 
 /** Convert a Whitebox subcategory label to its full i18n key. */
 function subcatKey(label: string): string {
@@ -73,6 +82,34 @@ export function ProcessingMenu({
   const setAssistantOpen = useAppStore((s) => s.setAssistantOpen);
   const setDashboardOpen = useAppStore((s) => s.setDashboardOpen);
   const setProcessingHistoryOpen = useAppStore((s) => s.setProcessingHistoryOpen);
+  const processingCap = useAppCapability("processing:run");
+  const sidecarCap = useAppCapability("processing:sidecar");
+  const assistantCap = useAppCapability("assistant:use");
+  // Planetary Computer and Earth Engine sit under Processing but browse a remote
+  // catalog and add imagery from it, so they are data entry rather than tool
+  // runs. `deployment-gates.ts` classifies their commands the same way; the two
+  // disagreeing is what leaves an action greyed out in the menu but live in the
+  // command palette.
+  const addRemoteCap = useAppCapability("layers:add-remote");
+  // Every entry that actually runs a tool is gated, not just the toolbox items
+  // that open a dialog: the Whitebox category submenus reach `openWhiteboxTool`
+  // without passing the top-level item, so a gate on that item alone gates
+  // nothing. Disabling a DropdownMenuSubTrigger stops Radix opening the submenu,
+  // which is what puts its leaves out of reach.
+  const processingDenied = !processingCap.granted;
+  // Sidecar tools are processing tools first: withholding `processing:run` takes
+  // them too, whatever `processing:sidecar` says.
+  const sidecarDenied = processingDenied || !sidecarCap.granted;
+  const sidecarDeniedCap = processingDenied ? processingCap : sidecarCap;
+  const assistantDeniedBy = capabilityNoticeId(ASSISTANT_DENIED_ID, assistantCap);
+  const processingDeniedBy = capabilityNoticeId(PROCESSING_DENIED_ID, processingCap);
+  const sidecarDeniedBy = capabilityNoticeId(SIDECAR_DENIED_ID, sidecarDeniedCap);
+  const addRemoteDeniedBy = capabilityNoticeId(ADD_REMOTE_DENIED_ID, addRemoteCap);
+  // A disabled submenu trigger keeps its pointer events on purpose, so it can
+  // explain itself with a native tooltip instead of a rendered line. Same text
+  // the rendered notes use, generic fallback included.
+  const processingDeniedTitle = useCapabilityReason(processingCap);
+  const sidecarDeniedTitle = useCapabilityReason(sidecarDeniedCap);
 
   // Format Conversion, Raster tools, and AI Segmentation require the Python
   // sidecar, which cannot run on Android/iOS — hide them on mobile so they don't
@@ -143,9 +180,14 @@ export function ProcessingMenu({
         <DropdownMenuSeparator />
         {show("processing.assistant") && (
           <>
-            <DropdownMenuItem onSelect={() => setAssistantOpen(true)}>
+            <DropdownMenuItem
+              onSelect={() => setAssistantOpen(true)}
+              disabled={!assistantCap.granted}
+              aria-describedby={assistantDeniedBy}
+            >
               {t("toolbar.command.assistant")}
             </DropdownMenuItem>
+            <CapabilityNotice id={ASSISTANT_DENIED_ID} capability={assistantCap} />
             <DropdownMenuSeparator />
           </>
         )}
@@ -157,7 +199,11 @@ export function ProcessingMenu({
             does; pairs with the GeoLibre Toolbox trigger below. Reuses the
             dialog's own heading string, already translated in every locale. */}
         {showWhitebox && (
-          <DropdownMenuItem onSelect={() => setProcessingOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setProcessingOpen(true)}
+            disabled={processingDenied}
+            aria-describedby={processingDeniedBy}
+          >
             {t("processing.whitebox.toolbox")}
           </DropdownMenuItem>
         )}
@@ -168,7 +214,9 @@ export function ProcessingMenu({
         {showWhitebox &&
           WHITEBOX_MENU_CATALOG.map((cat) => (
             <DropdownMenuSub key={cat.key}>
-              <DropdownMenuSubTrigger>{t(cat.labelKey)}</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger disabled={processingDenied} title={processingDeniedTitle}>
+                {t(cat.labelKey)}
+              </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {cat.subcategories.length === 1
                   ? cat.subcategories[0].tools.map((tool) => (
@@ -215,11 +263,15 @@ export function ProcessingMenu({
             visibility gate; the parent shows when any child does. */}
         {showGeolibre && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>{t("toolbar.item.geolibre")}</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger disabled={processingDenied} title={processingDeniedTitle}>
+              {t("toolbar.item.geolibre")}
+            </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {!mobile && show("processing.conversion") && (
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>{t("toolbar.item.conversion")}</DropdownMenuSubTrigger>
+                  <DropdownMenuSubTrigger disabled={sidecarDenied} title={sidecarDeniedTitle}>
+                    {t("toolbar.item.conversion")}
+                  </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     <DropdownMenuItem onSelect={() => setConversionOpen("vector-to-vector")}>
                       {t("toolbar.conversion.vectorToVector")}
@@ -435,7 +487,9 @@ export function ProcessingMenu({
               )}
               {!mobile && show("processing.raster") && (
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>{t("toolbar.item.raster")}</DropdownMenuSubTrigger>
+                  <DropdownMenuSubTrigger disabled={sidecarDenied} title={sidecarDeniedTitle}>
+                    {t("toolbar.item.raster")}
+                  </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     <DropdownMenuLabel className="text-xs text-muted-foreground">
                       {t("toolbar.item.subGroupTerrain")}
@@ -543,9 +597,16 @@ export function ProcessingMenu({
                 </DropdownMenuItem>
               )}
               {!mobile && show("processing.segmentation") && (
-                <DropdownMenuItem onSelect={() => setSegmentationOpen(true)}>
-                  {t("toolbar.command.segmentation")}
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => setSegmentationOpen(true)}
+                    disabled={sidecarDenied}
+                    aria-describedby={sidecarDeniedBy}
+                  >
+                    {t("toolbar.command.segmentation")}
+                  </DropdownMenuItem>
+                  <CapabilityNotice id={SIDECAR_DENIED_ID} capability={sidecarDeniedCap} />
+                </>
               )}
               {/* Detection runs client-side (onnxruntime-web), not via the sidecar,
             so it stays available on mobile/web clients (no `!mobile` gate). */}
@@ -567,28 +628,51 @@ export function ProcessingMenu({
         {/* Divide the tool-category submenus (Whitebox, GeoLibre) from the
             workspaces and consoles below. Only when both sides are present. */}
         {(showWhitebox || showGeolibre) && showWorkspacesOrServices && <DropdownMenuSeparator />}
+        {/* The workspaces run tools too — Model Builder composes them, and the
+            SQL/Python/notebook consoles execute arbitrary analysis over the
+            loaded data — so they carry the same `processing:run` gate as the
+            toolboxes. The dashboard and the processing history log below do
+            not — they visualize and record rather than run anything — and the
+            Planetary Computer / Earth Engine catalogs take `layers:add-remote`
+            instead, because they bring imagery in. */}
         {/* Model Builder sits at the top level rather than inside the GeoLibre
             Toolbox submenu: it is a canvas that composes tools from every
             toolbox (Whitebox raster and GeoLibre vector alike), so filing it
             under one of them would misdescribe its reach. It heads the
             workspaces block with its SQL/Python/notebook/dashboard siblings. */}
         {show("processing.modelBuilder") && (
-          <DropdownMenuItem onSelect={() => setModelBuilderOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setModelBuilderOpen(true)}
+            disabled={processingDenied}
+            aria-describedby={processingDeniedBy}
+          >
             {t("toolbar.item.modelBuilder")}
           </DropdownMenuItem>
         )}
         {show("processing.sqlWorkspace") && (
-          <DropdownMenuItem onSelect={() => setSqlWorkspaceOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setSqlWorkspaceOpen(true)}
+            disabled={processingDenied}
+            aria-describedby={processingDeniedBy}
+          >
             {t("toolbar.command.sqlWorkspace")}
           </DropdownMenuItem>
         )}
         {show("processing.pythonConsole") && (
-          <DropdownMenuItem onSelect={() => setPythonConsoleOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setPythonConsoleOpen(true)}
+            disabled={processingDenied}
+            aria-describedby={processingDeniedBy}
+          >
             {t("toolbar.command.pythonConsole")}
           </DropdownMenuItem>
         )}
         {show("processing.notebook") && (
-          <DropdownMenuItem onSelect={() => setNotebookOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setNotebookOpen(true)}
+            disabled={processingDenied}
+            aria-describedby={processingDeniedBy}
+          >
             {t("toolbar.command.notebook")}
           </DropdownMenuItem>
         )}
@@ -603,16 +687,31 @@ export function ProcessingMenu({
           </DropdownMenuItem>
         )}
         {show("processing.planetaryComputer") && (
-          <DropdownMenuItem onSelect={onOpenPlanetaryComputer}>
+          <DropdownMenuItem
+            onSelect={onOpenPlanetaryComputer}
+            disabled={!addRemoteCap.granted}
+            aria-describedby={addRemoteDeniedBy}
+          >
             {t("toolbar.command.planetaryComputer")}
           </DropdownMenuItem>
         )}
         {showEarthEngine && (
-          <DropdownMenuItem onSelect={earthEnginePanel.toggle}>
+          <DropdownMenuItem
+            onSelect={earthEnginePanel.toggle}
+            disabled={!addRemoteCap.granted}
+            aria-describedby={addRemoteDeniedBy}
+          >
             {t("toolbar.command.earthEngine")}
             {earthEnginePanel.visible ? " ✓" : ""}
           </DropdownMenuItem>
         )}
+        {(show("processing.planetaryComputer") || showEarthEngine) && (
+          <CapabilityNotice id={ADD_REMOTE_DENIED_ID} capability={addRemoteCap} />
+        )}
+        {/* One reason line for the whole menu, at its foot: the entries
+            `processing:run` disables are spread across the toolbox block and
+            the workspaces block, and each points here with aria-describedby. */}
+        <CapabilityNotice id={PROCESSING_DENIED_ID} capability={processingCap} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,4 +1,10 @@
-import type { GeoLibreLayer, LayerCapabilities } from "./types";
+import type {
+  AppCapabilities,
+  AppPrivilege,
+  AppRole,
+  GeoLibreLayer,
+  LayerCapabilities,
+} from "./types";
 
 /**
  * Default inferred capabilities for a layer based on its type and metadata.
@@ -92,4 +98,136 @@ export function normalizeLayerCapabilities(raw: unknown): LayerCapabilities | un
   }
 
   return hasAny ? caps : undefined;
+}
+
+/**
+ * All supported application privilege identifiers in GeoLibre.
+ */
+export const ALL_APP_PRIVILEGES: readonly AppPrivilege[] = [
+  "layers:edit",
+  "layers:add-remote",
+  "layers:add-local",
+  "processing:run",
+  "processing:sidecar",
+  "project:save",
+  "project:share",
+  "project:share-public",
+  "plugins:install",
+  "assistant:use",
+  "connections:manage",
+  "export:data",
+  "export:image",
+  "settings:manage",
+] as const;
+
+/**
+ * Standard privilege bundles for named application roles.
+ */
+export const ROLE_PRIVILEGES: Record<Exclude<AppRole, "custom">, readonly AppPrivilege[]> = {
+  viewer: ["export:image", "export:data"],
+  editor: [
+    "export:image",
+    "export:data",
+    "layers:edit",
+    "layers:add-local",
+    "layers:add-remote",
+    "processing:run",
+    "project:save",
+  ],
+  publisher: [
+    "export:image",
+    "export:data",
+    "layers:edit",
+    "layers:add-local",
+    "layers:add-remote",
+    "processing:run",
+    "project:save",
+    "project:share",
+    "project:share-public",
+    "processing:sidecar",
+    "assistant:use",
+  ],
+  administrator: ALL_APP_PRIVILEGES,
+};
+
+/**
+ * Resolves the effective privilege list for a given role, applying custom overrides if specified.
+ */
+export function resolveRolePrivileges(
+  role: AppRole,
+  customPrivileges?: readonly AppPrivilege[],
+): AppPrivilege[] {
+  if (role === "custom") {
+    if (!customPrivileges || customPrivileges.length === 0) return [];
+    const validSet = new Set<AppPrivilege>(ALL_APP_PRIVILEGES);
+    return [...new Set(customPrivileges.filter((p) => validSet.has(p)))];
+  }
+  return [...ROLE_PRIVILEGES[role]];
+}
+
+/**
+ * Intersects multiple sets of privileges to derive the effective permissions when multiple
+ * policies (e.g. deployment, organization, and share link) apply simultaneously.
+ */
+export function intersectPrivileges(...privilegeSets: (readonly AppPrivilege[])[]): AppPrivilege[] {
+  if (privilegeSets.length === 0) return [];
+  if (privilegeSets.length === 1) return [...new Set(privilegeSets[0])];
+  let current = new Set<AppPrivilege>(privilegeSets[0]);
+  for (let i = 1; i < privilegeSets.length; i++) {
+    const nextSet = new Set<AppPrivilege>(privilegeSets[i]);
+    current = new Set([...current].filter((p) => nextSet.has(p)));
+  }
+  return [...current];
+}
+
+/**
+ * Evaluates whether an application capability set grants a specific privilege.
+ */
+export function hasAppPrivilege(
+  capabilities: AppCapabilities | undefined,
+  privilege: AppPrivilege,
+): boolean {
+  if (!capabilities) return true;
+  return capabilities.privileges.includes(privilege);
+}
+
+/**
+ * Resolves why a privilege is withheld: its own reason if it has one, otherwise
+ * the reason recorded for the capability set as a whole.
+ *
+ * @param capabilities - The active capability set, if any.
+ * @param privilege - The privilege being explained.
+ * @returns The reason, or undefined when none was recorded.
+ */
+export function appPrivilegeReason(
+  capabilities: AppCapabilities | undefined,
+  privilege: AppPrivilege,
+): string | undefined {
+  if (!capabilities) return undefined;
+  return capabilities.privilegeReasons?.[privilege] ?? capabilities.reason;
+}
+
+/**
+ * Creates the default unconstrained application capabilities (Administrator role).
+ */
+export function createDefaultAppCapabilities(): AppCapabilities {
+  return {
+    role: "administrator",
+    privileges: [...ALL_APP_PRIVILEGES],
+  };
+}
+
+/**
+ * Normalizes an untrusted array of privilege strings.
+ */
+export function normalizeAppPrivileges(raw: unknown): AppPrivilege[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const validSet = new Set<string>(ALL_APP_PRIVILEGES);
+  const result: AppPrivilege[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && validSet.has(item)) {
+      result.push(item as AppPrivilege);
+    }
+  }
+  return result.length > 0 ? [...new Set(result)] : [];
 }

@@ -1116,6 +1116,58 @@ export interface LayerCapabilities {
   export?: boolean;
 }
 
+/**
+ * Application privilege identifiers defining discrete capabilities in GeoLibre.
+ */
+export type AppPrivilege =
+  | "layers:edit"
+  | "layers:add-remote"
+  | "layers:add-local"
+  | "processing:run"
+  | "processing:sidecar"
+  | "project:save"
+  | "project:share"
+  | "project:share-public"
+  | "plugins:install"
+  | "assistant:use"
+  | "connections:manage"
+  | "export:data"
+  | "export:image"
+  | "settings:manage";
+
+/**
+ * Standard named roles bundling application privileges.
+ */
+export type AppRole = "viewer" | "editor" | "publisher" | "administrator" | "custom";
+
+/**
+ * Ephemeral application capabilities state defining the active role, effective privileges,
+ * and optional restriction reason for the current session/deployment.
+ */
+export interface AppCapabilities {
+  /**
+   * The assigned application role. `custom` once an ad-hoc `grantAppPrivilege` /
+   * `revokeAppPrivilege` has moved the set away from the bundle a named role
+   * defines, so the role never claims a shape the privileges do not have.
+   */
+  role: AppRole;
+  /** List of granted privileges for the active role or custom configuration. */
+  privileges: AppPrivilege[];
+  /**
+   * Optional human-readable reason covering the whole set (e.g. "Action disabled
+   * by deployment policy"), used for any privilege without its own.
+   */
+  reason?: string;
+  /**
+   * Per-privilege reasons, and why they exist: two privileges can be withheld by
+   * different causes — a role bundle plus a licence limit, say — and a single
+   * `reason` would make the second revocation relabel the first, so every gate
+   * would explain itself with whichever cause happened to be recorded last.
+   * Takes precedence over `reason` for the privileges it names.
+   */
+  privilegeReasons?: Partial<Record<AppPrivilege, string>>;
+}
+
 export interface GeoLibreLayer {
   id: string;
   name: string;

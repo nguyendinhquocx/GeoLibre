@@ -113,7 +113,10 @@ import { KeyboardShortcutsDialog } from "../command/KeyboardShortcutsDialog";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useViewportHistory } from "../../hooks/useViewportHistory";
 import type { Command } from "../../lib/commands";
-import { filterCommandsByCapabilities } from "../../lib/deployment-gates";
+import {
+  filterCommandsByCapabilities,
+  filterCommandsByPrivileges,
+} from "../../lib/deployment-gates";
 import { IS_MAS_BUILD } from "../../lib/build-flags";
 import { pluginDisplayName } from "../../lib/plugin-display-name";
 import { masHidesDataSource } from "../../lib/mas-build";
@@ -226,6 +229,7 @@ export function TopToolbar({
 }: TopToolbarProps) {
   const { t, i18n } = useTranslation();
   const deploymentCapabilities = useAppStore((state) => state.deploymentCapabilities);
+  const appPrivileges = useAppStore((state) => state.capabilities.privileges);
   // The reverse-geocode plugin lives in the framework-agnostic plugins package
   // and cannot call t() itself, so push the translated popup strings into it
   // here and refresh them whenever the active language changes.
@@ -1899,14 +1903,21 @@ export function TopToolbar({
   // (`project.*`, `add.comment`), so filtering to `view.*` drops exactly the
   // authoring keyboard surface.
   //
-  // Independently of the viewer preset, a deployment that withholds a
-  // capability withholds it everywhere: the menu gates below only hide menus,
-  // while the palette, the cheat sheet, and the shortcut layer call `run()`
-  // directly. Filtering the registry once here is what keeps those three from
-  // advertising and invoking what the deployment denied.
+  // Independently of the viewer preset, a withheld capability is withheld
+  // everywhere: the menu gates below only hide or disable menu entries, while
+  // the palette, the cheat sheet, and the shortcut layer call `run()` directly.
+  // Filtering the registry once here is what keeps those three from advertising
+  // and invoking what was denied — and it has to apply both vocabularies, the
+  // deployment's (issue #1673) and the session role's (issue #1672), or the
+  // model gated by whichever one is missing is a UI convention rather than an
+  // access control.
   const allowedCommands = useMemo(
-    () => filterCommandsByCapabilities(commands, deploymentCapabilities),
-    [commands, deploymentCapabilities],
+    () =>
+      filterCommandsByPrivileges(
+        filterCommandsByCapabilities(commands, deploymentCapabilities),
+        appPrivileges,
+      ),
+    [commands, deploymentCapabilities, appPrivileges],
   );
   const shortcutCommands = useMemo(
     () =>

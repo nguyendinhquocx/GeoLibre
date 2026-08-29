@@ -2,15 +2,18 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Command } from "../apps/geolibre-desktop/src/lib/commands";
 import {
+  commandAppPrivileges,
   commandCapability,
   editMenuItemCapability,
   filterCommandsByCapabilities,
+  filterCommandsByPrivileges,
   projectMenuItemCapability,
 } from "../apps/geolibre-desktop/src/lib/deployment-gates";
 import {
   ALL_DEPLOYMENT_CAPABILITIES,
   type DeploymentCapability,
 } from "../packages/core/src/deployment-capabilities";
+import { ROLE_PRIVILEGES } from "../packages/core/src/capabilities";
 
 function command(id: string): Command {
   return { id, title: id, group: "Group", run: () => {} };
@@ -157,5 +160,170 @@ describe("editMenuItemCapability", () => {
     ]) {
       assert.equal(editMenuItemCapability(id), undefined, id);
     }
+  });
+});
+
+describe("commandAppPrivileges", () => {
+  it("maps each command family to the privileges it needs", () => {
+    assert.deepEqual(commandAppPrivileges("proc.whitebox"), {
+      privileges: ["processing:run"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("proc.assistant"), {
+      privileges: ["assistant:use"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("project.save"), {
+      privileges: ["project:save"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("project.save-as"), {
+      privileges: ["project:save"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("project.share"), {
+      privileges: ["project:share"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("project.print-layout"), {
+      privileges: ["export:image"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("settings.style-manager"), {
+      privileges: ["settings:manage"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("plugin.reverse-geocode"), {
+      privileges: ["plugins:install"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("settings.manage-plugins"), {
+      privileges: ["plugins:install"],
+      mode: "any",
+    });
+  });
+
+  it("requires both privileges for every sidecar-backed family", () => {
+    // A sidecar tool is a processing tool first, which is how ProcessingMenu
+    // gates the same three. `proc.conversion.*` and `proc.raster.*` must not
+    // fall through to the generic `proc.` entry.
+    const sidecar = { privileges: ["processing:run", "processing:sidecar"], mode: "all" };
+    assert.deepEqual(commandAppPrivileges("proc.segmentation"), sidecar);
+    assert.deepEqual(commandAppPrivileges("proc.conversion.vector-to-pmtiles"), sidecar);
+    assert.deepEqual(commandAppPrivileges("proc.raster.hillshade"), sidecar);
+    // Turf runs client-side, so the vector tools need only processing:run.
+    assert.deepEqual(commandAppPrivileges("proc.vector.buffer"), {
+      privileges: ["processing:run"],
+      mode: "any",
+    });
+    // Both run client-side via onnxruntime-web, not the sidecar.
+    assert.deepEqual(commandAppPrivileges("proc.segmentEverything"), {
+      privileges: ["processing:run"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("proc.objectDetection"), {
+      privileges: ["processing:run"],
+      mode: "any",
+    });
+  });
+
+  it("admits an Add Data command on either add privilege", () => {
+    assert.deepEqual(commandAppPrivileges("add.vector"), {
+      privileges: ["layers:add-local", "layers:add-remote"],
+      mode: "any",
+    });
+    // A review comment annotates the project rather than bringing data in.
+    assert.deepEqual(commandAppPrivileges("add.comment"), {
+      privileges: ["layers:edit"],
+      mode: "any",
+    });
+  });
+
+  it("classifies the catalog browsers as remote data, matching the Processing menu", () => {
+    assert.deepEqual(commandAppPrivileges("proc.planetary-computer"), {
+      privileges: ["layers:add-remote"],
+      mode: "any",
+    });
+    assert.deepEqual(commandAppPrivileges("proc.earth-engine"), {
+      privileges: ["layers:add-remote"],
+      mode: "any",
+    });
+  });
+
+  it("treats collaboration as sharing, matching the Project menu", () => {
+    assert.deepEqual(commandAppPrivileges("project.collaborate"), {
+      privileges: ["project:share"],
+      mode: "any",
+    });
+  });
+
+  it("leaves navigation, help, and opening a project unprivileged", () => {
+    assert.equal(commandAppPrivileges("view.zoom-in"), undefined);
+    assert.equal(commandAppPrivileges("control.measure"), undefined);
+    assert.equal(commandAppPrivileges("help.about"), undefined);
+    assert.equal(commandAppPrivileges("project.open-url"), undefined);
+  });
+});
+
+describe("filterCommandsByPrivileges", () => {
+  const registry = [
+    "project.save",
+    "project.share",
+    "add.vector",
+    "proc.whitebox",
+    "proc.assistant",
+    "settings.style-manager",
+    "view.zoom-in",
+  ].map(command);
+
+  it("keeps every command for the administrator role", () => {
+    assert.deepEqual(
+      filterCommandsByPrivileges(registry, ROLE_PRIVILEGES.administrator).map((c) => c.id),
+      registry.map((c) => c.id),
+    );
+  });
+
+  it("leaves a viewer only the unprivileged commands", () => {
+    // The palette, cheat sheet, and shortcut layer call run() directly, so a
+    // viewer must not reach Ctrl+S or the Whitebox toolbox through them.
+    assert.deepEqual(
+      filterCommandsByPrivileges(registry, ROLE_PRIVILEGES.viewer).map((c) => c.id),
+      ["view.zoom-in"],
+    );
+  });
+
+  it("gives an editor authoring and processing but not sharing or the assistant", () => {
+    const ids = filterCommandsByPrivileges(registry, ROLE_PRIVILEGES.editor).map((c) => c.id);
+    assert.deepEqual(ids, ["project.save", "add.vector", "proc.whitebox", "view.zoom-in"]);
+  });
+
+  it("drops everything privileged when the role grants nothing", () => {
+    assert.deepEqual(
+      filterCommandsByPrivileges(registry, []).map((c) => c.id),
+      ["view.zoom-in"],
+    );
+  });
+
+  it("withholds sidecar tools from a role missing either half", () => {
+    const sidecarRegistry = [
+      "proc.segmentation",
+      "proc.conversion.vector-to-pmtiles",
+      "proc.raster.hillshade",
+      "proc.vector.buffer",
+    ].map(command);
+
+    // The editor bundle runs tools but has no sidecar, which is exactly the case
+    // the Processing menu greys out — the palette must not offer a way around it.
+    assert.deepEqual(
+      filterCommandsByPrivileges(sidecarRegistry, ROLE_PRIVILEGES.editor).map((c) => c.id),
+      ["proc.vector.buffer"],
+    );
+    // The mirror image: a sidecar grant alone is not permission to run tools.
+    assert.deepEqual(filterCommandsByPrivileges(sidecarRegistry, ["processing:sidecar"]), []);
+    // The publisher bundle holds both halves.
+    assert.deepEqual(
+      filterCommandsByPrivileges(sidecarRegistry, ROLE_PRIVILEGES.publisher).map((c) => c.id),
+      sidecarRegistry.map((c) => c.id),
+    );
   });
 });

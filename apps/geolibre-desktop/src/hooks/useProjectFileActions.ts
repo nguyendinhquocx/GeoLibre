@@ -1,6 +1,7 @@
 import {
   DEFAULT_PROJECT_NAME,
   detachProjectCopy,
+  parseProject,
   projectFromStore,
   redactProjectCredentials,
   excludeHiddenFieldsFromProject,
@@ -65,6 +66,7 @@ import {
 import { importArcgisProject, type ArcgisProjectImportWarning } from "../lib/arcgis-project-import";
 import type { MapControllerRef } from "../components/layout/toolbar/constants";
 import { IS_MAS_BUILD } from "../lib/build-flags";
+import { resolveDroppedProjectIfCurrent } from "../lib/dropped-project";
 
 /** A pending "strip credentials before saving?" prompt. */
 export interface CredentialStripPrompt {
@@ -72,6 +74,18 @@ export interface CredentialStripPrompt {
   /** Project generation that opened the prompt. */
   projectGeneration: number;
   resolve: (choice: "strip" | "keep" | "cancel") => void;
+}
+
+export interface DroppedProjectPrompt {
+  project: GeoLibreProject;
+  path: string | null;
+  text: string;
+  /** Project generation that opened the prompt. */
+  projectGeneration: number;
+  /** Serialized workspace state covered by the open/discard decision. */
+  projectFingerprint: string | null;
+  /** Monotonic token ensuring the newest accepted drop wins. */
+  operationId: number;
 }
 
 /**
@@ -263,6 +277,12 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   const projectGeneration = useAppStore((s) => s.projectGeneration);
 
   const [actionError, setActionError] = useState<string | null>(null);
+  const [droppedProjectPrompt, setDroppedProjectPrompt] = useState<DroppedProjectPrompt | null>(
+    null,
+  );
+  const [droppedProjectSaving, setDroppedProjectSaving] = useState(false);
+  const droppedProjectPromptRef = useRef<DroppedProjectPrompt | null>(null);
+  const droppedProjectOperationRef = useRef(0);
   const [qgisImportWarnings, setQgisImportWarnings] = useState<QgisProjectImportWarning[] | null>(
     null,
   );
@@ -336,8 +356,14 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     if (saveNamePrompt && saveNamePrompt.projectGeneration !== projectGeneration) {
       settleSaveNamePrompt(saveNamePrompt, null);
     }
+    if (droppedProjectPrompt && droppedProjectPrompt.projectGeneration !== projectGeneration) {
+      droppedProjectPromptRef.current = null;
+      setDroppedProjectPrompt(null);
+      setDroppedProjectSaving(false);
+    }
   }, [
     credentialStripPrompt,
+    droppedProjectPrompt,
     embedVectorDataPrompt,
     projectGeneration,
     saveNamePrompt,
@@ -373,6 +399,109 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
           error instanceof Error ? error.message : t("toolbar.error.couldNotOpenProject"),
         );
       }
+    }
+  };
+
+  const loadDroppedProject = async (candidate: DroppedProjectPrompt) => {
+    return resolveDroppedProjectIfCurrent({
+      project: candidate.project,
+      projectGeneration: candidate.projectGeneration,
+      projectFingerprint: candidate.projectFingerprint,
+      isCurrentOperation: () =>
+        droppedProjectOperationRef.current === candidate.operationId &&
+        useAppStore.getState().projectGeneration === candidate.projectGeneration,
+      getWorkspaceState: () => ({
+        projectGeneration: useAppStore.getState().projectGeneration,
+        isDirty: useAppStore.getState().isDirty,
+        projectFingerprint: useAppStore.getState().isDirty
+          ? serializeProject(projectFromStore(useAppStore.getState()))
+          : null,
+      }),
+      resolveProject: resolveProjectXyzLayers,
+      loadProject: (project) => {
+        loadProject(project, candidate.path, {
+          rememberRecent: isTauri() && candidate.path !== null,
+        });
+        if (candidate.path) rememberStartupProjectSnapshot(candidate.path, candidate.text);
+      },
+      workspaceChanged: (state, project) => {
+        const updated = {
+          ...candidate,
+          project,
+          projectGeneration: state.projectGeneration,
+          projectFingerprint: state.projectFingerprint,
+        };
+        droppedProjectPromptRef.current = updated;
+        setDroppedProjectPrompt(updated);
+      },
+    });
+  };
+
+  /** Parse and open a project supplied by either browser or native drag-and-drop. */
+  const handleDroppedProject = async (text: string, path: string | null): Promise<boolean> => {
+    try {
+      const candidate = {
+        project: parseProject(text),
+        path,
+        text,
+        projectGeneration: useAppStore.getState().projectGeneration,
+        projectFingerprint: useAppStore.getState().isDirty
+          ? serializeProject(projectFromStore(useAppStore.getState()))
+          : null,
+        operationId: ++droppedProjectOperationRef.current,
+      };
+      if (useAppStore.getState().isDirty) {
+        droppedProjectPromptRef.current = candidate;
+        setDroppedProjectPrompt(candidate);
+        return false;
+      }
+      return await loadDroppedProject(candidate);
+    } catch (error) {
+      console.error("Failed to open dropped project", error);
+      setActionError(
+        error instanceof Error ? error.message : t("toolbar.error.couldNotOpenProject"),
+      );
+      return false;
+    }
+  };
+
+  const resolveDroppedProjectPrompt = async (choice: "save" | "discard" | "cancel") => {
+    if (droppedProjectSaving) return;
+    const candidate = droppedProjectPrompt;
+    if (!candidate) return;
+    if (choice === "cancel") {
+      droppedProjectPromptRef.current = null;
+      setDroppedProjectPrompt(null);
+      return;
+    }
+    if (choice === "save") {
+      setDroppedProjectSaving(true);
+      setDroppedProjectPrompt(null);
+      try {
+        if (!(await saveProject())) {
+          if (droppedProjectPromptRef.current === candidate) setDroppedProjectPrompt(candidate);
+          return;
+        }
+      } finally {
+        setDroppedProjectSaving(false);
+      }
+      if (droppedProjectPromptRef.current !== candidate) return;
+    }
+    droppedProjectPromptRef.current = null;
+    setDroppedProjectPrompt(null);
+    const decidedCandidate = {
+      ...candidate,
+      projectFingerprint: useAppStore.getState().isDirty
+        ? serializeProject(projectFromStore(useAppStore.getState()))
+        : null,
+    };
+    try {
+      await loadDroppedProject(decidedCandidate);
+    } catch (error) {
+      console.error("Failed to open dropped project", error);
+      setActionError(
+        error instanceof Error ? error.message : t("toolbar.error.couldNotOpenProject"),
+      );
     }
   };
 
@@ -1292,6 +1421,9 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   return {
     actionError,
     setActionError,
+    droppedProjectPrompt,
+    droppedProjectSaving,
+    resolveDroppedProjectPrompt,
     qgisImportWarnings,
     setQgisImportWarnings,
     arcgisImportWarnings,
@@ -1318,6 +1450,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     submitSaveNamePrompt,
     cancelSaveNamePrompt,
     handleOpenFromFile,
+    handleDroppedProject,
     handleImportQgisProject,
     handleImportArcgisProject,
     handleOpenFromUrl,
