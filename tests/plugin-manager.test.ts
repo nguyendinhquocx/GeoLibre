@@ -21,6 +21,112 @@ function testPlugin(patch: Partial<GeoLibrePlugin> = {}): GeoLibrePlugin {
   };
 }
 
+describe("PluginManager exclusive groups", () => {
+  it("deactivates the active sibling before activating another group member", () => {
+    const calls: string[] = [];
+    const manager = new PluginManager();
+    manager.register(
+      testPlugin({
+        id: "stac-catalogs",
+        exclusiveGroup: "stac-browser",
+        activate: () => {
+          calls.push("activate:stac");
+        },
+        deactivate: () => {
+          calls.push("deactivate:stac");
+        },
+      }),
+    );
+    manager.register(
+      testPlugin({
+        id: "planet-open-data",
+        exclusiveGroup: "stac-browser",
+        activate: () => {
+          calls.push("activate:planet");
+        },
+        deactivate: () => {
+          calls.push("deactivate:planet");
+        },
+      }),
+    );
+
+    manager.activate("stac-catalogs", app);
+    manager.activate("planet-open-data", app);
+
+    assert.equal(manager.isActive("stac-catalogs"), false);
+    assert.equal(manager.isActive("planet-open-data"), true);
+    assert.deepEqual(calls, ["activate:stac", "deactivate:stac", "activate:planet"]);
+  });
+
+  it("restores the displaced sibling after activation failures", async () => {
+    for (const failure of ["false", "throw", "reject"] as const) {
+      const manager = new PluginManager();
+      let siblingActivations = 0;
+      manager.register(
+        testPlugin({
+          id: "working",
+          exclusiveGroup: "viewer",
+          activate: () => {
+            siblingActivations += 1;
+          },
+        }),
+      );
+      manager.register(
+        testPlugin({
+          id: "failing",
+          exclusiveGroup: "viewer",
+          activate: () => {
+            if (failure === "false") return false;
+            if (failure === "throw") throw new Error("sync failure");
+            return Promise.reject(new Error("async failure"));
+          },
+        }),
+      );
+      manager.activate("working", app);
+
+      if (failure === "throw") {
+        assert.throws(() => manager.activate("failing", app), /sync failure/);
+      } else {
+        assert.equal(await manager.activate("failing", app), false);
+      }
+
+      assert.equal(manager.isActive("working"), true);
+      assert.equal(manager.isActive("failing"), false);
+      assert.equal(siblingActivations, 2);
+    }
+  });
+
+  it("keeps only the last requested group member active during project restore", () => {
+    const manager = new PluginManager();
+    const activations: string[] = [];
+    for (const id of ["stac", "planet"]) {
+      manager.register(
+        testPlugin({
+          id,
+          exclusiveGroup: "stac-browser",
+          activate: () => {
+            activations.push(id);
+          },
+        }),
+      );
+    }
+
+    manager.restoreProjectState(
+      {
+        manifestUrls: [],
+        activePluginIds: ["stac", "planet"],
+        mapControlPositions: {},
+        settings: {},
+      },
+      app,
+    );
+
+    assert.equal(manager.isActive("stac"), false);
+    assert.equal(manager.isActive("planet"), true);
+    assert.deepEqual(activations, ["planet"]);
+  });
+});
+
 describe("PluginManager URL parameters", () => {
   it("runs matching active plugin URL parameter handlers once per context", async () => {
     const calls: string[] = [];

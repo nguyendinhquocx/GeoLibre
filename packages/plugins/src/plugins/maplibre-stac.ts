@@ -55,7 +55,9 @@ import {
 } from "./stac-icechunk";
 
 export const STAC_PLUGIN_ID = "geolibre-stac-catalogs";
-const PANEL_ID = STAC_PLUGIN_ID;
+export const PLANET_OPEN_DATA_PLUGIN_ID = "geolibre-planet-open-data";
+export const PLANET_DISASTER_DATA_CATALOG_URL =
+  "https://data.source.coop/planet/disasterdata/catalog.json";
 // The footprints layer is a normal store layer, so it is saved into the project
 // while `footprintLayerId` only lives for the session. This marker is how a
 // later search — or a reopened project — recognizes the layer as ours instead
@@ -139,6 +141,9 @@ export interface StacLabels {
   title: string;
   /** Title getter pushed by the host so the panel header re-localizes live. */
   getTitle?: () => string;
+  planetTitle: string;
+  /** Planet title getter pushed by the host so the preset panel re-localizes live. */
+  getPlanetTitle?: () => string;
   footprintLayerName: string;
   catalogSearch: string;
   catalogSearchPlaceholder: string;
@@ -237,6 +242,7 @@ const ZARR_PROBLEMS: Record<Exclude<ZarrTargetCheck, "array">, string> = {
 
 let labels: StacLabels = {
   title: "STAC Catalogs",
+  planetTitle: "Planet Open Data",
   footprintLayerName: "STAC search footprints",
   catalogSearch: "Find a public catalog from STAC Index",
   catalogSearchPlaceholder: "Search catalog names…",
@@ -335,6 +341,12 @@ export function setStacLabels(next: Partial<StacLabels>): void {
   if (panelContainer) mountPanel(panelContainer);
 }
 
+// Every createStacPlugin() instance shares the module-level state below, so at
+// most one may be active at a time. That is enforced by the `exclusiveGroup`
+// the factory sets on each plugin, which PluginManager honours in activate()
+// and restoreProjectState(). Activating two instances by calling activate() on
+// the plugin objects directly, bypassing the manager, would let them stomp each
+// other's catalog url, footprint layer, and panel handles.
 let appRef: GeoLibreAppAPI | null = null;
 // The result footprints are a first-class store layer, so they show up in the
 // Layers panel and can be hidden, restyled, or removed like any other layer.
@@ -342,6 +354,7 @@ let footprintLayerId: string | null = null;
 let unregisterPanel: (() => void) | null = null;
 let disposePanel: (() => void) | null = null;
 let panelContainer: HTMLElement | null = null;
+let initialCatalogUrl = "";
 
 // The results pane and the controls above it each keep a floor so neither can
 // be dragged away entirely. splitterBounds() reserves the controls floor and
@@ -839,6 +852,8 @@ function buildPanel(container: HTMLElement): () => void {
   catalogSelect.append(firstOption);
   const urlField = field(labels.urlLabel, "url");
   urlField.input.placeholder = "https://example.org/stac/";
+  urlField.input.value = initialCatalogUrl;
+  let presetSelectionPending = Boolean(initialCatalogUrl);
   const connectButton = el("button", labels.connect);
   connectButton.type = "button";
   connectButton.style.cssText = style.primary;
@@ -1163,6 +1178,14 @@ function buildPanel(container: HTMLElement): () => void {
       option.value = entry.url;
       catalogSelect.append(option);
     }
+    if (
+      presetSelectionPending &&
+      urlField.input.value === initialCatalogUrl &&
+      filtered.some((entry) => entry.url === initialCatalogUrl)
+    ) {
+      catalogSelect.value = initialCatalogUrl;
+      presetSelectionPending = false;
+    }
   };
 
   const renderItems = (): void => {
@@ -1390,9 +1413,15 @@ function buildPanel(container: HTMLElement): () => void {
 
   catalogSearch.input.addEventListener("input", renderCatalogs);
   catalogSelect.addEventListener("change", () => {
-    if (catalogSelect.value) urlField.input.value = catalogSelect.value;
+    if (catalogSelect.value) {
+      presetSelectionPending = false;
+      urlField.input.value = catalogSelect.value;
+    }
   });
-  connectButton.addEventListener("click", async () => {
+  urlField.input.addEventListener("input", () => {
+    if (urlField.input.value !== initialCatalogUrl) presetSelectionPending = false;
+  });
+  const connectCatalog = async (): Promise<void> => {
     const url = urlField.input.value.trim();
     setDisabled(connectButton, true);
     setStatus(labels.connecting);
@@ -1428,7 +1457,9 @@ function buildPanel(container: HTMLElement): () => void {
     } finally {
       setDisabled(connectButton, false);
     }
-  });
+  };
+  connectButton.addEventListener("click", () => void connectCatalog());
+  if (initialCatalogUrl) void connectCatalog();
   searchButton.addEventListener("click", () => void runSearch(false));
   clearResultsButton.addEventListener("click", () => clearSearchResults());
   loadMore.addEventListener("click", () => void runSearch(true));
@@ -1494,7 +1525,12 @@ function buildPanel(container: HTMLElement): () => void {
     (error) => {
       catalogSelect.innerHTML = "";
       catalogSelect.append(el("option", labels.indexUnavailable));
-      setStatus(error instanceof Error ? error.message : labels.indexLoadFailed, true);
+      // A preset catalog connects in parallel with this index fetch, so a late
+      // index failure must not overwrite a connection that already succeeded —
+      // the catalog is usable, only the browse-by-name dropdown is not.
+      if (!connection) {
+        setStatus(error instanceof Error ? error.message : labels.indexLoadFailed, true);
+      }
     },
   );
 
@@ -1521,41 +1557,58 @@ function mountPanel(container: HTMLElement): void {
   disposePanel = buildPanel(container);
 }
 
-export const maplibreStacCatalogsPlugin: GeoLibrePlugin = {
-  id: STAC_PLUGIN_ID,
-  name: "STAC Catalogs",
-  version: "0.1.0",
-  activate(app) {
-    appRef = app;
-    unregisterPanel =
-      app.registerRightPanel?.({
-        id: PANEL_ID,
-        title: () => labels.getTitle?.() ?? labels.title,
-        dock: "replace-style",
-        defaultWidth: 380,
-        render(container) {
-          mountPanel(container);
-          return () => {
-            disposePanel?.();
-            disposePanel = null;
-            if (panelContainer === container) panelContainer = null;
-          };
-        },
-      }) ?? null;
-    app.openRightPanel?.(PANEL_ID);
-  },
-  deactivate(app) {
-    app.closeRightPanel?.(PANEL_ID);
-    unregisterPanel?.();
-    unregisterPanel = null;
-    removeFootprints();
-    const map = app.getMap?.();
-    if (map) {
-      removeDrawBox(map);
-      removeSelectionHighlight(map);
-    }
-    appRef = null;
-  },
-};
+function createStacPlugin(id: string, name: string, presetCatalogUrl = ""): GeoLibrePlugin {
+  return {
+    id,
+    name,
+    version: "0.1.0",
+    exclusiveGroup: "stac-catalog-browser",
+    activate(app) {
+      initialCatalogUrl = presetCatalogUrl;
+      appRef = app;
+      unregisterPanel =
+        app.registerRightPanel?.({
+          id,
+          title: () =>
+            presetCatalogUrl
+              ? (labels.getPlanetTitle?.() ?? labels.planetTitle)
+              : (labels.getTitle?.() ?? labels.title),
+          dock: "replace-style",
+          defaultWidth: 380,
+          render(container) {
+            mountPanel(container);
+            return () => {
+              disposePanel?.();
+              disposePanel = null;
+              if (panelContainer === container) panelContainer = null;
+            };
+          },
+        }) ?? null;
+      app.openRightPanel?.(id);
+    },
+    deactivate(app) {
+      app.closeRightPanel?.(id);
+      unregisterPanel?.();
+      unregisterPanel = null;
+      removeFootprints();
+      const map = app.getMap?.();
+      if (map) {
+        removeDrawBox(map);
+        removeSelectionHighlight(map);
+      }
+      appRef = null;
+      initialCatalogUrl = "";
+    },
+  };
+}
+
+export const maplibreStacCatalogsPlugin = createStacPlugin(STAC_PLUGIN_ID, "STAC Catalogs");
+
+/** STAC Catalogs browser pinned to Planet's continuously updated disaster releases. */
+export const maplibrePlanetOpenDataPlugin = createStacPlugin(
+  PLANET_OPEN_DATA_PLUGIN_ID,
+  "Planet Open Data",
+  PLANET_DISASTER_DATA_CATALOG_URL,
+);
 
 export default maplibreStacCatalogsPlugin;
