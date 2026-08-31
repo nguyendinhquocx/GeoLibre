@@ -3194,6 +3194,105 @@ html.dark .maplibregl-popup-anchor-right:has(.vector-control-popup) .maplibregl-
   border-left-color: hsl(var(--popover));
 }
 
+/* Map-control-backed Web Services live in GeoLibre's dockable panel host. The
+   upstream packages position and size their panels as map overlays, so reset
+   that overlay geometry and let the host own the available width and height. */
+.geolibre-docked-map-control {
+  height: 100%;
+  overflow: auto;
+  overflow-x: hidden;
+}
+
+.geolibre-docked-map-control > * {
+  width: 100%;
+  margin: 0;
+}
+
+.geolibre-docked-map-control .plugin-control-panel,
+.geolibre-docked-map-control .enviroatlas-panel,
+.geolibre-docked-map-control .national-map-panel,
+.geolibre-docked-map-control .vantor-panel {
+  position: static !important;
+  inset: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: flex !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.geolibre-docked-map-control .vantor-panel__table-container {
+  max-height: none;
+}
+
+/* NASA result rows contain several nested flex containers. Without resetting
+   their intrinsic minimum width, a long layer title expands the row after the
+   host panel is resized and pushes the fixed-width Add button out of view. */
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-results,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .plugin-control-content,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-body,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-category,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-category-layers,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-row,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-main,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-info,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-title {
+  min-width: 0;
+}
+
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .plugin-control-content,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-body,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-results,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-category,
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-category-layers {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .plugin-control-content {
+  overflow-x: hidden;
+}
+
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-row {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-info {
+  overflow: hidden;
+}
+
+.geolibre-docked-map-control .maplibre-gl-nasa-earthdata .nasa-layer-title {
+  display: block;
+  max-width: 100%;
+}
+
+.geolibre-docked-map-control .plugin-control-toggle,
+.geolibre-docked-map-control .plugin-control-header,
+.geolibre-docked-map-control .plugin-control-close,
+.geolibre-docked-map-control .enviroatlas-toggle,
+.geolibre-docked-map-control .enviroatlas-header,
+.geolibre-docked-map-control .enviroatlas-close,
+.geolibre-docked-map-control .national-map-toggle,
+.geolibre-docked-map-control .national-map-header,
+.geolibre-docked-map-control .national-map-close,
+.geolibre-docked-map-control .vantor-panel__header,
+.geolibre-docked-map-control .vantor-panel__toggle,
+.geolibre-docked-map-control .plugin-control-resize-handle,
+.geolibre-docked-map-control .enviroatlas-resizer,
+.geolibre-docked-map-control .national-map-resizer,
+.geolibre-docked-map-control .vantor-panel__resize-handle {
+  display: none !important;
+}
+
 /* The Web Services controls (FEMA NFHL, NASA Earthdata, US EPA EnviroAtlas,
    USGS National Map) theme themselves from prefers-color-scheme (the OS
    setting), while GeoLibre themes from the .dark class on <html>. Each

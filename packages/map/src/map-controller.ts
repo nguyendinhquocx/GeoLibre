@@ -580,6 +580,12 @@ export class MapController {
       renderWorldCopies: mapPreferences.renderWorldCopies,
       attributionControl: false,
       maplibreLogo: false,
+      // The canvases own resizing through the shared scheduler in map-resize.ts
+      // (both MapCanvas and SecondaryMapCanvas) because the container also
+      // changes when app panels open and close. Letting MapLibre listen to
+      // window.resize as well causes competing framebuffer reallocations while
+      // a browser window is dragged, briefly exposing a transparent canvas.
+      trackResize: false,
       // preserveDrawingBuffer must stay true: the Print Layout composer and any
       // future export feature reads the canvas via drawImage / toDataURL outside
       // of a render callback. Removing this causes blank captures on browsers

@@ -16,6 +16,8 @@ import {
   wmsVersionFromEndpoint,
   type WmsLayerOption,
 } from "../helpers";
+import { routeWmsLayerThroughNativeProtocol } from "../../../../lib/xyz-url";
+import { isHttpWmsUrl } from "../../../../lib/native-wms-url";
 import { ServiceLibrarySection } from "../ServiceLibrarySection";
 import { serviceFieldBoolean, serviceFieldString, type ServiceFields } from "../service-library";
 import { AddDataSourceForm, SampleDataSelect, useAddDataSource } from "../shared";
@@ -125,7 +127,7 @@ export function WmsSource({
 
   const handleRetrieveLayers = async () => {
     const endpoint = wmsEndpoint.trim();
-    if (!endpoint) {
+    if (!isHttpWmsUrl(endpoint)) {
       setRetrieveError(t("addData.wms.errorUrl"));
       return;
     }
@@ -206,7 +208,7 @@ export function WmsSource({
 
   const handleSubmit = source.runSubmit(() => {
     const name = source.layerName.trim() || t("addData.wms.defaultName");
-    if (!wmsEndpoint.trim()) throw new Error(t("addData.wms.errorUrl"));
+    if (!isHttpWmsUrl(wmsEndpoint.trim())) throw new Error(t("addData.wms.errorUrl"));
     if (!wmsLayers.trim()) {
       throw new Error(t("addData.wms.errorLayers"));
     }
@@ -214,16 +216,18 @@ export function WmsSource({
     // GetCapabilities URL), normalizes the version, and credits known keyless
     // services (e.g. GEBCO) in the map's attribution control.
     source.addAndClose(
-      buildWmsLayer({
-        name,
-        endpoint: wmsEndpoint,
-        layers: wmsLayers,
-        styles: wmsStyles,
-        format: wmsFormat,
-        transparent: wmsTransparent,
-        tileSize: wmsTileSize,
-        version: wmsVersion,
-      }),
+      routeWmsLayerThroughNativeProtocol(
+        buildWmsLayer({
+          name,
+          endpoint: wmsEndpoint,
+          layers: wmsLayers,
+          styles: wmsStyles,
+          format: wmsFormat,
+          transparent: wmsTransparent,
+          tileSize: wmsTileSize,
+          version: wmsVersion,
+        }),
+      ),
     );
   });
 

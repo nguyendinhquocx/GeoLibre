@@ -54,6 +54,7 @@ import {
 import { isGlobeControlToggleClick } from "./globe-control-toggle";
 import { createGlobalIdentifyHitDeduper } from "./identify-all";
 import { createMapController, type MapController } from "./map-controller";
+import { createMapResizeScheduler } from "./map-resize";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "maplibre-gl-layer-control/style.css";
 import "./layer-control-overrides.css";
@@ -66,8 +67,6 @@ import "./layer-control-overrides.css";
  * motionless cursor would sit there until the first drag.
  */
 const FEATURE_SELECTION_BEGIN_EVENT = "geolibre:feature-selection-begin";
-const PANEL_RESIZE_START_EVENT = "geolibre:panel-resize-start";
-const PANEL_RESIZE_END_EVENT = "geolibre:panel-resize-end";
 const WMS_PROXY_PATH = "/__geolibre_wms_proxy";
 const WEB_MERCATOR_MAX_LATITUDE = 85.0511287798066;
 const WEB_MERCATOR_EARTH_RADIUS = 6378137;
@@ -1618,51 +1617,13 @@ export const MapCanvas = memo(function MapCanvas({
       onControllerReadyRef.current?.();
     });
 
-    let resizeFrame: number | null = null;
-    let panelResizeActive = false;
-    let resizeAfterPanelResize = false;
-    const resizeMap = () => {
-      if (panelResizeActive) {
-        resizeAfterPanelResize = true;
-        return;
-      }
-
-      if (resizeFrame !== null) {
-        window.cancelAnimationFrame(resizeFrame);
-      }
-      resizeFrame = window.requestAnimationFrame(() => {
-        resizeFrame = null;
-        mc.getMap()?.resize();
-      });
-    };
-    const onPanelResizeStart = () => {
-      panelResizeActive = true;
-      resizeAfterPanelResize = false;
-      if (resizeFrame !== null) {
-        window.cancelAnimationFrame(resizeFrame);
-        resizeFrame = null;
-      }
-    };
-    const onPanelResizeEnd = () => {
-      panelResizeActive = false;
-      if (resizeAfterPanelResize) {
-        resizeAfterPanelResize = false;
-      }
-      resizeMap();
-    };
-    const resizeObserver = new ResizeObserver(resizeMap);
-    resizeObserver.observe(containerRef.current);
-    window.addEventListener(PANEL_RESIZE_START_EVENT, onPanelResizeStart);
-    window.addEventListener(PANEL_RESIZE_END_EVENT, onPanelResizeEnd);
-    resizeMap();
+    const disposeResizeScheduler = createMapResizeScheduler({
+      getMap: () => mc.getMap(),
+      container: containerRef.current,
+    });
 
     return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener(PANEL_RESIZE_START_EVENT, onPanelResizeStart);
-      window.removeEventListener(PANEL_RESIZE_END_EVENT, onPanelResizeEnd);
-      if (resizeFrame !== null) {
-        window.cancelAnimationFrame(resizeFrame);
-      }
+      disposeResizeScheduler();
       pointerElevation.dispose();
       map.getContainer().removeEventListener("click", handleProjectionControlClick);
       mc.destroy();

@@ -21,6 +21,56 @@ import {
 import { geojsonLayer } from "./helpers/layer-fixtures";
 
 describe("project parsing", () => {
+  it("restores portable WMS URLs when saving a desktop-routed layer", () => {
+    const tile = "https://example.com/wms?BBOX={bbox-epsg-3857}";
+    const routed = `geolibre-wms://tile?url=${encodeURIComponent(tile).replaceAll(
+      "%7Bbbox-epsg-3857%7D",
+      "{bbox-epsg-3857}",
+    )}`;
+    const layer = {
+      ...geojsonLayer({ id: "wms" }),
+      type: "wms" as const,
+      source: { type: "raster" as const, tiles: [routed] },
+      geojson: undefined,
+    };
+
+    const saved = projectFromStore({
+      projectName: "Portable WMS",
+      mapView: { center: [0, 0], zoom: 2, bearing: 0, pitch: 0 },
+      basemapStyleUrl: DEFAULT_BASEMAP,
+      basemapVisible: true,
+      basemapOpacity: 1,
+      layers: [layer],
+      preferences: createEmptyProject().preferences,
+      metadata: {},
+    });
+
+    assert.equal(saved.layers[0].source.tiles?.[0], tile);
+    assert.equal(layer.source.tiles[0], routed);
+  });
+
+  it("does not save an invalid URL extracted from a desktop WMS route", () => {
+    const routed = "geolibre-wms://tile?url=https%3A%2F%2F";
+    const layer = {
+      ...geojsonLayer({ id: "wms" }),
+      type: "wms" as const,
+      source: { type: "raster" as const, tiles: [routed] },
+      geojson: undefined,
+    };
+    const saved = projectFromStore({
+      projectName: "Invalid routed WMS",
+      mapView: { center: [0, 0], zoom: 2, bearing: 0, pitch: 0 },
+      basemapStyleUrl: DEFAULT_BASEMAP,
+      basemapVisible: true,
+      basemapOpacity: 1,
+      layers: [layer],
+      preferences: createEmptyProject().preferences,
+      metadata: {},
+    });
+
+    assert.equal(saved.layers[0].source.tiles?.[0], routed);
+  });
+
   it("preserves layer style fields missing from a legacy top-level style", () => {
     const base = createEmptyProject("Partial legacy style");
     const layer = geojsonLayer({
@@ -189,6 +239,25 @@ describe("project parsing", () => {
     };
     const reloaded = parseProject(serializeProject(mercator));
     assert.equal(reloaded.preferences.map.projection, "mercator");
+  });
+
+  it("round-trips terrain and defaults legacy projects to terrain off", () => {
+    const base = createEmptyProject("Terrain");
+    assert.equal(base.preferences.map.terrainEnabled, false);
+    const enabled = {
+      ...base,
+      preferences: {
+        ...base.preferences,
+        map: { ...base.preferences.map, terrainEnabled: true },
+      },
+    };
+    assert.equal(parseProject(serializeProject(enabled)).preferences.map.terrainEnabled, true);
+
+    const legacy = structuredClone(base) as unknown as {
+      preferences: { map: Record<string, unknown> };
+    };
+    delete legacy.preferences.map.terrainEnabled;
+    assert.equal(parseProject(JSON.stringify(legacy)).preferences.map.terrainEnabled, false);
   });
 
   it("round-trips the scale unit preference and defaults unknown values to metric", () => {

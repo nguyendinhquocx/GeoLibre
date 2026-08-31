@@ -1414,9 +1414,7 @@ function getWebServiceTiles(layer: GeoLibreLayer): string[] {
   return tiles.map((tile) =>
     // Skip already proxied templates so repeated sync passes cannot nest
     // proxy URLs.
-    tile.includes("{bbox-epsg-3857}") && !tile.startsWith(WMS_PROXY_PATH)
-      ? proxyWmsTileUrl(tile)
-      : tile,
+    tile.includes("{bbox-epsg-3857}") && /^https?:\/\//i.test(tile) ? proxyWmsTileUrl(tile) : tile,
   );
 }
 
@@ -2990,7 +2988,7 @@ function syncImageLayer(map: maplibregl.Map, layer: GeoLibreLayer, beforeId?: st
 function getRenderableRasterTiles(layer: GeoLibreLayer): string[] {
   const tiles = (layer.source.tiles as string[]) ?? [];
   if (layer.type !== "wms" || !isViteDevServer()) return tiles;
-  return tiles.map(proxyWmsTileUrl);
+  return tiles.map((tile) => (/^https?:\/\//i.test(tile) ? proxyWmsTileUrl(tile) : tile));
 }
 
 function isViteDevServer(): boolean {

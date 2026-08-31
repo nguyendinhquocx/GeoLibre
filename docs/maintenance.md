@@ -106,6 +106,20 @@ it, so only the `line-pattern` entry is a mirror a test can guard; the other two
 rest on how MapLibre renders them. A class using any of them is not imported as
 black — it declines the stack.
 
+### Web Services control packages (`packages/plugins/package.json`)
+
+- **Docked panel DOM bridge.** `dockable-map-control.ts` adapts
+  `maplibre-gl-fema-wms`, `maplibre-gl-nasa-earthdata`,
+  `maplibre-gl-enviroatlas`, and `maplibre-gl-national-map` by calling the
+  control lifecycle directly and moving the panel element that `onAdd()`
+  appends to the map container into GeoLibre's native right-panel host. Vantor
+  returns a wrapper instead, so the bridge selects its `.vantor-panel`
+  descendant. The scoped CSS in `index.css` mirrors each package's panel,
+  header, toggle, close, and resize-handle class names. After bumping any of
+  these packages, activate every migrated Web Services plugin and verify that
+  its catalog renders, resizing the GeoLibre dock preserves the content, and
+  no vendor panel remains under the map container.
+
 ### `maplibre-gl-components` (`packages/plugins/package.json`)
 
 - **`MAP_PANEL_SELECTOR`**
@@ -192,6 +206,16 @@ above this one is checked by the **compiler**:
 assignability against the real imported type, so a renamed or dropped engine
 identifier fails `npm run typecheck`. Nothing extra to do on a bump beyond letting
 the build run.
+
+### `tauri-plugin-persisted-scope` — private on-disk format
+
+`PersistedScopeState` (`apps/geolibre-desktop/src-tauri/src/lib.rs`) mirrors the
+plugin's private bincode `Scope` structure so GeoLibre can remove legacy
+per-photo grants before the plugin synchronously replays them at startup. On a
+`tauri-plugin-persisted-scope` bump, compare the upstream struct's field order
+and types against this mirror and run the Rust scope-cleanup tests. Bincode
+encodes fields positionally, so an upstream layout change is not compiler
+checked.
 
 ### `@tauri-apps/plugin-http` — two upstream *behaviors*, not APIs
 
