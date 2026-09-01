@@ -96,6 +96,12 @@ import {
   type ProcessingRunTracker,
 } from "../../lib/processing-history";
 import { CrsPickerInput } from "./CrsPickerInput";
+import {
+  DOWNLOAD_GLOBAL_DEM_TOOL_ID,
+  GlobalDemError,
+  downloadGlobalDem,
+  withGlobalDemTool,
+} from "../../lib/global-dem";
 import { SidecarHelpBanner } from "./SidecarHelpBanner";
 import {
   whiteboxParameterLabel,
@@ -477,6 +483,10 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
   // True while a "Draw on map" rubber-band is in progress.
   const [drawing, setDrawing] = useState(false);
   const drawAbortRef = useRef<AbortController | null>(null);
+  // Cancels the network-bound global DEM request when the panel closes or a
+  // replacement run starts. The regular WASM/sidecar jobs manage their own
+  // lifecycle and do not use this controller.
+  const globalDemAbortRef = useRef<AbortController | null>(null);
   // Viewport-space corners of the in-progress draw box, drawn as an SVG overlay
   // (not a MapLibre layer) so the rubber-band sits above an interleaved deck.gl
   // raster, which occludes MapLibre layers.
@@ -945,17 +955,19 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
         );
         setRuntimeAvailable(available);
         setRuntimeMessage(message);
-        setTools(snapshotTools);
+        const availableTools = withGlobalDemTool(snapshotTools);
+        setTools(availableTools);
         setSelectedToolId((current) =>
-          snapshotTools.some((tool) => tool.id === current)
+          availableTools.some((tool) => tool.id === current)
             ? current
-            : (snapshotTools[0]?.id ?? ""),
+            : (availableTools[0]?.id ?? ""),
         );
       } catch (err) {
         setRuntimeAvailable(available);
         setRuntimeMessage(message);
-        setTools([]);
-        setSelectedToolId("");
+        const availableTools = withGlobalDemTool([]);
+        setTools(availableTools);
+        setSelectedToolId(availableTools[0]?.id ?? "");
         setError(err instanceof Error ? err.message : t("processing.whitebox.errorLoadSnapshot"));
       }
     };
@@ -998,7 +1010,7 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
       if (catalogError) {
         console.warn("[GeoLibre] Could not load Whitebox catalog snapshot:", catalogError);
       }
-      const nextTools = mergeWasmToolManifests(catalogTools, wasmTools);
+      const nextTools = withGlobalDemTool(mergeWasmToolManifests(catalogTools, wasmTools));
       setTools(nextTools);
       setSelectedToolId((current) =>
         nextTools.some((tool) => tool.id === current) ? current : (nextTools[0]?.id ?? ""),
@@ -1058,7 +1070,7 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
         // Keep the live catalog when the optional parameter fallback is unavailable.
       }
       // Hide locked ("pro"-tier) tools: they cannot run, so omit them entirely.
-      const freeTools = nextTools.filter((tool) => !tool.locked);
+      const freeTools = withGlobalDemTool(nextTools.filter((tool) => !tool.locked));
       setTools(freeTools);
       setSelectedToolId((current) =>
         freeTools.some((tool) => tool.id === current) ? current : (freeTools[0]?.id ?? ""),
@@ -1346,13 +1358,21 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
   useEffect(() => {
     if (open) return;
     drawAbortRef.current?.abort();
+    globalDemAbortRef.current?.abort();
   }, [open]);
-  useEffect(() => () => drawAbortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      drawAbortRef.current?.abort();
+      globalDemAbortRef.current?.abort();
+    },
+    [],
+  );
   // Abort an in-flight draw when the selected tool changes: `values` is reset to
   // the new tool's defaults on that change, so a box that resolves after the
   // switch would otherwise fill the wrong tool's bbox field.
   useEffect(() => {
     drawAbortRef.current?.abort();
+    globalDemAbortRef.current?.abort();
   }, [selectedToolId]);
 
   const handleRunLocalChange = (nextRunLocal: boolean) => {
@@ -1509,6 +1529,77 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
     // immediately (input fetching can take a moment, and the local WASM run then
     // blocks the main thread).
     setRunningLocal(true);
+
+    if (selectedTool.id === DOWNLOAD_GLOBAL_DEM_TOOL_ID) {
+      if (!String(values.bbox ?? "").trim()) {
+        setError(
+          t("processing.whitebox.missingRequiredParameter", {
+            label: whiteboxParameterLabel(t, i18n.language, selectedTool.id, {
+              name: "bbox",
+            }),
+          }),
+        );
+        setRunningLocal(false);
+        return;
+      }
+      globalDemAbortRef.current?.abort();
+      const controller = new AbortController();
+      globalDemAbortRef.current = controller;
+      const tracker = beginProcessingRun({
+        kind: "whitebox",
+        toolId: selectedTool.id,
+        toolName: toolLabel(t, selectedTool),
+        engine: "AWS Terrain Tiles",
+        parameters: values,
+      });
+      try {
+        const bytes = await downloadGlobalDem({
+          bbox: String(values.bbox ?? ""),
+          bboxCrs: Number(values.bbox_crs),
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        const now = new Date().toISOString();
+        const id = `global-dem-${crypto.randomUUID()}`;
+        historyTrackersRef.current.set(id, tracker);
+        while (historyTrackersRef.current.size > MAX_TRACKED_HISTORY_JOBS) {
+          const oldest = historyTrackersRef.current.keys().next().value;
+          if (oldest === undefined) break;
+          historyTrackersRef.current.delete(oldest);
+        }
+        setJob({
+          id,
+          status: "succeeded",
+          tool_id: selectedTool.id,
+          created_at: now,
+          updated_at: now,
+          messages: [t("processing.whitebox.jobStatus.succeeded")],
+          outputs: { output: bytes },
+          result: null,
+          error: null,
+        });
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof GlobalDemError) {
+          console.warn("Global DEM download failed:", err.message);
+        }
+        const message =
+          err instanceof GlobalDemError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : t("toolbar.rasterTool.runError");
+        tracker.finish("error", message);
+        setError(message);
+      } finally {
+        if (globalDemAbortRef.current === controller) {
+          globalDemAbortRef.current = null;
+          setRunningLocal(false);
+        }
+      }
+      return;
+    }
+
     const parameters: Record<string, unknown> = {};
     const layerInputs: Record<string, WhiteboxLayerInput | WhiteboxLayerInput[]> = {};
 
@@ -2034,7 +2125,7 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
               </div>
               {/* The Mac App Store build has no sidecar to switch to, so the
                   local/server toggle is dropped (WASM is the only runtime). */}
-              {!IS_MAS_BUILD && (
+              {!IS_MAS_BUILD && selectedTool?.id !== DOWNLOAD_GLOBAL_DEM_TOOL_ID && (
                 <label
                   // whitespace-nowrap: the label is short enough to keep on one
                   // line, and letting it wrap turned "Run locally (WASM)" into a
@@ -2071,7 +2162,9 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
                   !selectedTool ||
                   selectedTool.locked ||
                   running ||
-                  (!runLocal && runtimeAvailable !== true)
+                  (selectedTool.id !== DOWNLOAD_GLOBAL_DEM_TOOL_ID &&
+                    !runLocal &&
+                    runtimeAvailable !== true)
                 }
               >
                 {running ? (
@@ -2200,7 +2293,10 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
                 troubleshooting with a one-click switch to the WASM runner.
                 Otherwise fall back to a plain error line (e.g. a parameter or
                 tool-run error that has nothing to do with the sidecar). */}
-            {!IS_MAS_BUILD && !runLocal && runtimeAvailable === false ? (
+            {!IS_MAS_BUILD &&
+            selectedTool?.id !== DOWNLOAD_GLOBAL_DEM_TOOL_ID &&
+            !runLocal &&
+            runtimeAvailable === false ? (
               <SidecarHelpBanner
                 isDesktop={desktop}
                 error={error}

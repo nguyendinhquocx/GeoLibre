@@ -46,6 +46,95 @@ export function createMapResizeScheduler({
   let observedWindowHeight = window.innerHeight;
   let observedDevicePixelRatio = window.devicePixelRatio;
   let panelResizeActive = false;
+  let frameOverlay: HTMLCanvasElement | null = null;
+  let frameSnapshot: HTMLCanvasElement | null = null;
+  let frameSnapshotDevicePixelRatio = 1;
+  let overlayBackgroundColor = "";
+  let overlayMap: MapLibreMap | null = null;
+  let renderCleanupArmed = false;
+  const backgroundIsTransparent = (color: string) =>
+    !color || color === "transparent" || color === "rgba(0, 0, 0, 0)";
+
+  const removeFrameOverlay = () => {
+    frameOverlay?.remove();
+    frameOverlay = null;
+    frameSnapshot = null;
+    frameSnapshotDevicePixelRatio = 1;
+    overlayBackgroundColor = "";
+    if (overlayMap) {
+      overlayMap.off("render", removeFrameOverlay);
+      overlayMap = null;
+    }
+    renderCleanupArmed = false;
+  };
+  const preserveRenderedFrame = () => {
+    const map = getMap();
+    if (!map) return;
+    if (frameOverlay && overlayMap !== map) removeFrameOverlay();
+    const canvas = map.getCanvas();
+    const canvasParent = canvas.parentElement;
+    if (!canvasParent || canvas.width === 0 || canvas.height === 0) return;
+
+    const snapshot = frameSnapshot ?? document.createElement("canvas");
+    if (!frameSnapshot) {
+      snapshot.width = canvas.width;
+      snapshot.height = canvas.height;
+      const snapshotContext = snapshot.getContext("2d");
+      if (!snapshotContext) return;
+      try {
+        snapshotContext.drawImage(canvas, 0, 0);
+      } catch {
+        return;
+      }
+      frameSnapshot = snapshot;
+      const canvasCssWidth = parseFloat(canvas.style.width) || canvas.clientWidth;
+      frameSnapshotDevicePixelRatio =
+        canvasCssWidth > 0 ? canvas.width / canvasCssWidth : window.devicePixelRatio;
+    }
+    const overlay = frameOverlay ?? document.createElement("canvas");
+    overlay.width = Math.round(container.clientWidth * window.devicePixelRatio);
+    overlay.height = Math.round(container.clientHeight * window.devicePixelRatio);
+    const context = overlay.getContext("2d");
+    if (!context) return;
+    if (!overlayBackgroundColor) {
+      let backgroundElement: HTMLElement | null = container;
+      while (backgroundElement && backgroundIsTransparent(overlayBackgroundColor)) {
+        overlayBackgroundColor = window.getComputedStyle(backgroundElement).backgroundColor;
+        backgroundElement = backgroundElement.parentElement;
+      }
+      if (backgroundIsTransparent(overlayBackgroundColor)) {
+        overlayBackgroundColor = "#fff";
+      }
+    }
+    context.fillStyle = overlayBackgroundColor;
+    context.fillRect(0, 0, overlay.width, overlay.height);
+    const dprScale = window.devicePixelRatio / frameSnapshotDevicePixelRatio;
+    const snapshotWidth = snapshot.width * dprScale;
+    const snapshotHeight = snapshot.height * dprScale;
+    const x = (overlay.width - snapshotWidth) / 2;
+    const y = (overlay.height - snapshotHeight) / 2;
+    try {
+      context.drawImage(snapshot, x, y, snapshotWidth, snapshotHeight);
+    } catch {
+      removeFrameOverlay();
+      return;
+    }
+    if (frameOverlay) return;
+
+    overlay.className = "geolibre-map-resize-frame";
+    overlay.setAttribute("aria-hidden", "true");
+    Object.assign(overlay.style, {
+      position: "absolute",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      zIndex: "5",
+      pointerEvents: "none",
+    });
+    canvas.insertAdjacentElement("afterend", overlay);
+    frameOverlay = overlay;
+    overlayMap = map;
+  };
 
   const cancelFrame = () => {
     if (resizeFrame === null) return;
@@ -74,12 +163,25 @@ export function createMapResizeScheduler({
       observedDevicePixelRatio !== window.devicePixelRatio
     );
   };
-  const commitResize = () => {
+  const commitResize = (preserveFrame = true) => {
     cancelFrame();
     resizeFrame = window.requestAnimationFrame(() => {
       resizeFrame = null;
-      if (!mapNeedsResize()) return;
-      getMap()?.resize();
+      if (!mapNeedsResize()) {
+        removeFrameOverlay();
+        return;
+      }
+      const map = getMap();
+      if (!map) {
+        removeFrameOverlay();
+        return;
+      }
+      if (preserveFrame) preserveRenderedFrame();
+      if (preserveFrame && frameOverlay && !renderCleanupArmed) {
+        map.once("render", removeFrameOverlay);
+        renderCleanupArmed = true;
+      }
+      map.resize();
       observedDevicePixelRatio = window.devicePixelRatio;
     });
   };
@@ -127,7 +229,10 @@ export function createMapResizeScheduler({
     return true;
   };
   const resizeMap = () => {
-    if (panelResizeActive) return;
+    if (panelResizeActive) {
+      preserveRenderedFrame();
+      return;
+    }
     // App layout changes such as toggling a sidebar are discrete and should
     // resize on the next frame. Only coalesce the rapid observer callbacks
     // produced while the browser window itself is being dragged.
@@ -143,6 +248,7 @@ export function createMapResizeScheduler({
     // discrete change has to be dropped, or it would resize mid-drag anyway.
     cancelFrame();
     cancelTimer();
+    preserveRenderedFrame();
     resizeTimer = window.setTimeout(() => {
       resizeTimer = null;
       commitResize();
@@ -162,6 +268,8 @@ export function createMapResizeScheduler({
     clearWindowResizeState();
     cancelFrame();
     cancelTimer();
+    removeFrameOverlay();
+    preserveRenderedFrame();
   };
   const onPanelResizeEnd = () => {
     panelResizeActive = false;
@@ -174,7 +282,7 @@ export function createMapResizeScheduler({
   window.addEventListener(PANEL_RESIZE_START_EVENT, onPanelResizeStart);
   window.addEventListener(PANEL_RESIZE_END_EVENT, onPanelResizeEnd);
   watchDevicePixelRatio();
-  commitResize();
+  commitResize(false);
 
   return () => {
     resizeObserver.disconnect();
@@ -185,5 +293,6 @@ export function createMapResizeScheduler({
     cancelFrame();
     cancelTimer();
     clearWindowResizeState();
+    removeFrameOverlay();
   };
 }

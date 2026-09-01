@@ -34,6 +34,10 @@ interface Harness {
   advance: (ms: number) => void;
   setDevicePixelRatio: (ratio: number) => void;
   resizeCalls: () => number;
+  overlayCount: () => number;
+  overlaySize: () => { width: number; height: number } | null;
+  drawnFrameWidth: () => number | null;
+  render: () => void;
   listenerCount: () => number;
 }
 
@@ -50,10 +54,28 @@ function install(): Harness {
   const container = { clientWidth: 800, clientHeight: 600 };
   // Mirrors MapLibre: `resize()` writes the container's client dimensions back
   // as the canvas CSS size, which is what `mapNeedsResize` compares against.
-  const canvas = { style: { width: "800px", height: "600px" } };
+  const overlays = new Set<object>();
+  const canvasParent = {};
+  const canvas = {
+    style: { width: "800px", height: "600px" },
+    width: 800,
+    height: 600,
+    parentElement: canvasParent,
+    insertAdjacentElement(_position: string, overlay: object) {
+      overlays.add(overlay);
+    },
+  };
   let resizeCalls = 0;
+  let drawnFrameWidth: number | null = null;
+  let renderListener: (() => void) | null = null;
   const map = {
     getCanvas: () => canvas,
+    once: (_type: string, listener: () => void) => {
+      renderListener = listener;
+    },
+    off: (type: string, listener: () => void) => {
+      if (type === "render" && renderListener === listener) renderListener = null;
+    },
     resize: () => {
       resizeCalls += 1;
       canvas.style.width = `${container.clientWidth}px`;
@@ -100,6 +122,7 @@ function install(): Harness {
         },
       };
     },
+    getComputedStyle: () => ({ backgroundColor: "#fff" }),
   };
   const fakeResizeObserver = class {
     constructor(callback: () => void) {
@@ -114,8 +137,34 @@ function install(): Harness {
   const previous = {
     window: globalThis.window,
     ResizeObserver: globalThis.ResizeObserver,
+    document: globalThis.document,
   };
-  Object.assign(globalThis, { window: fakeWindow, ResizeObserver: fakeResizeObserver });
+  const fakeDocument = {
+    createElement() {
+      const overlay = {
+        className: "",
+        width: 0,
+        height: 0,
+        style: {},
+        setAttribute() {},
+        getContext: () => ({
+          drawImage(...args: unknown[]) {
+            if (args.length === 5) drawnFrameWidth = args[3] as number;
+          },
+          fillRect() {},
+        }),
+        remove() {
+          overlays.delete(overlay);
+        },
+      };
+      return overlay;
+    },
+  };
+  Object.assign(globalThis, {
+    window: fakeWindow,
+    ResizeObserver: fakeResizeObserver,
+    document: fakeDocument,
+  });
   restoreGlobals = () => Object.assign(globalThis, previous);
 
   // The browser lays the window out before either signal is delivered, so both
@@ -177,6 +226,17 @@ function install(): Harness {
       }
     },
     resizeCalls: () => resizeCalls,
+    overlayCount: () => overlays.size,
+    overlaySize: () => {
+      const overlay = [...overlays][0] as { width: number; height: number } | undefined;
+      return overlay ? { width: overlay.width, height: overlay.height } : null;
+    },
+    drawnFrameWidth: () => drawnFrameWidth,
+    render() {
+      const listener = renderListener;
+      renderListener = null;
+      listener?.();
+    },
     listenerCount: () =>
       [...listeners.values()].reduce((total, set) => total + set.size, 0) +
       [...mediaListeners.values()].reduce((total, set) => total + set.size, 0),
@@ -212,10 +272,14 @@ describe("createMapResizeScheduler", () => {
       harness.flushFrames();
     }
     assert.equal(harness.resizeCalls(), 0, "the previous frame stays on screen during the drag");
+    assert.equal(harness.overlayCount(), 1, "a preserved frame covers the changing container");
 
     harness.advance(RESIZE_DEBOUNCE_MS);
     harness.flushFrames();
     assert.equal(harness.resizeCalls(), 1);
+    assert.equal(harness.overlayCount(), 1, "the frame remains while MapLibre renders");
+    harness.render();
+    assert.equal(harness.overlayCount(), 0, "the rendered map replaces the preserved frame");
   });
 
   it("drops a frame queued by a discrete change when a window drag starts", () => {
@@ -253,10 +317,36 @@ describe("createMapResizeScheduler", () => {
       harness.flushFrames();
     }
     assert.equal(harness.resizeCalls(), 0);
+    assert.deepEqual(harness.overlaySize(), { width: 762, height: 600 });
 
     harness.dispatch(PANEL_RESIZE_END_EVENT);
     harness.flushFrames();
     assert.equal(harness.resizeCalls(), 1);
+  });
+
+  it("removes the preserved frame when a panel resize ends without movement", () => {
+    harness.dispatch(PANEL_RESIZE_START_EVENT);
+    assert.equal(harness.overlayCount(), 1);
+
+    harness.dispatch(PANEL_RESIZE_END_EVENT);
+    harness.flushFrames();
+    assert.equal(harness.resizeCalls(), 0);
+    assert.equal(harness.overlayCount(), 0);
+  });
+
+  it("keeps the panel overlay when a prior resize render arrives", () => {
+    harness.windowResize(700, 600);
+    harness.advance(RESIZE_DEBOUNCE_MS);
+    harness.flushFrames();
+    assert.equal(harness.overlayCount(), 1);
+
+    harness.dispatch(PANEL_RESIZE_START_EVENT);
+    harness.render();
+    assert.equal(harness.overlayCount(), 1);
+
+    harness.dispatch(PANEL_RESIZE_END_EVENT);
+    harness.flushFrames();
+    assert.equal(harness.overlayCount(), 0);
   });
 
   it("keeps a settling window drag from leaking into a following panel drag", () => {
@@ -277,6 +367,7 @@ describe("createMapResizeScheduler", () => {
     harness.setDevicePixelRatio(2);
     harness.flushFrames();
     assert.equal(harness.resizeCalls(), 1);
+    assert.equal(harness.drawnFrameWidth(), 1600);
   });
 
   it("detaches every listener on dispose", () => {
