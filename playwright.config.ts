@@ -56,7 +56,26 @@ export default defineConfig({
   ],
   webServer: {
     command: `npm run build && npm run preview -w geolibre-desktop -- --port ${PORT} --strictPort`,
+    // Build without a Cesium Ion token from the shell. `vite.config.ts` bakes
+    // `CESIUM_TOKEN`/`VITE_CESIUM_TOKEN` into the bundle, so a machine with one
+    // exported would produce a *different* app than CI builds: the 3D globe
+    // would come up with Ion terrain and imagery, and `cesium-globe.spec.ts`
+    // could no longer tell the keyless path from the tokened one.
+    //
+    // This covers the shell only. The bridge in `vite.config.ts` falls through
+    // to `loadEnv()` when the prefixed name is falsy, so a token in
+    // `apps/geolibre-desktop/.env.local` is still picked up despite these being
+    // blanked. That case is not silently tolerated — `cesium-globe.spec.ts`
+    // asserts the tokenless hint and fails with a message naming the file.
+    env: { CESIUM_TOKEN: "", VITE_CESIUM_TOKEN: "" },
     url: BASE_URL,
+    // Reuse locally (the repo's existing DX trade-off), never in CI. Note the
+    // interaction with `env` above: Playwright skips the whole command when it
+    // reuses a server, so the override is *not* applied to a reused one. That
+    // is why `cesium-globe.spec.ts` asserts the tokenless hint rather than
+    // trusting this — a reused tokened build fails there with an explanation
+    // instead of silently exercising the wrong path. In CI, where determinism
+    // actually matters, this is false and the override always applies.
     reuseExistingServer: !process.env.CI,
     // The build (tsc -b + vite build) runs as part of this command, so allow
     // generous startup time on cold CI runners.

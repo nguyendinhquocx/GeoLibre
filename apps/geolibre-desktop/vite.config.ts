@@ -559,11 +559,13 @@ function manualChunks(id: string): string | undefined {
   if (id.includes("maplibre-gl")) return "maplibre";
   // Cesium is large (~several MB) and only loads when the user opens the 3D
   // globe view; keep it in its own lazily-fetched chunk, off the boot graph.
-  // `@cesium/engine`/`@cesium/widgets` (which the `cesium` wrapper re-exports)
-  // are only reachable through the lazy `import("cesium")`, so Rollup already
-  // groups them into this chunk; matching them explicitly keeps that intent
-  // even if some future eager import would otherwise pull them onto the boot
-  // graph.
+  // The globe imports `@cesium/engine` directly rather than the `cesium`
+  // wrapper: the wrapper re-exports `@cesium/widgets` too, and that barrel
+  // defeats tree-shaking, so the widget chrome and Knockout shipped in this
+  // chunk even though the pane builds a bare `CesiumWidget`. The `cesium`
+  // package is still a dependency — copy-cesium-assets stages the runtime
+  // Workers/Assets from its prebuilt `Build/Cesium` — so both paths are matched
+  // here, which also keeps the intent if a future eager import appears.
   if (id.includes("/node_modules/cesium/") || id.includes("/node_modules/@cesium/"))
     return "cesium";
   // Returning undefined hands remaining node_modules back to Rollup's default
@@ -920,11 +922,13 @@ function pwaPlugin(): Plugin[] {
     // its first runtime fetch and is CacheFirst-cached thereafter.
     "**/maplibre-*",
     "**/duckdb-*",
-    // CesiumJS (~4.8 MB) for the 3D-globe view. Lazily imported only when a pane
+    // CesiumJS (~4.6 MB) for the 3D-globe view. Lazily imported only when a pane
     // switches to the globe, so it is CacheFirst-cached on first use rather than
-    // bloating the app-shell precache. The `Cesium-*` (capital) glob catches the
-    // Rollup facade chunk for the dynamic `import("cesium")` boundary, which the
-    // lowercase glob misses on case-sensitive matchers.
+    // bloating the app-shell precache. The `Cesium-*` (capital) glob covered the
+    // Rollup facade chunk for the old `import("cesium")` boundary; importing
+    // `@cesium/engine` directly no longer emits it, but the glob is kept so a
+    // revert to the wrapper does not silently push a facade chunk into the
+    // precache.
     "**/cesium-*",
     "**/Cesium-*",
     // h5wasm's ~5.6 MB single-file chunk (embedded libhdf5) for the local
@@ -1183,12 +1187,25 @@ export default defineConfig({
       // CJS→ESM interop to its CommonJS transitive deps (e.g. mersenne-twister,
       // which has no ESM entry): without this, the dev server serves those raw
       // and the `import x from "mersenne-twister"` default import throws. It is
-      // reached only through the lazy `import("cesium")` in CesiumCanvas, so
-      // without pre-bundling Vite would also discover it on first open and do a
-      // full-page reload to re-optimize. Cesium locates its Workers/Assets via
-      // the CESIUM_BASE_URL global (never `import.meta.url`), so pre-bundling
-      // does not mangle any asset reference.
-      "cesium",
+      // reached only through the lazy `import("@cesium/engine")` in
+      // CesiumCanvas, so without pre-bundling Vite would also discover it on
+      // first open and do a full-page reload to re-optimize.
+      //
+      // Pre-bundling is safe for the asset resolution because *this app* always
+      // defines the `CESIUM_BASE_URL` global before importing the engine
+      // (`prepareCesiumEnvironment()` in CesiumCanvas). The engine only derives
+      // a base from `import.meta.url` when that global is undefined
+      // (`buildModuleUrl.js`), and esbuild rewriting the module URL is exactly
+      // what would break that fallback — so dropping the global would make this
+      // entry unsafe, not just the paths wrong.
+      //
+      // This must name the same specifier the globe imports. It used to be the
+      // `cesium` wrapper; that package is still a dependency for its prebuilt
+      // Workers/Assets (see copy-cesium-assets.ts) but nothing imports it as a
+      // module any more, so pre-bundling it would optimize the wrong graph and
+      // leave `@cesium/engine` to be discovered on first open — the full-page
+      // reload this list exists to prevent.
+      "@cesium/engine",
     ],
     // PGlite ships its own WASM + filesystem bundles and must not be pre-bundled
     // by esbuild, which mangles those asset references (per PGlite's Vite guide).
