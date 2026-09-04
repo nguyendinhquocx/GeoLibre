@@ -40,16 +40,17 @@ See [Self-Hosting & Private Data](../self-hosting.md) for the full deployment
 guide, including how to serve GeoLibre and GeoLens from one origin behind a
 single sign-on layer.
 
-## Federal Web Services
+## Web Services
 
-The **Web Services** submenu of the [Plugins menu](plugins.md) bundles four United States federal data sources:
+The **Web Services** submenu of the [Plugins menu](plugins.md) bundles seventeen catalog and service browsers, from the United States federal sources below to general-purpose STAC, ArcGIS Hub, Source Cooperative, and Hugging Face browsers. All seventeen are documented on the **[Web Services](web-services.md)** page.
 
 | Service | Data |
 | --- | --- |
-| **FEMA** | National Flood Hazard Layer (NFHL) flood data. |
+| **FEMA NFHL** | National Flood Hazard Layer (NFHL) flood data. |
 | **NASA Earthdata** | NASA satellite and Earth science imagery. |
 | **EPA EnviroAtlas** | Environmental and ecosystem data. |
-| **USGS** | The National Map topographic and geographic layers. |
+| **USGS National Map** | The National Map topographic and geographic layers. |
+| **USGS NLDI** | Flowline tracing, hydrolocation, basins, and network navigation. See [USGS NLDI workflows](usgs-nldi.md). |
 
 ## Imagery and street-level
 
@@ -73,7 +74,7 @@ The **Web Services** submenu of the [Plugins menu](plugins.md) bundles four Unit
 | --- | --- |
 | **GeoAgent** | AI-assisted geospatial analysis. |
 
-All of these are activated from the [Plugins menu](plugins.md), where you can also set their on-map position.
+The plugins under **Imagery and street-level**, **Time series and comparison**, and **AI analysis** are activated from the [Plugins menu](plugins.md), where you can also set their on-map position (the integrations further up this page are reached from the Processing and Add Data menus instead). The Web Services panels are the exception, including **Vantor Open Data** and **Planet Open Data** above: they dock beside the Layers panel instead of floating over the map, so they offer no position choice.
 
 ## Geocoding
 
