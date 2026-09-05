@@ -55,6 +55,26 @@ let ensureInFlight: Promise<MapboxOverlay | null> | null = null;
 
 // The per-source layer lists, aggregated into one setProps on every render.
 const layersBySource = new Map<SharedDeckSource, Layer[]>();
+const loadErrors = new Map<string, string>();
+
+/** Inspect live deck layers, including their asynchronous tile sublayers. */
+export function getSharedDeckLoadState(layerId: string) {
+  const layers = aggregatedLayers().filter((layer) => layer.id === layerId);
+  const loading = !overlayMounted || layers.some((layer) => !layer.isLoaded);
+  // A recorded error deliberately outlives isLoaded flipping back to true: a
+  // failed tile still resolves as loaded and leaves a hole in the raster. It
+  // must not outlive the layer's NEXT fetch though -- a top-level layer id is
+  // stable for the layer's whole life, so a one-off network blip would
+  // otherwise pin readiness at `error` forever. Once the layer is loading
+  // again a retry is in flight, so drop the stale error and let `onError`
+  // re-record it if that attempt fails too.
+  if (loading && layers.length > 0) loadErrors.delete(layerId);
+  return {
+    found: layers.length > 0,
+    loading,
+    error: loadErrors.get(layerId) ?? null,
+  };
+}
 
 // The luma device from the shared Deck, forwarded to producers that need it to
 // allocate GPU resources (the raster control's classification colormap
@@ -112,10 +132,19 @@ async function runEnsureSharedDeckOverlay(app: GeoLibreAppAPI): Promise<MapboxOv
     }
   }
   boundMap = map;
+  loadErrors.clear();
   device = null;
   overlay = new deckGL.mapbox.MapboxOverlay({
     interleaved: true,
     layers: [],
+    onError: (error, layer) => {
+      // A tile error can leave isLoaded=true with a hole in the raster.
+      // Attribute sublayer errors to the producer's top-level layer.
+      let root = layer;
+      while (root?.parent) root = root.parent;
+      if (root) loadErrors.set(root.id, error.message);
+      console.error("[GeoLibre] deck layer failed", error);
+    },
     onDeviceInitialized: (initializedDevice: unknown) => {
       device = initializedDevice;
       for (const listener of deviceListeners) {
@@ -148,6 +177,10 @@ async function runEnsureSharedDeckOverlay(app: GeoLibreAppAPI): Promise<MapboxOv
  * @param layers - That producer's deck layers, in its own draw order.
  */
 export function setSharedDeckLayers(source: SharedDeckSource, layers: Layer[]): void {
+  const ids = new Set(layers.map((layer) => layer.id));
+  for (const previous of layersBySource.get(source) ?? []) {
+    if (!ids.has(previous.id)) loadErrors.delete(previous.id);
+  }
   if (layers.length > 0) layersBySource.set(source, layers);
   else layersBySource.delete(source);
   renderSharedDeckOverlay();

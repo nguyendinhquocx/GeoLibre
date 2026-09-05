@@ -76,6 +76,7 @@ import { openRightPanel } from "@geolibre/plugins";
 import { getIsMobileViewport } from "../../hooks/useIsMobileViewport";
 import { useProjectFileActions } from "../../hooks/useProjectFileActions";
 import { useProjectHistory } from "../../hooks/useProjectHistory";
+import { useScreenshotReadiness } from "../../hooks/useScreenshotReadiness";
 import {
   isRasterFileName,
   isGeoLibreProjectFileName,
@@ -131,6 +132,7 @@ import { useEmbedBridge } from "../../hooks/useEmbedBridge";
 import { useRasterIdentify } from "../../hooks/useRasterIdentify";
 import { useGlobalRasterIdentify } from "../../hooks/useGlobalRasterIdentify";
 import { useNetcdfIdentify } from "../../hooks/useNetcdfIdentify";
+import { useTerrainRestore } from "../../hooks/useTerrainRestore";
 import { useCogSpectralIdentify } from "../../hooks/useCogSpectralIdentify";
 import {
   useAutoCollapsedPanel,
@@ -964,6 +966,7 @@ export function DesktopShell({
   useRasterIdentify();
   useNetcdfIdentify(mapControllerRef, mapReadyGeneration);
   useCogSpectralIdentify(mapControllerRef, mapReadyGeneration);
+  useTerrainRestore(mapControllerRef, mapReadyGeneration, projectGeneration);
   const [layerPanelWidth, setLayerPanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelWidth, setStylePanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelOpenRequest, setStylePanelOpenRequest] = useState(0);
@@ -1354,6 +1357,14 @@ export function DesktopShell({
    */
   const primaryRenderer = useAppStore((s) => s.primaryRenderer);
   const cesiumPrimary = primaryRenderer === "cesium";
+  useScreenshotReadiness(
+    mapControllerRef,
+    mapReadyGeneration,
+    externalPluginsReady,
+    projectUrlLoadState?.status === "loading" || dataUrlLoadState?.status === "loading",
+    projectUrlLoadState?.error ?? dataUrlLoadState?.error ?? null,
+    cesiumPrimary,
+  );
   const setObjectDetectionOpen = useAppStore((s) => s.setObjectDetectionOpen);
   const setSegmentEverythingOpen = useAppStore((s) => s.setSegmentEverythingOpen);
   // Switching to the globe destroys the MapLibre map, which would otherwise

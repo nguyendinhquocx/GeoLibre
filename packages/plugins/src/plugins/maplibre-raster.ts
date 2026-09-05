@@ -534,6 +534,24 @@ export function getRasterMainVisibility(layerId: string): boolean {
   return rasterControl?.getRaster(layerId)?.state.visible ?? true;
 }
 
+/** Live header state; saved project metadata is not evidence of a completed load. */
+export function getRasterLoadState(layerId: string) {
+  const raster = rasterControl?.getRaster(layerId);
+  const native = rasterControl ? rendersNativeMapLibreLayer(rasterControl.getEngine()) : false;
+  return {
+    loading: !raster || raster.loading,
+    error: raster?.error?.message ?? null,
+    native,
+    // The deck.gl engine only routes through the shared interleaved overlay --
+    // and so is only visible to getSharedDeckLoadState -- when the control was
+    // created interleaved. On Tauri it renders overlaid, into its own deck
+    // canvas that never calls setSharedDeckLayers (see
+    // patchWebRasterOverlayFactory), so the control's own header state above is
+    // the only load signal there.
+    deckTracked: !native && rasterControl !== null && rasterControlInterleaved,
+  };
+}
+
 export function closeRasterLayerPanel(app: GeoLibreAppAPI): void {
   if (restorePanelExpandTimeout !== null) {
     window.clearTimeout(restorePanelExpandTimeout);
