@@ -78,7 +78,7 @@ function expectSameZoom(actual: number, expected: number): void {
 }
 
 /** Pick a primary renderer from View → Rendering engine. */
-async function chooseRenderer(page: Page, label: "MapLibre 2D" | "Cesium 3D"): Promise<void> {
+async function chooseRenderer(page: Page, label: "MapLibre" | "Cesium"): Promise<void> {
   await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("menuitem", { name: "Rendering engine" }).click();
   await page.getByRole("menuitemradio", { name: label }).click();
@@ -110,7 +110,7 @@ test.describe("Cesium as the primary rendering engine", () => {
     const zoomOn2d = await waitForStableZoom(page);
     expect(zoomOn2d).toBeGreaterThan(0);
 
-    await chooseRenderer(page, "Cesium 3D");
+    await chooseRenderer(page, "Cesium");
 
     // The globe replaces the 2D map rather than joining it: no grid appears,
     // and MapLibre is unmounted (not merely hidden) so it frees its context.
@@ -160,7 +160,7 @@ test.describe("Cesium as the primary rendering engine", () => {
     // Switching back remounts MapLibre, which runs CesiumWidget's teardown —
     // a destroy that threw, or Cesium state left holding the container, shows
     // up as the 2D canvas never reappearing.
-    await chooseRenderer(page, "MapLibre 2D");
+    await chooseRenderer(page, "MapLibre");
     await expect(page.getByTestId("map-canvas")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".maplibregl-canvas")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("primary-cesium")).toHaveCount(0);
@@ -168,4 +168,221 @@ test.describe("Cesium as the primary rendering engine", () => {
     // The camera the globe left behind is the one the 2D map picks up.
     expectSameZoom(await waitForStableZoom(page), zoomOn3d);
   });
+});
+
+/**
+ * Cesium's own toolbar buttons on the globe (issue #2270): the home button, the
+ * scene-mode picker, and the fullscreen button.
+ *
+ * The unit tests cover the camera maths and the morph guards against a fake
+ * Cesium, which by construction cannot catch what matters here — that the
+ * widgets actually mount and bind (they are Knockout-driven DOM built outside
+ * React), that animated morphs run to completion, and that the shared camera
+ * follows the native endpoint instead of resetting to the pre-morph view.
+ *
+ * Keyless like the specs above, and asserts nothing about tiles.
+ */
+test.describe("Cesium toolbar controls on the globe", () => {
+  /** One of the scene-mode picker's *drop-down* entries, by its tooltip. */
+  const sceneMode = (page: Page, title: string) =>
+    page.locator(`.cesium-sceneModePicker-dropDown-icon[title="${title}"]`);
+
+  /** Open the picker's drop-down and choose a mode, then wait out the morph. */
+  async function chooseSceneMode(page: Page, title: string): Promise<void> {
+    // The trigger carries the *selected* mode's tooltip, so it collides with the
+    // drop-down entry of the same name; `sceneMode` matches only the entries.
+    await page.locator(".cesium-sceneModePicker-wrapper button").first().click();
+    await sceneMode(page, title).click();
+    const picker = page.locator(".geolibre-cesium-ctrl-expands");
+    // This must enter a real animation, then finish before camera assertions.
+    await expect(picker).toHaveAttribute("aria-busy", "true");
+    await expect(picker).toHaveAttribute("aria-busy", "false", { timeout: 15_000 });
+    await expect(page.locator(".cesium-sceneModePicker-wrapper button").first()).toHaveAttribute(
+      "title",
+      title,
+    );
+  }
+
+  test("animates scene changes and publishes the settled camera", async ({ page }) => {
+    test.setTimeout(180_000);
+
+    await waitForMap(page);
+
+    // Zoom the 2D map in first, so the globe seeds from a close camera rather
+    // than the default whole-Earth view. That is not incidental tidying: wheel
+    // zoom on a globe framed at the full Earth trips a `DeveloperError:
+    // normalized result is not a number` inside Cesium's own
+    // ScreenSpaceCameraController and stops the render loop. It reproduces on an
+    // unmodified build, so it predates these controls and is not what this test
+    // is here to catch — the test above avoids it the same way, by arriving on
+    // the globe already zoomed in.
+    const mapBox = await page.getByTestId("map-canvas").boundingBox();
+    expect(mapBox).not.toBeNull();
+    await page.mouse.move(mapBox!.x + mapBox!.width / 2, mapBox!.y + mapBox!.height / 2);
+    for (let tick = 0; tick < 5; tick++) {
+      await page.mouse.wheel(0, -200);
+      await page.waitForTimeout(80);
+    }
+    const zoomOn2dMap = await waitForStableZoom(page);
+    expect(zoomOn2dMap).toBeGreaterThan(2);
+
+    await chooseRenderer(page, "Cesium");
+    const globe = page.getByTestId("primary-cesium");
+    await expect(globe).toBeVisible({ timeout: 60_000 });
+    await expect(globe.locator("canvas")).toBeVisible({ timeout: 60_000 });
+
+    // All three controls mount into the globe's control host.
+    await expect(page.locator(".cesium-home-button")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".cesium-sceneModePicker-wrapper")).toBeVisible();
+    await expect(page.locator(".cesium-fullscreenButton")).toBeVisible();
+    // Tooltips come from the app's catalogs, not the widgets' English defaults.
+    // The fullscreen one is the interesting case: Cesium derives it from the
+    // fullscreen state as a read-only computed, so it is written onto the button
+    // rather than pushed through a view model.
+    await expect(page.locator(".cesium-home-button")).toHaveAttribute("title", "Reset view");
+    await expect(page.locator(".cesium-fullscreenButton")).toHaveAttribute(
+      "title",
+      "Enter fullscreen",
+    );
+
+    // They line up. Cesium gives the scene-mode picker's wrapper a 3px side
+    // margin and leaves the fullscreen button to inherit a size from a `Viewer`
+    // layout that does not exist here, so both drifted out of the column before
+    // `index.css` pinned them.
+    const edges = await page
+      .locator(".geolibre-cesium-ctrl button:visible")
+      .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().right));
+    expect(edges).toHaveLength(3);
+    for (const edge of edges) expect(edge).toBeCloseTo(edges[0], 0);
+
+    // The globe seeded from the 2D camera, so this is the scale to preserve.
+    const zoomOn3d = await waitForStableZoom(page);
+    expectSameZoom(zoomOn3d, zoomOn2dMap);
+
+    // Cesium animates out to its native 2D world extent. The store must follow
+    // that new scale rather than snap back to the zoomed-in 3D view.
+    await chooseSceneMode(page, "2D map");
+    const native2dZoom = await waitForStableZoom(page);
+    expect(native2dZoom).toBeLessThan(zoomOn3d - 0.5);
+    // 2D is north-up and untilted, and says so. Sub-degree rather than exactly
+    // zero, and signed: `isSameView`'s 0.1° tolerance is what suppresses the
+    // camera echo, so a residual tenth of a degree can survive the morph
+    // unpublished (and reads as "-0.0" once formatted). Anything a user could
+    // see would be far larger.
+    await expect(page.getByText(/^Pitch:/)).toHaveText(/^Pitch: -?0\.\d°$/);
+    await expect(page.getByText(/^Bearing:/)).toHaveText(/^Bearing: -?0\.\d°$/);
+
+    // Navigating in 2D still reaches the shared store. Nothing in the 3D
+    // readback survives the switch — there is no camera distance to measure —
+    // so this is what says the 2D-specific path is actually wired up.
+    const globeBox = await globe.locator("canvas").boundingBox();
+    expect(globeBox).not.toBeNull();
+    await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height / 2);
+    for (let tick = 0; tick < 4; tick++) {
+      await page.mouse.wheel(0, -200);
+      await page.waitForTimeout(100);
+    }
+    await expect
+      .poll(() => readZoom(page), { timeout: 30_000 })
+      .toBeGreaterThan(native2dZoom + 0.3);
+    await waitForStableZoom(page);
+
+    // Columbus and 3D choose their own native endpoints too. They must remain
+    // navigable and publish a finite camera after each animation.
+    await chooseSceneMode(page, "Columbus view");
+    expect(Number.isFinite(await waitForStableZoom(page))).toBe(true);
+
+    // Back to the native 3D endpoint.
+    await chooseSceneMode(page, "3D globe");
+    expect(Number.isFinite(await waitForStableZoom(page))).toBe(true);
+
+    // Home returns to its whole-Earth view. Cesium's native 3D morph may
+    // finish even farther out, so Home need not be a zoom-out from that pose.
+    const beforeHome = await waitForStableZoom(page);
+    await page.locator(".cesium-home-button").click();
+    await expect.poll(() => readZoom(page), { timeout: 60_000 }).not.toBe(beforeHome);
+    expect(await waitForStableZoom(page)).toBeLessThan(zoomOn3d - 1);
+  });
+
+  test("lets Controls -> Fullscreen govern the globe's fullscreen button", async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await waitForMap(page);
+    await chooseRenderer(page, "Cesium");
+    await expect(page.locator(".cesium-fullscreenButton")).toBeVisible({ timeout: 60_000 });
+
+    // The menu row exists for every renderer, but the globe used to refuse every
+    // built-in control outright, so toggling it did nothing and the checkmark
+    // would not even move. The engine now answers for this one id.
+    const toggleFullscreen = async () => {
+      await page.getByRole("button", { name: "Controls", exact: true }).click();
+      await page.getByRole("menuitem", { name: /^Fullscreen/ }).click();
+      await page.keyboard.press("Escape");
+    };
+
+    await toggleFullscreen();
+    await expect(page.locator(".cesium-fullscreenButton")).toHaveCount(0);
+    // The other two have no menu counterpart and are unaffected.
+    await expect(page.locator(".cesium-home-button")).toBeVisible();
+
+    await toggleFullscreen();
+    await expect(page.locator(".cesium-fullscreenButton")).toBeVisible();
+  });
+
+  test("keeps fullscreen hidden across renderer swaps", async ({ page }) => {
+    test.setTimeout(120_000);
+    await waitForMap(page);
+    await page.getByRole("button", { name: "Controls", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Fullscreen/ }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".maplibregl-ctrl-fullscreen")).toHaveCount(0);
+    await chooseRenderer(page, "Cesium");
+    await expect(page.locator(".cesium-home-button")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".cesium-fullscreenButton")).toHaveCount(0);
+    await chooseRenderer(page, "MapLibre");
+    await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+    await expect(page.locator(".maplibregl-ctrl-fullscreen")).toHaveCount(0);
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`fullscreen stays reachable with the scene picker open (${theme})`, async ({ page }) => {
+      test.setTimeout(120_000);
+
+      await waitForMap(page, `/?theme=${theme}`);
+      await chooseRenderer(page, "Cesium");
+      const button = page.locator(".cesium-fullscreenButton");
+      await expect(button).toBeVisible({ timeout: 60_000 });
+      await expect(button).toHaveAttribute("title", "Enter fullscreen");
+
+      // An open picker must not intercept clicks on the fullscreen control.
+      // Repeat with it closed to cover the ordinary toggle as well.
+      for (const openPicker of [true, false]) {
+        if (openPicker) {
+          await page.locator(".cesium-sceneModePicker-wrapper button").first().click();
+        }
+        await button.click({ timeout: 3_000 });
+        // Cesium recomputes the English tooltip on fullscreenchange; the app's
+        // translated title must survive that update.
+        await expect(button).toHaveAttribute("title", "Exit fullscreen");
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const fullscreen = document.fullscreenElement;
+              const canvas = fullscreen?.querySelector("canvas");
+              if (!fullscreen || !canvas) return false;
+              const rect = canvas.getBoundingClientRect();
+              return (
+                Math.abs(rect.width - innerWidth) < 2 && Math.abs(rect.height - innerHeight) < 2
+              );
+            }),
+          )
+          .toBe(true);
+        await button.click();
+        await expect(button).toHaveAttribute("title", "Enter fullscreen");
+        await expect
+          .poll(() => page.evaluate(() => document.fullscreenElement === null))
+          .toBe(true);
+      }
+    });
+  }
 });

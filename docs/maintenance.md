@@ -259,20 +259,23 @@ both behaviors against the sources above; the failure modes are a leaked token a
 a sidecar that is unreachable only for proxied users, neither of which shows up in
 CI or on an unproxied dev machine.
 
-### `cesium` / `@cesium/engine` — runtime assets fetched by URL
+### `cesium` / `@cesium/engine` / `@cesium/widgets` — runtime assets fetched by URL
 
 The 3D globe pane loads its code from **`@cesium/engine`** but its runtime
 assets from the **`cesium`** wrapper. Both are dependencies and both must move
 together: `cesium@1.x` pins the matching `@cesium/engine`, and the prebuilt
 Workers/Assets staged from the wrapper have to match the engine running them.
+**`@cesium/widgets`** is a third dependency on the same clock — it depends on
+`@cesium/engine` itself — and it supplies the globe's home, scene-mode and
+fullscreen buttons (`packages/map/src/cesium-widget-controls.ts`).
 
-The code imports the engine directly because the `cesium` barrel re-exports
-`@cesium/widgets` as well, and that defeats tree-shaking — the base-layer
-picker, geocoder, info box and Knockout all shipped in the lazy chunk even
-though the pane builds a bare `CesiumWidget`. Reverting to `import("cesium")`
-adds ~340 KB back with no build error and no test failure.
+The code imports the engine and the widgets directly rather than through the
+`cesium` barrel, which re-exports both and defeats tree-shaking — the base-layer
+picker, geocoder, info box and Knockout all shipped in the lazy chunk even when
+the pane built a bare `CesiumWidget`. Reverting to `import("cesium")` adds
+~340 KB back with no build error and no test failure.
 
-After a bump, check all four — none of these fail the build:
+After a bump, check all five — none of these fail the build:
 
 - **Asset copy.** `vite-plugins/copy-cesium-assets.ts` copies `Assets`,
   `ThirdParty`, `Widgets` and `Workers` out of `cesium/Build/Cesium` into
@@ -286,18 +289,53 @@ After a bump, check all four — none of these fail the build:
   `BASE_URL`, not a hardcoded `/cesium`, so a sub-path deploy (the `/demo/`
   build) still resolves. Cesium reads it at import time; if the Workers 404 the
   render loop dies with no error boundary.
-- **The stylesheet.** The pane links `Widgets/CesiumWidget/CesiumWidget.css`,
-  not the 32 KB `Widgets/widgets.css` — it only needs the canvas sizing, credit
-  container and error panel. If upstream moves that file the globe still mounts
-  but its canvas stops filling the pane, which no assertion catches.
+- **The stylesheets.** `CesiumCanvas.tsx` links four paths by hand
+  (`CESIUM_CSS_PATHS`) rather than the 32 KB `Widgets/widgets.css`:
+  `Widgets/CesiumWidget/CesiumWidget.css` for the canvas sizing, credit
+  container and error panel; `Widgets/shared.css` for the `.cesium-button`
+  chrome both toolbar widgets are built from; and
+  `Widgets/SceneModePicker/SceneModePicker.css` plus
+  `Widgets/FullscreenButton/FullscreenButton.css` for those two widgets. Check
+  every one after a bump — a `<link>` to a path upstream moved 404s silently, and
+  the failure is cosmetic in a way no assertion catches: the globe still mounts,
+  but its canvas stops filling the pane, or a toolbar button loses its size and
+  renders 0x0. (The home button has no stylesheet of its own; `shared.css` is
+  all it needs.)
+- **The widget classes and view models.** `cesium-widget-controls.ts` builds
+  `HomeButton`, `SceneModePicker` and `FullscreenButton` directly and writes
+  their tooltips through `viewModel.tooltip` / `tooltip2D` / `tooltip3D` /
+  `tooltipColumbusView`. `index.css` then restyles them through Cesium's own
+  class names (`.cesium-button`, `.cesium-toolbar-button`,
+  `.cesium-sceneModePicker-wrapper`). A renamed observable leaves the English
+  default in place; a renamed class leaves Cesium's dark-blue chrome on a
+  GeoLibre toolbar. Neither fails the build. Tooltip assertions live in
+  `e2e/cesium-primary-renderer.spec.ts`, alongside control mounting and alignment
+  checks. The fullscreen button is the fragile
+  one: its tooltip is a read-only computed, so the translated string is written
+  onto the element from a `fullscreenchange` listener and survives only because
+  DOM listeners fire in registration order. If a bump makes the widget update
+  its own title differently — batched on a microtask, or bound to another
+  target — the label reverts to English *after the first toggle*, which is why
+  the spec toggles fullscreen and re-reads the title rather than checking it
+  once at mount.
+
+  **Scene-mode lifetime:** the 2D/3D/Columbus picker controls the current
+  `CesiumWidget` only. Recreating the widget, including switching to MapLibre
+  and back or reopening a project, starts in 3D. The project retains its
+  rendering engine and camera, but does not serialize the Cesium scene mode.
+  Scene-mode persistence is outside the toolbar integration's scope; adding it
+  requires an explicit project/store field and restoration for each Cesium pane.
 - **PWA globs.** `**/cesium-*` / `**/Cesium-*` in `vite.config.ts` keep the
   chunk out of the app-shell precache and CacheFirst-cache it instead. A chunk
   renamed out of that pattern would be precached, adding megabytes to first load.
 
 `e2e/cesium-globe.spec.ts` mounts the real engine keyless and drags the globe,
-so it catches a broken `CESIUM_BASE_URL` or a dead chunk. It cannot catch the
-CSS regression or the bundle-size one — check those by eye and in the build
-output.
+so it catches a broken `CESIUM_BASE_URL` or a dead chunk.
+`e2e/cesium-primary-renderer.spec.ts` adds the toolbar: it asserts the three
+buttons mount, carry translated tooltips, and share a right edge, which catches a
+renamed view-model observable and the 0x0-button case of a missing stylesheet.
+Neither catches the rest of the CSS regression or the bundle-size one — check
+those by eye and in the build output.
 
 ## Adding a blend mode
 

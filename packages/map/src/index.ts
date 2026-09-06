@@ -17,23 +17,48 @@ export {
 export { PANEL_RESIZE_END_EVENT, PANEL_RESIZE_START_EVENT } from "./map-resize";
 export { SecondaryMapCanvas, type SecondaryMapCanvasProps } from "./SecondaryMapCanvas";
 export { CesiumCanvas, type CesiumCanvasProps } from "./CesiumCanvas";
+export { getPrimaryCesiumControlHost } from "./cesium-control-host";
+// Type-only: `cesium-widget-controls` statically imports `@cesium/widgets`, so
+// a value export here would drag the widget chrome onto the 2D boot path that
+// `CesiumCanvas`'s dynamic import exists to keep it off.
+export type { CesiumWidgetControlLabels } from "./cesium-widget-controls";
 export { isCesiumSupportedLayerType } from "./cesium-layer-sync";
 export {
+  CESIUM_CAPABILITIES,
+  CESIUM_PANE_CAPABILITIES,
+  CesiumEngine,
+  type CesiumEngineOptions,
+} from "./cesium-engine";
+export {
   applyMapViewToCamera,
+  cameraFovy,
+  canvasHeight,
+  canvasWidth,
   cesiumPitchToMapLibreDeg,
   groundResolution,
   isSameView,
   mapLibrePitchToCesiumDeg,
   normalizeBearing,
+  orthoWidthToZoom,
   rangeToZoom,
   readMapViewFromCamera,
+  zoomToOrthoWidth,
   zoomToRange,
+  zoomToSceneRange,
 } from "./cesium-camera";
+export {
+  MAPLIBRE_CAPABILITIES,
+  type BuiltInMapControl,
+  type FlyToCamera,
+  type IdentifiedFeature,
+  type ManualPlacementOptions,
+  type MapEngine,
+  type MapEngineCapabilities,
+} from "./map-engine";
 export {
   MapController,
   createMapController,
   defaultBlankBackgroundColor,
-  type BuiltInMapControl,
   DEFAULT_BUILT_IN_CONTROL_VISIBILITY,
   TERRAIN_SETTINGS_EVENT,
   TERRAIN_SETTINGS_CLOSE_EVENT,

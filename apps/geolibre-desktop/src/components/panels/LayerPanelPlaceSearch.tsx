@@ -17,7 +17,10 @@ import {
   resolveGeocoderConfig,
   useAppStore,
 } from "@geolibre/core";
-import type { MapController } from "@geolibre/map";
+import { getPrimaryCesiumControlHost, type MapEngine } from "@geolibre/map";
+// Type-only: the Cesium engine itself is imported lazily, inside the globe
+// branch of handleSelect, so it stays off this panel's load path.
+import type { PointPrimitive, PointPrimitiveCollection, Primitive } from "@cesium/engine";
 import { Input } from "@geolibre/ui";
 import { Hexagon, Loader2, LocateFixed, MapPin, Search, Table2, X } from "lucide-react";
 import { formatLatLon, parseLatLon } from "../../lib/coordinates";
@@ -32,7 +35,7 @@ import {
 } from "../../lib/feature-search";
 
 interface LayerPanelPlaceSearchProps {
-  mapControllerRef: RefObject<MapController | null>;
+  mapControllerRef: RefObject<MapEngine | null>;
 }
 
 /** Fast-UI minimum debounce before firing a forward-geocode while typing. */
@@ -107,6 +110,28 @@ export function LayerPanelPlaceSearch({
   const [activeIndex, setActiveIndex] = useState(-1);
   const abortRef = useRef<AbortController | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
+  const cesiumMarkerRef = useRef<{
+    collection: PointPrimitiveCollection;
+    point: PointPrimitive;
+  } | null>(null);
+  const cesiumH3EntitiesRef = useRef<Primitive[]>([]);
+  /**
+   * Bumped on every selection, so an in-flight globe branch can tell it has
+   * been superseded. Two rapid picks both await the Cesium import; without this
+   * the later continuation overwrites `cesiumMarkerRef`, and cleanup then
+   * removes only the collection still in the ref — leaving the earlier one in
+   * the scene forever.
+   */
+  const selectionGeneration = useRef(0);
+  /**
+   * False once this panel has unmounted. The generation and `isDestroyed`
+   * checks below cover a superseded pick and a torn-down globe, but not a
+   * torn-down *panel*: the unmount cleanup runs against whatever is in the refs
+   * at that moment, so a pick still awaiting the Cesium import would resume
+   * afterwards and add primitives to a live globe under refs nobody will read
+   * again — orphaning them in the scene for as long as the globe lives.
+   */
+  const mountedRef = useRef(true);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // `open` read by the local scan's gate. It is a ref rather than a dependency
@@ -143,22 +168,44 @@ export function LayerPanelPlaceSearch({
    */
   const clearH3Highlight = useCallback(() => {
     const map = mapControllerRef.current?.getMap();
-    if (!map) return;
-    for (const layerId of [H3_FILL_LAYER_ID, H3_LINE_LAYER_ID]) {
-      if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map) {
+      for (const layerId of [H3_FILL_LAYER_ID, H3_LINE_LAYER_ID]) {
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+      }
+      if (map.getSource(H3_SOURCE_ID)) map.removeSource(H3_SOURCE_ID);
     }
-    if (map.getSource(H3_SOURCE_ID)) map.removeSource(H3_SOURCE_ID);
+    const host = getPrimaryCesiumControlHost();
+    if (host && !host.viewer.isDestroyed()) {
+      for (const prim of cesiumH3EntitiesRef.current) {
+        host.viewer.scene.primitives.remove(prim);
+      }
+    }
+    cesiumH3EntitiesRef.current = [];
   }, [mapControllerRef]);
 
-  useEffect(
-    () => () => {
+  const clearMarkers = useCallback(() => {
+    markerRef.current?.remove();
+    markerRef.current = null;
+    if (cesiumMarkerRef.current) {
+      const host = getPrimaryCesiumControlHost();
+      if (host && !host.viewer.isDestroyed()) {
+        cesiumMarkerRef.current.collection.remove(cesiumMarkerRef.current.point);
+        host.viewer.scene.primitives.remove(cesiumMarkerRef.current.collection);
+      }
+      cesiumMarkerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       abortRef.current?.abort();
-      markerRef.current?.remove();
+      clearMarkers();
       clearH3Highlight();
       if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
-    },
-    [clearH3Highlight],
-  );
+    };
+  }, [clearH3Highlight, clearMarkers]);
 
   const runSearch = useCallback(
     async (text: string) => {
@@ -328,13 +375,12 @@ export function LayerPanelPlaceSearch({
   }, []);
 
   const handleSelect = useCallback(
-    (row: SearchRow) => {
+    async (row: SearchRow) => {
       const map = mapControllerRef.current?.getMap();
       // Drop the previous marker and cell outline unconditionally so neither is
       // ever orphaned when the map is briefly unavailable (mount/teardown/
       // headless) or when the next result is of a different kind.
-      markerRef.current?.remove();
-      markerRef.current = null;
+      clearMarkers();
       clearH3Highlight();
 
       // A place, a coordinate, or a cell takes the box's attention off the
@@ -371,41 +417,137 @@ export function LayerPanelPlaceSearch({
         return;
       }
 
-      if (map && row.kind === "h3") {
-        // An H3 cell spans anything from a continent (resolution 0) to under a
-        // square meter (resolution 15), so frame the cell itself rather than
-        // flying to a fixed zoom, and outline it so the match is visible.
-        map.addSource(H3_SOURCE_ID, {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            properties: { h3: row.cell.cell, resolution: row.cell.resolution },
-            geometry: { type: "Polygon", coordinates: [row.cell.boundary] },
-          },
-        });
-        map.addLayer({
-          id: H3_FILL_LAYER_ID,
-          type: "fill",
-          source: H3_SOURCE_ID,
-          paint: { "fill-color": H3_HIGHLIGHT_COLOR, "fill-opacity": 0.15 },
-        });
-        map.addLayer({
-          id: H3_LINE_LAYER_ID,
-          type: "line",
-          source: H3_SOURCE_ID,
-          paint: { "line-color": H3_HIGHLIGHT_COLOR, "line-width": 2 },
-        });
-        const bounds = new maplibregl.LngLatBounds();
-        for (const position of row.cell.boundary) bounds.extend(position);
-        map.fitBounds(bounds, { padding: 60 });
-      } else if (map) {
-        map.flyTo({
-          center: [row.match.lon, row.match.lat],
-          zoom: Math.max(map.getZoom(), 12),
-        });
-        markerRef.current = new maplibregl.Marker({ color: H3_HIGHLIGHT_COLOR })
-          .setLngLat([row.match.lon, row.match.lat])
-          .addTo(map);
+      if (map) {
+        if (row.kind === "h3") {
+          map.addSource(H3_SOURCE_ID, {
+            type: "geojson",
+            data: {
+              type: "Feature",
+              properties: { h3: row.cell.cell, resolution: row.cell.resolution },
+              geometry: { type: "Polygon", coordinates: [row.cell.boundary] },
+            },
+          });
+          map.addLayer({
+            id: H3_FILL_LAYER_ID,
+            type: "fill",
+            source: H3_SOURCE_ID,
+            paint: { "fill-color": H3_HIGHLIGHT_COLOR, "fill-opacity": 0.15 },
+          });
+          map.addLayer({
+            id: H3_LINE_LAYER_ID,
+            type: "line",
+            source: H3_SOURCE_ID,
+            paint: { "line-color": H3_HIGHLIGHT_COLOR, "line-width": 2 },
+          });
+          const bounds = new maplibregl.LngLatBounds();
+          for (const position of row.cell.boundary) bounds.extend(position);
+          map.fitBounds(bounds, { padding: 60 });
+        } else {
+          // Animated, not `setMapView`: the store path lands in
+          // `MapController.applyView`, which is a `jumpTo` — an instant snap.
+          // Routing the 2D case through the store for cross-engine tidiness
+          // would silently drop the fly-to this box has always had.
+          map.flyTo({
+            center: [row.match.lon, row.match.lat],
+            zoom: Math.max(map.getZoom(), 12),
+          });
+          markerRef.current = new maplibregl.Marker({ color: H3_HIGHLIGHT_COLOR })
+            .setLngLat([row.match.lon, row.match.lat])
+            .addTo(map);
+        }
+      } else {
+        const host = getPrimaryCesiumControlHost();
+        if (host && !host.viewer.isDestroyed()) {
+          // This selection's ticket. A later pick bumps the counter, so the
+          // checks after each await can tell they have been superseded.
+          const generation = ++selectionGeneration.current;
+          try {
+            const Cesium = await import("@cesium/engine");
+            // The globe can be unmounted (engine switch, panel closed) while the
+            // chunk loads. Cesium throws on any use of a destroyed viewer, so
+            // re-check after the await the way CesiumCanvas does — the import is
+            // usually cached, which narrows the window without closing it.
+            if (
+              !mountedRef.current ||
+              host.viewer.isDestroyed() ||
+              generation !== selectionGeneration.current
+            ) {
+              // Do not settle: a superseded selection has already been settled
+              // by whichever pick superseded it, and re-settling here would
+              // rewrite the box (and settledQuery) back to this stale row's
+              // label after the newer one had won.
+              return;
+            }
+            if (row.kind === "h3") {
+              const hierarchy = new Cesium.PolygonHierarchy(
+                row.cell.boundary.map((pos) => Cesium.Cartesian3.fromDegrees(pos[0], pos[1])),
+              );
+              // Use primitives since CesiumWidget has no entities
+              const instance = new Cesium.GeometryInstance({
+                geometry: new Cesium.PolygonGeometry({
+                  polygonHierarchy: hierarchy,
+                  perPositionHeight: true,
+                }),
+                attributes: {
+                  color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+                    Cesium.Color.fromCssColorString(H3_HIGHLIGHT_COLOR).withAlpha(0.15),
+                  ),
+                },
+              });
+              const polylineInstance = new Cesium.GeometryInstance({
+                geometry: new Cesium.PolylineGeometry({
+                  positions: hierarchy.positions,
+                  width: 2,
+                }),
+                attributes: {
+                  color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+                    Cesium.Color.fromCssColorString(H3_HIGHLIGHT_COLOR),
+                  ),
+                },
+              });
+              const primitive = new Cesium.Primitive({
+                geometryInstances: instance,
+                appearance: new Cesium.PerInstanceColorAppearance({
+                  flat: true,
+                  translucent: true,
+                  closed: true,
+                }),
+              });
+              const polylinePrimitive = new Cesium.Primitive({
+                geometryInstances: polylineInstance,
+                appearance: new Cesium.PolylineColorAppearance({
+                  translucent: true,
+                }),
+              });
+              host.viewer.scene.primitives.add(primitive);
+              host.viewer.scene.primitives.add(polylinePrimitive);
+              cesiumH3EntitiesRef.current.push(primitive, polylinePrimitive);
+              const boundingSphere = Cesium.BoundingSphere.fromPoints(hierarchy.positions);
+              host.viewer.camera.flyToBoundingSphere(boundingSphere, { duration: 1.5 });
+            } else {
+              const store = useAppStore.getState();
+              store.setMapView({
+                center: [row.match.lon, row.match.lat],
+                zoom: Math.max(store.mapView.zoom, 12),
+              });
+              const points = new Cesium.PointPrimitiveCollection();
+              host.viewer.scene.primitives.add(points);
+              const p = points.add({
+                position: Cesium.Cartesian3.fromDegrees(row.match.lon, row.match.lat),
+                color: Cesium.Color.fromCssColorString(H3_HIGHLIGHT_COLOR),
+                pixelSize: 12,
+                outlineColor: Cesium.Color.WHITE,
+                outlineWidth: 2,
+              });
+              cesiumMarkerRef.current = { collection: points, point: p };
+            }
+          } catch (error) {
+            // A failed import or primitive build must not leave the dropdown
+            // open on a stale query with the old highlight already cleared —
+            // settle below runs either way.
+            console.warn("[GeoLibre] place search could not draw on the globe", error);
+          }
+        }
       }
       settle(row.match.displayName);
     },
@@ -414,8 +556,7 @@ export function LayerPanelPlaceSearch({
 
   const handleClear = useCallback(() => {
     abortRef.current?.abort();
-    markerRef.current?.remove();
-    markerRef.current = null;
+    clearMarkers();
     clearH3Highlight();
     // Clearing the box clears what the box put on the map, and a picked feature
     // row leaves a live selection behind. Dropping it here takes the highlight

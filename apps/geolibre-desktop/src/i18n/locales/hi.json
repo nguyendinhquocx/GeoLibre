@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "कॉलम नाम प्राप्त नहीं किए जा सके।",
       "url": "डिलिमिटेड टेक्स्ट URL",
       "file": "डिलिमिटेड टेक्स्ट फ़ाइल",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "प्राप्त किया जा रहा है...",
       "retrieveColumns": "कॉलम प्राप्त करें",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "टेरेन और Ion इमेजरी के लिए सेटिंग्स में Cesium Ion टोकन जोड़ें"
   },
   "renderer": {
-    "layerUnsupported": "3D ग्लोब द्वारा रेंडर नहीं किया गया"
+    "basemap": "बेसमैप",
+    "imagery": "इमेजरी",
+    "projectBasemap": "प्रोजेक्ट बेसमैप",
+    "layerUnsupported": "3D ग्लोब द्वारा रेंडर नहीं किया गया",
+    "resetView": "दृश्य रीसेट करें",
+    "scene3D": "3D ग्लोब",
+    "scene2D": "2D मानचित्र",
+    "sceneColumbus": "कोलंबस दृश्य",
+    "fullscreenEnter": "पूर्ण स्क्रीन",
+    "fullscreenExit": "पूर्ण स्क्रीन से बाहर निकलें",
+    "fullscreenUnavailable": "पूर्ण स्क्रीन उपलब्ध नहीं"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "निर्देशांक क्लिपबोर्ड पर कॉपी करें",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "3 × 3 ग्रिड",
       "splitViewSync": "दृश्य सिंक करें",
       "renderingEngine": "रेंडरिंग इंजन",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Google Maps में देखें",
       "viewInGoogleEarth": "Google Earth में देखें",
       "zoomIn": "ज़ूम इन",
@@ -6483,7 +6494,6 @@
       "remove": "जॉइन हटाएँ",
       "enabledTitle": "यह जॉइन लागू करें",
       "missingLayer": "जॉइन लेयर नहीं मिली",
-      "noCandidates": "किसी अन्य लेयर में जोड़ने के लिए विशेषता तालिका नहीं है",
       "statsMatched": "{{total}} में से {{matched}} फ़ीचर मेल खाए",
       "statsUnmatchedJoin_one": "{{count}} तालिका पंक्ति बिना मेल",
       "statsUnmatchedJoin_other": "{{count}} तालिका पंक्तियाँ बिना मेल"

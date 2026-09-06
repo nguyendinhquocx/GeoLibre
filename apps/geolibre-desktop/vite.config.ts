@@ -1151,6 +1151,18 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Bind the IPv4 loopback explicitly. Vite's default (`localhost`) resolves
+    // through the OS, which on a dual-stack Linux box binds `[::1]` only — so a
+    // reverse proxy dialing `127.0.0.1:5173` (e.g. `tailscale serve`, which
+    // targets IPv4 loopback by default) gets connection-refused and returns
+    // 502. Still loopback-only: this does not expose the dev server on the LAN.
+    host: "127.0.0.1",
+    // Vite rejects requests whose Host header it does not recognise. Reaching
+    // the dev server over Tailscale (`tailscale serve --bg 5173`) forwards the
+    // original `<machine>.<tailnet>.ts.net` Host, which would otherwise be
+    // answered with "Blocked request". `.ts.net` names are only resolvable
+    // inside the tailnet, so allowing them does not widen public exposure.
+    allowedHosts: [".ts.net"],
     watch: {
       // Never watch the Rust side. `tauri dev` runs this dev server as its
       // `beforeDevCommand` and then starts cargo in the same tree, so the
@@ -1217,6 +1229,12 @@ export default defineConfig({
       // leave `@cesium/engine` to be discovered on first open — the full-page
       // reload this list exists to prevent.
       "@cesium/engine",
+      // Cesium's toolbar widgets (the globe's home and scene-mode buttons),
+      // reached through a second lazy import in CesiumCanvas's mount effect.
+      // Listed for the same reason as the engine above: without it Vite
+      // discovers the package on first open of the globe and triggers a
+      // full-page reload to re-optimize.
+      "@cesium/widgets",
     ],
     // PGlite ships its own WASM + filesystem bundles and must not be pre-bundled
     // by esbuild, which mangles those asset references (per PGlite's Vite guide).

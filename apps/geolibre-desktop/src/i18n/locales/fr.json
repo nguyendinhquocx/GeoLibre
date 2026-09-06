@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Impossible de récupérer les noms de colonnes.",
       "url": "URL du texte délimité",
       "file": "Fichier de texte délimité",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Récupération...",
       "retrieveColumns": "Récupérer les colonnes",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Ajoutez un jeton Cesium Ion dans les Paramètres pour le relief et l'imagerie Ion"
   },
   "renderer": {
-    "layerUnsupported": "Non rendu par le globe 3D"
+    "basemap": "Fond de carte",
+    "imagery": "Imagerie",
+    "projectBasemap": "Fond de carte du projet",
+    "layerUnsupported": "Non rendu par le globe 3D",
+    "resetView": "Réinitialiser la vue",
+    "scene3D": "Globe 3D",
+    "scene2D": "Carte 2D",
+    "sceneColumbus": "Vue Columbus",
+    "fullscreenEnter": "Plein écran",
+    "fullscreenExit": "Quitter le plein écran",
+    "fullscreenUnavailable": "Plein écran indisponible"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Copier les coordonnées dans le presse-papiers",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "Grille 3 × 3",
       "splitViewSync": "Synchroniser les vues",
       "renderingEngine": "Moteur de rendu",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Voir dans Google Maps",
       "viewInGoogleEarth": "Voir dans Google Earth",
       "zoomIn": "Zoomer",
@@ -6483,7 +6494,6 @@
       "remove": "Supprimer la jointure",
       "enabledTitle": "Appliquer cette jointure",
       "missingLayer": "Couche de jointure introuvable",
-      "noCandidates": "Aucune autre couche n'a de table attributaire à joindre",
       "statsMatched": "{{matched}} entités sur {{total}} appariées",
       "statsUnmatchedJoin_one": "{{count}} ligne de la table sans correspondance",
       "statsUnmatchedJoin_other": "{{count}} lignes de la table sans correspondance"

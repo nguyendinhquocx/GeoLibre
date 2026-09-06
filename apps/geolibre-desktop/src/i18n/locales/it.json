@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Impossibile recuperare i nomi delle colonne.",
       "url": "URL del testo delimitato",
       "file": "File di testo delimitato",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Recupero in corso...",
       "retrieveColumns": "Recupera colonne",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Aggiungi un token Cesium Ion nelle Impostazioni per il terreno e le immagini Ion"
   },
   "renderer": {
-    "layerUnsupported": "Non visualizzato dal globo 3D"
+    "basemap": "Mappa di base",
+    "imagery": "Immagini",
+    "projectBasemap": "Mappa di base del progetto",
+    "layerUnsupported": "Non visualizzato dal globo 3D",
+    "resetView": "Ripristina vista",
+    "scene3D": "Globo 3D",
+    "scene2D": "Mappa 2D",
+    "sceneColumbus": "Vista Columbus",
+    "fullscreenEnter": "Schermo intero",
+    "fullscreenExit": "Esci da schermo intero",
+    "fullscreenUnavailable": "Schermo intero non disponibile"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Copia le coordinate negli appunti",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "Griglia 3 × 3",
       "splitViewSync": "Sincronizza viste",
       "renderingEngine": "Motore di rendering",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Visualizza in Google Maps",
       "viewInGoogleEarth": "Visualizza in Google Earth",
       "zoomIn": "Aumenta zoom",
@@ -6483,7 +6494,6 @@
       "remove": "Rimuovi join",
       "enabledTitle": "Applica questo join",
       "missingLayer": "Layer di join non trovato",
-      "noCandidates": "Nessun altro layer ha una tabella degli attributi da unire",
       "statsMatched": "{{matched}} di {{total}} elementi corrispondenti",
       "statsUnmatchedJoin_one": "{{count}} riga della tabella senza corrispondenza",
       "statsUnmatchedJoin_other": "{{count}} righe della tabella senza corrispondenza"

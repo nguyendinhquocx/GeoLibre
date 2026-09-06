@@ -5,7 +5,8 @@ import {
   serializeProject,
   useAppStore,
 } from "@geolibre/core";
-import { DEFAULT_BUILT_IN_CONTROL_VISIBILITY, type MapController } from "@geolibre/map";
+import { DEFAULT_BUILT_IN_CONTROL_VISIBILITY, type MapEngine } from "@geolibre/map";
+import { useMapCapabilities } from "../../hooks/useMapCapabilities";
 import {
   closeDuckDBLayerPanel,
   closeEarthEnginePanel,
@@ -181,7 +182,7 @@ import {
 interface TopToolbarProps {
   compact?: boolean;
   diagnosticsErrorCount: number;
-  mapControllerRef: React.RefObject<MapController | null>;
+  mapControllerRef: React.RefObject<MapEngine | null>;
   mapReadyGeneration: number;
   showLabels?: boolean;
   showProjectInfo?: boolean;
@@ -1148,6 +1149,7 @@ export function TopToolbar({
   // The globe owns the primary map, so the MapLibre-only entries below are dead
   // while it is active and the View menu becomes the only way back to 2D (#2217).
   const cesiumPrimary = useAppStore((s) => s.primaryRenderer) === "cesium";
+  const capabilities = useMapCapabilities(mapControllerRef);
   const setSqlWorkspaceOpen = useAppStore((s) => s.setSqlWorkspaceOpen);
   const setLoadEditorFeaturesOpen = useAppStore((s) => s.setLoadEditorFeaturesOpen);
   const loadEditorFeaturesOpen = useAppStore((s) => s.ui.loadEditorFeaturesOpen);
@@ -1230,6 +1232,12 @@ export function TopToolbar({
       {} as Record<ToolbarMapControl, boolean>,
     ),
   );
+  // A renderer swap replaces the engine and its controls while this toolbar
+  // keeps its checkbox state. Replay fullscreen once the new engine is ready.
+  useEffect(() => {
+    mapControllerRef.current?.setBuiltInControlVisible("fullscreen", controlsVisible.fullscreen);
+  }, [mapControllerRef, mapReadyGeneration, controlsVisible.fullscreen]);
+
   const terrainEnabled = useAppStore((state) => state.preferences.map.terrainEnabled);
 
   // Terrain is project state, unlike the other optional map chrome, so applying
@@ -1506,13 +1514,20 @@ export function TopToolbar({
           },
         ]
       : []),
-    {
-      id: "project.print-layout",
-      title: t("toolbar.item.printLayoutEllipsis"),
-      group: t("toolbar.commandGroup.project"),
-      icon: Printer,
-      run: () => setPrintLayoutOpen(true),
-    },
+    // Print layout renders from the MapLibre canvas; the palette has no disabled
+    // state, so drop the command rather than offer one that opens a dialog which
+    // cannot produce a preview (#2268 review).
+    ...(capabilities.nativeMapInstance
+      ? [
+          {
+            id: "project.print-layout",
+            title: t("toolbar.item.printLayoutEllipsis"),
+            group: t("toolbar.commandGroup.project"),
+            icon: Printer,
+            run: () => setPrintLayoutOpen(true),
+          },
+        ]
+      : []),
     // Add Data
     {
       id: "add.vector",
@@ -1682,10 +1697,10 @@ export function TopToolbar({
             run: () => setSegmentationOpen(true),
           },
         ]),
-    // Both panels need the MapLibre canvas, which the globe replaces; the
-    // palette has no disabled state, so drop the commands rather than offer
-    // two that silently do nothing (#2217 review).
-    ...(cesiumPrimary
+    // Both panels read pixels off the MapLibre canvas; the palette has no
+    // disabled state, so drop the commands rather than offer two that silently
+    // do nothing (#2217 review). Gated on the capability, not the engine name.
+    ...(!capabilities.nativeMapInstance
       ? []
       : [
           {
@@ -1818,93 +1833,87 @@ export function TopToolbar({
       run: panels.viewState.toggle,
     },
     // View
-    // All eight drive the MapLibre `MapController`, which is null while the
-    // globe owns the primary map — and this array feeds the global shortcut
-    // layer and the cheat sheet as well as the palette, so leaving them in
-    // would keep "[", "]", "n", "u" and "r" firing into nothing and let
-    // Set View open a dialog that silently no-ops on submit. Dropping them
-    // matches the greyed-out ViewMenu items (#2217 review). `view.comments`
-    // below opens a panel from the store, so it stays.
-    ...(cesiumPrimary
-      ? []
-      : [
-          {
-            id: "view.zoom-in",
-            title: t("toolbar.command.zoomIn"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "zoom in closer magnify scale",
-            icon: ZoomIn,
-            run: () => mapControllerRef.current?.zoomIn(),
-          },
-          {
-            id: "view.zoom-out",
-            title: t("toolbar.command.zoomOut"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "zoom out farther wider scale",
-            icon: ZoomOut,
-            run: () => mapControllerRef.current?.zoomOut(),
-          },
-          {
-            id: "view.previous",
-            title: t("toolbar.command.previousView"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "back history viewport extent previous undo pan zoom",
-            icon: ArrowLeft,
-            // "[" / "]" step through viewport history (unbound by MapLibre).
-            shortcut: { key: "[" },
-            run: viewportHistory.goBack,
-          },
-          {
-            id: "view.next",
-            title: t("toolbar.command.nextView"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "forward history viewport extent next redo pan zoom",
-            icon: ArrowRight,
-            shortcut: { key: "]" },
-            run: viewportHistory.goForward,
-          },
-          {
-            id: "view.reset-north",
-            title: t("toolbar.command.resetNorth"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "north bearing rotation rotate compass orientation",
-            icon: Compass,
-            // Plain "N" (Google Earth Pro's north-up shortcut). No modifier, so it
-            // never clashes with ⌘/Ctrl+N (New project) and leaves MapLibre's own
-            // arrow/zoom keys untouched.
-            shortcut: { key: "n" },
-            run: () => mapControllerRef.current?.resetNorth(),
-          },
-          {
-            id: "view.reset-pitch",
-            title: t("toolbar.command.resetPitch"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "pitch tilt top down overhead flat level plan 2d reset",
-            icon: Grid2x2,
-            // Plain "U" resets pitch to a top-down view (Google Earth Pro's shortcut).
-            shortcut: { key: "u" },
-            run: () => mapControllerRef.current?.resetPitch(),
-          },
-          {
-            id: "view.reset-pitch-bearing",
-            title: t("toolbar.command.resetPitchBearing"),
-            group: t("toolbar.commandGroup.view"),
-            keywords: "pitch bearing tilt rotation north flat level 3d",
-            icon: Mountain,
-            // Plain "R" resets pitch and bearing (like Google Earth Pro's reset view).
-            shortcut: { key: "r" },
-            run: () => mapControllerRef.current?.resetNorthPitch(),
-          },
-          {
-            id: "view.set-view",
-            title: t("toolbar.command.setView"),
-            group: t("toolbar.commandGroup.view"),
-            keywords:
-              "set view go to coordinates center zoom pitch bearing camera location longitude latitude",
-            icon: Crosshair,
-            run: () => setSetViewOpen(true),
-          },
-        ]),
+    // All eight drive the shared engine's camera, which every engine
+    // implements — so they stay in the palette (and in the shortcut layer and
+    // cheat sheet this array also feeds) whichever renderer is live. They were
+    // dropped on the globe only because the ref was nulled there (#2217); it
+    // now points at the `CesiumEngine` (#2260).
+    {
+      id: "view.zoom-in",
+      title: t("toolbar.command.zoomIn"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "zoom in closer magnify scale",
+      icon: ZoomIn,
+      run: () => mapControllerRef.current?.zoomIn(),
+    },
+    {
+      id: "view.zoom-out",
+      title: t("toolbar.command.zoomOut"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "zoom out farther wider scale",
+      icon: ZoomOut,
+      run: () => mapControllerRef.current?.zoomOut(),
+    },
+    {
+      id: "view.previous",
+      title: t("toolbar.command.previousView"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "back history viewport extent previous undo pan zoom",
+      icon: ArrowLeft,
+      // "[" / "]" step through viewport history (unbound by MapLibre).
+      shortcut: { key: "[" },
+      run: viewportHistory.goBack,
+    },
+    {
+      id: "view.next",
+      title: t("toolbar.command.nextView"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "forward history viewport extent next redo pan zoom",
+      icon: ArrowRight,
+      shortcut: { key: "]" },
+      run: viewportHistory.goForward,
+    },
+    {
+      id: "view.reset-north",
+      title: t("toolbar.command.resetNorth"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "north bearing rotation rotate compass orientation",
+      icon: Compass,
+      // Plain "N" (Google Earth Pro's north-up shortcut). No modifier, so it
+      // never clashes with ⌘/Ctrl+N (New project) and leaves MapLibre's own
+      // arrow/zoom keys untouched.
+      shortcut: { key: "n" },
+      run: () => mapControllerRef.current?.resetNorth(),
+    },
+    {
+      id: "view.reset-pitch",
+      title: t("toolbar.command.resetPitch"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "pitch tilt top down overhead flat level plan 2d reset",
+      icon: Grid2x2,
+      // Plain "U" resets pitch to a top-down view (Google Earth Pro's shortcut).
+      shortcut: { key: "u" },
+      run: () => mapControllerRef.current?.resetPitch(),
+    },
+    {
+      id: "view.reset-pitch-bearing",
+      title: t("toolbar.command.resetPitchBearing"),
+      group: t("toolbar.commandGroup.view"),
+      keywords: "pitch bearing tilt rotation north flat level 3d",
+      icon: Mountain,
+      // Plain "R" resets pitch and bearing (like Google Earth Pro's reset view).
+      shortcut: { key: "r" },
+      run: () => mapControllerRef.current?.resetNorthPitch(),
+    },
+    {
+      id: "view.set-view",
+      title: t("toolbar.command.setView"),
+      group: t("toolbar.commandGroup.view"),
+      keywords:
+        "set view go to coordinates center zoom pitch bearing camera location longitude latitude",
+      icon: Crosshair,
+      run: () => setSetViewOpen(true),
+    },
     {
       id: "view.comments",
       title: t("toolbar.command.viewComments"),
@@ -2157,32 +2166,48 @@ export function TopToolbar({
         <ViewMenu
           chrome={chrome}
           history={viewportHistory}
+          // Engine-neutral: the camera comes from `readView()`, and the zoom
+          // limits from the project preferences both engines apply — MapLibre
+          // through `setMinZoom`/`setMaxZoom`, the globe by clamping in
+          // `animateTo`. Reading them off the MapLibre map would report `null`
+          // on the globe and leave Zoom In/Out never showing as "at limit".
           getCamera={() => {
-            const map = mapControllerRef.current?.getMap();
-            if (!map) return null;
+            const engine = mapControllerRef.current;
+            const view = engine?.readView();
+            if (!view) return null;
+            // Prefer the limits the engine actually enforces: MapLibre's
+            // effective minZoom is raised above the raw preference when
+            // `restrictBounds` is set, so reading the preference alone would
+            // leave Zoom Out enabled at the true floor (#2268 review). The
+            // preference is the fallback for an engine with no native map,
+            // which clamps to it directly.
+            const map = engine?.getMap();
+            const { map: mapPreferences } = useAppStore.getState().preferences;
             return {
-              zoom: map.getZoom(),
-              bearing: map.getBearing(),
-              pitch: map.getPitch(),
-              minZoom: map.getMinZoom(),
-              maxZoom: map.getMaxZoom(),
+              zoom: view.zoom,
+              bearing: view.bearing,
+              pitch: view.pitch,
+              minZoom: map ? map.getMinZoom() : mapPreferences.minZoom,
+              maxZoom: map ? map.getMaxZoom() : mapPreferences.maxZoom,
             };
           }}
           onResetNorth={() => mapControllerRef.current?.resetNorth()}
           onResetPitch={() => mapControllerRef.current?.resetPitch()}
           onResetPitchBearing={() => mapControllerRef.current?.resetNorthPitch()}
           onSetView={() => setSetViewOpen(true)}
+          // `readView()`, not `getMap()`: both hand-offs only need a camera, which
+          // every engine reports, and the MapLibre escape hatch is `null` on the
+          // globe — which would have made these silently do nothing now that the
+          // menu no longer greys them out (#2268 review).
           onViewInGoogleEarth={() => {
-            const map = mapControllerRef.current?.getMap();
-            if (!map) return;
-            const center = map.getCenter();
-            void openExternalLink(googleEarthUrl(center.lat, center.lng, map.getZoom()));
+            const view = mapControllerRef.current?.readView();
+            if (!view) return;
+            void openExternalLink(googleEarthUrl(view.center[1], view.center[0], view.zoom));
           }}
           onViewInGoogleMaps={() => {
-            const map = mapControllerRef.current?.getMap();
-            if (!map) return;
-            const center = map.getCenter();
-            void openExternalLink(googleMapsUrl(center.lat, center.lng, map.getZoom()));
+            const view = mapControllerRef.current?.readView();
+            if (!view) return;
+            void openExternalLink(googleMapsUrl(view.center[1], view.center[0], view.zoom));
           }}
           onZoomIn={() => mapControllerRef.current?.zoomIn()}
           onZoomOut={() => mapControllerRef.current?.zoomOut()}

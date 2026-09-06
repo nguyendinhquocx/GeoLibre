@@ -1,9 +1,10 @@
 import { useAppStore } from "@geolibre/core";
 import type * as maplibregl from "maplibre-gl";
 import { type RefObject, useEffect } from "react";
-import type { MapController } from "@geolibre/map";
+import type { MapEngine } from "@geolibre/map";
 import { getEmbedHost, isEmbedded } from "./embedHost";
 import { createScriptingHandlers } from "../lib/scripting/scriptingApi";
+import { shouldAwaitNativeMap } from "../lib/native-map-attach";
 
 // Request/reply + event channel that backs the Python scripting API. Where
 // useEmbedBridge syncs the whole project, this handles the things the project
@@ -37,7 +38,15 @@ interface CommandMessage {
  *   useEmbedBridge and MapCanvas share), used to read/drive the camera and query
  *   rendered features.
  */
-export function useCommandBridge(mapControllerRef: RefObject<MapController | null>): void {
+export function useCommandBridge(
+  mapControllerRef: RefObject<MapEngine | null>,
+  /**
+   * Bumped whenever a canvas publishes an engine. The ref itself is stable, so
+   * without this the effect would never re-run on an engine hand-off and the
+   * click listener would stay bound to the old map (#2268 review).
+   */
+  mapReadyGeneration: number,
+): void {
   useEffect(() => {
     if (!isEmbedded()) return;
     const hostChannel = getEmbedHost();
@@ -131,7 +140,7 @@ export function useCommandBridge(mapControllerRef: RefObject<MapController | nul
     // Map click events. The controller (and its map) become available
     // asynchronously after the map loads, so poll on animation frames until the
     // map exists, then attach the listener.
-    let clickMap: ReturnType<MapController["getMap"]> | null = null;
+    let clickMap: ReturnType<MapEngine["getMap"]> | null = null;
     const onMapClick = (event: maplibregl.MapMouseEvent) => {
       const lngLat: [number, number] = [event.lngLat.lng, event.lngLat.lat];
       emit("click", {
@@ -141,7 +150,10 @@ export function useCommandBridge(mapControllerRef: RefObject<MapController | nul
     };
     let rafId: number | null = null;
     const attachClick = () => {
-      const map = controller()?.getMap();
+      const engine = controller();
+      // Stops the poll once a map can no longer arrive; see the helper.
+      if (!shouldAwaitNativeMap(engine)) return;
+      const map = engine?.getMap();
       if (map) {
         clickMap = map;
         map.on("click", onMapClick);
@@ -157,6 +169,6 @@ export function useCommandBridge(mapControllerRef: RefObject<MapController | nul
       if (rafId !== null) cancelAnimationFrame(rafId);
       clickMap?.off("click", onMapClick);
     };
-    // Mount-only: mapControllerRef is a stable ref read lazily inside handlers.
-  }, [mapControllerRef]);
+    // Re-runs on each engine hand-off; the ref itself is stable and read lazily.
+  }, [mapControllerRef, mapReadyGeneration]);
 }

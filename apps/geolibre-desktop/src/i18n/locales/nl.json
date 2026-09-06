@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Kan kolomnamen niet ophalen.",
       "url": "URL naar tekstbestand met scheidingstekens",
       "file": "Tekstbestand met scheidingstekens",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Bezig met ophalen...",
       "retrieveColumns": "Kolommen ophalen",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Voeg in Instellingen een Cesium Ion-token toe voor terrein en Ion-beelden"
   },
   "renderer": {
-    "layerUnsupported": "Niet weergegeven door de 3D-globe"
+    "basemap": "Achtergrondkaart",
+    "imagery": "Beelden",
+    "projectBasemap": "Achtergrondkaart van het project",
+    "layerUnsupported": "Niet weergegeven door de 3D-globe",
+    "resetView": "Weergave herstellen",
+    "scene3D": "3D-globe",
+    "scene2D": "2D-kaart",
+    "sceneColumbus": "Columbus-weergave",
+    "fullscreenEnter": "Volledig scherm",
+    "fullscreenExit": "Volledig scherm verlaten",
+    "fullscreenUnavailable": "Volledig scherm niet beschikbaar"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Coördinaten naar klembord kopiëren",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "3 × 3-raster",
       "splitViewSync": "Weergaven synchroniseren",
       "renderingEngine": "Renderengine",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Bekijken in Google Maps",
       "viewInGoogleEarth": "Bekijken in Google Earth",
       "zoomIn": "Inzoomen",
@@ -6483,7 +6494,6 @@
       "remove": "Koppeling verwijderen",
       "enabledTitle": "Deze koppeling toepassen",
       "missingLayer": "Koppelingslaag niet gevonden",
-      "noCandidates": "Geen andere laag heeft een attributentabel om te koppelen",
       "statsMatched": "{{matched}} van {{total}} objecten gematcht",
       "statsUnmatchedJoin_one": "{{count}} tabelrij zonder match",
       "statsUnmatchedJoin_other": "{{count}} tabelrijen zonder match"

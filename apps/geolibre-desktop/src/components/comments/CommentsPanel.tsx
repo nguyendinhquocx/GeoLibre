@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppStore, type ProjectComment, type CommentReply } from "@geolibre/core";
-import type { MapController } from "@geolibre/map";
+import type { MapEngine } from "@geolibre/map";
 import { Button, Input, ScrollArea, cn } from "@geolibre/ui";
 import {
   MessageSquare,
@@ -45,7 +45,7 @@ function saveStoredName(name: string): void {
 }
 
 interface CommentsPanelProps {
-  mapControllerRef: React.RefObject<MapController | null>;
+  mapControllerRef: React.RefObject<MapEngine | null>;
   collaboration?: CollaborationApi;
   onActivateCommentTool?: () => void;
   isCommentToolActive?: boolean;
@@ -227,12 +227,16 @@ export function CommentsPanel({
   };
 
   const handleZoomTo = (comment: ProjectComment) => {
-    const map = mapControllerRef.current?.getMap() ?? null;
-    if (!map) return;
-    const coords = resolveCommentCoordinates(comment, map);
-    if (coords) {
-      map.flyTo({ center: coords, zoom: Math.max(map.getZoom(), 15), duration: 800 });
-    }
+    const engine = mapControllerRef.current;
+    if (!engine) return;
+    // The map is only needed to resolve a *feature*-anchored comment, and
+    // `resolveCommentCoordinates` already answers a direct `lngLat` without one
+    // — so a comment with its own coordinates zooms on any engine. The flight
+    // goes through `engine.flyTo`, which the globe implements too; using
+    // `map.flyTo` would have made this silently do nothing there (#2268 review).
+    const coords = resolveCommentCoordinates(comment, engine.getMap());
+    if (!coords) return;
+    engine.flyTo({ center: coords, zoom: Math.max(engine.readView().zoom, 15), duration: 800 });
   };
 
   const unresolvedComments = comments.filter((c) => !c.resolved);

@@ -634,6 +634,7 @@
       "errorRetrieveColumns": "ไม่สามารถดึงชื่อคอลัมน์ได้",
       "url": "URL ของข้อความคั่นด้วยตัวแบ่ง",
       "file": "ไฟล์ข้อความคั่นด้วยตัวแบ่ง",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "กำลังดึงข้อมูล...",
       "retrieveColumns": "ดึงรายการคอลัมน์",
@@ -1825,7 +1826,17 @@
     "cesiumTokenHint": "เพิ่มโทเค็น Cesium Ion ในการตั้งค่าเพื่อใช้ข้อมูลภูมิประเทศและภาพถ่ายจาก Ion"
   },
   "renderer": {
-    "layerUnsupported": "ไม่แสดงผลบนลูกโลก 3 มิติ"
+    "basemap": "แผนที่ฐาน",
+    "imagery": "ภาพถ่าย",
+    "projectBasemap": "แผนที่ฐานของโครงการ",
+    "layerUnsupported": "ไม่แสดงผลบนลูกโลก 3 มิติ",
+    "resetView": "รีเซ็ตมุมมอง",
+    "scene3D": "ลูกโลก 3 มิติ",
+    "scene2D": "แผนที่ 2 มิติ",
+    "sceneColumbus": "มุมมองโคลัมบัส",
+    "fullscreenEnter": "เต็มหน้าจอ",
+    "fullscreenExit": "ออกจากเต็มหน้าจอ",
+    "fullscreenUnavailable": "ไม่รองรับเต็มหน้าจอ"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "คัดลอกพิกัดไปยังคลิปบอร์ด",
@@ -2677,8 +2688,8 @@
       "splitViewGrid3x3": "กริด 3 × 3",
       "splitViewSync": "ซิงค์มุมมอง",
       "renderingEngine": "เอนจินการแสดงผล",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "ดูใน Google Maps",
       "viewInGoogleEarth": "ดูใน Google Earth",
       "zoomIn": "ซูมเข้า",
@@ -6406,7 +6417,6 @@
       "remove": "นำการเชื่อมข้อมูลออก",
       "enabledTitle": "ใช้การเชื่อมข้อมูลนี้",
       "missingLayer": "ไม่พบเลเยอร์ที่จะเชื่อม",
-      "noCandidates": "ไม่มีเลเยอร์อื่นที่มีตารางแอตทริบิวต์ให้เชื่อมข้อมูล",
       "statsMatched": "ตรงกัน {{matched}} จาก {{total}} ฟีเจอร์",
       "statsUnmatchedJoin_other": "มีแถวของเลเยอร์ที่เชื่อม {{count}} แถวที่ไม่ตรงกัน"
     },

@@ -1,6 +1,6 @@
 import { useAppStore } from "@geolibre/core";
 import { type RefObject, useEffect } from "react";
-import { getLayerBounds, type MapController } from "@geolibre/map";
+import { getLayerBounds, type MapEngine } from "@geolibre/map";
 import { captureMapImage } from "../lib/print-layout-export";
 import {
   buildEmbedEvent,
@@ -18,6 +18,7 @@ import {
   type EmbedEventType,
 } from "../lib/embed-api";
 import { fetchProjectFromUrl, projectUrlFromLocation } from "../lib/project-url";
+import { shouldAwaitNativeMap } from "../lib/native-map-attach";
 import { resolveProjectXyzLayers } from "../lib/xyz-url";
 import { isKnownWhiteboxToolId } from "../lib/whitebox-tool-url";
 import { loadDataUrl } from "./useDataUrlLoader";
@@ -55,8 +56,13 @@ const VIEW_THROTTLE_MS = 250;
  *   MapCanvas and the other bridges), used to drive and read the camera.
  */
 export function useEmbedApi(
-  mapControllerRef: RefObject<MapController | null>,
+  mapControllerRef: RefObject<MapEngine | null>,
   mapAppAPI: ReturnType<typeof createAppAPI> | null,
+  /**
+   * Bumped whenever a canvas publishes an engine, so the view-listener attach
+   * re-arms on a hand-off — the ref itself is stable (#2268 review).
+   */
+  mapReadyGeneration: number,
 ): void {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -283,7 +289,17 @@ export function useEmbedApi(
         case "exportImage": {
           if (!useAppStore.getState().deploymentCapabilities.has("export:data"))
             throw new Error("Missing export:data capability");
-          const map = controller()?.getMap();
+          const engine = controller();
+          // Same distinction scriptingApi's `toImage` makes: "not ready yet" is
+          // a state that resolves, "not supported by this engine" never does —
+          // and an embedding host has no way to tell them apart otherwise
+          // (#2268 review).
+          if (engine && !engine.capabilities.nativeMapInstance) {
+            throw new Error(
+              "Capturing the map image is not supported by the current rendering engine",
+            );
+          }
+          const map = engine?.getMap();
           if (!map) throw new Error("The map is not ready yet");
           return captureMapImage(map).image.toDataURL("image/png");
         }
@@ -369,7 +385,7 @@ export function useEmbedApi(
 
     // Camera events. The controller and its map appear asynchronously, so poll
     // animation frames until the map exists (same pattern as useCommandBridge).
-    let viewMap: ReturnType<MapController["getMap"]> | null = null;
+    let viewMap: ReturnType<MapEngine["getMap"]> | null = null;
     let lastViewAt = 0;
     let trailingTimer: number | null = null;
     const postView = () => {
@@ -404,7 +420,10 @@ export function useEmbedApi(
     };
     let rafId: number | null = null;
     const attach = () => {
-      const map = controller()?.getMap();
+      const engine = controller();
+      // Stops the poll once a map can no longer arrive; see the helper.
+      if (!shouldAwaitNativeMap(engine)) return;
+      const map = engine?.getMap();
       if (!map) {
         rafId = requestAnimationFrame(attach);
         return;
@@ -429,5 +448,5 @@ export function useEmbedApi(
       viewMap?.off("move", onMapMove);
       viewMap?.off("moveend", onMapMove);
     };
-  }, [mapControllerRef, mapAppAPI]);
+  }, [mapControllerRef, mapAppAPI, mapReadyGeneration]);
 }

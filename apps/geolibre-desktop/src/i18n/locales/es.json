@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "No se pudieron recuperar los nombres de las columnas.",
       "url": "URL de texto delimitado",
       "file": "Archivo de texto delimitado",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Recuperando...",
       "retrieveColumns": "Recuperar columnas",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Añada un token de Cesium Ion en Configuración para el terreno y las imágenes de Ion"
   },
   "renderer": {
-    "layerUnsupported": "No se representa en el globo 3D"
+    "basemap": "Mapa base",
+    "imagery": "Imágenes",
+    "projectBasemap": "Mapa base del proyecto",
+    "layerUnsupported": "No se representa en el globo 3D",
+    "resetView": "Restablecer vista",
+    "scene3D": "Globo 3D",
+    "scene2D": "Mapa 2D",
+    "sceneColumbus": "Vista Columbus",
+    "fullscreenEnter": "Pantalla completa",
+    "fullscreenExit": "Salir de pantalla completa",
+    "fullscreenUnavailable": "Pantalla completa no disponible"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Copiar coordenadas al portapapeles",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "Cuadrícula 3 × 3",
       "splitViewSync": "Sincronizar vistas",
       "renderingEngine": "Motor de representación",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Ver en Google Maps",
       "viewInGoogleEarth": "Ver en Google Earth",
       "zoomIn": "Acercar",
@@ -6483,7 +6494,6 @@
       "remove": "Eliminar unión",
       "enabledTitle": "Aplicar esta unión",
       "missingLayer": "Capa de unión no encontrada",
-      "noCandidates": "Ninguna otra capa tiene una tabla de atributos para unir",
       "statsMatched": "{{matched}} de {{total}} entidades coincidentes",
       "statsUnmatchedJoin_one": "{{count}} fila de la tabla sin coincidencia",
       "statsUnmatchedJoin_other": "{{count}} filas de la tabla sin coincidencia"

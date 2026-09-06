@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Spaltennamen konnten nicht abgerufen werden.",
       "url": "URL für trennzeichengetrennten Text",
       "file": "Trennzeichengetrennte Textdatei",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Wird abgerufen …",
       "retrieveColumns": "Spalten abrufen",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Fügen Sie in den Einstellungen ein Cesium-Ion-Token für Gelände und Ion-Bilder hinzu"
   },
   "renderer": {
-    "layerUnsupported": "Wird vom 3D-Globus nicht dargestellt"
+    "basemap": "Hintergrundkarte",
+    "imagery": "Bilddaten",
+    "projectBasemap": "Hintergrundkarte des Projekts",
+    "layerUnsupported": "Wird vom 3D-Globus nicht dargestellt",
+    "resetView": "Ansicht zurücksetzen",
+    "scene3D": "3D-Globus",
+    "scene2D": "2D-Karte",
+    "sceneColumbus": "Columbus-Ansicht",
+    "fullscreenEnter": "Vollbild",
+    "fullscreenExit": "Vollbild beenden",
+    "fullscreenUnavailable": "Vollbild nicht verfügbar"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Koordinaten in die Zwischenablage kopieren",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "3 × 3-Raster",
       "splitViewSync": "Ansichten synchronisieren",
       "renderingEngine": "Rendering-Engine",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "In Google Maps ansehen",
       "viewInGoogleEarth": "In Google Earth ansehen",
       "zoomIn": "Vergrößern",
@@ -6483,7 +6494,6 @@
       "remove": "Verknüpfung entfernen",
       "enabledTitle": "Diese Verknüpfung anwenden",
       "missingLayer": "Verknüpfungslayer nicht gefunden",
-      "noCandidates": "Kein anderer Layer hat eine Attributtabelle zum Verknüpfen",
       "statsMatched": "{{matched}} von {{total}} Objekten zugeordnet",
       "statsUnmatchedJoin_one": "{{count}} Tabellenzeile ohne Treffer",
       "statsUnmatchedJoin_other": "{{count}} Tabellenzeilen ohne Treffer"

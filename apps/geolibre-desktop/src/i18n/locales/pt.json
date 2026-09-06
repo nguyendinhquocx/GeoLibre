@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Não foi possível recuperar os nomes das colunas.",
       "url": "URL de texto delimitado",
       "file": "Arquivo de texto delimitado",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Recuperando...",
       "retrieveColumns": "Recuperar colunas",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Adicione um token do Cesium Ion em Configurações para terreno e imagens do Ion"
   },
   "renderer": {
-    "layerUnsupported": "Não renderizado pelo globo 3D"
+    "basemap": "Mapa base",
+    "imagery": "Imagens",
+    "projectBasemap": "Mapa base do projeto",
+    "layerUnsupported": "Não renderizado pelo globo 3D",
+    "resetView": "Redefinir vista",
+    "scene3D": "Globo 3D",
+    "scene2D": "Mapa 2D",
+    "sceneColumbus": "Vista Columbus",
+    "fullscreenEnter": "Tela cheia",
+    "fullscreenExit": "Sair da tela cheia",
+    "fullscreenUnavailable": "Tela cheia indisponível"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Copiar coordenadas para a área de transferência",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "Grade 3 × 3",
       "splitViewSync": "Sincronizar visualizações",
       "renderingEngine": "Motor de renderização",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Ver no Google Maps",
       "viewInGoogleEarth": "Ver no Google Earth",
       "zoomIn": "Ampliar",
@@ -6483,7 +6494,6 @@
       "remove": "Remover junção",
       "enabledTitle": "Aplicar esta junção",
       "missingLayer": "Camada de junção não encontrada",
-      "noCandidates": "Nenhuma outra camada tem tabela de atributos para unir",
       "statsMatched": "{{matched}} de {{total}} feições correspondidas",
       "statsUnmatchedJoin_one": "{{count}} linha da tabela sem correspondência",
       "statsUnmatchedJoin_other": "{{count}} linhas da tabela sem correspondência"

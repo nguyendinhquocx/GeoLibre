@@ -1,7 +1,7 @@
 // @refresh reset
 import { useAppStore, type GeoLibreLayer } from "@geolibre/core";
 import type { FeatureCollection } from "geojson";
-import type { MapController, MapDiagnosticEvent } from "@geolibre/map";
+import type { MapDiagnosticEvent, MapEngine } from "@geolibre/map";
 import { getLayerBounds, MapCanvas, setExternalDeckLayerOrderHandler } from "@geolibre/map";
 import { useTranslation } from "react-i18next";
 import {
@@ -657,7 +657,7 @@ export function DesktopShell({
   // mid-drag still detaches the global listeners and restores document.body.
   const activeResizeCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => activeResizeCleanupRef.current?.(), []);
-  const mapControllerRef = useRef<MapController | null>(null);
+  const mapControllerRef = useRef<MapEngine | null>(null);
 
   // Frame layers a `?data=` deep link added. Single non-GeoJSON datasets move
   // the camera in their format-specific loader; a repeated `data` batch lists
@@ -933,7 +933,7 @@ export function DesktopShell({
   // the Collaborate dialog and the on-canvas status badge share one socket, and
   // so the dialog stays mounted in toolbar-hidden layouts.
   const collaboration = useCollaboration(mapControllerRef);
-  const commentTool = useCommentTool({ mapControllerRef, collaboration });
+  const commentTool = useCommentTool({ mapControllerRef, collaboration, mapReadyGeneration });
   const [showResolvedComments, setShowResolvedComments] = useState(false);
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
   const collaborateDialogOpen = useAppStore((s) => s.ui.collaborateDialogOpen);
@@ -952,11 +952,11 @@ export function DesktopShell({
   useEmbedBridge(mapControllerRef);
   // Request/reply + event channel backing the Python scripting API (live
   // queries, processing, map events). Also inert when not embedded.
-  useCommandBridge(mapControllerRef);
+  useCommandBridge(mapControllerRef, mapReadyGeneration);
   // Runtime postMessage API for a third-party host page that frames the app
   // (fly to a record, highlight it, open a tool; selection/view/tool events back
   // out). Off unless the deployment configured GEOLIBRE_EMBED_ORIGINS.
-  useEmbedApi(mapControllerRef, mapAppAPI);
+  useEmbedApi(mapControllerRef, mapAppAPI, mapReadyGeneration);
   // Same scripting surface, reached over the desktop Jupyter server's relay, so
   // a kernel driven from an EXTERNAL client (VS Code's Jupyter extension) can
   // control the map too. Inert until that server is running.
@@ -1255,7 +1255,14 @@ export function DesktopShell({
     // or the map is reinitialised (mapReadyGeneration), not on every
     // incremental plugin write-back. projectPlugins is read from the store
     // snapshot at call time so it is always current without being a dependency.
-    if (!externalPluginsReady || !mapReadyGeneration || !mapControllerRef.current) return;
+    // Every restore below re-binds a MapLibre control or source, so they need a
+    // native map. This used to be implied: the ref was null on the globe, so the
+    // effect never ran there. Now it holds a `CesiumEngine`, and the guard has to
+    // be stated (#2268 review). Making these restores engine-neutral is
+    // follow-up work, not a silent behaviour change here.
+    const engine = mapControllerRef.current;
+    if (!externalPluginsReady || !mapReadyGeneration || !engine) return;
+    if (!engine.capabilities.nativeMapInstance) return;
     const appAPI = createAppAPI(mapControllerRef);
     const pluginManager = getPluginManager();
     pluginManager.restoreProjectState(useAppStore.getState().projectPlugins, appAPI);
@@ -1367,20 +1374,30 @@ export function DesktopShell({
   );
   const setObjectDetectionOpen = useAppStore((s) => s.setObjectDetectionOpen);
   const setSegmentEverythingOpen = useAppStore((s) => s.setSegmentEverythingOpen);
-  // Switching to the globe destroys the MapLibre map, which would otherwise
-  // leave `mapControllerRef` pointing at a removed map and `mapReadyGeneration`
-  // claiming one is live. Reset both to the boot state — the "no map yet" case
-  // every consumer already handles — so nothing calls into a dead map. Switching
-  // back remounts MapCanvas, which fires onControllerReady and re-arms them.
+  // Switching engines swaps which engine the shared ref points at: MapCanvas
+  // unmounts and clears it, then PrimaryCesiumCanvas publishes its CesiumEngine
+  // (and the reverse on the way back). The ref is no longer nulled wholesale
+  // here — that was necessary while only MapLibre implemented the surface, and
+  // it is what left every menu, panel, and shortcut pointing at nothing on the
+  // globe (#2260). Each canvas owns clearing its own engine on unmount, so the
+  // ref is never left aimed at a destroyed map.
   //
-  // The four MapLibre-only panels below unmount with the map, so any that were
-  // open are closed here too. Without this their open flags survive on the
+  // The MapLibre-only panels below still unmount with the 2D map, so any that
+  // were open are closed here. Without this their open flags survive on the
   // globe and the panel springs back the moment the user returns to 2D, long
   // after they meant to dismiss it (#2217 review).
   useEffect(() => {
     if (!cesiumPrimary) return;
-    mapControllerRef.current = null;
-    setMapReadyGeneration(0);
+    // Bump the readiness generation on the hand-off. It is no longer *reset*
+    // (that is what left every consumer pointing at nothing on the globe), but
+    // the reset did do one useful thing: it forced the generation-gated effects
+    // — viewport history, the embed/notebook/command bridges — to re-run and
+    // detach their listeners from the outgoing MapLibre map. Without a bump
+    // they would not re-run until a new engine published, so a globe that never
+    // becomes ready would leave those closures holding a destroyed map for the
+    // session (#2268 review). Incrementing keeps that cleanup timing while the
+    // ref itself stays live.
+    setMapReadyGeneration((generation) => generation + 1);
     setRasterSubsetLayer(null);
     setBasemapExtractOpen(false);
     setObjectDetectionOpen(false);
@@ -2596,7 +2613,10 @@ export function DesktopShell({
                   neutral, store-driven overlays sit outside the branch and are
                   available under either engine. */}
               {cesiumPrimary ? (
-                <PrimaryCesiumCanvas />
+                <PrimaryCesiumCanvas
+                  engineRef={mapControllerRef}
+                  onEngineReady={handleMapControllerReady}
+                />
               ) : (
                 <>
                   <MapCanvas
@@ -2862,6 +2882,7 @@ export function DesktopShell({
               <NotebookPanel
                 onResizeStart={startNotebookPanelResize}
                 mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
                 themeMode={themeMode}
               />
             </Suspense>

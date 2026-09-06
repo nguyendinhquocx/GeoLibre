@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Could not retrieve column names.",
       "url": "Delimited text URL",
       "file": "Delimited text file",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Retrieving...",
       "retrieveColumns": "Retrieve columns",
@@ -911,7 +912,16 @@
       "cellSize": "Cell size",
       "lineWidth": "Line width",
       "extrusion": "3D extrusion",
-      "modelUrlPlaceholder": "https://example.com/model.glb"
+      "modelUrlPlaceholder": "https://example.com/model.glb",
+      "chooseModelFile": "Choose local model",
+      "sampleDataset": "Sample dataset",
+      "sampleCustom": "Custom model",
+      "sampleAirplane": "Airplane — San Francisco",
+      "sampleShanghai": "Shanghai — central city",
+      "modelFileHint": "Choose a GLB or self-contained glTF file. Local models are embedded in saved projects, increasing the project size.",
+      "modelExternalResources": "This model references separate files. Export it as a GLB with embedded textures and buffers, then try again.",
+      "modelTooLarge": "This model is larger than the {{limit}} MB limit for embedding in a project. Host it and add it by URL instead.",
+      "modelFileError": "Could not read this model. Choose a valid glTF 2.0 or GLB file."
     },
     "nonGeographicCoordinates": "Coordinates in {{names}} are not longitude/latitude, so nothing will be drawn on the map. The CRS is mislabelled — reproject the data (or fix its .prj) and load it again."
   },
@@ -1870,7 +1880,17 @@
     "cesiumTokenHint": "Add a Cesium Ion token in Settings for terrain and Ion imagery"
   },
   "renderer": {
-    "layerUnsupported": "Not rendered by the 3D globe"
+    "basemap": "Basemap",
+    "imagery": "Imagery",
+    "projectBasemap": "Project basemap",
+    "layerUnsupported": "Not rendered by the 3D globe",
+    "resetView": "Reset view",
+    "scene3D": "3D globe",
+    "scene2D": "2D map",
+    "sceneColumbus": "Columbus view",
+    "fullscreenEnter": "Enter fullscreen",
+    "fullscreenExit": "Exit fullscreen",
+    "fullscreenUnavailable": "Fullscreen unavailable"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Copy coordinates to clipboard",
@@ -2724,8 +2744,8 @@
       "splitViewGrid3x3": "3 × 3 grid",
       "splitViewSync": "Sync views",
       "renderingEngine": "Rendering engine",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "View in Google Maps",
       "viewInGoogleEarth": "View in Google Earth",
       "zoomIn": "Zoom In",
@@ -6547,7 +6567,6 @@
       "remove": "Remove join",
       "enabledTitle": "Apply this join",
       "missingLayer": "Join layer not found",
-      "noCandidates": "No other layer has an attribute table to join",
       "statsMatched": "{{matched}} of {{total}} features matched",
       "statsUnmatchedJoin_one": "{{count}} join row unmatched",
       "statsUnmatchedJoin_other": "{{count}} join rows unmatched"

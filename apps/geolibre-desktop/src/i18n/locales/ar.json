@@ -679,6 +679,7 @@
       "errorRetrieveColumns": "تعذر جلب أسماء الأعمدة.",
       "url": "عنوان URL للنص المفصول",
       "file": "ملف نص مفصول",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "جارٍ الجلب...",
       "retrieveColumns": "جلب الأعمدة",
@@ -2049,7 +2050,17 @@
     "cesiumTokenHint": "أضف رمز Cesium Ion من الإعدادات للحصول على التضاريس وصور Ion"
   },
   "renderer": {
-    "layerUnsupported": "لا تُعرَض على الكرة الأرضية ثلاثية الأبعاد"
+    "basemap": "خريطة الأساس",
+    "imagery": "الصور",
+    "projectBasemap": "خريطة أساس المشروع",
+    "layerUnsupported": "لا تُعرَض على الكرة الأرضية ثلاثية الأبعاد",
+    "resetView": "إعادة تعيين العرض",
+    "scene3D": "كرة أرضية ثلاثية الأبعاد",
+    "scene2D": "خريطة ثنائية الأبعاد",
+    "sceneColumbus": "عرض كولومبوس",
+    "fullscreenEnter": "ملء الشاشة",
+    "fullscreenExit": "إنهاء ملء الشاشة",
+    "fullscreenUnavailable": "ملء الشاشة غير متاح"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "نسخ الإحداثيات إلى الحافظة",
@@ -2911,8 +2922,8 @@
       "splitViewGrid3x3": "شبكة 3 × 3",
       "splitViewSync": "مزامنة العروض",
       "renderingEngine": "محرك العرض",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "عرض في Google Maps",
       "viewInGoogleEarth": "عرض في Google Earth",
       "zoomIn": "تكبير",
@@ -6790,7 +6801,6 @@
       "remove": "إزالة الربط",
       "enabledTitle": "تطبيق هذا الربط",
       "missingLayer": "طبقة الربط غير موجودة",
-      "noCandidates": "لا توجد طبقة أخرى بجدول سمات للربط",
       "statsMatched": "تمت مطابقة {{matched}} من {{total}} من المعالم",
       "statsUnmatchedJoin_one": "{{count}} صف من الجدول بدون تطابق",
       "statsUnmatchedJoin_zero": "{{count}} من صفوف الجدول بدون تطابق",

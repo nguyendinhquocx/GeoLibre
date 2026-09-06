@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "სვეტების სახელების მიღება ვერ მოხერხდა.",
       "url": "გამყოფებით დაყოფილი ტექსტის URL",
       "file": "გამყოფებით დაყოფილი ტექსტური ფაილი",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "მიმდინარეობს მიღება...",
       "retrieveColumns": "სვეტების მიღება",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "რელიეფისა და Ion-ის სურათებისთვის დაამატეთ Cesium Ion-ის token პარამეტრებში"
   },
   "renderer": {
-    "layerUnsupported": "3D გლობუსზე არ ისახება"
+    "basemap": "საბაზისო რუკა",
+    "imagery": "სურათები",
+    "projectBasemap": "პროექტის საბაზისო რუკა",
+    "layerUnsupported": "3D გლობუსზე არ ისახება",
+    "resetView": "ხედის საწყისზე დაბრუნება",
+    "scene3D": "3D გლობუსი",
+    "scene2D": "2D რუკა",
+    "sceneColumbus": "კოლუმბუსის ხედი",
+    "fullscreenEnter": "სრულ ეკრანზე",
+    "fullscreenExit": "სრული ეკრანიდან გასვლა",
+    "fullscreenUnavailable": "სრული ეკრანი მიუწვდომელია"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "კოორდინატების კოპირება ბუფერში",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "3 × 3 ბადე",
       "splitViewSync": "ხედების სინქრონიზაცია",
       "renderingEngine": "რენდერინგის ძრავა",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "ნახვა Google Maps-ში",
       "viewInGoogleEarth": "ნახვა Google Earth-ში",
       "zoomIn": "მიახლოება",
@@ -6483,7 +6494,6 @@
       "remove": "შეერთების წაშლა",
       "enabledTitle": "ამ შეერთების გამოყენება",
       "missingLayer": "შესაერთებელი შრე ვერ მოიძებნა",
-      "noCandidates": "სხვა შრეს არ აქვს ატრიბუტების ცხრილი შესაერთებლად",
       "statsMatched": "{{total}}-დან {{matched}} ობიექტი დაემთხვა",
       "statsUnmatchedJoin_one": "{{count}} ცხრილის მწკრივი დამთხვევის გარეშე",
       "statsUnmatchedJoin_other": "{{count}} ცხრილის მწკრივი დამთხვევის გარეშე"

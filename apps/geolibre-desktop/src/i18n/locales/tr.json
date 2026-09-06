@@ -643,6 +643,7 @@
       "errorRetrieveColumns": "Sütun adları alınamadı.",
       "url": "Sınırlayıcılı metin URL'si",
       "file": "Sınırlayıcılı metin dosyası",
+      "fileFilter": "CSV / TSV / TXT / Excel",
       "urlPlaceholder": "https://example.com/data.csv",
       "retrieving": "Alınıyor...",
       "retrieveColumns": "Sütunları getir",
@@ -1870,7 +1871,17 @@
     "cesiumTokenHint": "Arazi ve Ion görüntüleri için Ayarlar'dan bir Cesium Ion belirteci ekleyin"
   },
   "renderer": {
-    "layerUnsupported": "3D küre tarafından çizilmiyor"
+    "basemap": "Altlık harita",
+    "imagery": "Görüntü",
+    "projectBasemap": "Proje altlık haritası",
+    "layerUnsupported": "3D küre tarafından çizilmiyor",
+    "resetView": "Görünümü Sıfırla",
+    "scene3D": "3B küre",
+    "scene2D": "2B harita",
+    "sceneColumbus": "Columbus görünümü",
+    "fullscreenEnter": "Tam ekran",
+    "fullscreenExit": "Tam ekrandan çık",
+    "fullscreenUnavailable": "Tam ekran kullanılamıyor"
   },
   "mapContextMenu": {
     "copyCoordinatesHint": "Koordinatları panoya kopyala",
@@ -2724,8 +2735,8 @@
       "splitViewGrid3x3": "3 × 3 ızgara",
       "splitViewSync": "Görünümleri eşzamanla",
       "renderingEngine": "Çizim motoru",
-      "rendererMapLibre": "MapLibre 2D",
-      "rendererCesium": "Cesium 3D",
+      "rendererMapLibre": "MapLibre",
+      "rendererCesium": "Cesium",
       "viewInGoogleMaps": "Google Haritalar'da görüntüle",
       "viewInGoogleEarth": "Google Earth'te görüntüle",
       "zoomIn": "Yakınlaştır",
@@ -6483,7 +6494,6 @@
       "remove": "Birleştirmeyi kaldır",
       "enabledTitle": "Bu birleştirmeyi uygula",
       "missingLayer": "Birleştirme katmanı bulunamadı",
-      "noCandidates": "Birleştirilecek öznitelik tablosu olan başka katman yok",
       "statsMatched": "{{total}} öğeden {{matched}} tanesi eşleşti",
       "statsUnmatchedJoin_one": "Eşleşmeyen {{count}} tablo satırı",
       "statsUnmatchedJoin_other": "Eşleşmeyen {{count}} tablo satırı"
