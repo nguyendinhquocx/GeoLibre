@@ -1,8 +1,23 @@
-import { resolveThreeDTilesRequestHeaders, type GeoLibreLayer } from "@geolibre/core";
+import {
+  compileFeatureExpression,
+  compileQuickFilters,
+  DEFAULT_LAYER_STYLE,
+  geojsonHasZCoordinates,
+  resolveThreeDTilesRequestHeaders,
+  ruleBasedVisibilityFilter,
+  transformGeojsonElevation,
+  type GeoLibreLayer,
+} from "@geolibre/core";
+import { featureFilter } from "@maplibre/maplibre-gl-style-spec";
+import type { Feature } from "geojson";
+import { readMapViewFromCamera } from "./cesium-camera";
+import { createCesiumLabeler, pickLabelPart } from "./cesium-labels";
 import type {
   Cesium3DTileset,
   CesiumWidget,
+  Color,
   DataSource,
+  Entity,
   ImageryLayer,
   ImageryProvider,
   Resource,
@@ -22,6 +37,15 @@ import type {
 // build graph itself.
 
 type CesiumNs = typeof import("@cesium/engine");
+
+/** Whether a serialized filter reads `["zoom"]`, so its result depends on the camera. */
+const ZOOM_OPERAND = /\[\s*"zoom"\s*\]/;
+
+/** The subset of a Cesium `Event` the camera watch needs. */
+interface CameraEvent {
+  addEventListener(listener: () => void): unknown;
+  removeEventListener(listener: () => void): unknown;
+}
 
 /** Layer kinds this pass renders on the globe. */
 const IMAGERY_TYPES = new Set(["raster", "xyz", "wms", "wmts", "image"]);
@@ -75,6 +99,67 @@ interface LayerEntry {
   cancelled: boolean;
   /** Last opacity key applied in place to a geojson entry (skips redundant restyles). */
   appliedAlpha?: string;
+  /** Last filter expression key applied in place (skips redundant filter evaluations). */
+  appliedFilterKey?: string;
+  /** Whether the applied filter reads `["zoom"]`, so it must re-run when the camera moves. */
+  zoomFilter?: boolean;
+}
+
+/**
+ * Compose a layer's per-feature filter expression from its transient time filter,
+ * embed API filter, compiled quick filters, rule-based visibility filter, and
+ * annotation visibility filter. Returns null when no filter constrains the layer.
+ */
+export function composeLayerFeatureFilter(layer: GeoLibreLayer): unknown[] | null {
+  const filters: unknown[] = [];
+  const timeFilter = layer.timeFilter;
+  if (Array.isArray(timeFilter) && timeFilter.length > 0) {
+    filters.push(timeFilter);
+  }
+  if (Array.isArray(layer.embedFilter) && layer.embedFilter.length > 0) {
+    filters.push(layer.embedFilter);
+  }
+  const quickFilter = compileQuickFilters(layer.quickFilters);
+  if (quickFilter) {
+    filters.push(quickFilter);
+  }
+  const ruleFilter = ruleBasedVisibilityFilter(layer.style ?? {});
+  if (ruleFilter) {
+    filters.push(ruleFilter);
+  }
+  if (layer.metadata?.sourceKind === "annotation") {
+    filters.push(["!=", ["get", "visible"], false]);
+  }
+  if (filters.length === 0) return null;
+  if (filters.length === 1) return filters[0] as unknown[];
+  return ["all", ...filters];
+}
+
+/**
+ * Recursively extracts a valid timestamp or ISO date string from a MapLibre filter
+ * expression, returning a Date instance if found.
+ *
+ * @param filter The filter expression array or sub-expression to inspect.
+ * @returns A parsed Date if a temporal value is found, or null otherwise.
+ */
+export function extractTimeFilterDate(filter: unknown): Date | null {
+  if (!Array.isArray(filter)) return null;
+  for (const item of filter) {
+    if (Array.isArray(item)) {
+      const d = extractTimeFilterDate(item);
+      if (d) return d;
+    } else if (typeof item === "number" && Number.isFinite(item)) {
+      if (item > 100000000000 && item < 4102444800000) {
+        return new Date(item);
+      }
+    } else if (typeof item === "string" && item.length >= 10) {
+      const d = new Date(item);
+      if (!Number.isNaN(d.getTime()) && d.getFullYear() >= 1970 && d.getFullYear() <= 2100) {
+        return d;
+      }
+    }
+  }
+  return null;
 }
 
 function str(value: unknown): string | undefined {
@@ -286,14 +371,37 @@ function entryKind(layer: GeoLibreLayer): EntryKind {
   return "imagery";
 }
 
-// Fill/stroke *colours*, stroke width, and marker colour bake into the GeoJSON
-// entities at load, so a change to any of them forces a rebuild. Opacity
-// (layer.opacity × fill opacity) is deliberately excluded: it is re-applied in
-// place by applyGeoJsonStyle, so dragging the opacity slider restyles the fill
-// alpha instead of reloading the whole GeoJsonDataSource on every tick.
+// Fill/stroke *colours*, stroke width, marker colour, extrusion settings, and
+// 3D elevation parameters bake into the GeoJSON entities at load, so a change to
+// any of them forces a rebuild. Opacity (layer.opacity × fill opacity, and the
+// extrusion opacity) is deliberately excluded: it is re-applied in place by
+// applyGeoJsonStyle, so dragging the opacity slider restyles the alpha instead
+// of reloading the whole GeoJsonDataSource on every tick.
 function styleSignature(layer: GeoLibreLayer): string {
   const style = layer.style ?? {};
-  return [style.fillColor, style.strokeColor, style.strokeWidth, style.markerColor].join("|");
+  // The layer zoom range only reaches the globe through the labels' distance
+  // limits, so it forces a reload only while labels are on; dragging the range
+  // on an unlabelled layer must not re-parse every feature.
+  const labels = { ...DEFAULT_LAYER_STYLE.labels, ...style.labels };
+  return JSON.stringify([
+    style.fillColor,
+    style.strokeColor,
+    style.strokeWidth,
+    style.markerColor,
+    style.extrusionEnabled,
+    style.extrusionHeightProperty,
+    style.extrusionHeightScale,
+    style.extrusionBase,
+    style.extrusionColor,
+    style.extrusionAdvancedStyleEnabled,
+    style.extrusionHeightExpression,
+    style.extrusionColorExpression,
+    style.elevation3dEnabled,
+    style.elevation3dVerticalScale,
+    style.elevation3dOffset,
+    style.labels,
+    ...(labels.enabled ? [style.minZoom, style.maxZoom] : []),
+  ]);
 }
 
 /**
@@ -356,20 +464,114 @@ function needsRebuild(prev: GeoLibreLayer, next: GeoLibreLayer): boolean {
 }
 
 export class CesiumLayerSync {
+  private readonly featureRefs = new WeakMap<object, { layerId: string; index: number }>();
+  private readonly imageryRefs = new WeakMap<object, string>();
+  private selection: { layerId: string; ids: Set<string> } | null = null;
+  private highlightRestorers: Array<() => void> = [];
+
+  /** Only live, visible entities owned by this synchronizer can identify a feature. */
+  resolveFeature(entity: object) {
+    const ref = this.featureRefs.get(entity);
+    if (!ref) return null;
+    const entry = this.entries.get(ref.layerId);
+    if (
+      !entry ||
+      entry.cancelled ||
+      !entry.layer.visible ||
+      entry.layer.opacity <= 0 ||
+      entry.kind !== "geojson" ||
+      (entity as { show?: boolean }).show === false ||
+      !(entry.handle as DataSource | null)?.entities.contains(entity as Entity)
+    )
+      return null;
+    const feature = entry.layer.geojson?.features[ref.index];
+    return feature
+      ? {
+          layerId: ref.layerId,
+          featureId: String(feature.id ?? ref.index),
+          properties: feature.properties ?? {},
+          geometry: feature.geometry,
+        }
+      : null;
+  }
+
+  /**
+   * Retained for future asynchronous imagery feature queries, as requested in #2274.
+   * Imagery has a layer identity, but no synchronous GeoJSON feature identity.
+   */
+  imageryLayerId(imagery: object): string | undefined {
+    return this.imageryRefs.get(imagery);
+  }
+
+  highlight(layerId: string | undefined, ids: string[]): void {
+    this.restoreHighlight();
+    this.selection = layerId && ids.length ? { layerId, ids: new Set(ids) } : null;
+    this.applyHighlight();
+    this.viewer.scene.requestRender();
+  }
+
+  private restoreHighlight(): void {
+    for (const restore of this.highlightRestorers.splice(0)) restore();
+  }
+
+  private applyHighlight(): void {
+    const selected = this.selection;
+    const entry = selected && this.entries.get(selected.layerId);
+    if (!selected || !entry || entry.kind !== "geojson" || !entry.handle) return;
+    const C = this.Cesium;
+    const color = C.Color.fromCssColorString("#facc15");
+    for (const entity of (entry.handle as DataSource).entities.values) {
+      const ref = this.featureRefs.get(entity);
+      const feature = ref && entry.layer.geojson?.features[ref.index];
+      if (!feature || !selected.ids.has(String(feature.id ?? ref?.index))) continue;
+      for (const key of ["polygon", "polyline", "billboard", "point"] as const) {
+        const original = entity[key];
+        if (!original) continue;
+        const highlighted = original.clone();
+        if (key === "polygon" || key === "polyline") {
+          (highlighted as NonNullable<Entity["polygon"]>).material = new C.ColorMaterialProperty(
+            color,
+          );
+        } else {
+          (highlighted as NonNullable<Entity["point"]>).color = new C.ConstantProperty(color);
+        }
+        // Keep the actual Property objects, including time-varying styles, intact.
+        Object.assign(entity, { [key]: highlighted });
+        this.highlightRestorers.push(() => Object.assign(entity, { [key]: original }));
+      }
+    }
+    this.viewer.scene.requestRender();
+  }
+
   private readonly entries = new Map<string, LayerEntry>();
   /** Imagery id order last asserted on the globe, to skip redundant reorders. */
   private lastImageryOrder = "";
   /** Active layer list from the current/latest sync pass. */
   private currentLayers: GeoLibreLayer[] = [];
 
+  /**
+   * @param readZoom Supplies the camera's MapLibre zoom for `["zoom"]` filters;
+   *   defaults to reading the live camera and is injectable for tests.
+   */
   constructor(
     private readonly Cesium: CesiumNs,
     private readonly viewer: CesiumWidget,
+    private readonly readZoom: () => number = () => readMapViewFromCamera(Cesium, viewer).zoom,
   ) {}
 
   /** Reconcile the globe to `layers` (order preserved for imagery stacking). */
   sync(layers: GeoLibreLayer[]): void {
+    this.restoreHighlight();
     this.currentLayers = layers;
+    for (const layer of layers) {
+      if (Array.isArray(layer.timeFilter) && layer.timeFilter.length > 0) {
+        const d = extractTimeFilterDate(layer.timeFilter);
+        if (d) {
+          this.setTime(d);
+          break;
+        }
+      }
+    }
     const nextIds = new Set(layers.map((l) => l.id));
     for (const [id, entry] of this.entries) {
       if (!nextIds.has(id)) {
@@ -425,11 +627,75 @@ export class CesiumLayerSync {
       this.reorderImagery();
       this.lastImageryOrder = imageryOrder;
     }
+    this.applyHighlight();
+    this.watchCameraZoom();
   }
 
   destroy(): void {
+    this.restoreHighlight();
+    this.selection = null;
     for (const entry of this.entries.values()) this.destroyEntry(entry);
     this.entries.clear();
+    this.unwatchCamera?.();
+    this.unwatchCamera = null;
+  }
+
+  /** Removes the camera listeners installed by {@link watchCameraZoom}, or null when none are. */
+  private unwatchCamera: (() => void) | null = null;
+
+  /**
+   * Keep camera listeners installed exactly while some entry's filter reads
+   * `["zoom"]`. MapLibre evaluates such a filter live; on the globe the filter
+   * is re-run when the camera settles (`moveEnd`) or moves far enough to fire
+   * `changed`, and {@link applyGeoJsonFilter} skips the work unless the integer
+   * zoom actually crossed a level.
+   */
+  private watchCameraZoom(): void {
+    let wanted = false;
+    for (const entry of this.entries.values()) {
+      if (entry.zoomFilter) {
+        wanted = true;
+        break;
+      }
+    }
+    if (wanted === Boolean(this.unwatchCamera)) return;
+    if (!wanted) {
+      this.unwatchCamera?.();
+      this.unwatchCamera = null;
+      return;
+    }
+    const camera = this.viewer.camera as
+      | { moveEnd?: CameraEvent; changed?: CameraEvent }
+      | undefined;
+    const events = [camera?.moveEnd, camera?.changed].filter((e): e is CameraEvent => Boolean(e));
+    if (events.length === 0) return;
+    const onMove = () => this.reapplyZoomFilters();
+    for (const event of events) event.addEventListener(onMove);
+    this.unwatchCamera = () => {
+      for (const event of events) event.removeEventListener(onMove);
+    };
+  }
+
+  /** Re-run every zoom-dependent filter; renders only if some entity's visibility changed. */
+  private reapplyZoomFilters(): void {
+    let changed = false;
+    for (const entry of this.entries.values()) {
+      if (entry.kind !== "geojson" || !entry.zoomFilter || !entry.handle) continue;
+      const before = entry.appliedFilterKey;
+      this.applyGeoJsonFilter(entry);
+      if (entry.appliedFilterKey !== before) changed = true;
+    }
+    if (changed) this.viewer.scene?.requestRender?.();
+  }
+
+  /** The camera's integer MapLibre zoom, as `["zoom"]` filters evaluate at integer levels. */
+  private cameraZoom(): number {
+    try {
+      const zoom = this.readZoom();
+      return Number.isFinite(zoom) ? Math.floor(zoom) : 0;
+    } catch {
+      return 0;
+    }
   }
 
   private reorderImagery(): void {
@@ -600,6 +866,7 @@ export class CesiumLayerSync {
         viewer.imageryLayers.remove(imageryLayer, true);
         return;
       }
+      this.imageryRefs.set(imageryLayer, layer.id);
       entry.handle = imageryLayer;
       this.applyAppearance(entry);
       if (isAsync) {
@@ -640,13 +907,40 @@ export class CesiumLayerSync {
     // no global alpha). A later opacity change re-applies this alpha in place
     // (applyGeoJsonStyle) rather than reloading the whole data source.
     const fillAlpha = (style.fillOpacity ?? 0.6) * layer.opacity;
+
+    const has3dElevation = Boolean(
+      style.elevation3dEnabled || geojsonHasZCoordinates(layer.geojson),
+    );
+    const clampToGround = !(style.extrusionEnabled || has3dElevation);
+
+    const verticalScale = Number.isFinite(style.elevation3dVerticalScale)
+      ? (style.elevation3dVerticalScale as number)
+      : 1;
+    const offset = Number.isFinite(style.elevation3dOffset)
+      ? (style.elevation3dOffset as number)
+      : 0;
+    const sourceGeoJson = has3dElevation
+      ? transformGeojsonElevation(layer.geojson, verticalScale, offset)
+      : layer.geojson;
+
     try {
-      const dataSource = await Cesium.GeoJsonDataSource.load(layer.geojson, {
+      // Cesium splits multipart geometries into several entities. A private
+      // property survives that split; feature ids alone do not (Cesium suffixes them).
+      const indexKey = "__geolibre_cesium_feature_index";
+      const data = {
+        ...sourceGeoJson,
+        features: sourceGeoJson.features.map((feature, index) => ({
+          ...feature,
+          id: JSON.stringify([layer.id, index]),
+          properties: { ...feature.properties, [indexKey]: index },
+        })),
+      };
+      const dataSource = await Cesium.GeoJsonDataSource.load(data, {
         stroke,
         strokeWidth: style.strokeWidth ?? 2,
         fill: fill.withAlpha(fillAlpha),
         markerColor: Cesium.Color.fromCssColorString(style.markerColor ?? "#3b82f6"),
-        clampToGround: true,
+        clampToGround,
       });
       if (entry.cancelled) return;
       await viewer.dataSources.add(dataSource);
@@ -654,11 +948,205 @@ export class CesiumLayerSync {
         viewer.dataSources.remove(dataSource, true);
         return;
       }
+      // A multipart feature arrives as several entities sharing one index; it
+      // gets one label, on its largest part (pickLabelPart), not one per part.
+      // The grouping (and pickLabelPart's geometry math) is skipped outright
+      // when the layer has no labels, so an unlabelled boundary set pays nothing.
+      const labelsEnabled = Boolean({ ...DEFAULT_LAYER_STYLE.labels, ...style.labels }.enabled);
+      const labelEntity = labelsEnabled ? createCesiumLabeler(Cesium, viewer, layer) : null;
+      const parts = new Map<number, Entity[]>();
+      for (const entity of dataSource.entities.values) {
+        const propIndex = entity.properties?.[indexKey];
+        const index =
+          typeof propIndex?.getValue === "function"
+            ? propIndex.getValue(viewer.clock?.currentTime)
+            : propIndex;
+        if (Number.isInteger(index)) {
+          this.featureRefs.set(entity, { layerId: layer.id, index });
+          if (!labelEntity) continue;
+          const group = parts.get(index);
+          if (group) group.push(entity);
+          else parts.set(index, [entity]);
+        }
+      }
+      if (labelEntity)
+        for (const [index, entities] of parts)
+          labelEntity(pickLabelPart(Cesium, viewer, entities), index);
       entry.handle = dataSource;
       // applyAppearance → applyGeoJsonStyle fades every entity kind (fill,
       // stroke, marker) by the layer opacity right after load, so points/lines
       // match the 2D map instead of rendering fully opaque.
       this.applyAppearance(entry);
+
+      const heightRef = (Cesium.HeightReference?.RELATIVE_TO_GROUND ?? 2) as number;
+      const ConstantProperty = (Cesium as { ConstantProperty?: new (v: unknown) => unknown })
+        .ConstantProperty;
+      const ColorMaterialProperty = (
+        Cesium as {
+          ColorMaterialProperty?: new (c: unknown) => unknown;
+        }
+      ).ColorMaterialProperty;
+      const makeProp = (v: unknown) => (ConstantProperty ? new ConstantProperty(v) : v);
+      const makeMat = (c: unknown) =>
+        ColorMaterialProperty ? new ColorMaterialProperty(c) : { color: c };
+      // Cesium flags a polygon whose ring carries Z as perPositionHeight and then
+      // ignores height/heightReference on it (with a one-time console warning),
+      // keeping each vertex's own ellipsoid height. Only flat polygons take the
+      // terrain-relative references.
+      // Highest Z on a polygon feature's rings (0 when none carries a height).
+      const ringTopAltitude = (feature: Feature | null): number => {
+        const geometry = feature?.geometry;
+        const polygons =
+          geometry?.type === "Polygon"
+            ? [geometry.coordinates]
+            : geometry?.type === "MultiPolygon"
+              ? geometry.coordinates
+              : [];
+        let top = Number.NEGATIVE_INFINITY;
+        for (const rings of polygons)
+          for (const ring of rings)
+            for (const position of ring) {
+              const z = position[2];
+              if (typeof z === "number" && Number.isFinite(z) && z > top) top = z;
+            }
+        return Number.isFinite(top) ? top : 0;
+      };
+      const perPositionHeight = (polygon: { perPositionHeight?: unknown }): boolean => {
+        const prop = polygon.perPositionHeight as
+          | { getValue?: (time: unknown) => unknown }
+          | boolean
+          | undefined;
+        return Boolean(
+          typeof prop === "object" && typeof prop.getValue === "function"
+            ? prop.getValue(viewer.clock?.currentTime)
+            : prop,
+        );
+      };
+
+      if (style.extrusionEnabled) {
+        const heightProp = style.extrusionHeightProperty?.trim() || "height";
+        const heightScale = Number.isFinite(style.extrusionHeightScale)
+          ? (style.extrusionHeightScale as number)
+          : 1;
+        const base = Number.isFinite(style.extrusionBase) ? (style.extrusionBase as number) : 0;
+        const extColorStr = style.extrusionColor || style.fillColor || "#3b82f6";
+        const extOpacity =
+          (Number.isFinite(style.extrusionOpacity) ? (style.extrusionOpacity as number) : 0.8) *
+          layer.opacity;
+
+        let heightEvaluator: ((f: Feature) => unknown) | undefined;
+        if (style.extrusionAdvancedStyleEnabled && style.extrusionHeightExpression) {
+          const res = compileFeatureExpression(style.extrusionHeightExpression, {
+            expectedType: "number",
+          });
+          if (res.ok && res.evaluate) heightEvaluator = res.evaluate;
+        }
+
+        let colorEvaluator: ((f: Feature) => unknown) | undefined;
+        if (style.extrusionAdvancedStyleEnabled && style.extrusionColorExpression) {
+          const res = compileFeatureExpression(style.extrusionColorExpression, {
+            expectedType: "color",
+          });
+          if (res.ok && res.evaluate) colorEvaluator = res.evaluate;
+        }
+
+        // Parsed once: a full 3D-buildings layer would otherwise re-parse the
+        // same CSS string per polygon. withAlpha() below returns a fresh Color.
+        const baseColor = Cesium.Color.fromCssColorString(extColorStr);
+        const features = sourceGeoJson.features;
+        for (const entity of dataSource.entities.values) {
+          if (!entity.polygon) continue;
+          const propIndex = entity.properties?.[indexKey];
+          const index =
+            typeof propIndex?.getValue === "function"
+              ? propIndex.getValue(viewer.clock?.currentTime)
+              : propIndex;
+          const feat = Number.isInteger(index) && features ? features[index] : null;
+
+          let rawHeight: unknown;
+          if (feat && heightEvaluator) {
+            try {
+              rawHeight = heightEvaluator(feat);
+            } catch {
+              rawHeight = feat.properties?.[heightProp];
+            }
+          } else if (feat) {
+            rawHeight = feat.properties?.[heightProp];
+          } else {
+            const prop = entity.properties?.[heightProp];
+            rawHeight =
+              typeof prop?.getValue === "function"
+                ? prop.getValue(viewer.clock?.currentTime)
+                : prop;
+          }
+
+          const num =
+            typeof rawHeight === "number" && Number.isFinite(rawHeight)
+              ? rawHeight
+              : Number(rawHeight);
+          const height = Number.isFinite(num) ? num : 0;
+          // Never below the base: a negative height property or expression would
+          // otherwise put the roof under the floor.
+          const relativeTop = Math.max(base, height * heightScale + base);
+          // With perPositionHeight Cesium takes each vertex's own height as the
+          // base but reads extrudedHeight as an absolute altitude, so lift the
+          // roof by the ring's highest vertex; otherwise it would extrude down
+          // to `relativeTop` metres above the ellipsoid.
+          const extrudedHeight = perPositionHeight(entity.polygon)
+            ? ringTopAltitude(feat) + relativeTop
+            : relativeTop;
+
+          let resolvedColor = baseColor;
+          if (feat && colorEvaluator) {
+            try {
+              const colVal = colorEvaluator(feat);
+              if (typeof colVal === "string") {
+                resolvedColor = Cesium.Color.fromCssColorString(colVal);
+              } else if (
+                colVal &&
+                typeof (colVal as { toString?: () => string }).toString === "function"
+              ) {
+                resolvedColor = Cesium.Color.fromCssColorString(
+                  (colVal as { toString: () => string }).toString(),
+                );
+              }
+            } catch {
+              // fallback to extColorStr
+            }
+          }
+
+          entity.polygon.extrudedHeight = makeProp(extrudedHeight) as never;
+          if (!perPositionHeight(entity.polygon)) {
+            entity.polygon.height = makeProp(base) as never;
+            entity.polygon.heightReference = makeProp(heightRef) as never;
+            entity.polygon.extrudedHeightReference = makeProp(heightRef) as never;
+          }
+          entity.polygon.material = makeMat(resolvedColor.withAlpha(extOpacity)) as never;
+        }
+      }
+      // Runs alongside extrusion too: a collection mixing extruded buildings
+      // with Z-carrying points/lines loads unclamped (clampToGround is false
+      // whenever either applies), so those entities still need their
+      // terrain-relative reference; the polygons were handled above.
+      if (has3dElevation) {
+        for (const entity of dataSource.entities.values) {
+          if (entity.polygon && !style.extrusionEnabled && !perPositionHeight(entity.polygon)) {
+            entity.polygon.heightReference = makeProp(heightRef) as never;
+          }
+          if (entity.billboard) {
+            entity.billboard.heightReference = makeProp(heightRef) as never;
+          }
+          if (entity.point) {
+            entity.point.heightReference = makeProp(heightRef) as never;
+          }
+          if (entity.polyline) {
+            (entity.polyline as { clampToGround?: unknown }).clampToGround = makeProp(false);
+          }
+        }
+      }
+
+      this.restoreHighlight();
+      this.applyHighlight();
     } catch {
       // A malformed FeatureCollection should not break the whole sync.
     }
@@ -710,12 +1198,181 @@ export class CesiumLayerSync {
     if (entry.kind === "imagery") {
       const imagery = handle as ImageryLayer;
       imagery.show = layer.visible;
-      imagery.alpha = layer.opacity;
+      imagery.alpha = this.effectiveOpacity(entry);
     } else if (entry.kind === "geojson") {
       (handle as DataSource).show = layer.visible;
       this.applyGeoJsonStyle(entry);
+      this.applyGeoJsonFilter(entry);
     } else {
       (handle as Cesium3DTileset).show = layer.visible;
+    }
+  }
+
+  private readonly storyOpacities = new Map<
+    string,
+    { originalOpacity: number; currentOpacity: number }
+  >();
+
+  private effectiveOpacity(entry: LayerEntry): number {
+    const override = this.storyOpacities.get(entry.layer.id);
+    return override !== undefined ? override.currentOpacity : entry.layer.opacity;
+  }
+
+  /**
+   * Synchronize the viewer clock's current time to a date (e.g. from the Time Slider).
+   *
+   * @param date Date, timestamp string, or epoch milliseconds to set on the Cesium clock.
+   */
+  setTime(date: Date | string | number): void {
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return;
+    const JulianDate = (this.Cesium as { JulianDate?: { fromDate?: (d: Date) => unknown } })
+      ?.JulianDate;
+    if (JulianDate?.fromDate && this.viewer.clock) {
+      this.viewer.clock.currentTime = JulianDate.fromDate(d) as never;
+    } else if (this.viewer.clock) {
+      (this.viewer.clock as unknown as { currentTime: unknown }).currentTime = d;
+    }
+    this.viewer.scene?.requestRender?.();
+  }
+
+  /**
+   * Temporarily override a layer's opacity for story playback without mutating the
+   * underlying layer in the project store.
+   *
+   * @param layerId Unique identifier of the layer whose opacity to override.
+   * @param opacity Desired opacity clamped between 0 and 1.
+   */
+  setStoryLayerOpacity(layerId: string, opacity: number): void {
+    const entry = this.entries.get(layerId);
+    if (!entry) return;
+    const clamped = Math.min(1, Math.max(0, opacity));
+    const existing = this.storyOpacities.get(layerId);
+    if (!existing) {
+      this.storyOpacities.set(layerId, {
+        originalOpacity: entry.layer.opacity,
+        currentOpacity: clamped,
+      });
+    } else {
+      existing.currentOpacity = clamped;
+    }
+    // The override is stored either way; while the async create is still in
+    // flight there is nothing to restyle yet, and the create path applies the
+    // effective (story) opacity once the handle lands.
+    if (!entry.handle) return;
+    entry.appliedAlpha = undefined;
+    this.applyAppearance(entry);
+    this.viewer.scene?.requestRender?.();
+  }
+
+  /**
+   * Revert all temporary story opacities applied by {@link setStoryLayerOpacity}
+   * back to the stored layer opacity.
+   */
+  restoreStoryLayerStyles(): void {
+    if (this.storyOpacities.size === 0) return;
+    const layersToRestore = Array.from(this.storyOpacities.keys());
+    this.storyOpacities.clear();
+    for (const layerId of layersToRestore) {
+      const entry = this.entries.get(layerId);
+      if (!entry || !entry.handle) continue;
+      entry.appliedAlpha = undefined;
+      this.applyAppearance(entry);
+    }
+    this.viewer.scene?.requestRender?.();
+  }
+
+  /**
+   * Evaluate a layer's composed feature filter (timeFilter, embedFilter, quickFilters,
+   * rule-based visibility) against each GeoJSON entity, toggling `entity.show` in place.
+   */
+  private applyGeoJsonFilter(entry: LayerEntry): void {
+    const dataSource = entry.handle as DataSource | null;
+    if (!dataSource) return;
+    const filter = composeLayerFeatureFilter(entry.layer);
+    const filterKey = filter ? JSON.stringify(filter) : "";
+    // A rule-based visibility filter carries `["zoom"]` for per-rule zoom
+    // bounds (and an embed filter may too). The integer camera zoom joins the
+    // cache key so the filter re-runs exactly when the camera crosses a level.
+    const zoomDependent = ZOOM_OPERAND.test(filterKey);
+    const zoom = zoomDependent ? this.cameraZoom() : 0;
+    const key = zoomDependent ? `${filterKey}@z${zoom}` : filterKey;
+    entry.zoomFilter = zoomDependent;
+    this.watchCameraZoom();
+    if (entry.appliedFilterKey === key) return;
+    entry.appliedFilterKey = key;
+
+    const { viewer } = this;
+    const currentTime = viewer.clock?.currentTime;
+    const indexKey = "__geolibre_cesium_feature_index";
+    const features = entry.layer.geojson?.features;
+
+    if (!filter) {
+      for (const entity of dataSource.entities.values) {
+        entity.show = true;
+      }
+      return;
+    }
+
+    let compiled: ReturnType<typeof featureFilter>;
+    try {
+      compiled = featureFilter(filter as never, "layers[0].filter");
+    } catch {
+      for (const entity of dataSource.entities.values) {
+        entity.show = true;
+      }
+      return;
+    }
+
+    const typeMap: Record<string, 1 | 2 | 3> = {
+      Point: 1,
+      MultiPoint: 1,
+      LineString: 2,
+      MultiLineString: 2,
+      Polygon: 3,
+      MultiPolygon: 3,
+    };
+
+    for (const entity of dataSource.entities.values) {
+      const propIndex = entity.properties?.[indexKey];
+      const index =
+        typeof propIndex?.getValue === "function" ? propIndex.getValue(currentTime) : propIndex;
+      const feat = Number.isInteger(index) && features ? features[index] : null;
+      let properties: Record<string, unknown> = {};
+      let geomType: 0 | 1 | 2 | 3 = 1;
+      let id: unknown = undefined;
+
+      if (feat) {
+        properties = (feat.properties as Record<string, unknown>) ?? {};
+        geomType = (feat.geometry?.type && typeMap[feat.geometry.type]) ?? 1;
+        id = feat.id;
+      } else if (entity.properties) {
+        const propBag = entity.properties as Record<string, unknown>;
+        const names = Array.isArray(propBag.propertyNames)
+          ? propBag.propertyNames
+          : Object.keys(propBag);
+        for (const name of names) {
+          if (name === indexKey) continue;
+          const val = propBag[name];
+          properties[name] =
+            typeof (val as { getValue?: (t: unknown) => unknown })?.getValue === "function"
+              ? (val as { getValue: (t: unknown) => unknown }).getValue(currentTime)
+              : val;
+        }
+      }
+
+      let visible = true;
+      try {
+        visible = compiled.filter({ zoom }, {
+          type: geomType,
+          properties,
+          id,
+          geometry: feat?.geometry,
+        } as never);
+      } catch {
+        visible = true;
+      }
+      entity.show = visible;
     }
   }
 
@@ -732,11 +1389,14 @@ export class CesiumLayerSync {
     const dataSource = entry.handle as DataSource | null;
     if (!dataSource) return;
     const style = entry.layer.style ?? {};
-    const opacity = entry.layer.opacity;
+    const opacity = this.effectiveOpacity(entry);
     const fillAlpha = (style.fillOpacity ?? 0.6) * opacity;
-    // Key on both alphas so any opacity change is picked up (e.g. a lines-only
-    // layer whose fill alpha never varies).
-    const key = `${fillAlpha}|${opacity}`;
+    const extOpacity =
+      (Number.isFinite(style.extrusionOpacity) ? (style.extrusionOpacity as number) : 0.8) *
+      opacity;
+    // Key on every alpha so any opacity change is picked up (e.g. a lines-only
+    // layer whose fill alpha never varies, or an extrusion-opacity edit alone).
+    const key = `${fillAlpha}|${opacity}|${extOpacity}`;
     if (entry.appliedAlpha === key) return;
     entry.appliedAlpha = key;
     const { Cesium } = this;
@@ -747,9 +1407,41 @@ export class CesiumLayerSync {
     // Point pins keep their baked-in colour; multiplying by white+alpha only
     // fades them.
     const marker = Cesium.Color.WHITE.withAlpha(opacity);
+    const isExtruded = style.extrusionEnabled;
+    const extColorStr = style.extrusionColor || style.fillColor || "#3b82f6";
+    const extFill = Cesium.Color.fromCssColorString(extColorStr).withAlpha(extOpacity);
+
+    const hasColorExpr =
+      isExtruded && style.extrusionAdvancedStyleEnabled && Boolean(style.extrusionColorExpression);
+
+    // Scale the label colour's own alpha (an rgba()/#rrggbbaa label colour) by
+    // the layer opacity, as text-opacity does on the 2D map, rather than
+    // replacing it. Computed once: this runs on every opacity-slider drag.
+    const labels = { ...DEFAULT_LAYER_STYLE.labels, ...style.labels };
+    const labelColor = Cesium.Color.fromCssColorString(labels.color);
+    const labelFill = labelColor.withAlpha(labelColor.alpha * opacity);
+    const halo = Cesium.Color.fromCssColorString(labels.haloColor);
+    const labelOutline = halo.withAlpha(halo.alpha * opacity);
     for (const feature of dataSource.entities.values) {
       if (feature.polygon) {
-        feature.polygon.material = new Cesium.ColorMaterialProperty(fill);
+        if (hasColorExpr) {
+          // ColorMaterialProperty wraps its colour in a ConstantProperty, so
+          // resolve the Property before re-alphaing the per-feature colour.
+          const colorProp = (feature.polygon.material as { color?: unknown } | undefined)?.color as
+            | { getValue?: (time: unknown) => Color | undefined; withAlpha?: (a: number) => Color }
+            | undefined;
+          const current =
+            typeof colorProp?.getValue === "function"
+              ? colorProp.getValue(this.viewer.clock?.currentTime)
+              : colorProp;
+          if (current?.withAlpha) {
+            feature.polygon.material = new Cesium.ColorMaterialProperty(
+              current.withAlpha(extOpacity),
+            );
+          }
+        } else {
+          feature.polygon.material = new Cesium.ColorMaterialProperty(isExtruded ? extFill : fill);
+        }
       }
       if (feature.polyline) {
         feature.polyline.material = new Cesium.ColorMaterialProperty(stroke);
@@ -757,11 +1449,16 @@ export class CesiumLayerSync {
       if (feature.billboard) {
         feature.billboard.color = new Cesium.ConstantProperty(marker);
       }
+      if (feature.label) {
+        feature.label.fillColor = new Cesium.ConstantProperty(labelFill);
+        feature.label.outlineColor = new Cesium.ConstantProperty(labelOutline);
+      }
     }
   }
 
   private destroyEntry(entry: LayerEntry): void {
     entry.cancelled = true;
+    this.storyOpacities.delete(entry.layer.id);
     const { handle } = entry;
     if (!handle) return;
     if (entry.kind === "imagery") {

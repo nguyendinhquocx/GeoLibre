@@ -172,7 +172,7 @@ test.describe("Cesium as the primary rendering engine", () => {
 
 /**
  * Cesium's own toolbar buttons on the globe (issue #2270): the home button, the
- * scene-mode picker, and the fullscreen button.
+ * scene-mode picker, basemap picker, and the fullscreen button.
  *
  * The unit tests cover the camera maths and the morph guards against a fake
  * Cesium, which by construction cannot catch what matters here — that the
@@ -208,33 +208,31 @@ test.describe("Cesium toolbar controls on the globe", () => {
 
     await waitForMap(page);
 
-    // Zoom the 2D map in first, so the globe seeds from a close camera rather
-    // than the default whole-Earth view. That is not incidental tidying: wheel
-    // zoom on a globe framed at the full Earth trips a `DeveloperError:
-    // normalized result is not a number` inside Cesium's own
-    // ScreenSpaceCameraController and stops the render loop. It reproduces on an
-    // unmodified build, so it predates these controls and is not what this test
-    // is here to catch — the test above avoids it the same way, by arriving on
-    // the globe already zoomed in.
-    const mapBox = await page.getByTestId("map-canvas").boundingBox();
-    expect(mapBox).not.toBeNull();
-    await page.mouse.move(mapBox!.x + mapBox!.width / 2, mapBox!.y + mapBox!.height / 2);
-    for (let tick = 0; tick < 5; tick++) {
-      await page.mouse.wheel(0, -200);
-      await page.waitForTimeout(80);
-    }
+    // Seed a known close camera through the UI. A burst of wheel events can
+    // still be queued while two identical status-bar samples appear stable on
+    // a busy CI runner. Wait for the requested endpoint before swapping engines.
+    await page.getByRole("button", { name: "View", exact: true }).click();
+    await page.getByRole("menuitem", { name: /Set View/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Set View" });
+    await dialog.locator("#set-view-longitude").fill("-97.5");
+    await dialog.locator("#set-view-latitude").fill("35.4");
+    await dialog.locator("#set-view-zoom").fill("6");
+    await dialog.getByRole("button", { name: "Go", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => readZoom(page), { timeout: 30_000 }).toBe(6);
     const zoomOn2dMap = await waitForStableZoom(page);
-    expect(zoomOn2dMap).toBeGreaterThan(2);
 
     await chooseRenderer(page, "Cesium");
     const globe = page.getByTestId("primary-cesium");
     await expect(globe).toBeVisible({ timeout: 60_000 });
     await expect(globe.locator("canvas")).toBeVisible({ timeout: 60_000 });
 
-    // All three controls mount into the globe's control host.
+    // All four controls mount into the globe's control host.
     await expect(page.locator(".cesium-home-button")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".cesium-sceneModePicker-wrapper")).toBeVisible();
+    await expect(page.locator(".geolibre-cesium-basemap-picker")).toBeVisible();
     await expect(page.locator(".cesium-fullscreenButton")).toBeVisible();
+    await expect(page.locator(".geolibre-cesium-basemap-picker button")).toBeVisible();
     // Tooltips come from the app's catalogs, not the widgets' English defaults.
     // The fullscreen one is the interesting case: Cesium derives it from the
     // fullscreen state as a read-only computed, so it is written onto the button
@@ -248,11 +246,13 @@ test.describe("Cesium toolbar controls on the globe", () => {
     // They line up. Cesium gives the scene-mode picker's wrapper a 3px side
     // margin and leaves the fullscreen button to inherit a size from a `Viewer`
     // layout that does not exist here, so both drifted out of the column before
-    // `index.css` pinned them.
+    // `index.css` pinned them. Every control container carries
+    // `.geolibre-cesium-ctrl`, so this counts one visible button per control:
+    // home, scene mode, the basemap/terrain picker, and fullscreen.
     const edges = await page
       .locator(".geolibre-cesium-ctrl button:visible")
       .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().right));
-    expect(edges).toHaveLength(3);
+    expect(edges).toHaveLength(4);
     for (const edge of edges) expect(edge).toBeCloseTo(edges[0], 0);
 
     // The globe seeded from the 2D camera, so this is the scale to preserve.
@@ -322,7 +322,7 @@ test.describe("Cesium toolbar controls on the globe", () => {
 
     await toggleFullscreen();
     await expect(page.locator(".cesium-fullscreenButton")).toHaveCount(0);
-    // The other two have no menu counterpart and are unaffected.
+    // The other controls have no menu counterpart and are unaffected.
     await expect(page.locator(".cesium-home-button")).toBeVisible();
 
     await toggleFullscreen();
@@ -386,3 +386,26 @@ test.describe("Cesium toolbar controls on the globe", () => {
     });
   }
 });
+
+for (const theme of ["light", "dark"] as const) {
+  test(`globe cursor coordinates update and clear on exit (${theme})`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await waitForMap(page, `/?theme=${theme}`);
+    await chooseRenderer(page, "Cesium");
+    const canvas = page.getByTestId("primary-cesium").locator("canvas");
+    await expect(canvas).toBeVisible({ timeout: 60_000 });
+    const box = (await canvas.boundingBox())!;
+    const readout = page.locator("footer").getByRole("button", { name: /^Coords:/ });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(readout).not.toHaveText("Coords: —");
+    const first = await readout.innerText();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2);
+    await expect(readout).not.toHaveText(first);
+    await expect(readout).not.toHaveText("Coords: —");
+    await page.mouse.move(1, 1);
+    await expect(readout).toHaveText("Coords: —");
+    await chooseRenderer(page, "MapLibre");
+    await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+    await expect(readout).toHaveText("Coords: —");
+  });
+}

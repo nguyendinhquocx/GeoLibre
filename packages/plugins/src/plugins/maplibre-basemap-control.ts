@@ -164,6 +164,7 @@ export const maplibreBasemapControlPlugin: GeoLibrePlugin = {
   id: BASEMAP_CONTROL_PLUGIN_ID,
   name: "Basemaps",
   version: "0.3.0",
+  engines: ["maplibre"],
   activate: (app: GeoLibreAppAPI) => {
     if (!basemapControl) {
       basemapControl = new BasemapControl(getBasemapControlOptions(app));

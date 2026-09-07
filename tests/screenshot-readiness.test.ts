@@ -185,3 +185,56 @@ test("a derived native layer belongs to the longest matching layer id", () => {
     errors: [],
   });
 });
+
+test("swipe checks comparison tiles instead of requiring right-only rasters on the main map", () => {
+  const swipeProbe = (loading: boolean, mainVisible = false): LayerLoadProbe => ({
+    ...probe,
+    swipe: () => ({ loading, mainVisible, error: null }),
+  });
+  const missing = {
+    ...map,
+    getLayersOrder: () => [],
+  } as unknown as MapLibreMap;
+  assert.deepEqual(inspectScreenshotLayers(missing, [layer], [], swipeProbe(false)), {
+    pending: [],
+    errors: [],
+  });
+  assert.deepEqual(inspectScreenshotLayers(missing, [layer], [], swipeProbe(true)), {
+    pending: ["NLCD"],
+    errors: [],
+  });
+  // Both-side rasters still need their main-map rendering.
+  assert.deepEqual(inspectScreenshotLayers(missing, [layer], [], swipeProbe(false, true)), {
+    pending: ["NLCD"],
+    errors: [],
+  });
+  assert.deepEqual(
+    inspectScreenshotLayers(missing, [layer], [], {
+      ...probe,
+      swipe: () => ({
+        loading: false,
+        mainVisible: false,
+        error: "Tile failed",
+      }),
+    }),
+    { pending: [], errors: ["NLCD: Tile failed"] },
+  );
+});
+
+test("legacy CogLayerControl output without a swipe probe still fails closed", () => {
+  const cog = { ...layer, metadata: { sourceKind: "cog-url", nativeLayerIds: [layer.id] } };
+  const custom = {
+    ...map,
+    getLayer: () => ({ id: layer.id, type: "custom" }),
+  } as unknown as MapLibreMap;
+  const legacyProbe: LayerLoadProbe = { ...probe, swipe: () => null };
+  assert.deepEqual(inspectScreenshotLayers(custom, [cog], [], legacyProbe), {
+    pending: [],
+    errors: ["NLCD: screenshot readiness is not supported for this custom renderer"],
+  });
+  const absent = { ...map, getLayersOrder: () => [] } as unknown as MapLibreMap;
+  assert.deepEqual(inspectScreenshotLayers(absent, [cog], [], legacyProbe), {
+    pending: ["NLCD"],
+    errors: [],
+  });
+});

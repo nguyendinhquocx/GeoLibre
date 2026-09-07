@@ -468,6 +468,7 @@ export const maplibreArcGisHubPlugin: GeoLibrePlugin = {
   id: ARCGIS_HUB_PLUGIN_ID,
   name: "ArcGIS Hub",
   version: "0.1.0",
+  engines: ["maplibre", "cesium"],
   activate: (app) => {
     appRef = app;
     unregisterPanel =

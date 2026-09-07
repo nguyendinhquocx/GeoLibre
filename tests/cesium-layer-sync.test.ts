@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { GeoLibreLayer } from "../packages/core/src/types";
+import { DEFAULT_LAYER_STYLE, type GeoLibreLayer } from "../packages/core/src/types";
 import { CesiumLayerSync, isCesiumSupportedLayerType } from "../packages/map/src/cesium-layer-sync";
 
 // Verifies the store → Cesium reconciler against a fake Cesium namespace + viewer
@@ -26,15 +26,24 @@ function makeFakes() {
     singleTileProviders: [] as { url: unknown; options?: Record<string, unknown> }[],
     geojsonLoads: [] as { data: unknown; options: Record<string, unknown> }[],
     tilesetUrls: [] as unknown[],
+    cameraListeners: [] as (() => void)[],
   };
 
   const viewer = {
+    clock: {
+      currentTime: { dayNumber: 0, secondsOfDay: 0 },
+    },
+    camera: {
+      moveEnd: mkEvent(calls.cameraListeners),
+      changed: mkEvent(calls.cameraListeners),
+    },
     scene: {
       canvas: { clientWidth: 800, clientHeight: 600, width: 800, height: 600 },
       primitives: {
         add: (p: unknown) => calls.primitivesAdded.push(p),
         remove: (p: unknown) => calls.primitivesRemoved.push(p),
       },
+      requestRender: () => {},
     },
     imageryLayers: {
       addImageryProvider: (provider: unknown) => {
@@ -120,20 +129,85 @@ function makeFakes() {
     GeoJsonDataSource: {
       load: (data: unknown, options: Record<string, unknown>) => {
         calls.geojsonLoads.push({ data, options });
+        const features =
+          (
+            data as {
+              features?: Array<{
+                properties?: Record<string, unknown>;
+                geometry?: { type?: string; coordinates?: unknown };
+              }>;
+            }
+          )?.features ?? [];
+        // GeoJsonDataSource flags a polygon whose ring carries Z as perPositionHeight.
+        const polygonFor = (f: (typeof features)[number] | undefined) => {
+          const ring = (f?.geometry?.coordinates as number[][][] | undefined)?.[0];
+          const hasZ = f?.geometry?.type === "Polygon" && (ring?.[0]?.length ?? 0) > 2;
+          return {
+            material: options.fill,
+            ...(hasZ ? { perPositionHeight: { getValue: () => true } } : {}),
+          };
+        };
         return Promise.resolve({
           kind: "geojson",
           show: true,
-          // One entity of each kind so in-place restyle (applyGeoJsonStyle) can
-          // be checked for polygons, lines, and points.
           entities: {
-            values: [
-              { polygon: { material: options.fill } },
-              { polyline: { material: options.stroke } },
-              { billboard: { color: undefined } },
-            ],
+            values:
+              features.length > 1
+                ? features.map((f, i) => ({
+                    properties: {
+                      ...f.properties,
+                      __geolibre_cesium_feature_index: { getValue: () => i },
+                    },
+                    show: true,
+                    polygon: polygonFor(f),
+                    polyline: { material: options.stroke },
+                    billboard: { color: undefined },
+                  }))
+                : [
+                    {
+                      properties: {
+                        ...(features[0]?.properties ?? {}),
+                        __geolibre_cesium_feature_index: { getValue: () => 0 },
+                      },
+                      polygon: polygonFor(features[0]),
+                      show: true,
+                    },
+                    {
+                      properties: {
+                        ...(features[0]?.properties ?? {}),
+                        __geolibre_cesium_feature_index: { getValue: () => 0 },
+                      },
+                      polyline: { material: options.stroke },
+                      show: true,
+                    },
+                    {
+                      properties: {
+                        ...(features[0]?.properties ?? {}),
+                        __geolibre_cesium_feature_index: { getValue: () => 0 },
+                      },
+                      billboard: { color: undefined },
+                      show: true,
+                    },
+                    {
+                      properties: {
+                        ...(features[0]?.properties ?? {}),
+                        __geolibre_cesium_feature_index: { getValue: () => 0 },
+                      },
+                      label: {},
+                      show: true,
+                    },
+                  ],
           },
         });
       },
+    },
+    HeightReference: {
+      NONE: 0,
+      CLAMP_TO_GROUND: 1,
+      RELATIVE_TO_GROUND: 2,
+    },
+    JulianDate: {
+      fromDate: (date: Date) => ({ date, isJulianDate: true }),
     },
     ColorMaterialProperty: class {
       constructor(public color: unknown) {}
@@ -156,6 +230,8 @@ function makeFakes() {
     Color: {
       fromCssColorString: (css: string) => ({
         css,
+        // Only rgba() carries an alpha of its own here; every other form is opaque.
+        alpha: css.startsWith("rgba(") ? Number(/,\s*([\d.]+)\s*\)$/.exec(css)?.[1] ?? 1) : 1,
         withAlpha: (a: number) => ({ css, alpha: a }),
       }),
       WHITE: { withAlpha: (a: number) => ({ css: "WHITE", alpha: a }) },
@@ -185,11 +261,25 @@ function mkLayer(over: Partial<GeoLibreLayer>): GeoLibreLayer {
   } as GeoLibreLayer;
 }
 
-function newSync(f: ReturnType<typeof makeFakes>) {
+/** A minimal Cesium `Event` stand-in that records its listeners in `bag`. */
+function mkEvent(bag: (() => void)[]) {
+  return {
+    addEventListener: (fn: () => void) => {
+      bag.push(fn);
+    },
+    removeEventListener: (fn: () => void) => {
+      const i = bag.indexOf(fn);
+      if (i >= 0) bag.splice(i, 1);
+    },
+  };
+}
+
+function newSync(f: ReturnType<typeof makeFakes>, readZoom?: () => number) {
   // The fakes stand in for the Cesium namespace + Viewer (cast through unknown).
   return new CesiumLayerSync(
     f.Cesium as unknown as typeof import("cesium"),
     f.viewer as unknown as import("cesium").Viewer,
+    readZoom,
   );
 }
 
@@ -206,7 +296,8 @@ describe("CesiumLayerSync", () => {
     sync.sync([mkLayer({ type: "geojson", geojson: fc as never, visible: true })]);
     await f.flush();
     assert.equal(f.calls.geojsonLoads.length, 1);
-    assert.equal(f.calls.geojsonLoads[0].data, fc);
+    assert.notEqual(f.calls.geojsonLoads[0].data, fc);
+    assert.deepEqual(fc, { type: "FeatureCollection", features: [{}] });
     assert.equal(f.calls.geojsonLoads[0].options.clampToGround, true);
     assert.equal(f.calls.dataSourcesAdded.length, 1);
   });
@@ -394,6 +485,39 @@ describe("CesiumLayerSync", () => {
     assert.ok(Math.abs(v[0].polygon.material.color.alpha - 0.2) < 1e-9);
     assert.ok(Math.abs(v[1].polyline.material.color.alpha - 0.4) < 1e-9);
     assert.ok(Math.abs(v[2].billboard.color.value.alpha - 0.4) < 1e-9);
+  });
+
+  it("fades labels by layer opacity without discarding the colour's own alpha", async () => {
+    const sync = newSync(f);
+    const fc = { type: "FeatureCollection", features: [{}] };
+    sync.sync([
+      mkLayer({
+        type: "geojson",
+        geojson: fc as never,
+        opacity: 0.5,
+        style: { labels: { ...DEFAULT_LAYER_STYLE.labels, color: "rgba(255, 0, 0, 0.2)" } },
+      }),
+    ]);
+    await f.flush();
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: [
+          unknown,
+          unknown,
+          unknown,
+          {
+            label: {
+              fillColor: { value: { alpha: number } };
+              outlineColor: { value: { alpha: number } };
+            };
+          },
+        ];
+      };
+    };
+    const label = ds.entities.values[3].label;
+    // text = 0.2 colour alpha × 0.5 layer opacity; the opaque halo = layer opacity.
+    assert.ok(Math.abs(label.fillColor.value.alpha - 0.1) < 1e-9);
+    assert.ok(Math.abs(label.outlineColor.value.alpha - 0.5) < 1e-9);
   });
 
   it("renders xyz/raster tiles as an imagery layer with opacity + visibility", () => {
@@ -1134,5 +1258,784 @@ describe("CesiumLayerSync", () => {
       layers.filter((l) => !isCesiumSupportedLayerType(l)).map((l) => l.id),
       ["p", "z"],
     );
+  });
+
+  it("loads ordinary 2D GeoJSON with clampToGround: true", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "flat",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    assert.equal(f.calls.geojsonLoads.length, 1);
+    assert.equal(f.calls.geojsonLoads[0].options.clampToGround, true);
+  });
+
+  it("renders extruded polygons with clampToGround: false, extrudedHeight, base height, and RELATIVE_TO_GROUND", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "buildings",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            id: "b1",
+            properties: { height: 10 },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+      style: {
+        extrusionEnabled: true,
+        extrusionHeightProperty: "height",
+        extrusionHeightScale: 2,
+        extrusionBase: 5,
+        extrusionColor: "#ff0000",
+        extrusionOpacity: 0.9,
+      },
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    assert.equal(f.calls.geojsonLoads.length, 1);
+    assert.equal(f.calls.geojsonLoads[0].options.clampToGround, false);
+
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: Array<{
+          polygon: {
+            extrudedHeight: { value: number };
+            height: { value: number };
+            heightReference: { value: number };
+            extrudedHeightReference: { value: number };
+            material: { color: { css: string; alpha: number } };
+          };
+        }>;
+      };
+    };
+    assert.ok(ds, "dataSource should be added");
+    const poly = ds.entities.values[0]?.polygon;
+    assert.ok(poly, "polygon should be present");
+    // height = 10 * 2 + 5 = 25
+    assert.equal(poly.extrudedHeight.value, 25);
+    assert.equal(poly.height.value, 5);
+    assert.equal(poly.heightReference.value, 2);
+    assert.equal(poly.extrudedHeightReference.value, 2);
+    assert.equal(poly.material.color.css, "#ff0000");
+    assert.equal(poly.material.color.alpha, 0.9);
+  });
+
+  it("evaluates advanced extrusion expressions for height and color", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "buildings-expr",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            id: "b1",
+            properties: { floors: 4, type: "commercial" },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+      style: {
+        extrusionEnabled: true,
+        extrusionAdvancedStyleEnabled: true,
+        extrusionHeightExpression: '["*", ["get", "floors"], 3]',
+        extrusionColorExpression:
+          '["case", ["==", ["get", "type"], "commercial"], "#0000ff", "#00ff00"]',
+      },
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: Array<{
+          polygon: {
+            extrudedHeight: { value: number };
+            material: { color: { css: string } };
+          };
+        }>;
+      };
+    };
+    const poly = ds.entities.values[0]?.polygon;
+    assert.ok(poly, "polygon should be present");
+    // floors: 4 * 3 = 12
+    assert.equal(poly.extrudedHeight.value, 12);
+    assert.equal(poly.material.color.css, "rgba(0,0,255,1)");
+  });
+
+  it("renders layers with 3D coordinates using clampToGround: false, vertical scale, offset, and RELATIVE_TO_GROUND", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "track-3d",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            id: "t1",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: [
+                [0, 0, 100],
+                [1, 1, 200],
+              ],
+            },
+          },
+        ],
+      },
+      style: {
+        elevation3dEnabled: true,
+        elevation3dVerticalScale: 2,
+        elevation3dOffset: 50,
+      },
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    assert.equal(f.calls.geojsonLoads.length, 1);
+    assert.equal(f.calls.geojsonLoads[0].options.clampToGround, false);
+
+    const loadedData = f.calls.geojsonLoads[0].data as {
+      features: Array<{ geometry: { coordinates: number[][] } }>;
+    };
+    // Z transformed: 100 * 2 + 50 = 250, 200 * 2 + 50 = 450
+    assert.deepEqual(loadedData.features[0].geometry.coordinates, [
+      [0, 0, 250],
+      [1, 1, 450],
+    ]);
+  });
+
+  it("rebuilds GeoJsonDataSource when extrusion or elevation style properties change", async () => {
+    const sync = newSync(f);
+    const baseLayer = mkLayer({
+      id: "poly",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { h: 10 },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+      style: {
+        fillColor: "#3b82f6",
+        extrusionEnabled: false,
+      },
+    });
+
+    sync.sync([baseLayer]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 1);
+
+    // Toggling extrusionEnabled forces rebuild
+    sync.sync([{ ...baseLayer, style: { ...baseLayer.style, extrusionEnabled: true } }]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 2);
+
+    // Modifying extrusionHeightScale forces rebuild
+    sync.sync([
+      {
+        ...baseLayer,
+        style: { ...baseLayer.style, extrusionEnabled: true, extrusionHeightScale: 5 },
+      },
+    ]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 3);
+
+    // Each elevation setting forces a rebuild on its own.
+    sync.sync([{ ...baseLayer, style: { ...baseLayer.style, elevation3dEnabled: true } }]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 4);
+
+    sync.sync([
+      {
+        ...baseLayer,
+        style: { ...baseLayer.style, elevation3dEnabled: true, elevation3dVerticalScale: 3 },
+      },
+    ]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 5);
+
+    sync.sync([
+      {
+        ...baseLayer,
+        style: {
+          ...baseLayer.style,
+          elevation3dEnabled: true,
+          elevation3dVerticalScale: 3,
+          elevation3dOffset: 20,
+        },
+      },
+    ]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 6);
+  });
+
+  it("restyles extrusion opacity in place instead of rebuilding the data source", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "poly-ext-opacity",
+      type: "geojson",
+      opacity: 1,
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { height: 10 },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+      style: { extrusionEnabled: true, extrusionColor: "#ff0000", extrusionOpacity: 0.9 },
+    });
+    sync.sync([layer]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads.length, 1);
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: Array<{ polygon?: { material: { color: { css: string; alpha: number } } } }>;
+      };
+    };
+    const poly = ds.entities.values.find((e) => e.polygon)?.polygon;
+    assert.ok(poly);
+    assert.equal(poly.material.color.alpha, 0.9);
+
+    sync.sync([{ ...layer, style: { ...layer.style, extrusionOpacity: 0.3 } }]);
+    await f.flush();
+    // No reload: the alpha is re-applied on the existing entities.
+    assert.equal(f.calls.geojsonLoads.length, 1);
+    assert.equal(poly.material.color.css, "#ff0000");
+    assert.ok(Math.abs(poly.material.color.alpha - 0.3) < 1e-9);
+  });
+
+  it("gives Z points and lines a terrain-relative reference alongside extruded polygons", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "buildings-and-pois",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { height: 10 },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [2, 2, 30] } },
+        ],
+      },
+      style: { extrusionEnabled: true },
+    });
+    sync.sync([layer]);
+    await f.flush();
+    assert.equal(f.calls.geojsonLoads[0].options.clampToGround, false);
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: Array<{
+          polygon: { extrudedHeight: { value: number }; heightReference?: { value: number } };
+          billboard: { heightReference?: { value: number } };
+          polyline: { clampToGround?: { value: boolean } };
+        }>;
+      };
+    };
+    const [building, poi] = ds.entities.values;
+    assert.equal(building.polygon.extrudedHeight.value, 10);
+    // transformGeojsonElevation normalises every position to [x, y, z], so the
+    // 2D building ring becomes a perPositionHeight polygon (z = 0) that Cesium
+    // extrudes from the ellipsoid; it takes no terrain reference.
+    assert.equal(building.polygon.heightReference, undefined);
+    // The Z point/line entities are not left as absolute ellipsoid heights.
+    assert.equal(poi.billboard.heightReference?.value, 2);
+    assert.equal(poi.polyline.clampToGround?.value, false);
+  });
+
+  it("leaves height references off polygons whose ring carries Z (perPositionHeight)", async () => {
+    const sync = newSync(f);
+    const zRing = [
+      [0, 0, 100],
+      [1, 0, 100],
+      [1, 1, 100],
+      [0, 0, 100],
+    ];
+    const layer = mkLayer({
+      id: "poly-z",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { height: 10 },
+            geometry: { type: "Polygon", coordinates: [zRing] },
+          },
+        ],
+      },
+    });
+
+    // Cesium ignores heightReference on a perPositionHeight polygon (with a
+    // console warning), so the elevation path must leave it unset and keep the
+    // vertices' own heights.
+    sync.sync([layer]);
+    await f.flush();
+    const flat = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: Array<{
+          polygon?: { heightReference?: unknown; height?: unknown };
+          billboard?: { heightReference?: { value: number } };
+        }>;
+      };
+    };
+    const zPolygon = flat.entities.values.find((e) => e.polygon)?.polygon;
+    assert.ok(zPolygon);
+    assert.equal(zPolygon.heightReference, undefined);
+    // Point entities in the same layer still get the terrain-relative reference.
+    assert.equal(
+      flat.entities.values.find((e) => e.billboard)?.billboard?.heightReference?.value,
+      2,
+    );
+
+    // The extrusion path likewise skips height/heightReference on it and, since
+    // Cesium reads extrudedHeight as an absolute altitude there, lifts the roof
+    // above the ring's own height (100 m + 10 m) rather than extruding down to 10 m.
+    sync.sync([{ ...layer, style: { extrusionEnabled: true, extrusionHeightProperty: "height" } }]);
+    await f.flush();
+    const extruded = f.calls.dataSourcesAdded[1] as {
+      entities: {
+        values: Array<{
+          polygon?: {
+            heightReference?: unknown;
+            extrudedHeightReference?: unknown;
+            height?: unknown;
+            extrudedHeight?: { value: number };
+          };
+        }>;
+      };
+    };
+    const ext = extruded.entities.values.find((e) => e.polygon)?.polygon;
+    assert.ok(ext);
+    assert.equal(ext.extrudedHeight?.value, 110);
+    assert.equal(ext.height, undefined);
+    assert.equal(ext.heightReference, undefined);
+    assert.equal(ext.extrudedHeightReference, undefined);
+  });
+
+  it("re-alphas an expression-coloured extrusion through the material's colour Property", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "buildings-expr-opacity",
+      type: "geojson",
+      opacity: 1,
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { type: "commercial" },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+      style: {
+        extrusionEnabled: true,
+        extrusionAdvancedStyleEnabled: true,
+        extrusionColorExpression:
+          '["case", ["==", ["get", "type"], "commercial"], "#0000ff", "#00ff00"]',
+      },
+    });
+    sync.sync([layer]);
+    await f.flush();
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: {
+        values: Array<{ polygon?: { material: { color: { css: string; alpha: number } } } }>;
+      };
+    };
+    const entity = ds.entities.values.find((e) => e.polygon) as (typeof ds.entities.values)[number];
+    const baked = entity.polygon!.material.color;
+    assert.equal(baked.css, "rgba(0,0,255,1)");
+    assert.equal(baked.alpha, 0.8);
+
+    // Real Cesium wraps the colour handed to ColorMaterialProperty in a
+    // ConstantProperty; an opacity change must resolve it rather than find no
+    // withAlpha on the Property and leave the extrusion untouched.
+    entity.polygon!.material = {
+      color: { getValue: () => f.Cesium.Color.fromCssColorString(baked.css) },
+    } as never;
+    sync.sync([{ ...layer, opacity: 0.5 }]);
+    const restyled = entity.polygon!.material.color;
+    assert.equal(restyled.css, "rgba(0,0,255,1)");
+    assert.ok(Math.abs(restyled.alpha - 0.4) < 1e-9);
+  });
+
+  it("applies timeFilter to hide non-matching GeoJSON entities and preserves matching ones", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "points",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            id: "1",
+            properties: { timestamp: 100 },
+            geometry: { type: "Point", coordinates: [0, 0] },
+          },
+          {
+            type: "Feature",
+            id: "2",
+            properties: { timestamp: 200 },
+            geometry: { type: "Point", coordinates: [1, 1] },
+          },
+          {
+            type: "Feature",
+            id: "3",
+            properties: { timestamp: 300 },
+            geometry: { type: "Point", coordinates: [2, 2] },
+          },
+        ],
+      },
+      timeFilter: [">=", ["get", "timestamp"], 200],
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: { values: Array<{ properties: Record<string, unknown>; show: boolean }> };
+    };
+    assert.ok(ds, "dataSource should be added");
+    assert.equal(ds.entities.values.length, 3);
+    assert.equal(ds.entities.values[0].show, false);
+    assert.equal(ds.entities.values[1].show, true);
+    assert.equal(ds.entities.values[2].show, true);
+
+    // Narrowing further
+    sync.sync([{ ...layer, timeFilter: [">=", ["get", "timestamp"], 300] }]);
+    assert.equal(ds.entities.values[0].show, false);
+    assert.equal(ds.entities.values[1].show, false);
+    assert.equal(ds.entities.values[2].show, true);
+
+    // Clearing the filter restores all entities
+    sync.sync([{ ...layer, timeFilter: undefined }]);
+    assert.equal(ds.entities.values[0].show, true);
+    assert.equal(ds.entities.values[1].show, true);
+    assert.equal(ds.entities.values[2].show, true);
+  });
+
+  it("applies quickFilters and embedFilter together", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "filtered",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            id: "a",
+            properties: { category: "A", score: 25 },
+            geometry: { type: "Point", coordinates: [0, 0] },
+          },
+          {
+            type: "Feature",
+            id: "b",
+            properties: { category: "B", score: 25 },
+            geometry: { type: "Point", coordinates: [1, 1] },
+          },
+          {
+            type: "Feature",
+            id: "c",
+            properties: { category: "A", score: 5 },
+            geometry: { type: "Point", coordinates: [2, 2] },
+          },
+          {
+            type: "Feature",
+            id: "d",
+            properties: { category: "B", score: 5 },
+            geometry: { type: "Point", coordinates: [3, 3] },
+          },
+        ],
+      },
+      embedFilter: [">=", ["get", "score"], 10],
+      quickFilters: [
+        {
+          id: "q1",
+          kind: "categorical",
+          field: "category",
+          values: ["A"],
+        },
+      ],
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: { values: Array<{ show: boolean }> };
+    };
+    // Feature 'a': category A, score >= 10 -> passes both
+    assert.equal(ds.entities.values[0].show, true);
+    // Feature 'b': category B, score >= 10 -> fails quickFilter
+    assert.equal(ds.entities.values[1].show, false);
+    // Feature 'c': category A, score < 10 -> fails embedFilter
+    assert.equal(ds.entities.values[2].show, false);
+    // Feature 'd': category B, score < 10 -> fails both
+    assert.equal(ds.entities.values[3].show, false);
+  });
+
+  it("synchronizes viewer clock currentTime when a layer carries a timeFilter date", async () => {
+    const sync = newSync(f);
+    const dateMs = new Date("2026-06-15T12:00:00Z").getTime();
+    const layer = mkLayer({
+      id: "temporal",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [0, 0] } },
+        ],
+      },
+      timeFilter: [">=", ["get", "time"], dateMs],
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    const clockTime = f.viewer.clock.currentTime as unknown as {
+      date: Date;
+      isJulianDate: boolean;
+    };
+    assert.ok(clockTime, "clock should receive currentTime");
+    assert.equal(clockTime.date.getTime(), dateMs);
+  });
+
+  it("fades layers via setStoryLayerOpacity and restores them via restoreStoryLayerStyles", async () => {
+    const sync = newSync(f);
+    const geoLayer = mkLayer({
+      id: "geo",
+      type: "geojson",
+      opacity: 0.8,
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [0, 0] } },
+        ],
+      },
+    });
+    const imgLayer = mkLayer({
+      id: "img",
+      type: "xyz",
+      opacity: 0.7,
+      source: { tiles: ["https://tiles/{z}/{x}/{y}"] },
+    });
+
+    sync.sync([geoLayer, imgLayer]);
+    await f.flush();
+
+    const imgHandle = f.calls.imageryAdded[0] as { alpha: number };
+    assert.equal(imgHandle.alpha, 0.7);
+
+    // Apply temporary story opacity
+    sync.setStoryLayerOpacity("img", 0.2);
+    assert.equal(imgHandle.alpha, 0.2);
+
+    sync.setStoryLayerOpacity("geo", 0.1);
+    // Stored layer opacity must NOT be mutated
+    assert.equal(geoLayer.opacity, 0.8);
+
+    // Restore original styles
+    sync.restoreStoryLayerStyles();
+    assert.equal(imgHandle.alpha, 0.7);
+  });
+
+  it("preserves active story opacity override across sync until restored", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "img",
+      type: "xyz",
+      opacity: 0.8,
+      source: { tiles: ["https://tiles/{z}/{x}/{y}"] },
+    });
+    sync.sync([layer]);
+    await f.flush();
+
+    const imgHandle = f.calls.imageryAdded[0] as { alpha: number };
+    assert.equal(imgHandle.alpha, 0.8);
+
+    // Override opacity during story playback
+    sync.setStoryLayerOpacity("img", 0.25);
+    assert.equal(imgHandle.alpha, 0.25);
+
+    // Later sync pass with unmodified layer state preserves the active override
+    sync.sync([layer]);
+    assert.equal(imgHandle.alpha, 0.25);
+
+    // Restoring reverts to persistent layer opacity
+    sync.restoreStoryLayerStyles();
+    assert.equal(imgHandle.alpha, 0.8);
+  });
+
+  it("re-evaluates a zoom-dependent filter when the camera crosses an integer zoom", async () => {
+    let zoom = 5.4;
+    const sync = newSync(f, () => zoom);
+    const layer = mkLayer({
+      id: "zoomed",
+      type: "geojson",
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [0, 0] } },
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [1, 1] } },
+        ],
+      },
+      embedFilter: [">=", ["zoom"], 10],
+    });
+    sync.sync([layer]);
+    await f.flush();
+    const ds = f.calls.dataSourcesAdded[0] as { entities: { values: Array<{ show: boolean }> } };
+    // Evaluated at the camera's zoom, not at zoom 0.
+    assert.equal(ds.entities.values[0].show, false);
+    assert.equal(ds.entities.values[1].show, false);
+    assert.ok(f.calls.cameraListeners.length > 0, "a zoom filter installs camera listeners");
+
+    // Camera settles above the threshold: the filter re-runs on the move event.
+    zoom = 12.2;
+    for (const fn of [...f.calls.cameraListeners]) fn();
+    assert.equal(ds.entities.values[0].show, true);
+    assert.equal(ds.entities.values[1].show, true);
+
+    // Clearing the zoom operand drops the listeners again.
+    sync.sync([{ ...layer, embedFilter: undefined }]);
+    assert.equal(f.calls.cameraListeners.length, 0);
+    assert.equal(ds.entities.values[0].show, true);
+  });
+
+  it("keeps a story opacity set before the layer's async create resolves", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "geo",
+      type: "geojson",
+      opacity: 0.8,
+      style: { fillOpacity: 0.5 },
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [0, 0] } },
+        ],
+      },
+    });
+    sync.sync([layer]);
+    // The GeoJsonDataSource is still loading (no handle yet) when the story fires.
+    sync.setStoryLayerOpacity("geo", 0.1);
+    await f.flush();
+    const ds = f.calls.dataSourcesAdded[0] as {
+      entities: { values: [{ polygon: { material: { color: { alpha: number } } } }] };
+    };
+    // fill = 0.5 fill opacity × 0.1 story opacity, not × 0.8 layer opacity.
+    assert.ok(Math.abs(ds.entities.values[0].polygon.material.color.alpha - 0.05) < 1e-9);
+    assert.equal(layer.opacity, 0.8);
+
+    sync.restoreStoryLayerStyles();
+    assert.ok(Math.abs(ds.entities.values[0].polygon.material.color.alpha - 0.4) < 1e-9);
   });
 });

@@ -1,5 +1,5 @@
 import { DEFAULT_LAYER_STYLE, useAppStore } from "@geolibre/core";
-import { fillLayerId, lineLayerId } from "@geolibre/map";
+import { fillLayerId, lineLayerId } from "@geolibre/map/style-layer-ids";
 import type { FeatureCollection, Geometry } from "geojson";
 import type { GeoJSONSource, MapMouseEvent, Map as MapLibreMap } from "maplibre-gl";
 import type {
@@ -1616,11 +1616,23 @@ function mountPanel(container: HTMLElement): void {
   disposePanel = buildPanel(container);
 }
 
+/**
+ * Factory creating a STAC catalog browser plugin instance with optional preset catalog URL.
+ *
+ * @param id - Unique plugin identifier.
+ * @param name - Display name for the plugin.
+ * @param presetCatalogUrl - Optional default catalog URL to connect to on load.
+ * @returns A {@link GeoLibrePlugin} instance for browsing STAC catalogs.
+ */
 function createStacPlugin(id: string, name: string, presetCatalogUrl = ""): GeoLibrePlugin {
   return {
     id,
     name,
     version: "0.1.0",
+    // MapLibre only: the panel is engine-neutral, but item footprints, the
+    // "current view" search bbox, the draw-bbox tool, and footprint
+    // click/hover all go through `app.getMap()`, which is null off MapLibre.
+    engines: ["maplibre"],
     exclusiveGroup: "stac-catalog-browser",
     activate(app) {
       initialCatalogUrl = presetCatalogUrl;

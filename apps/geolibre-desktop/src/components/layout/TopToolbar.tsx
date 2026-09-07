@@ -5,7 +5,11 @@ import {
   serializeProject,
   useAppStore,
 } from "@geolibre/core";
-import { DEFAULT_BUILT_IN_CONTROL_VISIBILITY, type MapEngine } from "@geolibre/map";
+import {
+  DEFAULT_BUILT_IN_CONTROL_VISIBILITY,
+  resetPrimaryCesiumBuiltInControlState,
+  type MapEngine,
+} from "@geolibre/map";
 import { useMapCapabilities } from "../../hooks/useMapCapabilities";
 import {
   closeDuckDBLayerPanel,
@@ -1233,10 +1237,20 @@ export function TopToolbar({
     ),
   );
   // A renderer swap replaces the engine and its controls while this toolbar
-  // keeps its checkbox state. Replay fullscreen once the new engine is ready.
+  // keeps its checkbox state. Replay the controls the globe mounts on its own
+  // (fullscreen, Home under compass, the scene-mode picker under globe) once
+  // the new engine is ready, so a control hidden from the Controls menu stays
+  // hidden instead of reappearing with its checkbox still unticked.
   useEffect(() => {
-    mapControllerRef.current?.setBuiltInControlVisible("fullscreen", controlsVisible.fullscreen);
-  }, [mapControllerRef, mapReadyGeneration, controlsVisible.fullscreen]);
+    for (const control of ["fullscreen", "compass", "globe"] as const)
+      mapControllerRef.current?.setBuiltInControlVisible(control, controlsVisible[control]);
+  }, [
+    mapControllerRef,
+    mapReadyGeneration,
+    controlsVisible.fullscreen,
+    controlsVisible.compass,
+    controlsVisible.globe,
+  ]);
 
   const terrainEnabled = useAppStore((state) => state.preferences.map.terrainEnabled);
 
@@ -1358,6 +1372,11 @@ export function TopToolbar({
       resetMissingSettings: true,
     });
 
+    // The loops below reach only the live engine. The globe remembers its
+    // controls' corners across mounts, so clear that too, or a corner moved in
+    // the old project while Cesium was primary would come back the next time
+    // the globe mounts in this one.
+    resetPrimaryCesiumBuiltInControlState();
     for (const control of ALL_BUILT_IN_CONTROL_IDS) {
       mapControllerRef.current?.setBuiltInControlPosition(control, "top-right");
     }

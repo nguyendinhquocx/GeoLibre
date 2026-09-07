@@ -1,3 +1,10 @@
+export {
+  registerAssistantTool,
+  registerAssistantToolSpec,
+  listAssistantTools,
+  getAssistantToolsVersion,
+  unregisterAssistantToolsByOwner,
+} from "./assistant-tool-registry";
 export * from "./types";
 export { PluginManager } from "./plugin-manager";
 export {
@@ -637,7 +644,11 @@ export {
   maplibreElevationProfilePlugin,
   ELEVATION_PROFILE_PLUGIN_ID,
 } from "./plugins/elevation-profile";
-export { maplibreSwipePlugin, SWIPE_PLUGIN_ID } from "./plugins/maplibre-swipe";
+export {
+  maplibreSwipePlugin,
+  SWIPE_PLUGIN_ID,
+  getSwipeRasterLoadState,
+} from "./plugins/maplibre-swipe";
 export {
   maplibreGraticulePlugin,
   GRATICULE_PLUGIN_ID,

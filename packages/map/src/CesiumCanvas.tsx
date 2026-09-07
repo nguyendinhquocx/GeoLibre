@@ -12,10 +12,15 @@ import type { CesiumWidget, ImageryLayer } from "@cesium/engine";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { applyBasemapAppearance, applyBasemapImagery, getStadiaApiKey } from "./cesium-basemap";
 import { isSameView } from "./cesium-camera";
+import { installCesiumInteractions } from "./cesium-interactions";
 import { CesiumEngine } from "./cesium-engine";
-import type { MapEngine } from "./map-engine";
+import type { BuiltInMapControl, MapEngine } from "./map-engine";
 import { CesiumControlHost, setPrimaryCesiumControlHost } from "./cesium-control-host";
-import type { CesiumWidgetControls, CesiumWidgetControlLabels } from "./cesium-widget-controls";
+import type {
+  CesiumWidgetControlHandle,
+  CesiumWidgetControls,
+  CesiumWidgetControlLabels,
+} from "./cesium-widget-controls";
 
 // The Cesium 3D-globe view (see private/cesium-view-plan.md). M1 wired the
 // build, token, and split-pane mount; M2 synced the camera with the shared store
@@ -105,6 +110,8 @@ export interface CesiumCanvasProps {
    * Only the primary globe hosts controls, so this is ignored on a grid pane.
    */
   controlLabels?: CesiumWidgetControlLabels;
+  /** Translated accessible label for the Identify popup close button. */
+  popupCloseLabel?: string;
 }
 
 /**
@@ -150,11 +157,13 @@ export const CesiumCanvas = memo(function CesiumCanvas({
   engineRef,
   onEngineReady,
   controlLabels,
+  popupCloseLabel,
 }: CesiumCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<CesiumWidget | null>(null);
   const cesiumRef = useRef<typeof import("@cesium/engine") | null>(null);
   const engineInstanceRef = useRef<CesiumEngine | null>(null);
+  const interactionCleanup = useRef<(() => void) | null>(null);
   const controlHostRef = useRef<CesiumControlHost | null>(null);
   // The Cesium toolbar widgets mounted on the primary globe, kept so the label
   // effect can retranslate them and the unmount can remove them.
@@ -178,6 +187,8 @@ export const CesiumCanvas = memo(function CesiumCanvas({
   engineRefProp.current = engineRef;
   const onEngineReadyRef = useRef(onEngineReady);
   onEngineReadyRef.current = onEngineReady;
+  const popupCloseLabelRef = useRef(popupCloseLabel);
+  popupCloseLabelRef.current = popupCloseLabel;
   const controlLabelsRef = useRef(controlLabels);
   controlLabelsRef.current = controlLabels;
 
@@ -410,15 +421,33 @@ export const CesiumCanvas = memo(function CesiumCanvas({
               Boolean(token),
             );
             widgetControlsRef.current = controls;
-            // Top-right, above MapLibre's navigation control on the 2D map, so
-            // the toolbar reads the same whichever renderer is drawing.
-            for (const control of controls.all) host.addControl(control, "top-right");
-            // Hand the fullscreen button to the engine so Controls → Fullscreen
-            // governs it here as it does on the 2D map. The other widgets have no
-            // menu counterpart and stay unconditional.
-            engine.registerBuiltInControl("fullscreen", controls.fullscreen);
+            // Home, the scene-mode picker and fullscreen mount through the
+            // engine under a built-in control id, so the Controls menu governs
+            // them and a remount restores the visibility and corner each was
+            // last given (a hidden control is not mounted at all). Home sits
+            // under "compass": the 2D map's compass is itself a
+            // reset-pitch-and-bearing button, and unlike "navigation" it is
+            // visible by default, so the Controls menu checkbox matches the
+            // button the globe mounts here. The base-layer picker has no 2D
+            // counterpart and mounts directly. Iterating `all` keeps the
+            // stacking order either way; top-right by default, above
+            // MapLibre's navigation control on the 2D map, so the toolbar
+            // reads the same whichever renderer is drawing.
+            const builtInIds = new Map<CesiumWidgetControlHandle, BuiltInMapControl>([
+              [controls.home, "compass"],
+              [controls.sceneMode, "globe"],
+              [controls.fullscreen, "fullscreen"],
+            ]);
+            for (const control of controls.all) {
+              const id = builtInIds.get(control);
+              if (id) engine.registerBuiltInControl(id, control);
+              else host.addControl(control, "top-right");
+            }
           }
         }
+
+        // Widget imports can finish after unmount has already destroyed this viewer.
+        if (cancelled || viewer.isDestroyed()) return;
 
         // Seed the camera from the shared store camera before the first frame.
         // The primary globe always seeds from `mapView`, which is what carries
@@ -439,6 +468,13 @@ export const CesiumCanvas = memo(function CesiumCanvas({
         // imagery stack rather than having to be lowered past the data layers.
         applyBasemap();
         engine.syncLayers(paneLayersRef.current);
+        if (isPrimaryRef.current)
+          interactionCleanup.current = installCesiumInteractions(
+            Cesium,
+            viewer,
+            engine,
+            () => popupCloseLabelRef.current ?? "Close",
+          );
 
         // Publish the engine only for the primary globe — see `engineRef`.
         if (isPrimaryRef.current && engineRefProp.current) {
@@ -457,6 +493,8 @@ export const CesiumCanvas = memo(function CesiumCanvas({
       cancelled = true;
       // Drops the engine's listeners and its layer sync; the viewer itself is
       // destroyed below.
+      interactionCleanup.current?.();
+      interactionCleanup.current = null;
       engineInstanceRef.current?.destroy();
       // Clear the published ref before the engine is torn down, so nothing can
       // reach a destroyed engine through it. Only ours is cleared: a pane never

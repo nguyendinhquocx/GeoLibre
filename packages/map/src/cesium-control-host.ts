@@ -8,7 +8,7 @@ class CesiumMapFacade extends maplibregl.Evented {
 
   constructor(
     private host: CesiumControlHost,
-    private viewer: any,
+    private viewer: CesiumWidget,
   ) {
     super();
   }
@@ -173,6 +173,21 @@ export class CesiumControlHost {
     return this.container;
   }
 
+  /** Move the existing DOM without destroying a widget or its event bindings. */
+  setControlPosition(control: maplibregl.IControl, position: maplibregl.ControlPosition): boolean {
+    if (!Object.hasOwn(this.corners, position)) return false;
+    const element = this.controls.get(control);
+    if (element) this.corners[position].appendChild(element);
+    return true;
+  }
+
+  /**
+   * Mounts a MapLibre control onto the Cesium viewer container in the requested corner.
+   *
+   * @param control - The MapLibre control instance to add.
+   * @param position - The target corner position ('top-left', 'top-right', 'bottom-left', 'bottom-right').
+   * @returns `true` if the control was successfully added, or `false` if addition failed or element was invalid.
+   */
   addControl(control: maplibregl.IControl, position: maplibregl.ControlPosition = "top-right") {
     if (this.controls.has(control)) return false;
 
@@ -187,28 +202,39 @@ export class CesiumControlHost {
     let el: HTMLElement;
     try {
       el = control.onAdd(this.facade as unknown as maplibregl.Map);
+      if (!(el instanceof HTMLElement)) {
+        console.warn("[GeoLibre] control onAdd did not return a valid DOM element");
+        return false;
+      }
     } catch (error) {
       console.warn("[GeoLibre] control could not mount on the globe", error);
       return false;
     }
     el.style.pointerEvents = "auto";
 
-    const corner = this.corners[position];
-    if (corner) {
-      corner.appendChild(el);
-    }
+    const VALID_POSITIONS: readonly maplibregl.ControlPosition[] = [
+      "top-left",
+      "top-right",
+      "bottom-left",
+      "bottom-right",
+    ];
+    const target = VALID_POSITIONS.includes(position) ? position : "top-right";
+    const corner = this.corners[target];
+    corner.appendChild(el);
 
     this.controls.set(control, el);
     return true;
   }
 
+  /**
+   * Removes a MapLibre control from the Cesium viewer container and cleans up its DOM element.
+   *
+   * @param control - The MapLibre control instance to remove.
+   */
   removeControl(control: maplibregl.IControl) {
     if (!this.controls.has(control)) return;
 
     const el = this.controls.get(control)!;
-    if (el.parentElement) {
-      el.parentElement.removeChild(el);
-    }
 
     // Guarded for the same reason `addControl` guards `onAdd`, and it matters
     // more here: `destroy()` calls this in a loop, and `CesiumCanvas`'s unmount
@@ -216,14 +242,23 @@ export class CesiumControlHost {
     // `onRemove` trips one of the facade's deliberate throws would otherwise
     // escape the cleanup — leaving the remaining controls mounted, the
     // container attached, the primary-host registration stale, and the Cesium
-    // viewer never destroyed. The control is dropped from the registry either
-    // way: it is already detached from the DOM by this point.
+    // viewer never destroyed.
+    //
+    // The control's DOM element is intentionally kept in its container until
+    // after `onRemove` returns: many `IControl` implementations invoke
+    // `this._container.parentNode.removeChild(this._container)` directly, and
+    // detaching beforehand causes them to throw on null parentNode. The finally
+    // block guarantees DOM cleanup and registry removal regardless of outcome.
     try {
       control.onRemove(this.facade as unknown as maplibregl.Map);
     } catch (error) {
       console.warn("[GeoLibre] control failed to unmount cleanly from the globe", error);
+    } finally {
+      if (el.parentElement) {
+        el.parentElement.removeChild(el);
+      }
+      this.controls.delete(control);
     }
-    this.controls.delete(control);
   }
 }
 

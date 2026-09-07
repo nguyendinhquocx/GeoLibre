@@ -7,7 +7,7 @@ import {
   type StoryChapterAnimation,
   type StoryChapterLocation,
 } from "@geolibre/core";
-import type { CesiumWidget } from "@cesium/engine";
+import type { Cartesian2, CesiumWidget } from "@cesium/engine";
 import type { FeatureCollection } from "geojson";
 import type * as maplibregl from "maplibre-gl";
 import {
@@ -18,6 +18,7 @@ import {
   canvasHeight,
   groundHeightAt,
   isSameView,
+  pickGlobeHit,
   readMapViewFromCamera,
   zoomToRange,
   zoomToSceneRange,
@@ -39,7 +40,7 @@ type CesiumNs = typeof import("@cesium/engine");
 /**
  * What the globe can do (issue #2260).
  *
- * The four `false` flags are not "not yet wired" — they are the operations
+ * The `false` flags are not "not yet wired" — they are the operations
  * Cesium has no equivalent for, or that this engine deliberately does not claim:
  *
  * - `styleSpec` / `nativeMapInstance`: Cesium draws imagery layers and
@@ -48,12 +49,7 @@ type CesiumNs = typeof import("@cesium/engine");
  *   canvas stays 2D-only.
  * - `customLayers`: a MapLibre `CustomLayerInterface` is a callback into
  *   MapLibre's own WebGL pass; deck.gl's MapLibre interop is the same shape.
- * - `picking`: `identifyFeatures` needs `scene.drillPick` plus a mapping from a
- *   picked primitive back to a `GeoLibreLayer` id and feature id, which
- *   `CesiumLayerSync` does not record today. Claiming it before that exists
- *   would make Identify report "no features here" instead of "not available".
- * - `onMapDrawing` / `domControls`: no manual-placement pin and nowhere to host
- *   an `IControl`. The control host is issue #2263.
+ * - `onMapDrawing`: no manual-placement pin.
  *
  * `terrain: true` is the flag worth noting in the other direction — terrain is
  * native on the globe, and the old `primaryRenderer === "cesium"` gates disabled
@@ -64,7 +60,7 @@ export const CESIUM_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   nativeMapInstance: false,
   customLayers: false,
   terrain: true,
-  picking: false,
+  picking: true,
   onMapDrawing: false,
   domControls: true,
 });
@@ -139,6 +135,50 @@ export interface CesiumEngineOptions {
  * engines legitimately do differently, which is why `MapEngine` does not declare
  * it.
  */
+/**
+ * The visibility and corner each of the primary globe's built-in controls
+ * was last given, kept outside the engine because the engine does not
+ * outlive the globe: a renderer swap away from Cesium and back destroys the
+ * viewer, the control host, and the engine with them, while the Controls menu
+ * and any plugin that moved a control keep their state. The next mount reads
+ * this in {@link CesiumEngine.registerBuiltInControl} so a hidden control is
+ * never mounted and a moved one lands in its corner, without waiting for the
+ * menu to replay its checkboxes.
+ *
+ * A best-effort seed, not the authority: the menu still replays visibility
+ * once the engine is ready, so a state that went stale while MapLibre was the
+ * primary renderer (a new project resets the menu's checkboxes through
+ * whichever engine is live) is corrected on that replay.
+ */
+const primaryBuiltInControlState = new Map<
+  BuiltInMapControl,
+  { visible?: boolean; position?: maplibregl.ControlPosition }
+>();
+
+function rememberPrimaryBuiltInControl(
+  control: BuiltInMapControl,
+  state: { visible?: boolean; position?: maplibregl.ControlPosition },
+): void {
+  primaryBuiltInControlState.set(control, {
+    ...primaryBuiltInControlState.get(control),
+    ...state,
+  });
+}
+
+/**
+ * Forget every remembered control state, so the next globe mounts its
+ * controls visible at top-right.
+ *
+ * A new project resets the built-in controls through whichever engine is
+ * live, which never reaches this record while MapLibre is the primary
+ * renderer; the app calls this alongside that reset so a corner from the
+ * previous project cannot follow the user into the new one. Tests, which
+ * share the module, call it between cases.
+ */
+export function resetPrimaryCesiumBuiltInControlState(): void {
+  primaryBuiltInControlState.clear();
+}
+
 export class CesiumEngine implements MapEngine {
   readonly kind = "cesium" as const;
   /**
@@ -257,7 +297,9 @@ export class CesiumEngine implements MapEngine {
     for (const dispose of this.disposers.splice(0)) dispose();
     this.layerSync.destroy();
     // The control host tears the controls themselves down; drop the references
-    // so a late setBuiltInControlVisible cannot re-add one to a dead globe.
+    // so a late setBuiltInControlVisible cannot re-add one to a dead globe. The
+    // visibility and corner each control was last given stay in
+    // `primaryBuiltInControlState`, which is what the next mount reads.
     this.builtInControls.clear();
     // The widget itself belongs to CesiumCanvas, which destroys it; dropping the
     // handle here is what stops a late listener from touching a dead viewer.
@@ -413,9 +455,12 @@ export class CesiumEngine implements MapEngine {
     return carto.height - ground;
   }
 
-  /** Always `"globe"`: Cesium draws an ellipsoid, never a flat projection. */
+  /** Both flat scene modes use the projected map instead of the 3D ellipsoid. */
   readProjection(): MapProjection {
-    return "globe";
+    const mode = this.live()?.scene.mode;
+    return mode === this.Cesium.SceneMode.SCENE2D || mode === this.Cesium.SceneMode.COLUMBUS_VIEW
+      ? "mercator"
+      : "globe";
   }
 
   applyMapPreferences(preferences: MapPreferences): void {
@@ -516,24 +561,136 @@ export class CesiumEngine implements MapEngine {
    * the globe does not have. `CesiumLayerSync` applies `layer.opacity` on sync,
    * so a story that writes opacity to the store still fades on the globe.
    */
-  setStoryLayerOpacity(_layerId: string, _opacity: number, _durationMs?: number): void {}
+  setStoryLayerOpacity(layerId: string, opacity: number, _durationMs?: number): void {
+    this.layerSync.setStoryLayerOpacity(layerId, opacity);
+  }
 
-  restoreLayerStyles(): void {}
+  /**
+   * Revert all temporary layer style overrides (such as story opacities) applied
+   * during playback back to their stored layer opacities.
+   */
+  restoreLayerStyles(): void {
+    this.layerSync.restoreStoryLayerStyles();
+  }
+
+  /**
+   * Synchronize the globe clock's current time to a date (e.g. from the Time Slider).
+   *
+   * @param date Date, timestamp string, or epoch milliseconds to set on the Cesium clock.
+   */
+  setTime(date: Date | string | number): void {
+    this.layerSync.setTime(date);
+  }
 
   // ------------------------------------------------------------------ picking
 
-  /** Empty until the globe can map a picked primitive back to a feature id. */
-  identifyFeatures(_lngLat: [number, number], _layerId?: string): IdentifiedFeature[] {
-    return [];
+  /** Ground coordinates under the cursor; an ellipsoid fallback has no terrain height. */
+  readPointerAtScreen(point: Cartesian2): {
+    coordinates: [number, number];
+    elevation: number | null;
+  } | null {
+    const viewer = this.live();
+    if (!viewer || this.isMorphing() || !Number.isFinite(point.x) || !Number.isFinite(point.y))
+      return null;
+    const hit = pickGlobeHit(this.Cesium, viewer, point);
+    if (!hit) return null;
+    // The same ellipsoid pickGlobeHit fell back to, so a globe-less scene
+    // degrades to "no hit" rather than throwing on every pointer move.
+    const ellipsoid = viewer.scene.globe?.ellipsoid ?? this.Cesium.Ellipsoid.WGS84;
+    const position = ellipsoid.cartesianToCartographic(hit.position);
+    if (!position) return null;
+    const coordinates: [number, number] = [
+      this.Cesium.Math.toDegrees(position.longitude),
+      this.Cesium.Math.toDegrees(position.latitude),
+    ];
+    if (!coordinates.every(Number.isFinite)) return null;
+    return {
+      coordinates,
+      elevation: hit.terrain && Number.isFinite(position.height) ? position.height : null,
+    };
+  }
+
+  identifyFeatures(lngLat: [number, number], layerId?: string): IdentifiedFeature[] {
+    const viewer = this.live();
+    if (!viewer || this.isMorphing() || !lngLat.every(Number.isFinite)) return [];
+    const height = groundHeightAt(this.Cesium, viewer, lngLat[0], lngLat[1]);
+    const world = this.Cesium.Cartesian3.fromDegrees(lngLat[0], lngLat[1], height);
+    if (viewer.scene.mode === this.Cesium.SceneMode.SCENE3D) {
+      // Projection alone also maps the far hemisphere onto the visible globe.
+      // Use the public ray/ellipsoid API (EllipsoidalOccluder is private).
+      const origin = viewer.camera.positionWC;
+      // Below-sea-level terrain must not be rejected merely for lying inside the ellipsoid.
+      const target =
+        height < 0 ? this.Cesium.Cartesian3.fromDegrees(lngLat[0], lngLat[1], 0) : world;
+      const direction = this.Cesium.Cartesian3.subtract(
+        target,
+        origin,
+        new this.Cesium.Cartesian3(),
+      );
+      const distance = this.Cesium.Cartesian3.magnitude(direction);
+      if (distance === 0) return [];
+      const intersection = this.Cesium.IntersectionTests.rayEllipsoid(
+        new this.Cesium.Ray(origin, direction),
+        viewer.scene.globe.ellipsoid,
+      );
+      // Allow rounding at the surface; only intersections before the target occlude it.
+      if (intersection && intersection.start > 0 && intersection.start < distance - 1) return [];
+    }
+    const point = this.Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, world);
+    return point ? this.identifyAtScreen(point, layerId) : [];
+  }
+
+  /** Use the actual pointer position for hover/click, including elevated geometry. */
+  identifyAtScreen(point: Cartesian2, layerId?: string): IdentifiedFeature[] {
+    const viewer = this.live();
+    if (
+      !viewer ||
+      this.isMorphing() ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y) ||
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x > viewer.canvas.clientWidth ||
+      point.y > viewer.canvas.clientHeight
+    )
+      return [];
+    const results: IdentifiedFeature[] = [];
+    const seen = new Set<string>();
+    for (const picked of viewer.scene.drillPick(point)) {
+      const entity = picked?.id ?? picked?.primitive?.id;
+      if (!entity || typeof entity !== "object") continue;
+      const feature = this.layerSync.resolveFeature(entity);
+      if (!feature || (layerId !== undefined && feature.layerId !== layerId)) continue;
+      const key = JSON.stringify([feature.layerId, feature.featureId]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(feature);
+    }
+    return results;
   }
 
   highlightFeature(
-    _layer: GeoLibreLayer | undefined,
-    _featureId: string | string[] | null,
-    _options: { fit?: boolean } = {},
-  ): void {}
+    layer: GeoLibreLayer | undefined,
+    featureId: string | string[] | null,
+    options: { fit?: boolean } = {},
+  ): void {
+    if (!this.live()) return;
+    const ids = featureId === null ? [] : Array.isArray(featureId) ? featureId : [featureId];
+    this.layerSync.highlight(layer?.id, ids);
+    if (!options.fit || !layer?.geojson || !ids.length) return;
+    const selected = new Set(ids);
+    const features = layer.geojson.features.filter((feature, index) =>
+      selected.has(String(feature.id ?? index)),
+    );
+    const bounds = getLayerBounds({ ...layer, geojson: { type: "FeatureCollection", features } });
+    if (features.length && bounds) this.fitBounds(bounds);
+  }
 
-  clearFeatureHighlight(): void {}
+  clearFeatureHighlight(): void {
+    if (!this.live()) return;
+    this.layerSync.highlight(undefined, []);
+    this.live()?.scene.requestRender();
+  }
 
   /** Places nothing and returns a no-op teardown; see `onMapDrawing`. */
   startManualPlacement(_lngLat: [number, number], _options: ManualPlacementOptions): () => void {
@@ -570,14 +727,20 @@ export class CesiumEngine implements MapEngine {
    * Put a control the canvas built under a built-in control id, so the app's
    * existing Controls menu can govern it (issue #2270).
    *
-   * Only the fullscreen button uses this today. The globe's other two Cesium
-   * widgets — home and scene mode — have no entry in that menu and stay
-   * unconditional; the rest of the built-in controls are MapLibre's own and
-   * have no globe counterpart at all, which is why
-   * {@link setBuiltInControlVisible} still answers `false` for them.
+   * Home maps to compass, the scene-mode picker to globe, and fullscreen
+   * keeps its shared id. Controls without a globe counterpart are refused.
    */
   registerBuiltInControl(control: BuiltInMapControl, instance: maplibregl.IControl): void {
     this.builtInControls.set(control, instance);
+    // Mount it here, in the state it was last given, rather than leaving the
+    // canvas to mount every control visible at top-right and the Controls
+    // menu to correct that a frame later: a control the user hid would flash
+    // on every remount, and one a plugin moved would snap back to the default
+    // corner (#2295 review). A pane has no host to mount on; see `addControl`.
+    if (!this.isPrimary) return;
+    const state = primaryBuiltInControlState.get(control);
+    if (state?.visible === false) return;
+    getPrimaryCesiumControlHost()?.addControl(instance, this.getBuiltInControlPosition(control));
   }
 
   setBuiltInControlVisible(control: BuiltInMapControl, visible: boolean): boolean {
@@ -591,20 +754,27 @@ export class CesiumEngine implements MapEngine {
     // `addControl` is a no-op for a control already mounted and `removeControl`
     // for one already gone, so repeated calls (project restore replays every
     // control's visibility) settle rather than stacking duplicates.
-    if (visible) host.addControl(instance, "top-right");
+    if (visible) host.addControl(instance, this.getBuiltInControlPosition(control));
     else host.removeControl(instance);
+    rememberPrimaryBuiltInControl(control, { visible });
     return true;
   }
 
-  getBuiltInControlPosition(_control: BuiltInMapControl): maplibregl.ControlPosition {
-    return "top-right";
+  getBuiltInControlPosition(control: BuiltInMapControl): maplibregl.ControlPosition {
+    if (!this.isPrimary) return "top-right";
+    return primaryBuiltInControlState.get(control)?.position ?? "top-right";
   }
 
   setBuiltInControlPosition(
-    _control: BuiltInMapControl,
-    _position: maplibregl.ControlPosition,
+    control: BuiltInMapControl,
+    position: maplibregl.ControlPosition,
   ): boolean {
-    return false;
+    const instance = this.builtInControls.get(control);
+    if (!instance || !this.isPrimary) return false;
+    const host = getPrimaryCesiumControlHost();
+    if (!host?.setControlPosition(instance, position)) return false;
+    rememberPrimaryBuiltInControl(control, { position });
+    return true;
   }
 
   setCompassLabel(_label: string): void {}
