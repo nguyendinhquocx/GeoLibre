@@ -441,6 +441,9 @@ def test_add_raster_layer_records_its_source(server, project_path):
         ),
         ("add_tile_layer", {"url": "https://example.com/{z}/{x}/{y}.png"}, "xyz"),
         ("add_3d_tiles_layer", {"url": "https://example.com/tileset.json"}, "3d-tiles"),
+        ("add_3d_tiles_layer", {"ion_asset_id": 96188}, "3d-tiles"),
+        ("add_cesium_ion_layer", {"asset_id": 96188}, "3d-tiles"),
+        ("add_cesium_ion_layer", {"asset_id": 2, "kind": "imagery"}, "raster"),
         (
             "add_tiles_layer",
             {"url": "https://example.com/a.pmtiles", "kind": "pmtiles"},
@@ -474,6 +477,17 @@ def test_each_layer_tool_adds_a_layer_of_its_type(
     assert described["layers"][0]["type"] == expected_type
 
 
+def test_cesium_ion_tools_persist_the_asset_id(server, project_path, tmp_path):
+    """The globe loads Ion assets from `source.ionAssetId`, so it must survive the save."""
+    call(server, "add_3d_tiles_layer", path=project_path, name="A", ion_asset_id=96188)
+    call(server, "add_cesium_ion_layer", path=project_path, name="B", asset_id=96188)
+    call(server, "add_cesium_ion_layer", path=project_path, name="C", asset_id=2, kind="imagery")
+    saved = json.loads((tmp_path / project_path).read_text())
+    assert [layer["source"]["ionAssetId"] for layer in saved["layers"]] == [96188, 96188, 2]
+    assert [layer["type"] for layer in saved["layers"]] == ["3d-tiles", "3d-tiles", "raster"]
+    assert {layer["metadata"]["sourceKind"] for layer in saved["layers"]} == {"cesium-ion"}
+
+
 def test_add_vector_layer_rejects_an_undocumented_render_mode(server, project_path):
     """The tool's docstring names the accepted values; they must be the real ones."""
     assert "render_mode" in call_error(
@@ -495,6 +509,75 @@ def test_style_layer_merges_into_the_existing_style(server, project_path):
     # The second call must not drop the first call's key.
     assert result["style"]["fillColor"] == "#ff0000"
     assert result["style"]["strokeWidth"] == 4
+
+
+def test_set_layer_popup_writes_fields_labels_and_kinds(server, project_path):
+    call(server, "add_geojson_layer", path=project_path, name="Cities", data=json.dumps(POINT_FC))
+    result = call(
+        server,
+        "set_layer_popup",
+        path=project_path,
+        layer="Cities",
+        fields=[
+            "name",
+            {"field": "pop", "label": "Population", "kind": "number", "thousands": True},
+        ],
+        title="name",
+    )
+    assert result["popup"] == {
+        "titleField": "name",
+        "fields": [
+            {"field": "name"},
+            {
+                "field": "pop",
+                "label": "Population",
+                "kind": "number",
+                "format": {"thousands": True},
+            },
+        ],
+    }
+
+
+def test_set_layer_popup_tooltip_flags_the_named_fields(server, project_path):
+    call(server, "add_geojson_layer", path=project_path, name="Cities", data=json.dumps(POINT_FC))
+    result = call(
+        server,
+        "set_layer_popup",
+        path=project_path,
+        layer="Cities",
+        fields=["name", "pop"],
+        tooltip=["name"],
+    )
+    assert result["popup"]["hover"] is True
+    assert result["popup"]["fields"][0]["hover"] is True
+
+
+def test_set_layer_popup_empty_tooltip_turns_hover_off(server, project_path):
+    call(server, "add_geojson_layer", path=project_path, name="Cities", data=json.dumps(POINT_FC))
+    call(
+        server,
+        "set_layer_popup",
+        path=project_path,
+        layer="Cities",
+        fields=["name"],
+        tooltip=["name"],
+    )
+    result = call(
+        server, "set_layer_popup", path=project_path, layer="Cities", tooltip=[], merge=True
+    )
+    assert result["popup"]["hover"] is False
+
+
+def test_set_layer_popup_reports_an_unusable_field(server, project_path):
+    call(server, "add_geojson_layer", path=project_path, name="Cities", data=json.dumps(POINT_FC))
+    message = call_error(
+        server,
+        "set_layer_popup",
+        path=project_path,
+        layer="Cities",
+        fields=[{"field": "pop", "kind": "markdown"}],
+    )
+    assert "kind must be one of" in message
 
 
 def test_remove_layer_drops_it(server, project_path):
@@ -719,3 +802,17 @@ def test_export_html_refuses_a_non_html_destination(server, project_path):
     assert "Refusing to write" in call_error(
         server, "export_html", path=project_path, out_path="map.json"
     )
+
+
+def test_renderer_tools_persist_pane_kinds(server, tmp_path):
+    path = str(tmp_path / "globe.geolibre.json")
+    call(server, "create_project", path=path)
+    call(server, "set_renderer", path=path, renderer="cesium")
+    result = call(
+        server, "set_map_layout", path=path, rows=1, cols=2, view_kinds=["cesium", "maplibre"]
+    )
+    pane_id = result["secondaryMapViews"][0]["id"]
+    call(server, "set_renderer", path=path, renderer="cesium", pane_id=pane_id)
+    saved = json.loads(Path(path).read_text())
+    assert saved["primaryRenderer"] == "cesium"
+    assert saved["secondaryMapViews"][0]["viewKind"] == "cesium"

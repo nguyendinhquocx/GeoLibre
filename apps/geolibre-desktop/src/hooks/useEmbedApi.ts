@@ -1,7 +1,7 @@
 import { useAppStore } from "@geolibre/core";
 import { type RefObject, useEffect } from "react";
 import { getLayerBounds, type MapEngine } from "@geolibre/map";
-import { captureMapImage } from "../lib/print-layout-export";
+import { imageBlobToDataUrl } from "@geolibre/map";
 import {
   buildEmbedEvent,
   buildEmbedLayer,
@@ -221,6 +221,11 @@ export function useEmbedApi(
             throw new Error("Missing project:edit capability");
           await loadProjectFromUrl(command.url);
           return;
+        case "getRenderer":
+          return useAppStore.getState().primaryRenderer;
+        case "setRenderer":
+          useAppStore.getState().setPrimaryRenderer(command.renderer);
+          return;
         case "setView":
           applySetView(command);
           return;
@@ -290,18 +295,8 @@ export function useEmbedApi(
           if (!useAppStore.getState().deploymentCapabilities.has("export:data"))
             throw new Error("Missing export:data capability");
           const engine = controller();
-          // Same distinction scriptingApi's `toImage` makes: "not ready yet" is
-          // a state that resolves, "not supported by this engine" never does —
-          // and an embedding host has no way to tell them apart otherwise
-          // (#2268 review).
-          if (engine && !engine.capabilities.nativeMapInstance) {
-            throw new Error(
-              "Capturing the map image is not supported by the current rendering engine",
-            );
-          }
-          const map = engine?.getMap();
-          if (!map) throw new Error("The map is not ready yet");
-          return captureMapImage(map).image.toDataURL("image/png");
+          if (!engine) throw new Error("The map is not ready yet");
+          return imageBlobToDataUrl(await engine.captureImage());
         }
       }
     };
@@ -339,12 +334,17 @@ export function useEmbedApi(
     // -- events --------------------------------------------------------------
 
     const store = useAppStore.getState();
+    let prevRenderer = store.primaryRenderer;
     let prevGeneration = store.projectGeneration;
     let prevSelectedLayer = store.selectedLayerId;
     let prevSelection = store.selectedFeatureIds.join(" ");
     const emittedRuns = new Set(store.processingHistory.map((run) => run.id));
 
     const unsubscribe = useAppStore.subscribe((state) => {
+      if (state.primaryRenderer !== prevRenderer) {
+        prevRenderer = state.primaryRenderer;
+        emit("rendererchange", { renderer: prevRenderer });
+      }
       if (state.projectGeneration !== prevGeneration) {
         prevGeneration = state.projectGeneration;
         emit("projectLoaded", {
@@ -434,7 +434,15 @@ export function useEmbedApi(
     };
     rafId = requestAnimationFrame(attach);
 
-    emit("ready", { version: __GEOLIBRE_VERSION__ });
+    // A renderer hand-off bumps the generation before the destination engine
+    // has published, so this effect re-runs while the ref is still empty (or
+    // aimed at the outgoing engine). `ready` promises every command is usable:
+    // hold it until the engine for the current renderer is live, and the
+    // publish bump re-runs this effect to emit it then.
+    const engine = controller();
+    if (engine && engine.kind === useAppStore.getState().primaryRenderer) {
+      emit("ready", { version: __GEOLIBRE_VERSION__ });
+    }
 
     return () => {
       disposed = true;

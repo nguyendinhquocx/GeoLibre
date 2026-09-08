@@ -30,6 +30,7 @@ import {
   createLayerLibraryEntryId,
   copyableLayerStyleKind,
   hasActiveQuickFilter,
+  isCesiumOnlyLayer,
   pluginOwnsPaint,
   supportsBridgedOpacity,
   useAppStore,
@@ -3315,8 +3316,7 @@ export function LayerPanel({
             // COG/WMS/XYZ layers can also export a bounding-box subset (a clip)
             // via the in-browser geolibre-wasm extractors, drawn on the map.
             // Gated on the engine's own drawing capability: the panel needs a
-            // surface the user can drag an extract box on, which the globe does
-            // not offer yet (#2260).
+            // surface the user can drag an extract box on.
             const canExtractSubset =
               layerCaps.export && capabilities.onMapDrawing && canExtractRasterSubset(layer);
             // Rasters added through the floating Add Raster Layer panel are
@@ -3535,6 +3535,16 @@ export function LayerPanel({
                           className="shrink-0 rounded-sm bg-muted px-1 text-[10px] uppercase text-muted-foreground"
                         >
                           {t("mapGrid.only2d")}
+                        </span>
+                      )}
+                      {/* The mirror image: a Cesium Ion asset (issue #2290) has
+                          no 2D rendering, so flag it while MapLibre is primary. */}
+                      {!cesiumPrimary && isCesiumOnlyLayer(layer) && (
+                        <span
+                          title={t("renderer.layerCesiumOnly")}
+                          className="shrink-0 rounded-sm bg-muted px-1 text-[10px] uppercase text-muted-foreground"
+                        >
+                          {t("mapGrid.only3d")}
                         </span>
                       )}
                       <span className="shrink-0 text-[10px] uppercase text-muted-foreground">

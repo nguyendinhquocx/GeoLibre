@@ -28,6 +28,7 @@ export {
   CESIUM_PANE_CAPABILITIES,
   CesiumEngine,
   type CesiumEngineOptions,
+  type CesiumSceneHandle,
   resetPrimaryCesiumBuiltInControlState,
 } from "./cesium-engine";
 export {
@@ -53,9 +54,13 @@ export {
   type FlyToCamera,
   type IdentifiedFeature,
   type ManualPlacementOptions,
+  type ExtentDrawingOptions,
+  type MapExtent,
+  type MapRenderSurface,
   type MapEngine,
   type MapEngineCapabilities,
 } from "./map-engine";
+export { imageBlobToDataUrl, isFullViewportMapCanvas } from "./map-capture";
 export {
   MapController,
   createMapController,

@@ -27,6 +27,8 @@ function makeFakes() {
     geojsonLoads: [] as { data: unknown; options: Record<string, unknown> }[],
     tilesetUrls: [] as unknown[],
     cameraListeners: [] as (() => void)[],
+    suspendEventsCount: 0,
+    resumeEventsCount: 0,
   };
 
   const viewer = {
@@ -44,6 +46,10 @@ function makeFakes() {
         remove: (p: unknown) => calls.primitivesRemoved.push(p),
       },
       requestRender: () => {},
+    },
+    dataSourceDisplay: {
+      ready: true,
+      getBoundingSphere: (_entity: unknown, _allowPartial: boolean, _result: unknown): number => 0,
     },
     imageryLayers: {
       addImageryProvider: (provider: unknown) => {
@@ -81,6 +87,15 @@ function makeFakes() {
   const Cesium = {
     GeographicTilingScheme: class {},
     WebMercatorTilingScheme: class {},
+    BoundingSphere: class {
+      center = { x: 0, y: 0, z: 0 };
+      radius = 1;
+    },
+    BoundingSphereState: {
+      DONE: 0,
+      PENDING: 1,
+      FAILED: 2,
+    },
     UrlTemplateImageryProvider: class {
       url?: string;
       constructor(opts: Record<string, unknown>) {
@@ -151,6 +166,12 @@ function makeFakes() {
           kind: "geojson",
           show: true,
           entities: {
+            suspendEvents: () => {
+              calls.suspendEventsCount++;
+            },
+            resumeEvents: () => {
+              calls.resumeEventsCount++;
+            },
             values:
               features.length > 1
                 ? features.map((f, i) => ({
@@ -218,14 +239,31 @@ function makeFakes() {
     Cesium3DTileset: {
       fromUrl: (url: unknown) => {
         calls.tilesetUrls.push(url);
+        // `tileVisible` is Cesium's per-frame tile event; the fake records its
+        // listeners so a test can hand one a tile the way a rendered frame does.
+        const listeners = new Set<(tile: unknown) => void>();
         return Promise.resolve({
           kind: "tileset",
           show: true,
+          style: undefined as unknown,
           destroy: () => {},
           modelMatrix: null,
           boundingSphere: { center: {} },
+          tileVisible: {
+            addEventListener: (listener: (tile: unknown) => void) => {
+              listeners.add(listener);
+              return () => listeners.delete(listener);
+            },
+          },
+          emitTileVisible: (tile: unknown) => {
+            for (const listener of [...listeners]) listener(tile);
+          },
+          tileVisibleListenerCount: () => listeners.size,
         });
       },
+    },
+    Cesium3DTileStyle: class {
+      constructor(public spec: unknown) {}
     },
     Color: {
       fromCssColorString: (css: string) => ({
@@ -261,6 +299,37 @@ function mkLayer(over: Partial<GeoLibreLayer>): GeoLibreLayer {
   } as GeoLibreLayer;
 }
 
+/** A one-polygon GeoJSON layer, the shape the render-status tests need. */
+function mkPolygonLayer(id: string, name: string): GeoLibreLayer {
+  return mkLayer({
+    id,
+    name,
+    type: "geojson",
+    visible: true,
+    geojson: {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { name },
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 1],
+                [0, 0],
+              ],
+            ],
+          },
+        },
+      ],
+    },
+  });
+}
+
 /** A minimal Cesium `Event` stand-in that records its listeners in `bag`. */
 function mkEvent(bag: (() => void)[]) {
   return {
@@ -274,12 +343,17 @@ function mkEvent(bag: (() => void)[]) {
   };
 }
 
-function newSync(f: ReturnType<typeof makeFakes>, readZoom?: () => number) {
+function newSync(
+  f: ReturnType<typeof makeFakes>,
+  readZoom?: () => number,
+  deps?: ConstructorParameters<typeof CesiumLayerSync>[3],
+) {
   // The fakes stand in for the Cesium namespace + Viewer (cast through unknown).
   return new CesiumLayerSync(
     f.Cesium as unknown as typeof import("cesium"),
     f.viewer as unknown as import("cesium").Viewer,
     readZoom,
+    deps,
   );
 }
 
@@ -476,15 +550,23 @@ describe("CesiumLayerSync", () => {
         values: [
           { polygon: { material: { color: { alpha: number } } } },
           { polyline: { material: { color: { alpha: number } } } },
-          { billboard: { color: { value: { alpha: number } } } },
+          {
+            point: {
+              color: { value: { alpha: number } };
+              outlineColor: { value: { alpha: number } };
+            };
+          },
         ];
       };
     };
     const v = ds.entities.values;
-    // fill = 0.5 fill opacity × 0.4 layer opacity; stroke/markers = layer opacity.
+    // fill = 0.5 fill opacity × 0.4 layer opacity; stroke = layer opacity. A
+    // point draws as a circle (the 2D map's default), so its fill and outline
+    // follow the polygon's fill and the line's stroke respectively.
     assert.ok(Math.abs(v[0].polygon.material.color.alpha - 0.2) < 1e-9);
     assert.ok(Math.abs(v[1].polyline.material.color.alpha - 0.4) < 1e-9);
-    assert.ok(Math.abs(v[2].billboard.color.value.alpha - 0.4) < 1e-9);
+    assert.ok(Math.abs(v[2].point.color.value.alpha - 0.2) < 1e-9);
+    assert.ok(Math.abs(v[2].point.outlineColor.value.alpha - 0.4) < 1e-9);
   });
 
   it("fades labels by layer opacity without discarding the colour's own alpha", async () => {
@@ -645,6 +727,78 @@ describe("CesiumLayerSync", () => {
     await f.flush();
     assert.equal(f.calls.tilesetUrls[0], "https://tiles/root.json");
     assert.equal(f.calls.primitivesAdded.length, 1);
+  });
+
+  it("classifies a tileset through Cesium3DTileStyle and clears it when nothing classifies", async () => {
+    const sync = newSync(f);
+    const layer = mkLayer({
+      id: "t",
+      type: "3d-tiles",
+      source: { url: "https://tiles/root.json" },
+      style: {
+        vectorStyleMode: "categorized",
+        vectorStyleProperty: "kind",
+        vectorStyleStops: [{ value: "school", color: "#ff0000" }],
+        fillColor: "#cccccc",
+      },
+    });
+    sync.sync([layer]);
+    await f.flush();
+    const tileset = f.calls.primitivesAdded[0] as { style?: { spec?: unknown } };
+    assert.deepEqual((tileset.style as { spec: { color: unknown } }).spec.color, {
+      conditions: [
+        ['(String(${kind}) === "school")', "color('#ff0000', 1)"],
+        ["true", "color('#cccccc', 1)"],
+      ],
+    });
+
+    // Back to the default single-colour style at full opacity: the tileset must
+    // draw its own colours again rather than keep the stale conditions.
+    sync.sync([mkLayer({ id: "t", type: "3d-tiles", source: { url: "https://tiles/root.json" } })]);
+    assert.equal(tileset.style, undefined);
+  });
+
+  it("fades a tileset with the layer opacity without tinting it", async () => {
+    const sync = newSync(f);
+    sync.sync([
+      mkLayer({
+        id: "t",
+        type: "3d-tiles",
+        source: { url: "https://tiles/root.json" },
+        opacity: 0.25,
+      }),
+    ]);
+    await f.flush();
+    const tileset = f.calls.primitivesAdded[0] as { style: { spec: { color: string } } };
+    assert.equal(tileset.style.spec.color, "color('#ffffff', 0.25)");
+  });
+
+  it("publishes a tileset's attribute names once, from the first tile that has features", async () => {
+    const published: Array<[string, string[]]> = [];
+    const sync = newSync(f, undefined, {
+      onTilesetFields: (layerId, fields) => published.push([layerId, fields]),
+    });
+    sync.sync([mkLayer({ id: "t", type: "3d-tiles", source: { url: "https://tiles/root.json" } })]);
+    await f.flush();
+    const tileset = f.calls.primitivesAdded[0] as {
+      emitTileVisible: (tile: unknown) => void;
+      tileVisibleListenerCount: () => number;
+    };
+
+    // A tile with no features (a tileset's interior nodes have none) says
+    // nothing about the schema and must not end the discovery.
+    tileset.emitTileVisible({ content: { featuresLength: 0 } });
+    assert.deepEqual(published, []);
+    assert.equal(tileset.tileVisibleListenerCount(), 1);
+
+    tileset.emitTileVisible({
+      content: {
+        featuresLength: 4,
+        getFeature: () => ({ getPropertyIds: () => ["height", "kind"] }),
+      },
+    });
+    assert.deepEqual(published, [["t", ["height", "kind"]]]);
+    assert.equal(tileset.tileVisibleListenerCount(), 0, "the listener is one-shot");
   });
 
   it("keeps the Google Maps API key header on a Google Photorealistic tileset", async () => {
@@ -1247,8 +1401,10 @@ describe("CesiumLayerSync", () => {
   it("skips unsupported layer kinds", () => {
     const sync = newSync(f);
     const layers = [
-      mkLayer({ id: "p", type: "pmtiles", source: { url: "x.pmtiles" } }),
+      // A PMTiles layer without a source to read is neither draped nor bridged.
+      mkLayer({ id: "p", type: "pmtiles", source: {} }),
       mkLayer({ id: "z", type: "zarr", source: {} }),
+      mkLayer({ id: "a", type: "arcgis", source: { tiles: ["https://a/{z}/{x}/{y}.pbf"] } }),
     ];
     sync.sync(layers);
     assert.equal(f.calls.imageryAdded.length, 0);
@@ -1256,7 +1412,7 @@ describe("CesiumLayerSync", () => {
     // The kind-level predicate the UI uses to flag "2D only" layers agrees.
     assert.deepEqual(
       layers.filter((l) => !isCesiumSupportedLayerType(l)).map((l) => l.id),
-      ["p", "z"],
+      ["p", "z", "a"],
     );
   });
 
@@ -1623,7 +1779,7 @@ describe("CesiumLayerSync", () => {
       entities: {
         values: Array<{
           polygon: { extrudedHeight: { value: number }; heightReference?: { value: number } };
-          billboard: { heightReference?: { value: number } };
+          point: { heightReference?: { value: number } };
           polyline: { clampToGround?: { value: boolean } };
         }>;
       };
@@ -1635,7 +1791,7 @@ describe("CesiumLayerSync", () => {
     // extrudes from the ellipsoid; it takes no terrain reference.
     assert.equal(building.polygon.heightReference, undefined);
     // The Z point/line entities are not left as absolute ellipsoid heights.
-    assert.equal(poi.billboard.heightReference?.value, 2);
+    assert.equal(poi.point.heightReference?.value, 2);
     assert.equal(poi.polyline.clampToGround?.value, false);
   });
 
@@ -1671,7 +1827,7 @@ describe("CesiumLayerSync", () => {
       entities: {
         values: Array<{
           polygon?: { heightReference?: unknown; height?: unknown };
-          billboard?: { heightReference?: { value: number } };
+          point?: { heightReference?: { value: number } };
         }>;
       };
     };
@@ -1679,10 +1835,7 @@ describe("CesiumLayerSync", () => {
     assert.ok(zPolygon);
     assert.equal(zPolygon.heightReference, undefined);
     // Point entities in the same layer still get the terrain-relative reference.
-    assert.equal(
-      flat.entities.values.find((e) => e.billboard)?.billboard?.heightReference?.value,
-      2,
-    );
+    assert.equal(flat.entities.values.find((e) => e.point)?.point?.heightReference?.value, 2);
 
     // The extrusion path likewise skips height/heightReference on it and, since
     // Cesium reads extrudedHeight as an absolute altitude there, lifts the roof
@@ -2037,5 +2190,152 @@ describe("CesiumLayerSync", () => {
 
     sync.restoreStoryLayerStyles();
     assert.ok(Math.abs(ds.entities.values[0].polygon.material.color.alpha - 0.4) < 1e-9);
+  });
+
+  it("suspends entity events and styles entities before adding GeoJsonDataSource to viewer", async () => {
+    const sync = newSync(f);
+    let eventsSuspendedAtAdd = false;
+    let materialStyledAtAdd = false;
+    const originalAdd = f.viewer.dataSources.add;
+    f.viewer.dataSources.add = (ds: unknown) => {
+      eventsSuspendedAtAdd = f.calls.suspendEventsCount > 0;
+      const entities = (
+        ds as { entities?: { values?: Array<{ polygon?: { material?: unknown } }> } }
+      )?.entities;
+      materialStyledAtAdd = Boolean(entities?.values?.[0]?.polygon?.material);
+      return originalAdd(ds);
+    };
+
+    const layer = mkLayer({
+      id: "poly-layer",
+      type: "geojson",
+      opacity: 1,
+      style: { fillColor: "#ff0000", fillOpacity: 0.5 },
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    assert.equal(eventsSuspendedAtAdd, true, "events must be suspended before adding dataSource");
+    assert.equal(materialStyledAtAdd, true, "entities must be styled before adding dataSource");
+    assert.ok(f.calls.resumeEventsCount >= f.calls.suspendEventsCount, "events must be resumed");
+  });
+
+  it("reports pending in getRenderStatus when polygon entities report BoundingSphereState.PENDING", async () => {
+    const sync = newSync(f);
+    let sphereState = f.Cesium.BoundingSphereState.PENDING;
+    f.viewer.dataSourceDisplay.getBoundingSphere = () => sphereState;
+
+    const layer = mkLayer({
+      id: "pending-polys",
+      name: "Countries",
+      type: "geojson",
+      visible: true,
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { name: "Country" },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    sync.sync([layer]);
+    await f.flush();
+
+    // While entity bounding sphere is PENDING, getRenderStatus reports the layer as pending
+    const pendingStatus = sync.getRenderStatus();
+    assert.deepEqual(pendingStatus.pending, ["Countries"]);
+
+    // When entity reaches DONE, getRenderStatus reports settled
+    sphereState = f.Cesium.BoundingSphereState.DONE;
+    const settledStatus = sync.getRenderStatus();
+    assert.deepEqual(settledStatus.pending, []);
+  });
+
+  it("reports pending until the data source has actually joined the scene", async () => {
+    const sync = newSync(f);
+    // `getBoundingSphere` answers DONE throughout: the only thing keeping the
+    // layer pending is that `viewer.dataSources.add` has not resolved yet.
+    f.viewer.dataSourceDisplay.getBoundingSphere = () => f.Cesium.BoundingSphereState.DONE;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const originalAdd = f.viewer.dataSources.add;
+    f.viewer.dataSources.add = async (ds: unknown) => {
+      await gate;
+      return originalAdd(ds);
+    };
+
+    sync.sync([mkPolygonLayer("late-add", "Countries")]);
+    await f.flush();
+    assert.deepEqual(
+      sync.getRenderStatus().pending,
+      ["Countries"],
+      "a data source outside viewer.dataSources cannot be reported as settled",
+    );
+
+    release();
+    await f.flush();
+    assert.deepEqual(sync.getRenderStatus().pending, []);
+  });
+
+  it("resumes entity events when the GeoJSON build throws", async () => {
+    const sync = newSync(f);
+    const originalFromCss = f.Cesium.Color.fromCssColorString;
+    f.Cesium.Color.fromCssColorString = (css: string) => {
+      if (css === "#boom") throw new Error("bad colour");
+      return originalFromCss(css);
+    };
+
+    const layer = mkPolygonLayer("throwing", "Broken");
+    sync.sync([
+      { ...layer, style: { ...layer.style, extrusionEnabled: true, extrusionColor: "#boom" } },
+    ]);
+    await f.flush();
+
+    assert.ok(f.calls.suspendEventsCount > 0, "the build must have suspended events");
+    assert.equal(
+      f.calls.resumeEventsCount,
+      f.calls.suspendEventsCount,
+      "a throw must not leave the entity collection suspended",
+    );
+    assert.equal(sync.getRenderStatus().errors.length, 1);
   });
 });

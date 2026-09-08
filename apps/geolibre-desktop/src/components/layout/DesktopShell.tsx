@@ -1255,20 +1255,54 @@ export function DesktopShell({
     // or the map is reinitialised (mapReadyGeneration), not on every
     // incremental plugin write-back. projectPlugins is read from the store
     // snapshot at call time so it is always current without being a dependency.
-    // Every restore below re-binds a MapLibre control or source, so they need a
-    // native map. This used to be implied: the ref was null on the globe, so the
-    // effect never ran there. Now it holds a `CesiumEngine`, and the guard has to
-    // be stated (#2268 review). Making these restores engine-neutral is
-    // follow-up work, not a silent behaviour change here.
+    // Restore compatible plugins for either renderer. Native MapLibre layer
+    // producers remain below their own capability gate.
     const engine = mapControllerRef.current;
     if (!externalPluginsReady || !mapReadyGeneration || !engine) return;
-    if (!engine.capabilities.nativeMapInstance) return;
     const appAPI = createAppAPI(mapControllerRef);
     const pluginManager = getPluginManager();
     pluginManager.restoreProjectState(useAppStore.getState().projectPlugins, appAPI);
     // Immediately after the restore, so a project that persisted the geo-editor
     // as active cannot re-arm editing inside a read-only viewer embed.
     enforceViewerPlugins();
+    const search = window.location.search;
+    void pluginManager
+      .handleUrlParameters(new URLSearchParams(search), appAPI, `${projectGeneration}:${search}`)
+      // `handleUrlParameters` activates plugins asynchronously, so it can land
+      // after the synchronous pass above. No blocked plugin registers a URL
+      // handler today, but "every activation path is covered" is the whole
+      // point of the guard, so re-assert it once this settles rather than
+      // leaving the next one to notice.
+      .catch(console.error)
+      .finally(enforceViewerPlugins);
+    // The environment plugins have a branch for each renderer (#2287): the
+    // effects engine drives Cesium's sky box and atmosphere, the sun simulation
+    // its lighting and clock, the flight simulator its camera. They rebind the
+    // same way on both — a renderer swap rebuilds the engine, so the host
+    // re-attaches them exactly as it does after a MapLibre re-init.
+    //
+    // activeByDefault plugins are marked active without activate() being
+    // called, so the effects engine must be kicked explicitly to match the
+    // restored active state (idempotent).
+    restoreEffects(
+      appAPI,
+      pluginManager.isActive(EFFECTS_PLUGIN_ID),
+      useAppStore.getState().projectPlugins?.settings?.[EFFECTS_PLUGIN_ID],
+    );
+    // The sun simulation reads/writes native map layers, so it must re-bind to
+    // the (possibly new) map instance after a map re-init or basemap change.
+    // Reattach only — it must NOT derive open/closed state here, which would
+    // reset a locally-opened panel on an unrelated basemap swap or remote edit.
+    // Project loads open/close it via the plugin's applyProjectState (invoked by
+    // restoreProjectState above).
+    reattachSun(appAPI);
+    // The flight simulator holds a reference to the live map (and suspends its
+    // interaction handlers while flying), so rebind it after a map re-init too.
+    reattachFlightSimulator(appAPI);
+    if (!engine.capabilities.nativeMapInstance) {
+      void restoreLocalFileLayers();
+      return;
+    }
     restoreThreeDTilesLayers(appAPI);
     restoreRasterLayers(appAPI);
     restorePlanetaryComputerLayers(appAPI);
@@ -1295,28 +1329,10 @@ export function DesktopShell({
       if (applyStacSearchLayerOrder(layerId, beforeId)) return;
       applyRasterLayerOrder(layerId, beforeId);
     });
-    // activeByDefault plugins are marked active without activate() being
-    // called, so the effects engine must be kicked explicitly to match the
-    // restored active state (idempotent).
-    restoreEffects(
-      appAPI,
-      pluginManager.isActive(EFFECTS_PLUGIN_ID),
-      useAppStore.getState().projectPlugins?.settings?.[EFFECTS_PLUGIN_ID],
-    );
-    // The sun simulation reads/writes native map layers, so it must re-bind to
-    // the (possibly new) map instance after a map re-init or basemap change.
-    // Reattach only — it must NOT derive open/closed state here, which would
-    // reset a locally-opened panel on an unrelated basemap swap or remote edit.
-    // Project loads open/close it via the plugin's applyProjectState (invoked by
-    // restoreProjectState above).
-    reattachSun(appAPI);
-    // The route animation likewise owns native marker/trail layers, so rebind it
-    // to the (possibly new) map after a re-init/basemap swap without deriving
+    // The route animation owns native marker/trail layers, so rebind it to the
+    // (possibly new) map after a re-init/basemap swap without deriving
     // open/closed state (project loads handle that via applyProjectState).
     reattachRouteAnimation(appAPI);
-    // The flight simulator holds a reference to the live map (and suspends its
-    // interaction handlers while flying), so rebind it after a map re-init too.
-    reattachFlightSimulator(appAPI);
     // Rebind the directions tool to the (possibly new) map instance after a
     // map re-init, since restoreProjectState skips an already-active plugin.
     restoreDirections(appAPI, pluginManager.isActive(DIRECTIONS_PLUGIN_ID));
@@ -1332,16 +1348,6 @@ export function DesktopShell({
     // Same contract for the deck.gl overlay: re-attach it to the current map
     // and re-render any deckgl-viz layers a restored project carries.
     restoreDeckViz(appAPI, pluginManager.isActive(DECK_VIZ_PLUGIN_ID));
-    const search = window.location.search;
-    void pluginManager
-      .handleUrlParameters(new URLSearchParams(search), appAPI, `${projectGeneration}:${search}`)
-      // `handleUrlParameters` activates plugins asynchronously, so it can land
-      // after the synchronous pass above. No blocked plugin registers a URL
-      // handler today, but "every activation path is covered" is the whole
-      // point of the guard, so re-assert it once this settles rather than
-      // leaving the next one to notice.
-      .catch(console.error)
-      .finally(enforceViewerPlugins);
   }, [enforceViewerPlugins, externalPluginsReady, mapReadyGeneration, projectGeneration]);
 
   useEffect(() => {
@@ -2674,28 +2680,30 @@ export function DesktopShell({
                     mapControllerRef={mapControllerRef}
                     mapReadyGeneration={mapReadyGeneration}
                   />
-                  <RasterSubsetPanel
-                    layer={rasterSubsetLayer}
-                    onClose={() => setRasterSubsetLayer(null)}
-                    mapControllerRef={mapControllerRef}
-                  />
-                  <BasemapExtractPanel
-                    open={basemapExtractOpen}
-                    onClose={() => setBasemapExtractOpen(false)}
-                    mapControllerRef={mapControllerRef}
-                  />
                   <Suspense fallback={null}>
                     <ObjectDetectionDialog mapControllerRef={mapControllerRef} />
                   </Suspense>
                   <Suspense fallback={null}>
                     <SegmentEverythingPanel mapControllerRef={mapControllerRef} />
                   </Suspense>
-                  <TerrainSettingsDialog mapControllerRef={mapControllerRef} />
                   <StoryMapComposeBar mapControllerRef={mapControllerRef} />
                 </>
               )}
               {/* Renderer-neutral: these read the store rather than a
                   `MapController`, so they stay available on the 3D globe. */}
+              <TerrainSettingsDialog mapControllerRef={mapControllerRef} />
+              <RasterSubsetPanel
+                layer={rasterSubsetLayer}
+                onClose={() => setRasterSubsetLayer(null)}
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
+              <BasemapExtractPanel
+                open={basemapExtractOpen}
+                onClose={() => setBasemapExtractOpen(false)}
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
               <BoundsRestrictionIndicator />
               <QuickAnalysisBanner />
               <NetcdfProfileWindow />

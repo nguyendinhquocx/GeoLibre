@@ -372,6 +372,22 @@ def test_add_3d_tiles(m):
     assert layer["source"]["altitudeOffset"] == 5
 
 
+def test_add_3d_tiles_from_ion_asset(m):
+    m.add_3d_tiles(ion_asset_id=96188, name="Buildings")
+    layer = _last_layer(m)
+    assert layer["type"] == "3d-tiles"
+    assert layer["source"]["ionAssetId"] == 96188
+    assert layer["metadata"]["sourceKind"] == "cesium-ion"
+
+
+def test_add_cesium_ion_imagery(m):
+    m.add_cesium_ion(2, kind="imagery", name="Aerial")
+    layer = _last_layer(m)
+    assert layer["type"] == "raster"
+    assert layer["source"]["ionAssetId"] == 2
+    assert layer["metadata"]["externalNativeLayer"] is True
+
+
 def test_add_video_wraps_single_url(m):
     m.add_video("https://e/a.mp4", [[0, 0], [1, 0], [1, 1], [0, 1]])
     assert _last_layer(m)["source"]["urls"] == ["https://e/a.mp4"]
@@ -1217,3 +1233,191 @@ def test_legend_and_colorbar_coexist(m):
     # Adding a colorbar must not drop the existing legend, and vice versa.
     assert "legend" in components
     assert "colorbar" in components
+
+
+def test_renderer_and_mixed_layout_roundtrip(m, tmp_path):
+    m.set_map_layout(1, 2, view_kinds=["cesium", "maplibre"])
+    assert m.get_renderer() == "cesium"
+    pane = m.project["secondaryMapViews"][0]
+    m.set_renderer("cesium", pane_id=pane["id"])
+    m.set_map_layout(2, 2)
+    assert m.project["secondaryMapViews"][0]["id"] == pane["id"]
+    assert m.get_renderer(pane_id=pane["id"]) == "cesium"
+    path = tmp_path / "globe.geolibre.json"
+    m.save_project(path)
+    import json
+
+    saved = json.loads(path.read_text())
+    assert saved["primaryRenderer"] == "cesium"
+    assert saved["secondaryMapViews"][0]["viewKind"] == "cesium"
+    before = m.to_project()
+    with pytest.raises(ValueError):
+        m.set_map_layout(1, 2, view_kinds=["cesium"])
+    with pytest.raises(ValueError):
+        m.set_renderer("invalid")
+    with pytest.raises(ValueError):
+        m.set_renderer("cesium", pane_id="missing")
+    assert m.to_project() == before
+
+
+def test_malformed_secondary_map_views_raise_value_error(m):
+    # A hand-edited file can carry panes without ids or a non-list value; the
+    # renderer/layout API must reject those as ValueError, never KeyError.
+    m.load_project({**m.project, "secondaryMapViews": [{}]})
+    with pytest.raises(ValueError):
+        m.set_renderer("cesium", pane_id="x")
+    with pytest.raises(ValueError):
+        m.get_renderer(pane_id="x")
+    m.load_project({**m.project, "secondaryMapViews": "panes"})
+    with pytest.raises(ValueError):
+        m.set_map_layout(1, 2)
+    with pytest.raises(ValueError):
+        m.get_renderer(pane_id="x")
+    # An omitted viewKind is MapLibre; a present one must name a renderer.
+    m.load_project({**m.project, "secondaryMapViews": [{"id": "p"}]})
+    assert m.get_renderer(pane_id="p") == "maplibre"
+    # Unhashable JSON values must surface as ValueError too, not TypeError.
+    for bad in (None, "webgl", ["cesium"], {"kind": "cesium"}):
+        m.load_project({**m.project, "secondaryMapViews": [{"id": "p", "viewKind": bad}]})
+        with pytest.raises(ValueError):
+            m.get_renderer(pane_id="p")
+        with pytest.raises(ValueError):
+            m.set_map_layout(1, 2)
+    with pytest.raises(ValueError):
+        m.set_map_layout(1, 2, view_kinds=["maplibre", ["cesium"]])
+    # Duplicate ids would make pane lookups silently pick the first match.
+    m.load_project({**m.project, "secondaryMapViews": [{"id": "p"}, {"id": "p"}]})
+    with pytest.raises(ValueError):
+        m.get_renderer(pane_id="p")
+    with pytest.raises(ValueError):
+        m.set_map_layout(1, 3)
+
+
+# -- marker symbology, popups, and tooltips ------------------------------------
+
+
+def test_add_markers_named_style_args_reach_the_layer_style(m):
+    m.add_markers([(-100, 40)], color="#e11d48", radius=9, stroke_width=1)
+    style = _last_layer(m)["style"]
+    assert style["fillColor"] == "#e11d48"
+    assert style["circleRadius"] == 9
+    assert style["strokeWidth"] == 1
+
+
+def test_add_markers_shape_switches_to_a_marker_sprite(m):
+    m.add_markers([(-100, 40)], shape="pin", color="#e11d48", size=32)
+    style = _last_layer(m)["style"]
+    assert style["markerEnabled"] is True
+    assert style["markerShape"] == "pin"
+    assert style["markerSize"] == 32
+
+
+def test_add_markers_custom_icon(m):
+    m.add_markers([(-100, 40)], icon="<svg viewBox='0 0 1 1'/>")
+    style = _last_layer(m)["style"]
+    assert style["markerShape"] == "custom"
+    assert style["markerSvg"] == "<svg viewBox='0 0 1 1'/>"
+
+
+def test_add_markers_rejects_a_named_color_for_a_sprite(m):
+    with pytest.raises(ValueError, match="marker sprites need a hex color"):
+        m.add_markers([(-100, 40)], shape="star", color="crimson")
+
+
+def test_add_marker_takes_the_same_style_args(m):
+    m.add_marker(-100, 40, shape="star", color="#22c55e", size=20)
+    assert _last_layer(m)["style"]["markerShape"] == "star"
+
+
+def test_add_circle_markers_still_sets_the_radius(m):
+    m.add_circle_markers([(-100, 40)], radius=12)
+    assert _last_layer(m)["style"]["circleRadius"] == 12
+
+
+def test_an_explicit_style_key_wins_over_the_named_argument(m):
+    # The raw style key is the escape hatch; this is also the precedence
+    # add_circle_markers had before the named arguments existed.
+    m.add_markers([(-100, 40)], color="#ffffff", fillColor="#000000")
+    assert _last_layer(m)["style"]["fillColor"] == "#000000"
+
+
+def test_add_circle_markers_keeps_an_explicit_circle_radius(m):
+    m.add_circle_markers([(-100, 40)], radius=8, circleRadius=20)
+    assert _last_layer(m)["style"]["circleRadius"] == 20
+
+
+def test_add_markers_rejects_circle_only_settings_on_a_sprite(m):
+    with pytest.raises(ValueError, match="only applies to circle markers"):
+        m.add_markers([(-100, 40)], shape="pin", radius=9)
+
+
+def test_add_markers_popup_and_tooltip_land_on_the_layer(m):
+    m.add_markers(
+        [{"lon": -100, "lat": 40, "name": "A", "photo": "https://example.org/a.jpg"}],
+        popup=["name", {"field": "photo", "kind": "image", "label": "Photo"}],
+        tooltip="name",
+    )
+    layer = _last_layer(m)
+    assert layer["popup"] == {
+        "fields": [
+            {"field": "name", "hover": True},
+            {"field": "photo", "label": "Photo", "kind": "image"},
+        ],
+        "hover": True,
+    }
+    # The popup config is a layer key, not a style key; left in the style the
+    # app would never read it.
+    assert "popup" not in layer["style"]
+
+
+def test_add_geojson_also_accepts_a_popup(m):
+    m.add_geojson({"type": "FeatureCollection", "features": []}, popup="name")
+    assert _last_layer(m)["popup"] == {"fields": [{"field": "name"}]}
+
+
+def test_set_popup_replaces_the_config(m):
+    layer_id = m.add_markers([(-100, 40)], popup=["a", "b"])
+    m.set_popup(layer_id, ["c"], title="c")
+    assert m.get_layer(layer_id).popup == {"titleField": "c", "fields": [{"field": "c"}]}
+
+
+def test_set_popup_merge_keeps_what_it_does_not_mention(m):
+    layer_id = m.add_markers([(-100, 40)], popup=["a"])
+    m.set_popup(layer_id, title="a", merge=True)
+    popup = m.get_layer(layer_id).popup
+    assert popup["titleField"] == "a"
+    assert popup["fields"] == [{"field": "a"}]
+
+
+def test_set_tooltip_flags_an_existing_field_rather_than_duplicating_it(m):
+    layer_id = m.add_markers([(-100, 40)], popup=["a", "b"])
+    m.set_tooltip(layer_id, "a")
+    popup = m.get_layer(layer_id).popup
+    assert popup["hover"] is True
+    assert popup["fields"] == [{"field": "a", "hover": True}, {"field": "b"}]
+
+
+def test_set_tooltip_false_turns_the_tooltip_off(m):
+    layer_id = m.add_markers([(-100, 40)], popup=["a"], tooltip="a")
+    m.set_tooltip(layer_id, False)
+    assert m.get_layer(layer_id).popup["hover"] is False
+
+
+def test_clear_popup_restores_the_default(m):
+    layer_id = m.add_markers([(-100, 40)], popup=["a"])
+    m.clear_popup(layer_id)
+    assert m.get_layer(layer_id).popup == {}
+    assert "popup" not in _last_layer(m)
+
+
+def test_layer_popup_property_is_a_copy(m):
+    layer = m.get_layer(m.add_markers([(-100, 40)], popup=["a"]))
+    layer.popup["fields"].clear()
+    assert layer.popup["fields"] == [{"field": "a"}]
+
+
+def test_layer_set_popup_bumps_the_sync_sequence(m):
+    layer = m.get_layer(m.add_markers([(-100, 40)]))
+    seq = m._seq
+    layer.set_popup(["a"])
+    assert m._seq > seq

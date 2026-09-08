@@ -60,7 +60,8 @@ Pick the layer tool by what the data *is*, not by file extension alone:
 - `add_tile_layer`     - a raster XYZ tile template with {z}/{x}/{y}.
 - `add_tiles_layer`    - PMTiles or a vector tile service.
 - `add_ogc_layer`      - a WMS or WMTS endpoint.
-- `add_3d_tiles_layer` - an OGC 3D Tiles tileset.
+- `add_3d_tiles_layer` - an OGC 3D Tiles tileset (URL or Cesium Ion asset id).
+- `add_cesium_ion_layer` - a Cesium Ion asset (tileset or imagery) by id, 3D globe only.
 
 Layers are referenced by id or by display name. `describe_project` is the cheap
 way to see what a project currently holds; it never echoes back inlined
@@ -660,16 +661,22 @@ def build_server(workspace: Workspace) -> MCPServer:
     def add_3d_tiles_layer(
         path: str,
         name: str,
-        url: str,
+        url: str | None = None,
+        ion_asset_id: int | None = None,
         altitude_offset: float = 0,
         index: int | None = None,
     ) -> dict[str, Any]:
         """Add an OGC 3D Tiles tileset (photogrammetry meshes, 3D buildings).
 
+        Pass either a `tileset.json` URL or a Cesium Ion asset id. An Ion asset
+        (for example 96188, Cesium OSM Buildings) renders on the 3D globe only,
+        which loads it with the app's Cesium Ion token.
+
         Args:
             path: Path to the `.geolibre.json` file.
             name: The layer's display name.
             url: URL of the tileset's `tileset.json`.
+            ion_asset_id: A Cesium Ion asset id, instead of `url`.
             altitude_offset: Metres to shift the tileset vertically, to correct
                 a tileset that floats above or sinks below the terrain.
             index: Draw-order position; appended on top when omitted.
@@ -677,7 +684,40 @@ def build_server(workspace: Workspace) -> MCPServer:
         Returns:
             The new layer's id and the project's updated layer count.
         """
-        layer = _project.three_d_tiles_layer(name, url, altitude_offset=altitude_offset)
+        layer = _project.three_d_tiles_layer(
+            name, url, ion_asset_id=ion_asset_id, altitude_offset=altitude_offset
+        )
+        return add(path, layer, index)
+
+    @tool()
+    def add_cesium_ion_layer(
+        path: str,
+        name: str,
+        asset_id: int,
+        kind: str = "3d-tiles",
+        altitude_offset: float = 0,
+        index: int | None = None,
+    ) -> dict[str, Any]:
+        """Add a Cesium Ion asset (a 3D Tiles tileset or imagery) by asset id.
+
+        Renders on the 3D globe only (set the project's `primaryRenderer` to
+        `"cesium"`), which loads the asset with the app's Cesium Ion token; the
+        token is never written to the project.
+
+        Args:
+            path: Path to the `.geolibre.json` file.
+            name: The layer's display name.
+            asset_id: The Cesium Ion asset id (a positive integer).
+            kind: `"3d-tiles"` for a tileset or `"imagery"` for an imagery asset.
+            altitude_offset: Metres to shift a tileset vertically.
+            index: Draw-order position; appended on top when omitted.
+
+        Returns:
+            The new layer's id and the project's updated layer count.
+        """
+        layer = _project.cesium_ion_layer(
+            name, asset_id, kind=kind, altitude_offset=altitude_offset
+        )
         return add(path, layer, index)
 
     # -- editing layers -------------------------------------------------------
@@ -749,6 +789,65 @@ def build_server(workspace: Workspace) -> MCPServer:
         return _summarize(file, project, style=merged)
 
     @tool()
+    def set_layer_popup(
+        path: str,
+        layer: str,
+        fields: list[Any] | None = None,
+        click: bool | None = None,
+        title: str | None = None,
+        title_expression: str | None = None,
+        body_expression: str | None = None,
+        show_feature_id: bool | None = None,
+        tooltip: list[str] | None = None,
+        merge: bool = False,
+    ) -> dict[str, Any]:
+        """Choose what a layer shows when a feature is clicked or hovered.
+
+        Without a popup config a layer shows its name and every visible
+        property. A config narrows that to the fields you list, in your order,
+        under your labels and formats.
+
+        Each entry of `fields` is either a property name or an object with
+        `field` plus any of: `label`, `kind` (`auto`, `text`, `number`, `date`,
+        `link`, or `image` — `link` renders an http(s) URL as an anchor and
+        `image` renders one as a thumbnail), `hover`, `decimals`, `thousands`,
+        `date_format` (`date`, `datetime`, `time`, `iso`, `year`), `prefix`,
+        `suffix`, and `link_label`.
+
+        Args:
+            path: Path to the `.geolibre.json` file.
+            layer: The layer's id or display name.
+            fields: The fields to show, in display order.
+            click: False suppresses the click popup for this layer.
+            title: Property whose value titles the popup instead of the name.
+            title_expression: MapLibre expression source producing the title.
+            body_expression: MapLibre expression source producing the body as
+                one block of text instead of the field rows.
+            show_feature_id: False drops the synthetic `id` row.
+            tooltip: Property names to show in a hover tooltip. An empty list
+                turns the tooltip off.
+            merge: Merge into the layer's existing popup config instead of
+                replacing it.
+
+        Returns:
+            The layer's popup config after the change.
+        """
+        with edit(path) as (file, project):
+            config = authoring.set_popup(
+                project,
+                layer,
+                fields,
+                click=click,
+                title=title,
+                title_expression=title_expression,
+                body_expression=body_expression,
+                show_feature_id=show_feature_id,
+                tooltip=tooltip,
+                merge=merge,
+            )
+        return _summarize(file, project, popup=config)
+
+    @tool()
     def classify_layer(
         path: str,
         layer: str,
@@ -816,6 +915,24 @@ def build_server(workspace: Workspace) -> MCPServer:
         }
 
     # -- camera, basemap, and controls ---------------------------------------
+
+    @tool()
+    def set_renderer(path: str, renderer: str, pane_id: str | None = None) -> dict[str, Any]:
+        """Select maplibre or cesium for the primary map or a secondary pane ID."""
+        with edit(path) as (file, project):
+            authoring.set_renderer(project, renderer, pane_id=pane_id)
+        return _summarize(file, project, renderer=renderer, paneId=pane_id)
+
+    @tool()
+    def set_map_layout(
+        path: str, rows: int, cols: int, view_kinds: list[str] | None = None, sync_view: bool = True
+    ) -> dict[str, Any]:
+        """Set a 1–4 row/column grid; view_kinds lists each pane renderer, primary first."""
+        with edit(path) as (file, project):
+            panes = authoring.set_map_layout(
+                project, rows, cols, view_kinds=view_kinds, sync_view=sync_view
+            )
+        return _summarize(file, project, secondaryMapViews=panes)
 
     @tool()
     def set_view(

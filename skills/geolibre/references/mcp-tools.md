@@ -20,7 +20,8 @@ Pick by what the data **is**:
 | An XYZ raster tile template (`{z}/{x}/{y}.png`) | `add_tile_layer` | Basemaps like OSM go here, not `set_basemap`. |
 | A PMTiles archive, or a vector tile service | `add_tiles_layer` | `kind="pmtiles"` (with `tile_type`) or `kind="vector-tiles"`. |
 | A WMS or WMTS endpoint | `add_ogc_layer` | `service="wms"` or `"wmts"`. |
-| An OGC 3D Tiles tileset | `add_3d_tiles_layer` | `altitude_offset` to sit it on the ground. |
+| An OGC 3D Tiles tileset | `add_3d_tiles_layer` | `altitude_offset` to sit it on the ground; `ion_asset_id` instead of `url` for a Cesium Ion tileset. |
+| A Cesium Ion asset (tileset or imagery) | `add_cesium_ion_layer` | 3D globe only: pair it with `set_renderer` / `primaryRenderer: "cesium"`. `kind="imagery"` for imagery. |
 | A Shapefile, GeoPackage, KML, CSV | Convert first | Read it with GeoPandas and pass GeoJSON to `add_geojson_layer`, or use the Python API's `Map.add_shp` / `Map.add_gpkg` / `Map.add_kml` / `Map.add_csv`. |
 
 Layers draw bottom-first. Every `add_*` takes an optional `index` (draw-order
@@ -60,7 +61,8 @@ add_ogc_layer(path, name, service, endpoint, layers=None, styles="",
               version="1.1.1", bounds=None, index=None)
 add_tiles_layer(path, name, url, kind="pmtiles", tile_type="vector",
                 source_layers=None, style=None, index=None)
-add_3d_tiles_layer(path, name, url, altitude_offset=0, index=None)
+add_3d_tiles_layer(path, name, url=None, ion_asset_id=None, altitude_offset=0, index=None)
+add_cesium_ion_layer(path, name, asset_id, kind="3d-tiles", altitude_offset=0, index=None)
 ```
 
 - `add_geojson_layer(data=...)` takes an `http(s)` URL, a workspace file path,
@@ -89,6 +91,9 @@ add_3d_tiles_layer(path, name, url, altitude_offset=0, index=None)
 update_layer(path, layer, name=None, visible=None, opacity=None, index=None)
 remove_layer(path, layer)
 style_layer(path, layer, style)
+set_layer_popup(path, layer, fields=None, click=None, title=None,
+                title_expression=None, body_expression=None,
+                show_feature_id=None, tooltip=None, merge=False)
 classify_layer(path, layer, column, class_count=5, colormap="viridis",
                scheme="equal-interval")
 list_layer_properties(path, layer)
@@ -102,6 +107,17 @@ it. Common keys: `fillColor`, `fillOpacity`, `strokeColor`, `strokeWidth`,
 `rasterBrightnessMax` / `rasterSaturation` / `rasterContrast` /
 `rasterHueRotate`. Colors are CSS strings (`"#3b82f6"`).
 
+`set_layer_popup` chooses what a click (and, with `tooltip`, a hover) shows.
+Without it a layer shows its name plus every visible property. Each `fields`
+entry is a property name or an object with `field` plus any of `label`, `kind`,
+`hover`, `decimals`, `thousands`, `date_format`, `prefix`, `suffix`,
+`link_label`. `kind` is `auto`, `text`, `number`, `date`, `link` (an http(s) URL
+becomes an anchor) or `image` (an http(s) URL or inline base64 raster data URL
+becomes a thumbnail). `tooltip` takes the property names to put in the hover
+tip; `[]` turns the tip off. `merge=True` edits the existing config in place, so
+a tooltip can be added without restating the fields. Run
+`list_layer_properties` first to get the real column names.
+
 `classify_layer` clamps `class_count` to 2–12. `scheme` is `equal-interval`
 (even value ranges) or `quantile` (even feature counts per class). It needs an
 inlined GeoJSON layer; run `list_layer_properties` first to get the real column
@@ -110,6 +126,8 @@ name and a sense of the values.
 ### Framing and decoration
 
 ```text
+set_renderer(path, renderer, pane_id=None)
+set_map_layout(path, rows, cols, view_kinds=None, sync_view=True)
 set_view(path, center=None, zoom=None, bearing=None, pitch=None, bbox=None)
 set_basemap(path, basemap)
 add_legend(path, title=None, legend_dict=None, labels=None, colors=None,
@@ -120,6 +138,8 @@ add_swipe(path, left_layers, right_layers, orientation="vertical",
           position=50, control_position="top-right")
 ```
 
+- `set_renderer`: use `"maplibre"` or `"cesium"`; omit `pane_id` for the primary map.
+- `set_map_layout`: rows/cols are integers 1–4. `view_kinds` lists every pane renderer, primary first. Read secondary IDs from the returned `secondaryMapViews` before changing a named pane.
 - `set_view`: `zoom` is clamped to 0–24. `bbox` is `[west, south, east, north]`
   and is resolved to a camera approximately — see the SKILL's gotcha list.
 - `set_basemap` takes a named basemap or a MapLibre style JSON URL. An XYZ

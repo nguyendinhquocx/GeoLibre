@@ -143,7 +143,15 @@ export interface GeoLibreAppAPI {
   onBasemapChange: (callback: (styleUrl: string) => void) => () => void;
   fetchArrayBuffer?: (url: string) => Promise<ArrayBuffer>;
   fitBounds?: (bounds: [number, number, number, number]) => void;
+  // The extent the primary map currently shows, [west, south, east, north] in
+  // degrees, on either renderer. The engine-neutral replacement for
+  // getMap()?.getBounds() — see "Reading the viewport" below.
+  getViewBounds?: () => [number, number, number, number] | null;
   getMap?: () => import("maplibre-gl").Map | null;
+  // The primary Cesium globe's scene (namespace, widget, scene, camera, clock,
+  // canvas, readView), or null when the primary map is not a globe. The globe's
+  // counterpart to getMap for plugins that declare engines: ["maplibre", "cesium"].
+  getCesiumScene?: () => import("@geolibre/map").CesiumSceneHandle | null;
   addMapControl: (
     control: IControl,
     position?: GeoLibreMapControlPosition,
@@ -1097,3 +1105,85 @@ plugins, whose registrations no cleanup path would reach.
 The assistant refreshes its tools before the next prompt while retaining its
 conversation history. Plugin callbacks execute plugin-authored code, like a
 panel button; they should use the app API to update layers and other app state.
+
+The host exposes `app.getMapRenderer()` to read the current primary renderer.
+Engine declarations are enforced by the plugin manager for activation, URL
+parameters, project restoration, and delayed control registration, as well as
+by the Plugins menu and command palette. Renderer changes suspend unsupported
+plugins and retain their saved settings and activation for the return trip.
+Compatible plugins remount their controls on the replacement renderer.
+
+### Reading the viewport
+
+A catalog or service browser that narrows its search to what the user can see
+must read the extent through `app.getViewBounds()`, not
+`app.getMap()?.getBounds()`. `getMap()` is null on the globe, so the second
+form yields no bounds there — and a plugin that reads "no bounds" as "no
+filter" then searches the whole world while its "current view only" checkbox
+stays ticked, which is exactly the silent success an `engines` declaration is
+meant to rule out. `getViewBounds` answers from whichever engine is primary
+and unwraps an antimeridian crossing (east > 180), as `MapExtent` does
+everywhere else in the app.
+
+`getViewBounds` has its own `null`: no map mounted yet, the globe mid-morph
+between scene modes, or a camera pointed away from Earth. Do not read that as
+"no filter" — widening the search is the same lie in a second place. Refuse the
+search and say the extent is unavailable, as the ArcGIS Hub panel does.
+
+A frontend test scans every plugin that declares Cesium support, follows its
+relative imports so a plugin split across a subdirectory is covered too, and
+fails on a `getMap()`-routed bounds read — chained or split across two
+statements. A call that deliberately branches on `getMap()` being null carries
+an `engine-audit-allow: getMap-bounds` comment on its own line or just above
+it, with the reason — the opt-out is scoped to that call, so a second bounds
+read elsewhere in the same module still reports.
+
+A plugin that drives the renderer directly branches on which handle is
+non-null: `app.getMap()` on MapLibre, `app.getCesiumScene()` on the globe. The
+Cesium handle carries the `@cesium/engine` namespace alongside the live widget,
+scene, camera, and clock, so a plugin constructs Cesium objects (`SunLight`,
+`JulianDate`, `Cartesian3`) without importing the engine itself — which is what
+keeps Cesium off the 2D boot path. Its `primary` flag distinguishes the primary
+map area from a grid pane; the built-in environment plugins bind to the
+primary map only, as they do on MapLibre. The Sun simulation (native
+`SunLight`, globe lighting, and the scene clock), Atmospheric Effects (the sky
+box, `SkyAtmosphere` hue/saturation/brightness shifts, and the background
+colour), the Flight Simulator (`camera.setView` each frame with navigation
+inputs suspended), and the Clouds / Precipitation overlays (store tile layers)
+are the reference implementations of this pattern. A plugin bound to the globe
+must restore any scene state it changes on `deactivate`, because both engines
+are rebuilt on a renderer swap and the host re-activates compatible plugins
+against the new one.
+
+### What a MapLibre control gets on the globe
+
+`app.addMapControl` works under Cesium too. The globe mounts the control's DOM
+in the same four `.maplibregl-ctrl-{top,bottom}-{left,right}` corner containers
+over its canvas — so the scoped CSS in `index.css` keeps applying — and hands
+`onAdd` a MapLibre-shaped facade over the Cesium scene rather than a real
+`Map`. The facade answers:
+
+- `getContainer`, `getCanvas`, `isStyleLoaded`, and the `Evented` methods
+  (`on` / `off` / `once` / `fire`).
+- `getCenter`, `getZoom`, `getBearing`, `getPitch` from the store's map view,
+  and `jumpTo` / `flyTo` / `easeTo` by writing it back.
+- `project`, `unproject`, and `getBounds` from the live scene: a coordinate is
+  projected on the terrain surface, a screen point is picked against terrain
+  then the ellipsoid, and the bounds come from the camera's view rectangle. A
+  coordinate the scene cannot place reads as off-screen window coordinates, a
+  screen point that misses the globe unprojects to the view centre, and a
+  camera with no bounded view rectangle reports the whole world — the same
+  shapes MapLibre's globe projection answers with, so a control keeps running
+  instead of throwing mid-render.
+- `setStyle(url)`, routed to the project basemap.
+- `addSource` / `getSource` / `removeSource`, kept in a map on the facade.
+
+Everything that paints through the Mapbox Style Spec — `addLayer`,
+`setPaintProperty`, `setLayoutProperty`, `getStyle` — **throws**. That is the
+honest boundary: a control that draws its own map layers has no globe
+representation, and a silent no-op would leave it reporting success while
+nothing appears. `addMapControl` catches the throw and returns `false`, so a
+control that trips it fails to mount rather than taking plugin activation down
+with it. A plugin whose control needs those methods should keep the default
+`engines: ["maplibre"]` and, if the globe matters, add a Cesium branch through
+`app.getCesiumScene()`.
