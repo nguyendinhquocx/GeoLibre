@@ -1,10 +1,12 @@
 import {
   DEFAULT_LAYER_STYLE,
   compileQuickFilters,
+  labelFieldTextField,
   ruleBasedVisibilityFilter,
   styleValue,
   type GeoLibreLayer,
   type LayerStyle,
+  documentLocale,
 } from "@geolibre/core";
 import type { FeatureCollection } from "geojson";
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
@@ -157,13 +159,10 @@ function labelTextField(style: LayerStyle, warnings: string[]): ExpressionSpecif
       warnings.push("Label expression could not be parsed; used the label field instead.");
     }
   }
-  if (labels.field) {
-    return [
-      "to-string",
-      ["coalesce", ["get", labels.field], ""],
-    ] as unknown as ExpressionSpecification;
-  }
-  return null;
+  // Shared with the live map so an exported style labels exactly as the map
+  // does, number formatting included.
+  const fieldTextField = labelFieldTextField(labels, documentLocale());
+  return fieldTextField === "" ? null : (fieldTextField as unknown as ExpressionSpecification);
 }
 
 /**

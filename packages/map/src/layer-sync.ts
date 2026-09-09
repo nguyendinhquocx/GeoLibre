@@ -3,8 +3,11 @@ import {
   controlRendersLayer,
   DEFAULT_LAYER_STYLE,
   generatorCircleRadiusValue,
+  formatLabelNumber,
   geojsonHasZCoordinates,
   getExternalNativePaintBridge,
+  labelFieldTextField,
+  resolveLabelNumberLocale,
   pluginOwnsPaint,
   proportionalRadiusExpression,
   ruleBasedVisibilityFilter,
@@ -12,8 +15,10 @@ import {
   styleValue,
   type ExternalNativePaintBridge,
   type GeoLibreLayer,
+  type LabelStyle,
   type LayerStyle,
   validateMapExpression,
+  documentLocale,
 } from "@geolibre/core";
 import {
   normalizePMTilesUrl,
@@ -2416,7 +2421,7 @@ function applyVectorDataRenderLayers(
     profile.hasPoint &&
     !profile.hasLine &&
     !profile.hasPolygon
-      ? getDedupedLabelFeatures(layer.geojson, labels.field, labels.dedupe)
+      ? getDedupedLabelFeatures(layer.geojson, labels)
       : null;
   if (
     !layer.style.extrusionEnabled &&
@@ -2424,9 +2429,9 @@ function applyVectorDataRenderLayers(
     labels.enabled &&
     (dedupedLabelFc || labels.expression.trim() || labels.field)
   ) {
-    const fieldTextField = (labels.field
-      ? ["to-string", ["coalesce", ["get", labels.field], ""]]
-      : "") as unknown as maplibregl.ExpressionSpecification | string;
+    const fieldTextField = labelFieldTextField(labels, documentLocale()) as unknown as
+      | maplibregl.ExpressionSpecification
+      | string;
     let textField: maplibregl.ExpressionSpecification | string;
     if (dedupedLabelFc) {
       // The aggregated source carries the resolved label in `__geolibre_label`.
@@ -2713,17 +2718,32 @@ const dedupedLabelCache = new WeakMap<
 
 function getDedupedLabelFeatures(
   collection: GeoJSON.FeatureCollection,
-  field: string,
-  mode: "off" | "unique" | "concatenate",
+  labels: LabelStyle,
 ): GeoJSON.FeatureCollection | null {
   let byKey = dedupedLabelCache.get(collection);
   if (!byKey) {
     byKey = new Map();
     dedupedLabelCache.set(collection, byKey);
   }
-  const key = `${mode}:${field}`;
+  // Number formatting is part of the key: it changes the aggregated label
+  // text, and "unique"/"concatenate" group on that text. The key carries the
+  // *effective* locale, resolved the same way the formatter resolves it, so a
+  // stored tag the formatter rejects (malformed, or one the map cannot draw)
+  // does not pin the cache to a locale the labels were never formatted with,
+  // and switching the app language reformats labels that follow it
+  // (`numberLocale: ""`) instead of serving the previous language's separators.
+  const locale = documentLocale();
+  const key = [
+    labels.dedupe,
+    labels.numberFormatEnabled
+      ? `${labels.numberDecimals}:${resolveLabelNumberLocale(labels.numberLocale, locale) ?? ""}`
+      : "raw",
+    labels.field,
+  ].join("|");
   if (byKey.has(key)) return byKey.get(key) ?? null;
-  const result = buildDedupedLabelFeatures(collection, field, mode);
+  const result = buildDedupedLabelFeatures(collection, labels.field, labels.dedupe, (value) =>
+    formatLabelNumber(value, labels, locale),
+  );
   byKey.set(key, result);
   return result;
 }

@@ -1,4 +1,10 @@
-import { compileFeatureExpression, DEFAULT_LAYER_STYLE, type GeoLibreLayer } from "@geolibre/core";
+import {
+  compileFeatureExpression,
+  DEFAULT_LAYER_STYLE,
+  formatLabelNumber,
+  type GeoLibreLayer,
+  documentLocale,
+} from "@geolibre/core";
 import type { Feature } from "geojson";
 import type { Cartesian3, CesiumWidget, DistanceDisplayCondition, Entity } from "@cesium/engine";
 import { readMapViewFromCamera, zoomToDisplayDistance } from "./cesium-camera";
@@ -63,17 +69,26 @@ export function createCesiumLabeler(
     cachedZoom = readZoom();
     return cachedZoom;
   };
+  // Read per call rather than closing over one value: a UI language switch does
+  // not change the layer object, so it never rebuilds the data source and this
+  // labeler outlives it. Capturing would leave "Match app language" labels on
+  // the previous language's separators until some unrelated change rebuilt.
   const readText = (feature: Feature, zoom: number): string => {
+    const locale = documentLocale();
     let value: unknown = feature.properties?.[labels.field];
+    let fromExpression = false;
     if (expression.evaluate) {
       try {
         value = expression.evaluate(feature, zoom);
+        fromExpression = true;
       } catch {
         value = undefined;
       }
     }
     if (value === undefined || value === null || value === "") return "";
-    let text = String(value);
+    // Number formatting applies to the field only, matching the 2D map: an
+    // expression formats its own output.
+    let text = (fromExpression ? null : formatLabelNumber(value, labels, locale)) ?? String(value);
     if (labels.transform === "uppercase") text = text.toUpperCase();
     if (labels.transform === "lowercase") text = text.toLowerCase();
     return text;

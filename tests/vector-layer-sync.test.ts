@@ -647,6 +647,9 @@ describe("wireVectorStoreSync", () => {
       labelHaloWidth: 1.5,
       labelPlacement: "point",
       labelAllowOverlap: false,
+      labelNumberFormat: false,
+      labelNumberDecimals: 0,
+      labelNumberLocale: "",
       // Extrusion fields default through from DEFAULT_LAYER_STYLE; the height is
       // the chosen property scaled (default property "height", scale 1) and the
       // color resolves to a flat value so its expression field is undefined.
@@ -763,6 +766,52 @@ describe("wireVectorStoreSync", () => {
     const pushed = calls[0].args[1] as VectorLayerStyle;
     assert.equal(pushed.labelField, "name");
     assert.equal(pushed.labelSize, 18);
+  });
+
+  it("pushes the label number format through the control", () => {
+    const { control, calls } = fakeControl([
+      vectorInfo({ style: vectorStyle({ labelField: "pop" }) }),
+    ]);
+    syncVectorLayersToStore(control);
+    wireVectorStoreSync(control);
+
+    // A GeoParquet layer is rendered by the control, not by layer-sync, so the
+    // number-format settings only reach the map through this mapping.
+    useAppStore.getState().setLayerStyle("vector-1", {
+      labels: {
+        ...DEFAULT_LAYER_STYLE.labels,
+        enabled: true,
+        field: "pop",
+        numberFormatEnabled: true,
+        numberDecimals: 2,
+        numberLocale: "de-DE",
+      },
+    });
+
+    assert.equal(calls.length, 1);
+    const pushed = calls[0].args[1] as VectorLayerStyle;
+    assert.equal(pushed.labelNumberFormat, true);
+    assert.equal(pushed.labelNumberDecimals, 2);
+    assert.equal(pushed.labelNumberLocale, "de-DE");
+  });
+
+  it("seeds the panel number format from the control's label style", () => {
+    const { control } = fakeControl([
+      vectorInfo({
+        style: vectorStyle({
+          labelField: "pop",
+          labelNumberFormat: true,
+          labelNumberDecimals: 3,
+          labelNumberLocale: "en-US",
+        }),
+      }),
+    ]);
+    syncVectorLayersToStore(control);
+
+    const layer = useAppStore.getState().layers[0];
+    assert.equal(layer.style.labels.numberFormatEnabled, true);
+    assert.equal(layer.style.labels.numberDecimals, 3);
+    assert.equal(layer.style.labels.numberLocale, "en-US");
   });
 
   it("clears the control label field when labels are disabled", () => {
@@ -1157,6 +1206,40 @@ describe("removeVectorStoreLayers", () => {
 });
 
 describe("savedVectorState", () => {
+  it("persists and restores the label number format across a reload", () => {
+    // savedVectorState feeds restoreVectorLayers, so a field missing from
+    // savedVectorStyle is a setting silently lost when the project is reopened.
+    const layer = createVectorStoreLayer(
+      vectorInfo({
+        style: vectorStyle({
+          labelField: "pop",
+          labelNumberFormat: true,
+          labelNumberDecimals: 2,
+          labelNumberLocale: "de-DE",
+        }),
+      }),
+    );
+
+    const restored = savedVectorState(layer);
+    assert.equal(restored.style?.labelNumberFormat, true);
+    assert.equal(restored.style?.labelNumberDecimals, 2);
+    assert.equal(restored.style?.labelNumberLocale, "de-DE");
+  });
+
+  it("drops an out-of-range decimals value from a hand-edited project file", () => {
+    for (const bad of [2.5, -1, 99, Number.NaN, "2"]) {
+      const layer = createVectorStoreLayer(
+        vectorInfo({ style: vectorStyle({ labelField: "pop" }) }),
+      );
+      // Reach past the typed builder the way a hand-edited project file would.
+      (layer.metadata.vectorState as { style: Record<string, unknown> }).style.labelNumberDecimals =
+        bad;
+
+      const restored = savedVectorState(layer);
+      assert.equal(restored.style?.labelNumberDecimals, undefined, String(bad));
+    }
+  });
+
   it("round-trips the state persisted by createVectorStoreLayer", () => {
     const layer = createVectorStoreLayer(
       vectorInfo({

@@ -87,13 +87,16 @@ installDiagnosticsCapture();
 
 const nativeCoordinateOpenReady = initializeNativeCoordinateOpen();
 const nativeProjectOpenReady = initializeNativeProjectOpen();
+let nativeArcGISFetchReady: Promise<void> = Promise.resolve();
 let nativeSidecarFetchReady: Promise<void> = Promise.resolve();
-// In the desktop build, route geocoding (place search / reverse geocode)
-// through Tauri's native HTTP client so it bypasses WebView CORS: public
-// Nominatim's CDN intermittently omits the CORS header on cached responses,
-// which the WebView rejects as "Search failed. Try again." Lazy + desktop-only
-// so the web/embedded bundles never import the Tauri HTTP plugin.
+// Install desktop-only transports before requests can be issued. ArcGIS uses
+// a dedicated guarded Rust command; the other adapters use scoped HTTP hosts.
 if (isTauri()) {
+  nativeArcGISFetchReady = import("./lib/arcgis-fetch")
+    .then(({ installNativeArcGISFetch }) => installNativeArcGISFetch())
+    .catch((error: unknown) => {
+      console.error("[GeoLibre] Failed to install native ArcGIS fetch", error);
+    });
   // WebView2 can apply browser CORS and Local Network Access restrictions to
   // the loopback processing server. Route those requests through Tauri's
   // scoped native client so Windows uses the same reliable path as the shell
@@ -284,6 +287,8 @@ void Promise.all([
   // Sidecar-dependent panels can issue a request as soon as App mounts. On
   // Windows, wait until those requests have the native transport installed.
   nativeSidecarFetchReady,
+  // Restored ArcGIS layers can query immediately when App mounts.
+  nativeArcGISFetchReady,
   // Capture a file-association or command-line project path before App decides
   // whether to restore a configured startup project or the default workspace.
   nativeProjectOpenReady,

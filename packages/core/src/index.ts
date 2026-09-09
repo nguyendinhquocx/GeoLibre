@@ -13,6 +13,8 @@ export * from "./routing";
 export * from "./polyline";
 export * from "./vector-color";
 export * from "./expressions";
+export * from "./document-locale";
+export * from "./label-number-format";
 export * from "./external-native-paint";
 export * from "./attribute-form";
 export * from "./popup";
@@ -35,6 +37,12 @@ export * from "./layer-groups";
 export * from "./pixel-format";
 export * from "./print-layout-config";
 export { createSampleStoryMap } from "./storymap-sample";
+export {
+  applyStoryLayerOpacity,
+  isStoryHiddenLayer,
+  storyLayerOpacityFactor,
+  storyVisibleLayers,
+} from "./storymap-playback";
 export {
   scrubWidgetsForRemovedLayers,
   scrubCommentsForRemovedLayers,

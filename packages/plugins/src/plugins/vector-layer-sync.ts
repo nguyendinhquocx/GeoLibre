@@ -11,6 +11,8 @@ import {
   type LayerStyle,
   type VectorColorValue,
   useAppStore,
+  documentLocale,
+  resolveLabelNumberLocale,
 } from "@geolibre/core";
 import type { PropertyValueSpecification } from "maplibre-gl";
 import type { VectorLayerInfo, VectorLayerOptions, VectorLayerStyle } from "maplibre-gl-vector";
@@ -688,6 +690,24 @@ function savedVectorStyle(raw: unknown): Partial<VectorLayerStyle> | null {
   if (typeof candidate.labelAllowOverlap === "boolean") {
     style.labelAllowOverlap = candidate.labelAllowOverlap;
   }
+  if (typeof candidate.labelNumberFormat === "boolean") {
+    style.labelNumberFormat = candidate.labelNumberFormat;
+  }
+  // Same 0-10 integer range the control and LabelStyle both clamp to, so a
+  // hand-edited project cannot restore a fractional or out-of-range precision.
+  if (
+    typeof candidate.labelNumberDecimals === "number" &&
+    Number.isInteger(candidate.labelNumberDecimals) &&
+    candidate.labelNumberDecimals >= 0 &&
+    candidate.labelNumberDecimals <= 10
+  ) {
+    style.labelNumberDecimals = candidate.labelNumberDecimals;
+  }
+  // Length-capped like the field name; the renderer validates the tag itself
+  // and falls back when Intl rejects it or the map cannot draw its separators.
+  if (typeof candidate.labelNumberLocale === "string" && candidate.labelNumberLocale.length <= 35) {
+    style.labelNumberLocale = candidate.labelNumberLocale;
+  }
 
   return Object.keys(style).length > 0 ? style : null;
 }
@@ -755,7 +775,7 @@ function layerStyleToVectorStyle(style: LayerStyle): VectorLayerStyle {
     // an empty labelField clears it.
     //
     // Only field-based labeling is wired here. LabelStyle.expression,
-    // .minZoom, and .maxZoom have no maplibre-gl-vector@0.8.0 equivalent, so
+    // .minZoom, and .maxZoom have no maplibre-gl-vector equivalent, so
     // they are intentionally left out of this mapping, out of vectorStylesEqual,
     // and out of savedVectorStyle. The shared Style panel still shows those
     // controls, but for a control-managed layer they are no-ops; adding them
@@ -768,6 +788,13 @@ function layerStyleToVectorStyle(style: LayerStyle): VectorLayerStyle {
     labelHaloWidth: style.labels.haloWidth,
     labelPlacement: style.labels.placement,
     labelAllowOverlap: style.labels.allowOverlap,
+    labelNumberFormat: style.labels.numberFormatEnabled,
+    labelNumberDecimals: style.labels.numberDecimals,
+    // Resolve the "match app language" sentinel here rather than pushing the
+    // empty string: the control would hand "" to Intl as the runtime default,
+    // which is the browser's locale, not GeoLibre's UI language. layer-sync
+    // resolves it the same way for its own layers, so both paths agree.
+    labelNumberLocale: resolveLabelNumberLocale(style.labels.numberLocale, documentLocale()) ?? "",
   };
 }
 
@@ -847,6 +874,18 @@ function vectorStyleToLayerStyle(info: VectorLayerInfo): Partial<LayerStyle> {
         typeof style.labelHaloWidth === "number" ? style.labelHaloWidth : defaults.haloWidth,
       placement: style.labelPlacement === "line" ? "line" : "point",
       allowOverlap: style.labelAllowOverlap ?? defaults.allowOverlap,
+      numberFormatEnabled: style.labelNumberFormat ?? defaults.numberFormatEnabled,
+      // Range-checked like labelSize above: the control's snapshot is untrusted
+      // input here (it can come from a hand-edited project), and a fractional,
+      // negative or huge precision would otherwise reach LabelStyle.
+      numberDecimals:
+        typeof style.labelNumberDecimals === "number" &&
+        Number.isInteger(style.labelNumberDecimals) &&
+        style.labelNumberDecimals >= 0 &&
+        style.labelNumberDecimals <= 10
+          ? style.labelNumberDecimals
+          : defaults.numberDecimals,
+      numberLocale: style.labelNumberLocale ?? defaults.numberLocale,
     };
   }
 
@@ -901,7 +940,10 @@ function vectorStylesEqual(left: VectorLayerStyle, right: VectorLayerStyle): boo
     left.labelHaloColor === right.labelHaloColor &&
     left.labelHaloWidth === right.labelHaloWidth &&
     left.labelPlacement === right.labelPlacement &&
-    left.labelAllowOverlap === right.labelAllowOverlap
+    left.labelAllowOverlap === right.labelAllowOverlap &&
+    left.labelNumberFormat === right.labelNumberFormat &&
+    left.labelNumberDecimals === right.labelNumberDecimals &&
+    left.labelNumberLocale === right.labelNumberLocale
   );
 }
 
