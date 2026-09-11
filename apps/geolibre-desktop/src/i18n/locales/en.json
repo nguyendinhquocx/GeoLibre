@@ -351,6 +351,10 @@
       "cesiumIon": {
         "label": "Add Cesium Ion Asset",
         "description": "Add a 3D Tiles tileset or imagery from Cesium Ion by asset id. Renders on the 3D globe with your Cesium Ion token."
+      },
+      "czml": {
+        "label": "Add CZML Dynamic 3D Layer",
+        "description": "Load a dynamic Cesium Language (CZML) document describing orbits, trajectories, vehicle paths, and time-varying 3D scenes on the globe."
       }
     },
     "shared": {
@@ -419,6 +423,20 @@
       "errorAssetId": "Enter a Cesium Ion asset id (a positive whole number).",
       "errorAltitude": "Enter the altitude offset as a number of metres.",
       "tokenMissing": "No Cesium Ion token is configured. Add one in Settings → Environment variables (VITE_CESIUM_TOKEN) or the asset will fail to load."
+    },
+    "czml": {
+      "defaultName": "CZML Dynamic Scene",
+      "url": "CZML URL",
+      "sourceModeUrl": "URL",
+      "sourceModeFile": "Local file",
+      "file": "File",
+      "quickPicks": "Sample dynamic scenes",
+      "hint": "CZML streams or files define dynamic 3D positions, animations, and orbits synchronized with the globe clock.",
+      "errorUrl": "Enter a valid CZML endpoint URL.",
+      "errorChooseFile": "Select a CZML (.czml or .json) file to load.",
+      "errorFileMissing": "The selected file could not be read.",
+      "errorInvalidCzml": "The file does not contain a valid CZML document (expected JSON array or packet object).",
+      "readError": "Failed to read CZML data."
     },
     "xyz": {
       "defaultName": "XYZ Layer",
@@ -2508,6 +2526,7 @@
       "video": "Video Layer",
       "deckglViz": "Deck.gl Layer",
       "cesiumIon": "Cesium Ion Asset",
+      "czml": "CZML Dynamic 3D Scene",
       "gltfModel": "3D Model (glTF)",
       "postgres": "PostgreSQL Layer",
       "iceberg": "Apache Iceberg Layer"

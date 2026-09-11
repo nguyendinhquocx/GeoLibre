@@ -1693,6 +1693,66 @@ def cesium_ion_layer(
     return layer
 
 
+CZML_SOURCE_KIND = "czml"
+"""``metadata.sourceKind`` of a layer that references a CZML dynamic scene."""
+
+
+def czml_layer(
+    name: str,
+    *,
+    url: str | None = None,
+    data: list[dict[str, Any]] | dict[str, Any] | None = None,
+    source_path: str | None = None,
+    **style: Any,
+) -> dict[str, Any]:
+    """Build a layer that loads a CZML (Cesium Language) dynamic 3D scene.
+
+    The shape matches ``createCzmlLayer`` in ``@geolibre/core``: a
+    ``3d-tiles`` layer marked external so the 2D map leaves it alone and badges
+    it "3D only". The globe renders dynamic orbits, vehicle paths, and time-varying
+    scenes from CZML packets with clock synchronization.
+
+    Args:
+        name: Layer display name.
+        url: URL endpoint serving the CZML document.
+        data: Inline parsed CZML document (packets array or packet object).
+        source_path: Optional local file path when loaded from disk.
+        **style: Style overrides merged into the default layer style.
+
+    Returns:
+        A layer dict for the project's ``layers`` array.
+
+    Raises:
+        ValueError: If neither ``url`` nor a non-empty ``data`` is provided.
+    """
+    if not url and not data:
+        raise ValueError("Either url or non-empty data must be provided for a CZML layer")
+    layer = _layer_base(name, "3d-tiles", **style)
+    source_id = layer["id"]
+    source: dict[str, Any] = {
+        "type": "3d-tiles",
+        "sourceId": source_id,
+    }
+    if url:
+        source["url"] = url
+    if data:
+        source["czmlData"] = data
+    if source_path:
+        source["sourcePath"] = source_path
+        layer["sourcePath"] = source_path
+
+    metadata: dict[str, Any] = {
+        "sourceKind": CZML_SOURCE_KIND,
+        "externalNativeLayer": True,
+        "identifiable": False,
+        "sourceId": source_id,
+        "nativeLayerIds": [source_id],
+    }
+    layer["source"] = source
+    layer["metadata"] = metadata
+    return layer
+
+
 def video_layer(
     name: str,
     urls: list[str],

@@ -1,3 +1,4 @@
+import { isCzmlLayer } from "./czml";
 import { DEFAULT_LAYER_STYLE, type GeoLibreLayer } from "./types";
 
 // Cesium Ion assets (issue #2290): 3D Tiles and imagery referenced by Ion
@@ -57,7 +58,7 @@ export function cesiumIonAssetKind(layer: Pick<GeoLibreLayer, "type">): CesiumIo
  * `isCesiumSupportedLayerType`, for the Layers panel to badge on the 2D map.
  */
 export function isCesiumOnlyLayer(layer: Pick<GeoLibreLayer, "source" | "metadata">): boolean {
-  return isCesiumIonLayer(layer);
+  return isCesiumIonLayer(layer) || isCzmlLayer(layer);
 }
 
 function newLayerId(): string {

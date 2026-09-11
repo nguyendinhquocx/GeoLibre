@@ -102,6 +102,8 @@ export function AddDataMenu({
     // Ion assets load through Cesium only (issue #2290); on the 2D map the
     // entry stays visible but disabled so the capability is discoverable.
     "cesium-ion": { onSelect: () => onSetAddDataKind("cesium-ion"), disabled: !cesiumPrimary },
+    // CZML dynamic 3D scenes load through Cesium only (issue #2290).
+    czml: { onSelect: () => onSetAddDataKind("czml"), disabled: !cesiumPrimary },
     // The glTF model opens the same deck.gl scenegraph builder, so it is
     // gated the way "deckgl-viz" is.
     "gltf-model": { onSelect: onAddGltfModel, disabled: !capabilities.customLayers },

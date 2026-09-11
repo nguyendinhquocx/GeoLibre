@@ -26,6 +26,7 @@ import {
   type VectorStyleStop,
   collectDiagramData,
   geojsonHasZCoordinates,
+  isCzmlLayer,
   isStyleLibraryTargetLayer,
   parseJsonExpression,
   pluginOwnsPaint,
@@ -1776,6 +1777,12 @@ export function StylePanel({
   const isDeckVectorLayer = hasExternalDeckLayer(layer);
   const isRasterTileLayer = layer.metadata.tileType === "raster";
   const isThreeDTilesLayer = layer.type === "3d-tiles";
+  // A CZML scene reuses the `3d-tiles` type so the globe owns it, but
+  // `CesiumLayerSync` only toggles its visibility: no `Cesium3DTileStyle` is
+  // compiled for it and no feature filter reaches its entities, so the tileset
+  // symbology and quick-filter controls would be silent no-ops (#2290).
+  const isCzmlScene = isCzmlLayer(layer);
+  const hasTilesetSymbology = isThreeDTilesLayer && !isCzmlScene;
   // An external plugin's MapLibre custom (WebGL) layer draws its own pixels and
   // has no MapLibre paint properties, so every paint editor below would be inert
   // for it (#1445). The plugin declares that with `paintMode: "plugin"`; the
@@ -1821,6 +1828,7 @@ export function StylePanel({
     // `type` (a deck GeoJSON layer is still `"geojson"`), so testing the type
     // first would let it through even though a custom layer accepts no filter.
     !hasExternalDeckLayer(layer) &&
+    !isCzmlScene &&
     (layer.type === "geojson" ||
       layer.type === "vector-tiles" ||
       layer.type === "mbtiles" ||
@@ -4984,7 +4992,7 @@ export function StylePanel({
                 still has to appear for a layer restored from one. */}
             {hasNetcdfSymbology ? (
               <NetcdfSymbologySection layer={layer} />
-            ) : isThreeDTilesLayer ? (
+            ) : hasTilesetSymbology ? (
               // A tileset has no MapLibre paint properties, but the globe can
               // classify its features from the same symbology every vector
               // layer uses — `CesiumLayerSync` compiles the colour expression
@@ -5019,7 +5027,7 @@ export function StylePanel({
         </ScrollArea>
         <Separator />
         <p className="p-2 text-[10px] text-muted-foreground">
-          {t("style.selectedLayerType", { type: layer.type })}
+          {t("style.selectedLayerType", { type: isCzmlScene ? "czml" : layer.type })}
         </p>
       </aside>
     );

@@ -32,7 +32,8 @@ export type KindI18nKey =
   | "iceberg"
   | "deckglViz"
   | "video"
-  | "cesiumIon";
+  | "cesiumIon"
+  | "czml";
 
 /**
  * Maps each Add Data kind to its `addData.kind.<key>` i18n segment. The dialog
@@ -61,6 +62,7 @@ export const KIND_I18N_KEY: Record<AddDataKind, KindI18nKey> = {
   "deckgl-viz": "deckglViz",
   video: "video",
   "cesium-ion": "cesiumIon",
+  czml: "czml",
 };
 
 export const DEFAULT_XYZ_URL =

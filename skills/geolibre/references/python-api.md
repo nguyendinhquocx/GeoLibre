@@ -59,6 +59,7 @@ m.add_wmts(endpoint, name, bounds=None)
 m.add_wfs(endpoint, type_name, max_features=1000)
 m.add_3d_tiles(url, name, altitude_offset=0)          # or ion_asset_id=96188 (3D globe only)
 m.add_cesium_ion(asset_id, name, kind="3d-tiles")     # kind="imagery" for an imagery asset
+m.add_czml(url, name)                                  # or data=[...packets] (3D globe only)
 m.add_video(...)
 ```
 

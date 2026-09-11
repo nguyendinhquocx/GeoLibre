@@ -388,6 +388,24 @@ def test_add_cesium_ion_imagery(m):
     assert layer["metadata"]["externalNativeLayer"] is True
 
 
+def test_add_czml_url(m):
+    m.add_czml("https://e/sat.czml", name="Satellites")
+    layer = _last_layer(m)
+    assert layer["type"] == "3d-tiles"
+    assert layer["name"] == "Satellites"
+    assert layer["source"]["url"] == "https://e/sat.czml"
+    assert layer["metadata"]["sourceKind"] == "czml"
+    assert layer["metadata"]["externalNativeLayer"] is True
+
+
+def test_add_czml_inline_packets(m):
+    packets = [{"id": "document", "version": "1.0"}, {"id": "p", "point": {"pixelSize": 6}}]
+    m.add_czml(data=packets, source_path="/local/p.czml")
+    layer = _last_layer(m)
+    assert layer["source"]["czmlData"] == packets
+    assert layer["sourcePath"] == "/local/p.czml"
+
+
 def test_add_video_wraps_single_url(m):
     m.add_video("https://e/a.mp4", [[0, 0], [1, 0], [1, 1], [0, 1]])
     assert _last_layer(m)["source"]["urls"] == ["https://e/a.mp4"]

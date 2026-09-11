@@ -9,6 +9,7 @@ import { KIND_I18N_KEY } from "./add-data/constants";
 import { ArcGISSource } from "./add-data/sources/ArcGISSource";
 import { CadSource } from "./add-data/sources/CadSource";
 import { CesiumIonSource } from "./add-data/sources/CesiumIonSource";
+import { CzmlSource } from "./add-data/sources/CzmlSource";
 import { DeckVizSource } from "./add-data/sources/DeckVizSource";
 import { DelimitedTextSource } from "./add-data/sources/DelimitedTextSource";
 import { GdbSource } from "./add-data/sources/GdbSource";
@@ -84,6 +85,8 @@ function renderSource(
       return <XyzSource initialUrl={initialUrl} />;
     case "cesium-ion":
       return <CesiumIonSource />;
+    case "czml":
+      return <CzmlSource initialUrl={initialUrl} />;
     case "wms":
       return <WmsSource initialUrl={initialUrl} initialLayers={initialLayer} />;
     case "csw":
