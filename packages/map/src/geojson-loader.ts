@@ -1,6 +1,6 @@
 import bbox from "@turf/bbox";
 import type { FeatureCollection } from "geojson";
-import type { GeoLibreLayer } from "@geolibre/core";
+import { type GeoLibreLayer, horizontalBbox } from "@geolibre/core";
 
 export type GeometryKind = "point" | "line" | "polygon";
 
@@ -39,14 +39,14 @@ export function detectGeometryProfile(fc: FeatureCollection): GeometryProfile {
 
 export function getLayerBounds(layer: GeoLibreLayer): [number, number, number, number] | null {
   if (layer.geojson?.features?.length) {
-    const box = bbox(layer.geojson);
     // A collection whose features all carry a null geometry (e.g. a delimited
     // text file imported as an attribute table, or a non-spatial SQL result)
-    // yields a degenerate ±Infinity box. Continue to the stored extent in
-    // that case instead of flying to invalid coordinates.
-    if (box.every((value) => Number.isFinite(value))) {
-      return box as [number, number, number, number];
-    }
+    // yields a degenerate ±Infinity box, and one that carries its own 3D `bbox`
+    // member yields six values. `horizontalBbox` answers null to the first and
+    // trims the second; either way, continue to the stored extent rather than
+    // flying to invalid coordinates.
+    const box = horizontalBbox(bbox(layer.geojson));
+    if (box) return box;
   }
   for (const value of [layer.source.bounds, layer.metadata.bounds]) {
     if (

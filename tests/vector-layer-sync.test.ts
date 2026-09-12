@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { DEFAULT_LAYER_STYLE, type GeoLibreLayer, useAppStore } from "@geolibre/core";
+import {
+  DEFAULT_LAYER_STYLE,
+  createEmptyProject,
+  projectFromStore,
+  type GeoLibreLayer,
+  useAppStore,
+} from "@geolibre/core";
 import type {
   VectorControl,
   VectorLayerInfo,
   VectorLayerOptions,
   VectorLayerStyle,
 } from "maplibre-gl-vector";
+import { embedEditedGeometry } from "../apps/geolibre-desktop/src/lib/edited-geometry-save";
 import { replayVectorLayer } from "../packages/plugins/src/plugins/maplibre-vector";
 import { STAC_ASSET_ACCESS_METADATA_KEY } from "../packages/plugins/src/plugins/stac-signing";
 import {
@@ -369,6 +376,45 @@ describe("syncVectorLayersToStore", () => {
     assert.ok(layers.some((layer) => layer.id === "vector-1"));
     assert.ok(layers.some((layer) => layer.id === "vector-2"));
     assert.ok(layers.some((layer) => layer.id === "unrelated"));
+  });
+
+  it("preserves geometry edits through control synchronization without repeated updates", () => {
+    const { control } = fakeControl([vectorInfo()]);
+    syncVectorLayersToStore(control);
+    const layer = useAppStore.getState().layers[0];
+    const edited = { type: "FeatureCollection" as const, features: [] };
+    useAppStore.getState().updateLayer(layer.id, {
+      geojson: edited,
+      metadata: { ...layer.metadata, geometryEdited: true },
+    });
+    syncVectorLayersToStore(control);
+    const after = useAppStore.getState().layers;
+    assert.equal(after[0].metadata.geometryEdited, true);
+    assert.equal(after[0].geojson, edited);
+    syncVectorLayersToStore(control);
+    assert.equal(useAppStore.getState().layers, after);
+  });
+
+  it("drops stale edits when a vector source is replaced under the same id", () => {
+    syncVectorLayersToStore(fakeControl([vectorInfo()]).control);
+    const old = useAppStore.getState().layers[0];
+    useAppStore.getState().updateLayer(old.id, {
+      geojson: { type: "FeatureCollection", features: [] },
+      metadata: { ...old.metadata, geometryEdited: true },
+    });
+    const url = "https://example.com/replacement.geojson";
+    syncVectorLayersToStore(fakeControl([vectorInfo({ source: { kind: "url", url } })]).control);
+    const layer = useAppStore.getState().layers[0];
+    assert.equal(layer.metadata.geometryEdited, undefined);
+    assert.equal(layer.geojson, undefined);
+    const project = createEmptyProject();
+    const saved = projectFromStore({
+      ...project,
+      projectName: project.name,
+      layers: [embedEditedGeometry(layer)],
+    });
+    assert.equal(saved.layers[0].source.url, url);
+    assert.equal(saved.layers[0].metadata.embeddedGeoJSON, undefined);
   });
 
   it("removes store layers whose vector layers are gone", () => {

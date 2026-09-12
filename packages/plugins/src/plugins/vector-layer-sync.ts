@@ -267,13 +267,22 @@ export function syncVectorLayersToStore(
       const opacity = opacityIsEcho ? existing.opacity : layer.opacity;
       const sourceUrl = typeof layer.source.url === "string" ? layer.source.url : undefined;
       const stacAssetAccess = sourceUrl ? stacAssetAccessFromLayer(existing, sourceUrl) : null;
-      const metadata = stacAssetAccess
+      let metadata = stacAssetAccess
         ? { ...layer.metadata, [STAC_ASSET_ACCESS_METADATA_KEY]: stacAssetAccess }
         : layer.metadata;
       const source = stacAssetAccess
         ? { ...layer.source, url: stacAssetAccess.href }
         : layer.source;
       const sourcePath = stacAssetAccess ? stacAssetAccess.href : layer.sourcePath;
+      // Render-mode changes keep the same data, but a replacement URL, file,
+      // or source kind must not inherit the previous source's edited snapshot.
+      const sourceChanged =
+        existing.source.url !== source.url ||
+        existing.sourcePath !== sourcePath ||
+        existing.metadata.vectorSource !== metadata.vectorSource;
+      if (!sourceChanged && existing.metadata.geometryEdited === true) {
+        metadata = { ...metadata, geometryEdited: true };
+      }
 
       if (
         existing.type !== layer.type ||
@@ -286,11 +295,13 @@ export function syncVectorLayersToStore(
         useAppStore.getState().updateLayer(layer.id, {
           // Replace control-derived metadata wholesale so stale keys (bounds,
           // featureCount, and loaded embeddedGeoJSON) cannot survive a layer
-          // being swapped out under the same id. Only the STAC access record is
-          // host-owned and carried forward so a protected URL can be re-signed.
+          // being swapped out under the same id. Preserve the host-owned geometry
+          // edit flag and STAC access record so edits survive synchronization
+          // and protected URLs can be re-signed.
           // The web Save flow re-materializes embeddedGeoJSON fresh from the
           // control (getLayerGeoJSON), so it intentionally is not preserved.
           metadata,
+          ...(sourceChanged ? { geojson: undefined } : {}),
           opacity,
           source,
           sourcePath,
