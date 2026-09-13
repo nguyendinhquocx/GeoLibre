@@ -22,6 +22,9 @@ import {
   requiresTarget,
   itemBbox,
   loadStacIndex,
+  loadPortolanIndex,
+  portolanIndexFromDocument,
+  PORTOLAN_REGISTRY_URL,
   openCatalogNode,
   searchStacApi,
   searchStaticStac,
@@ -61,6 +64,7 @@ import {
 
 export const STAC_PLUGIN_ID = "geolibre-stac-catalogs";
 export const PLANET_OPEN_DATA_PLUGIN_ID = "geolibre-planet-open-data";
+export const PORTOLAN_PLUGIN_ID = "geolibre-portolan";
 export const PLANET_DISASTER_DATA_CATALOG_URL =
   "https://data.source.coop/planet/disasterdata/catalog.json";
 // The footprints layer is a normal store layer, so it is saved into the project
@@ -360,6 +364,15 @@ let unregisterPanel: (() => void) | null = null;
 let disposePanel: (() => void) | null = null;
 let panelContainer: HTMLElement | null = null;
 let initialCatalogUrl = "";
+interface CatalogBrowserOptions {
+  loadIndex?: typeof loadStacIndex;
+  indexFromConnection?: (connection: StacConnection) => StacIndexCatalog[];
+  catalogSearchLabel?: (app: GeoLibreAppAPI) => string;
+  indexLabels?: (
+    app: GeoLibreAppAPI,
+  ) => Pick<StacLabels, "indexLoading" | "indexUnavailable" | "indexLoadFailed">;
+}
+let browserOptions: CatalogBrowserOptions = {};
 
 // The results pane and the controls above it each keep a floor so neither can
 // be dragged away entirely. splitterBounds() reserves the controls floor and
@@ -867,11 +880,14 @@ function buildPanel(container: HTMLElement): () => void {
 
   const catalogSection = el("div");
   catalogSection.style.cssText = style.section;
-  const catalogSearch = field(labels.catalogSearch);
+  const catalogSearch = field(
+    (appRef && browserOptions.catalogSearchLabel?.(appRef)) || labels.catalogSearch,
+  );
   catalogSearch.input.placeholder = labels.catalogSearchPlaceholder;
   const catalogSelect = el("select");
   catalogSelect.style.cssText = style.input;
-  const firstOption = el("option", labels.indexLoading);
+  const indexLabels = (appRef && browserOptions.indexLabels?.(appRef)) || labels;
+  const firstOption = el("option", indexLabels.indexLoading);
   firstOption.value = "";
   catalogSelect.append(firstOption);
   const urlField = field(labels.urlLabel, "url");
@@ -1480,7 +1496,7 @@ function buildPanel(container: HTMLElement): () => void {
   urlField.input.addEventListener("input", () => {
     if (urlField.input.value !== initialCatalogUrl) presetSelectionPending = false;
   });
-  const connectCatalog = async (): Promise<void> => {
+  const connectCatalog = async (): Promise<StacConnection | undefined> => {
     const url = urlField.input.value.trim();
     setDisabled(connectButton, true);
     setStatus(labels.connecting);
@@ -1508,6 +1524,7 @@ function buildPanel(container: HTMLElement): () => void {
       renderSection.hidden = false;
       clearSearchResults(false);
       setStatus(connection.description || labels.connected);
+      return connection;
     } catch (error) {
       connection = null;
       searchSection.hidden = true;
@@ -1518,7 +1535,7 @@ function buildPanel(container: HTMLElement): () => void {
     }
   };
   connectButton.addEventListener("click", () => void connectCatalog());
-  if (initialCatalogUrl) void connectCatalog();
+  const presetConnection = initialCatalogUrl ? connectCatalog() : undefined;
   searchButton.addEventListener("click", () => void runSearch(false));
   clearResultsButton.addEventListener("click", () => clearSearchResults());
   loadMore.addEventListener("click", () => void runSearch(true));
@@ -1576,19 +1593,29 @@ function buildPanel(container: HTMLElement): () => void {
   map?.on("click", onMapClick);
   map?.on("mousemove", onMapMove);
 
-  void loadStacIndex(fetch, controller.signal).then(
+  const loadIndex = browserOptions.loadIndex ?? loadStacIndex;
+  const indexFromConnection = browserOptions.indexFromConnection;
+  // Portolan's preset and discovery list are the same document. Reuse the initial
+  // connection, retaining URL entry and a separate retry if that connection failed.
+  const indexRequest =
+    presetConnection && indexFromConnection
+      ? presetConnection.then((opened) =>
+          opened ? indexFromConnection(opened) : loadIndex(fetch, controller.signal),
+        )
+      : loadIndex(fetch, controller.signal);
+  void indexRequest.then(
     (catalogs) => {
       index = catalogs;
       renderCatalogs();
     },
     (error) => {
       catalogSelect.innerHTML = "";
-      catalogSelect.append(el("option", labels.indexUnavailable));
+      catalogSelect.append(el("option", indexLabels.indexUnavailable));
       // A preset catalog connects in parallel with this index fetch, so a late
       // index failure must not overwrite a connection that already succeeded —
       // the catalog is usable, only the browse-by-name dropdown is not.
       if (!connection) {
-        setStatus(error instanceof Error ? error.message : labels.indexLoadFailed, true);
+        setStatus(error instanceof Error ? error.message : indexLabels.indexLoadFailed, true);
       }
     },
   );
@@ -1624,7 +1651,12 @@ function mountPanel(container: HTMLElement): void {
  * @param presetCatalogUrl - Optional default catalog URL to connect to on load.
  * @returns A {@link GeoLibrePlugin} instance for browsing STAC catalogs.
  */
-function createStacPlugin(id: string, name: string, presetCatalogUrl = ""): GeoLibrePlugin {
+function createStacPlugin(
+  id: string,
+  name: string,
+  presetCatalogUrl = "",
+  options: CatalogBrowserOptions = {},
+): GeoLibrePlugin {
   return {
     id,
     name,
@@ -1636,14 +1668,17 @@ function createStacPlugin(id: string, name: string, presetCatalogUrl = ""): GeoL
     exclusiveGroup: "stac-catalog-browser",
     activate(app) {
       initialCatalogUrl = presetCatalogUrl;
+      browserOptions = options;
       appRef = app;
       unregisterPanel =
         app.registerRightPanel?.({
           id,
           title: () =>
-            presetCatalogUrl
+            id === PLANET_OPEN_DATA_PLUGIN_ID
               ? (labels.getPlanetTitle?.() ?? labels.planetTitle)
-              : (labels.getTitle?.() ?? labels.title),
+              : id === STAC_PLUGIN_ID
+                ? (labels.getTitle?.() ?? labels.title)
+                : name,
           dock: "replace-style",
           defaultWidth: 380,
           render(container) {
@@ -1669,6 +1704,7 @@ function createStacPlugin(id: string, name: string, presetCatalogUrl = ""): GeoL
       }
       appRef = null;
       initialCatalogUrl = "";
+      browserOptions = {};
     },
   };
 }
@@ -1680,6 +1716,35 @@ export const maplibrePlanetOpenDataPlugin = createStacPlugin(
   PLANET_OPEN_DATA_PLUGIN_ID,
   "Planet Open Data",
   PLANET_DISASTER_DATA_CATALOG_URL,
+);
+
+/** Browse registered Portolan catalogs or connect directly to a publisher's URL. */
+export const maplibrePortolanPlugin = createStacPlugin(
+  PORTOLAN_PLUGIN_ID,
+  "Portolan",
+  PORTOLAN_REGISTRY_URL,
+  {
+    loadIndex: loadPortolanIndex,
+    indexFromConnection: (connection) => portolanIndexFromDocument(connection.root),
+    indexLabels: (app) => ({
+      indexLoading:
+        app.translate?.("stacPlugin.portolanIndexLoading", "Loading Portolan Registry…") ??
+        "Loading Portolan Registry…",
+      indexUnavailable:
+        app.translate?.(
+          "stacPlugin.portolanIndexUnavailable",
+          "Portolan Registry unavailable: enter a URL",
+        ) ?? "Portolan Registry unavailable: enter a URL",
+      indexLoadFailed:
+        app.translate?.("stacPlugin.portolanIndexLoadFailed", "Could not load Portolan Registry") ??
+        "Could not load Portolan Registry",
+    }),
+    catalogSearchLabel: (app) =>
+      app.translate?.(
+        "stacPlugin.portolanCatalogSearch",
+        "Find a public catalog from Portolan Registry",
+      ) ?? "Find a public catalog from Portolan Registry",
+  },
 );
 
 export default maplibreStacCatalogsPlugin;

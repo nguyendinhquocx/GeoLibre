@@ -21,6 +21,7 @@ export * from "./popup";
 export * from "./joins";
 export * from "./virtual-fields";
 export * from "./quick-filters";
+export * from "./layer-filters";
 export * from "./capabilities";
 export * from "./deployment-capabilities";
 export * from "./selection";
@@ -191,3 +192,11 @@ export {
   readStoredAuthorName,
   setStoredAuthorName,
 } from "./editor-identity";
+export {
+  CESIUM_KML_SOURCE_KIND,
+  isCesiumKmlLayer,
+  cesiumKmlSource,
+  createCesiumKmlLayer,
+  type CesiumKmlLayerOptions,
+} from "./cesium-kml";
+export { localFileName, uniqueImportedLayerName } from "./file-name";

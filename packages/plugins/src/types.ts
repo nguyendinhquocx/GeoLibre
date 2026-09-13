@@ -355,6 +355,23 @@ export interface GeoLibreLayerSummary {
   opacity: number;
 }
 
+export interface GeoLibreRasterWindowOptions {
+  bounds: [number, number, number, number];
+  width?: number;
+  height?: number;
+  band?: number;
+  signal?: AbortSignal;
+}
+
+export interface GeoLibreRasterWindowReading {
+  values: number[];
+  width: number;
+  height: number;
+  band: number;
+  nodata: number | null;
+  overviewLevel: number;
+}
+
 export interface GeoLibreSelection {
   layerId: string | null;
   features: Feature<Geometry | null>[];
@@ -388,6 +405,10 @@ export interface GeoLibreAppAPI {
   getLayerFeatures?: (layerId: string) => Feature<Geometry | null>[];
   getSelectedFeatures?: () => Feature<Geometry | null>[];
   getSelectedLayerId?: () => string | null;
+  readRasterWindow?: (
+    layerId: string,
+    options: GeoLibreRasterWindowOptions,
+  ) => Promise<GeoLibreRasterWindowReading | null>;
   getDrawnFeatures?: () => Feature<Geometry | null>[];
   onSelectionChange?: (callback: (selection: GeoLibreSelection) => void) => () => void;
   /**

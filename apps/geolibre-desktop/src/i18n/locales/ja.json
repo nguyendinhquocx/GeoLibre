@@ -345,6 +345,10 @@
       "polyline": {
         "label": "エンコードポリラインレイヤーを追加",
         "description": "エンコードされたポリライン文字列（Google、OSRM、Valhalla）をテキストまたはファイルからベクターラインとしてインポートします。"
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "元のスタイル、オーバーレイ、ネットワークリンクを保持して KML または KMZ を地球儀に読み込みます。"
       }
     },
     "shared": {
@@ -399,6 +403,11 @@
       "errorRead": "そのファイルをサービスライブラリとして読み込めませんでした。",
       "imported_other": "{{count}}件のサービスをインポートしました。",
       "importedWithDropped_other": "{{count}}件のサービスをインポートしました({{dropped}}件はライブラリが上限に達したためスキップされました)。"
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML / KMZ の URL",
+      "errorSource": "KML/KMZ の URL を入力するか、ファイルを選択してください。"
     },
     "xyz": {
       "defaultName": "XYZレイヤー",
@@ -3534,10 +3543,14 @@
     "title": "STAC カタログ",
     "footprintLayerName": "STAC 検索範囲",
     "catalogSearch": "STAC Index で公開カタログを検索",
+    "portolanCatalogSearch": "Portolan Registry で公開カタログを検索",
     "catalogSearchPlaceholder": "カタログ名を検索…",
     "indexLoading": "STAC Index を読み込んでいます…",
+    "portolanIndexLoading": "Portolan Registry を読み込んでいます…",
     "indexUnavailable": "STAC Index を利用できません: URL を入力してください",
+    "portolanIndexUnavailable": "Portolan Registry を利用できません: URL を入力してください",
     "indexLoadFailed": "STAC Index を読み込めませんでした",
+    "portolanIndexLoadFailed": "Portolan Registry を読み込めませんでした",
     "urlLabel": "STAC カタログまたは API の URL",
     "connect": "接続",
     "connecting": "STAC に接続しています…",
@@ -6322,6 +6335,7 @@
     "description": "再利用可能なスタイル、シンボル、ラベルプリセット、カラーランプを保存・閲覧し、レイヤーやプロジェクト全体に適用します。",
     "searchPlaceholder": "スタイルとタグを検索…",
     "presetsSection": "ビルトインプリセット",
+    "presetActions": "プリセット操作",
     "librarySection": "マイライブラリ",
     "projectSection": "このプロジェクト",
     "empty": "一致する保存済みスタイルがありません。レイヤーのスタイルを保存するか、ライブラリをインポートして始めましょう。",
@@ -7073,6 +7087,8 @@
     "saveEditsSuccess": "{{count}}件のフィーチャを元ファイルに保存しました。",
     "saveEditsNoFeatures": "このレイヤーには保存するフィーチャがありません。",
     "saveEditsError": "編集内容を元ファイルに保存できませんでした。",
+    "saveEditsToArcgis": "編集内容をArcGISサービスに保存",
+    "saveEditsArcgisSuccess": "ArcGISに保存しました: 挿入{{inserted}}件、更新{{updated}}件、削除{{deleted}}件。",
     "saveEditsToPostgis": "編集内容をPostGISテーブルに保存",
     "saveEditsPostgisSuccess": "{{table}}に保存しました: 挿入{{inserted}}件、更新{{updated}}件、削除{{deleted}}件。",
     "saveEditsPostgisSkippedFields": "対応するテーブル列がないフィールドは保存されませんでした: {{fields}}。",

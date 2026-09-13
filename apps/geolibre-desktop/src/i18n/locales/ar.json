@@ -355,6 +355,10 @@
       "polyline": {
         "label": "إضافة طبقة خط متعدد مشفر",
         "description": "استيراد سلاسل الخطوط المتعددة المشفرة (Google وOSRM وValhalla) من نص أو ملفات كخطوط متجهة."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "حمّل KML أو KMZ مع الأنماط والتراكبات وروابط الشبكة الأصلية على الكرة الأرضية."
       }
     },
     "shared": {
@@ -419,6 +423,11 @@
       "importedWithDropped_few": "تم استيراد {{count}} خدمات (تم تخطي {{dropped}} — المكتبة ممتلئة).",
       "importedWithDropped_many": "تم استيراد {{count}} خدمةً (تم تخطي {{dropped}} — المكتبة ممتلئة).",
       "importedWithDropped_other": "تم استيراد {{count}} خدمة (تم تخطي {{dropped}} — المكتبة ممتلئة)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "عنوان URL لملف KML / KMZ",
+      "errorSource": "أدخل رابط KML/KMZ أو اختر ملفًا."
     },
     "xyz": {
       "defaultName": "طبقة XYZ",
@@ -3823,10 +3832,14 @@
     "title": "كتالوجات STAC",
     "footprintLayerName": "حدود نتائج بحث STAC",
     "catalogSearch": "البحث عن كتالوج عام في STAC Index",
+    "portolanCatalogSearch": "البحث عن كتالوج عام في Portolan Registry",
     "catalogSearchPlaceholder": "البحث في أسماء الكتالوجات…",
     "indexLoading": "جارٍ تحميل STAC Index…",
+    "portolanIndexLoading": "جارٍ تحميل Portolan Registry…",
     "indexUnavailable": "STAC Index غير متاح: أدخل عنوان URL",
+    "portolanIndexUnavailable": "Portolan Registry غير متاح: أدخل عنوان URL",
     "indexLoadFailed": "تعذّر تحميل STAC Index",
+    "portolanIndexLoadFailed": "تعذّر تحميل Portolan Registry",
     "urlLabel": "عنوان URL لكتالوج أو واجهة STAC",
     "connect": "اتصال",
     "connecting": "جارٍ الاتصال بـ STAC…",
@@ -6696,6 +6709,7 @@
     "description": "احفظ واستعرض وطبّق أنماطًا ورموزًا وإعدادات تسميات مسبقة وتدرجات ألوان قابلة لإعادة الاستخدام عبر الطبقات والمشاريع.",
     "searchPlaceholder": "ابحث في الأنماط والوسوم…",
     "presetsSection": "الإعدادات المسبقة المضمّنة",
+    "presetActions": "إجراءات الإعداد المسبق",
     "librarySection": "مكتبتي",
     "projectSection": "هذا المشروع",
     "empty": "لا توجد أنماط محفوظة مطابقة. احفظ نمط طبقة أو استورد مكتبة للبدء.",
@@ -7472,6 +7486,8 @@
     "saveEditsSuccess": "تم حفظ {{count}} من المعالم في الملف المصدر.",
     "saveEditsNoFeatures": "لا تحتوي هذه الطبقة على معالم لحفظها.",
     "saveEditsError": "تعذر حفظ التعديلات في الملف المصدر.",
+    "saveEditsToArcgis": "حفظ التعديلات في خدمة ArcGIS",
+    "saveEditsArcgisSuccess": "تم الحفظ في ArcGIS: {{inserted}} مُدرج، {{updated}} مُحدَّث، {{deleted}} محذوف.",
     "saveEditsToPostgis": "حفظ التعديلات في جدول PostGIS",
     "saveEditsPostgisSuccess": "تم الحفظ في {{table}}: {{inserted}} مُدرج، {{updated}} مُحدَّث، {{deleted}} محذوف.",
     "saveEditsPostgisSkippedFields": "لم تُحفظ الحقول التي لا يقابلها عمود في الجدول: {{fields}}.",

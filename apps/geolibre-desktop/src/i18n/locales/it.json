@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Aggiungi layer polilinea codificata",
         "description": "Importa stringhe di polilinea codificata (Google, OSRM, Valhalla) da testo o file come linee vettoriali."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Carica KML o KMZ con stili nativi, sovrapposizioni e collegamenti di rete sul globo."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "Importati {{count}} servizi.",
       "importedWithDropped_one": "Importato {{count}} servizio ({{dropped}} ignorato — libreria piena).",
       "importedWithDropped_other": "Importati {{count}} servizi ({{dropped}} ignorati — libreria piena)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL KML / KMZ",
+      "errorSource": "Inserisci un URL KML/KMZ o scegli un file."
     },
     "xyz": {
       "defaultName": "Layer XYZ",
@@ -3601,10 +3610,14 @@
     "title": "Cataloghi STAC",
     "footprintLayerName": "Impronte di ricerca STAC",
     "catalogSearch": "Trova un catalogo pubblico in STAC Index",
+    "portolanCatalogSearch": "Trova un catalogo pubblico in Portolan Registry",
     "catalogSearchPlaceholder": "Cerca nomi di cataloghi…",
     "indexLoading": "Caricamento di STAC Index…",
+    "portolanIndexLoading": "Caricamento di Portolan Registry…",
     "indexUnavailable": "STAC Index non disponibile: inserisci un URL",
+    "portolanIndexUnavailable": "Portolan Registry non disponibile: inserisci un URL",
     "indexLoadFailed": "Impossibile caricare STAC Index",
+    "portolanIndexLoadFailed": "Impossibile caricare Portolan Registry",
     "urlLabel": "URL del catalogo o dell'API STAC",
     "connect": "Connetti",
     "connecting": "Connessione a STAC…",
@@ -6406,6 +6419,7 @@
     "description": "Salva, sfoglia e applica stili, simboli, preset di etichette e rampe di colori riutilizzabili tra layer e progetti.",
     "searchPlaceholder": "Cerca stili e tag…",
     "presetsSection": "Preset integrati",
+    "presetActions": "Azioni preset",
     "librarySection": "La mia libreria",
     "projectSection": "Questo progetto",
     "empty": "Nessuno stile salvato corrisponde. Salva lo stile di un layer o importa una libreria per iniziare.",
@@ -7162,6 +7176,8 @@
     "saveEditsSuccess": "Salvati {{count}} elemento/i nel file sorgente.",
     "saveEditsNoFeatures": "Questo layer non contiene elementi da salvare.",
     "saveEditsError": "Impossibile salvare le modifiche nel file sorgente.",
+    "saveEditsToArcgis": "Salva modifiche nel servizio ArcGIS",
+    "saveEditsArcgisSuccess": "Salvato in ArcGIS: {{inserted}} inseriti, {{updated}} aggiornati, {{deleted}} eliminati.",
     "saveEditsToPostgis": "Salva modifiche nella tabella PostGIS",
     "saveEditsPostgisSuccess": "Salvato in {{table}}: {{inserted}} inseriti, {{updated}} aggiornati, {{deleted}} eliminati.",
     "saveEditsPostgisSkippedFields": "I campi senza una colonna corrispondente nella tabella non sono stati salvati: {{fields}}.",

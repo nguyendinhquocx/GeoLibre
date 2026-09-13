@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Gecodeerde polylijnlaag toevoegen",
         "description": "Gecodeerde polylijn-tekenreeksen (Google, OSRM, Valhalla) uit tekst of bestanden importeren als vectorlijnen."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Laad KML of KMZ met oorspronkelijke stijlen, overlays en netwerkkoppelingen op de globe."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} services geïmporteerd.",
       "importedWithDropped_one": "{{count}} service geïmporteerd ({{dropped}} overgeslagen — bibliotheek vol).",
       "importedWithDropped_other": "{{count}} services geïmporteerd ({{dropped}} overgeslagen — bibliotheek vol)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML-/KMZ-URL",
+      "errorSource": "Voer een KML/KMZ-URL in of kies een bestand."
     },
     "xyz": {
       "defaultName": "XYZ-laag",
@@ -3592,10 +3601,14 @@
     "title": "STAC-catalogi",
     "footprintLayerName": "STAC-zoekcontouren",
     "catalogSearch": "Een openbare catalogus zoeken in STAC Index",
+    "portolanCatalogSearch": "Een openbare catalogus zoeken in Portolan Registry",
     "catalogSearchPlaceholder": "Catalogusnamen zoeken…",
     "indexLoading": "STAC Index wordt geladen…",
+    "portolanIndexLoading": "Portolan Registry wordt geladen…",
     "indexUnavailable": "STAC Index niet beschikbaar: voer een URL in",
+    "portolanIndexUnavailable": "Portolan Registry niet beschikbaar: voer een URL in",
     "indexLoadFailed": "Kan STAC Index niet laden",
+    "portolanIndexLoadFailed": "Kan Portolan Registry niet laden",
     "urlLabel": "URL van STAC-catalogus of API",
     "connect": "Verbinden",
     "connecting": "Verbinding maken met STAC…",
@@ -6397,6 +6410,7 @@
     "description": "Sla herbruikbare stijlen, symbolen, labelvoorinstellingen en kleurverlopen op, blader erdoorheen en pas ze toe op lagen en projecten.",
     "searchPlaceholder": "Stijlen en tags zoeken…",
     "presetsSection": "Ingebouwde voorinstellingen",
+    "presetActions": "Voorinstellingsacties",
     "librarySection": "Mijn bibliotheek",
     "projectSection": "Dit project",
     "empty": "Geen opgeslagen stijlen komen overeen. Sla de stijl van een laag op of importeer een bibliotheek om te beginnen.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} object(en) opgeslagen naar het bronbestand.",
     "saveEditsNoFeatures": "Deze laag heeft geen objecten om op te slaan.",
     "saveEditsError": "Bewerkingen konden niet worden opgeslagen naar het bronbestand.",
+    "saveEditsToArcgis": "Bewerkingen opslaan naar ArcGIS-service",
+    "saveEditsArcgisSuccess": "Opgeslagen naar ArcGIS: {{inserted}} ingevoegd, {{updated}} bijgewerkt, {{deleted}} verwijderd.",
     "saveEditsToPostgis": "Bewerkingen opslaan naar PostGIS-tabel",
     "saveEditsPostgisSuccess": "Opgeslagen naar {{table}}: {{inserted}} ingevoegd, {{updated}} bijgewerkt, {{deleted}} verwijderd.",
     "saveEditsPostgisSkippedFields": "Velden zonder overeenkomende tabelkolom zijn niet opgeslagen: {{fields}}.",

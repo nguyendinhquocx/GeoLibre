@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Ajouter une couche de polyligne encodée",
         "description": "Importer des chaînes de polylignes encodées (Google, OSRM, Valhalla) depuis du texte ou des fichiers sous forme de lignes vectorielles."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Chargez un KML ou KMZ avec ses styles natifs, superpositions et liens réseau sur le globe."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} services importés.",
       "importedWithDropped_one": "{{count}} service importé ({{dropped}} ignoré — bibliothèque pleine).",
       "importedWithDropped_other": "{{count}} services importés ({{dropped}} ignorés — bibliothèque pleine)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL KML / KMZ",
+      "errorSource": "Saisissez une URL KML/KMZ ou choisissez un fichier."
     },
     "xyz": {
       "defaultName": "Couche XYZ",
@@ -3592,10 +3601,14 @@
     "title": "Catalogues STAC",
     "footprintLayerName": "Emprises de recherche STAC",
     "catalogSearch": "Trouver un catalogue public dans STAC Index",
+    "portolanCatalogSearch": "Trouver un catalogue public dans Portolan Registry",
     "catalogSearchPlaceholder": "Rechercher des noms de catalogues…",
     "indexLoading": "Chargement de STAC Index…",
+    "portolanIndexLoading": "Chargement de Portolan Registry…",
     "indexUnavailable": "STAC Index indisponible : saisissez une URL",
+    "portolanIndexUnavailable": "Portolan Registry indisponible : saisissez une URL",
     "indexLoadFailed": "Impossible de charger STAC Index",
+    "portolanIndexLoadFailed": "Impossible de charger Portolan Registry",
     "urlLabel": "URL du catalogue ou de l'API STAC",
     "connect": "Connecter",
     "connecting": "Connexion à STAC…",
@@ -6397,6 +6410,7 @@
     "description": "Enregistrez, parcourez et appliquez des styles, symboles, préréglages d'étiquettes et rampes de couleurs réutilisables entre couches et projets.",
     "searchPlaceholder": "Rechercher styles et étiquettes…",
     "presetsSection": "Préréglages intégrés",
+    "presetActions": "Actions du préréglage",
     "librarySection": "Ma bibliothèque",
     "projectSection": "Ce projet",
     "empty": "Aucun style enregistré ne correspond. Enregistrez le style d'une couche ou importez une bibliothèque pour commencer.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} entité(s) enregistrée(s) dans le fichier source.",
     "saveEditsNoFeatures": "Cette couche n'a aucune entité à enregistrer.",
     "saveEditsError": "Impossible d'enregistrer les modifications dans le fichier source.",
+    "saveEditsToArcgis": "Enregistrer les modifications dans le service ArcGIS",
+    "saveEditsArcgisSuccess": "Enregistré dans ArcGIS : {{inserted}} inséré(s), {{updated}} mis à jour, {{deleted}} supprimé(s).",
     "saveEditsToPostgis": "Enregistrer les modifications dans la table PostGIS",
     "saveEditsPostgisSuccess": "Enregistré dans {{table}} : {{inserted}} inséré(s), {{updated}} mis à jour, {{deleted}} supprimé(s).",
     "saveEditsPostgisSkippedFields": "Les champs sans colonne de table correspondante n'ont pas été enregistrés : {{fields}}.",
@@ -7310,6 +7326,18 @@
     "stretchLinear": "Linéaire",
     "stretchLog": "Logarithmique",
     "stretchSqrt": "Racine carrée",
+    "viewportStretch": "Étirement de la vue",
+    "viewportMinMax": "Min / max de la vue",
+    "viewportPercentile": "Percentiles 5–95 de la vue",
+    "viewportStddev": "Moyenne ± 2 écarts-types de la vue",
+    "viewportApply": "Appliquer à la vue",
+    "viewportStretching": "Lecture de la vue…",
+    "viewportStretchApplied": "Étirement de la vue appliqué",
+    "viewportAuto": "Mettre à jour automatiquement lors des déplacements",
+    "viewportStretchNoView": "La vue de la carte n’est pas disponible.",
+    "viewportStretchNoValues": "Aucune valeur raster dans la vue.",
+    "viewportStretchNoRange": "Les valeurs de la vue ne définissent pas une plage.",
+    "viewportStretchMoved": "La carte a été déplacée avant la fin de la lecture. Appliquez de nouveau.",
     "index": "Indice",
     "classifyToggle": "Classer en classes discrètes",
     "method": "Méthode",

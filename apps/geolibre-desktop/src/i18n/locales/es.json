@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Añadir capa de polilínea codificada",
         "description": "Importar cadenas de polilínea codificada (Google, OSRM, Valhalla) desde texto o archivos como líneas vectoriales."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Carga KML o KMZ con estilos nativos, superposiciones y enlaces de red en el globo."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "Se importaron {{count}} servicios.",
       "importedWithDropped_one": "Se importó {{count}} servicio ({{dropped}} omitido: biblioteca llena).",
       "importedWithDropped_other": "Se importaron {{count}} servicios ({{dropped}} omitidos: biblioteca llena)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL de KML / KMZ",
+      "errorSource": "Introduce una URL KML/KMZ o elige un archivo."
     },
     "xyz": {
       "defaultName": "Capa XYZ",
@@ -3592,10 +3601,14 @@
     "title": "Catálogos STAC",
     "footprintLayerName": "Huellas de búsqueda STAC",
     "catalogSearch": "Buscar un catálogo público en STAC Index",
+    "portolanCatalogSearch": "Buscar un catálogo público en Portolan Registry",
     "catalogSearchPlaceholder": "Buscar nombres de catálogos…",
     "indexLoading": "Cargando STAC Index…",
+    "portolanIndexLoading": "Cargando Portolan Registry…",
     "indexUnavailable": "STAC Index no disponible: introduce una URL",
+    "portolanIndexUnavailable": "Portolan Registry no disponible: introduce una URL",
     "indexLoadFailed": "No se pudo cargar STAC Index",
+    "portolanIndexLoadFailed": "No se pudo cargar Portolan Registry",
     "urlLabel": "URL del catálogo o de la API STAC",
     "connect": "Conectar",
     "connecting": "Conectando con STAC…",
@@ -6397,6 +6410,7 @@
     "description": "Guarde, explore y aplique estilos, símbolos, ajustes preestablecidos de etiquetas y rampas de color reutilizables en capas y proyectos.",
     "searchPlaceholder": "Buscar estilos y etiquetas…",
     "presetsSection": "Ajustes preestablecidos integrados",
+    "presetActions": "Acciones del ajuste preestablecido",
     "librarySection": "Mi biblioteca",
     "projectSection": "Este proyecto",
     "empty": "No hay estilos guardados que coincidan. Guarde el estilo de una capa o importe una biblioteca para empezar.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "Se guardaron {{count}} entidad(es) en el archivo de origen.",
     "saveEditsNoFeatures": "Esta capa no tiene entidades que guardar.",
     "saveEditsError": "No se pudieron guardar las ediciones en el archivo de origen.",
+    "saveEditsToArcgis": "Guardar ediciones en el servicio ArcGIS",
+    "saveEditsArcgisSuccess": "Guardado en ArcGIS: {{inserted}} insertadas, {{updated}} actualizadas, {{deleted}} eliminadas.",
     "saveEditsToPostgis": "Guardar ediciones en la tabla de PostGIS",
     "saveEditsPostgisSuccess": "Guardado en {{table}}: {{inserted}} insertadas, {{updated}} actualizadas, {{deleted}} eliminadas.",
     "saveEditsPostgisSkippedFields": "No se guardaron los campos sin una columna de tabla coincidente: {{fields}}.",

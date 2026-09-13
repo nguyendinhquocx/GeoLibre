@@ -4,6 +4,8 @@ import type {
   RasterControl,
   RasterControlEventHandler,
   RasterLayerState,
+  RasterWindowOptions,
+  RasterWindowReading,
   RasterSampleDataset,
   PixelReading,
   RenderEngine,
@@ -627,6 +629,14 @@ export function readRasterPixel(
   options?: { signal?: AbortSignal },
 ): Promise<PixelReading | null> {
   return rasterControl?.readRasterPixel(layerId, lngLat, options) ?? Promise.resolve(null);
+}
+
+/** Read a sampled raster window for viewport statistics in one batched request. */
+export function readRasterWindow(
+  layerId: string,
+  options: RasterWindowOptions,
+): Promise<RasterWindowReading | null> {
+  return rasterControl?.readRasterWindow(layerId, options) ?? Promise.resolve(null);
 }
 
 /**

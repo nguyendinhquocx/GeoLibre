@@ -347,6 +347,10 @@
       "polyline": {
         "label": "افزودن لایهٔ چندخطی کدگذاری‌شده",
         "description": "وارد کردن رشته‌های چندخطی کدگذاری‌شده (Google، OSRM، Valhalla) از متن یا فایل‌ها به‌صورت خطوط برداری."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "KML یا KMZ را با سبک‌های بومی، هم‌پوشانی‌ها و پیوندهای شبکه روی کره بارگذاری کنید."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} سرویس وارد شد.",
       "importedWithDropped_one": "{{count}} سرویس وارد شد ({{dropped}} مورد رد شد — کتابخانه پر است).",
       "importedWithDropped_other": "{{count}} سرویس وارد شد ({{dropped}} مورد رد شد — کتابخانه پر است)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "نشانی KML / KMZ",
+      "errorSource": "نشانی KML/KMZ را وارد کنید یا یک فایل انتخاب کنید."
     },
     "xyz": {
       "defaultName": "لایهٔ XYZ",
@@ -3592,10 +3601,14 @@
     "title": "فهرست‌های STAC",
     "footprintLayerName": "ردپاهای جستجوی STAC",
     "catalogSearch": "یافتن یک فهرست عمومی از STAC Index",
+    "portolanCatalogSearch": "یافتن یک فهرست عمومی از Portolan Registry",
     "catalogSearchPlaceholder": "جستجوی نام فهرست‌ها…",
     "indexLoading": "در حال بارگیری STAC Index…",
+    "portolanIndexLoading": "در حال بارگیری Portolan Registry…",
     "indexUnavailable": "STAC Index در دسترس نیست — یک نشانی وارد کنید",
+    "portolanIndexUnavailable": "Portolan Registry در دسترس نیست: یک نشانی وارد کنید",
     "indexLoadFailed": "بارگیری STAC Index با شکست مواجه شد",
+    "portolanIndexLoadFailed": "بارگیری Portolan Registry با شکست مواجه شد",
     "urlLabel": "نشانی فهرست یا رابط برنامه‌نویسی STAC",
     "connect": "اتصال",
     "connecting": "در حال اتصال به STAC…",
@@ -6397,6 +6410,7 @@
     "description": "شیوهٔ نمایش‌ها، نمادها، پیش‌تنظیم‌های برچسب و طیف‌های رنگ دوباره‌استفاده‌شدنی را در سراسر لایه‌ها و پروژه‌ها ذخیره، مرور و اعمال کنید.",
     "searchPlaceholder": "جستجوی شیوهٔ نمایش‌ها و برچسب‌ها…",
     "presetsSection": "پیش‌تنظیم‌های توکار",
+    "presetActions": "کنش‌های پیش‌تنظیم",
     "librarySection": "کتابخانهٔ من",
     "projectSection": "این پروژه",
     "empty": "هیچ شیوهٔ نمایش ذخیره‌شده‌ای هم‌خوان نیست. برای آغاز، شیوهٔ نمایش یک لایه را ذخیره کنید یا یک کتابخانه وارد کنید.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} عارضه در فایل مبدأ ذخیره شد.",
     "saveEditsNoFeatures": "این لایه هیچ عارضه‌ای برای ذخیره ندارد.",
     "saveEditsError": "ذخیرهٔ ویرایش‌ها در فایل مبدأ ممکن نشد.",
+    "saveEditsToArcgis": "ذخیرهٔ ویرایش‌ها در سرویس ArcGIS",
+    "saveEditsArcgisSuccess": "در ArcGIS ذخیره شد: {{inserted}} درج، {{updated}} به‌روزرسانی، {{deleted}} حذف.",
     "saveEditsToPostgis": "ذخیرهٔ ویرایش‌ها در جدول PostGIS",
     "saveEditsPostgisSuccess": "در {{table}} ذخیره شد: {{inserted}} درج، {{updated}} به‌روزرسانی، {{deleted}} حذف.",
     "saveEditsPostgisSkippedFields": "فیلدهایی که ستون متناظری در جدول نداشتند ذخیره نشدند: {{fields}}.",

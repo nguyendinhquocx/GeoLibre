@@ -347,6 +347,10 @@
       "polyline": {
         "label": "एन्कोडेड पॉलीलाइन लेयर जोड़ें",
         "description": "एन्कोडेड पॉलीलाइन स्ट्रिंग (Google, OSRM, Valhalla) को टेक्स्ट या फ़ाइलों से वेक्टर लाइनों के रूप में आयात करें।"
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "ग्लोब पर मूल शैलियों, ओवरले और नेटवर्क लिंक के साथ KML या KMZ लोड करें।"
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} सेवाएँ आयात की गईं।",
       "importedWithDropped_one": "{{count}} सेवा आयात की गई ({{dropped}} छोड़ी गई — लाइब्रेरी भर गई)।",
       "importedWithDropped_other": "{{count}} सेवाएँ आयात की गईं ({{dropped}} छोड़ी गईं — लाइब्रेरी भर गई)।"
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML / KMZ URL",
+      "errorSource": "KML/KMZ URL दर्ज करें या फ़ाइल चुनें।"
     },
     "xyz": {
       "defaultName": "XYZ लेयर",
@@ -3592,10 +3601,14 @@
     "title": "STAC कैटलॉग",
     "footprintLayerName": "STAC खोज सीमाएँ",
     "catalogSearch": "STAC Index में सार्वजनिक कैटलॉग खोजें",
+    "portolanCatalogSearch": "Portolan Registry में सार्वजनिक कैटलॉग खोजें",
     "catalogSearchPlaceholder": "कैटलॉग नाम खोजें…",
     "indexLoading": "STAC Index लोड हो रहा है…",
+    "portolanIndexLoading": "Portolan Registry लोड हो रहा है…",
     "indexUnavailable": "STAC Index उपलब्ध नहीं है: URL दर्ज करें",
+    "portolanIndexUnavailable": "Portolan Registry उपलब्ध नहीं है: URL दर्ज करें",
     "indexLoadFailed": "STAC Index लोड नहीं हो सका",
+    "portolanIndexLoadFailed": "Portolan Registry लोड नहीं हो सका",
     "urlLabel": "STAC कैटलॉग या API URL",
     "connect": "कनेक्ट करें",
     "connecting": "STAC से कनेक्ट हो रहा है…",
@@ -6397,6 +6410,7 @@
     "description": "लेयर और प्रोजेक्ट में पुन: उपयोग योग्य स्टाइल, प्रतीक, लेबल प्रीसेट, और कलर रैंप सहेजें, ब्राउज़ करें, और लागू करें।",
     "searchPlaceholder": "स्टाइल और टैग खोजें…",
     "presetsSection": "अंतर्निहित प्रीसेट",
+    "presetActions": "प्रीसेट क्रियाएं",
     "librarySection": "मेरी लाइब्रेरी",
     "projectSection": "यह प्रोजेक्ट",
     "empty": "कोई सहेजी गई स्टाइल मेल नहीं खाती। आरंभ करने के लिए किसी लेयर की स्टाइल सहेजें या एक लाइब्रेरी आयात करें।",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} फ़ीचर स्रोत फ़ाइल में सहेजे गए।",
     "saveEditsNoFeatures": "इस लेयर में सहेजने के लिए कोई फ़ीचर नहीं है।",
     "saveEditsError": "संपादन स्रोत फ़ाइल में सहेजे नहीं जा सके।",
+    "saveEditsToArcgis": "संपादन ArcGIS सेवा में सहेजें",
+    "saveEditsArcgisSuccess": "ArcGIS में सहेजा गया: {{inserted}} जोड़े गए, {{updated}} अपडेट किए गए, {{deleted}} हटाए गए।",
     "saveEditsToPostgis": "संपादन PostGIS टेबल में सहेजें",
     "saveEditsPostgisSuccess": "{{table}} में सहेजा गया: {{inserted}} जोड़े गए, {{updated}} अपडेट किए गए, {{deleted}} हटाए गए।",
     "saveEditsPostgisSkippedFields": "जिन फ़ील्ड्स के लिए मेल खाता टेबल कॉलम नहीं था, वे सहेजी नहीं गईं: {{fields}}।",

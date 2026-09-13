@@ -345,6 +345,10 @@
       "polyline": {
         "label": "Tambahkan Layer Polyline Terenkode",
         "description": "Impor string polyline terenkode (Google, OSRM, Valhalla) dari teks atau file sebagai garis vektor."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Muat KML atau KMZ dengan gaya asli, overlay, dan tautan jaringan pada globe."
       }
     },
     "shared": {
@@ -399,6 +403,11 @@
       "errorRead": "Tidak dapat membaca file tersebut sebagai pustaka layanan.",
       "imported_other": "Mengimpor {{count}} layanan.",
       "importedWithDropped_other": "Mengimpor {{count}} layanan ({{dropped}} dilewati — pustaka penuh)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL KML / KMZ",
+      "errorSource": "Masukkan URL KML/KMZ atau pilih berkas."
     },
     "xyz": {
       "defaultName": "Layer XYZ",
@@ -3534,10 +3543,14 @@
     "title": "Katalog STAC",
     "footprintLayerName": "Jejak pencarian STAC",
     "catalogSearch": "Temukan katalog publik di STAC Index",
+    "portolanCatalogSearch": "Temukan katalog publik di Portolan Registry",
     "catalogSearchPlaceholder": "Cari nama katalog…",
     "indexLoading": "Memuat STAC Index…",
+    "portolanIndexLoading": "Memuat Portolan Registry…",
     "indexUnavailable": "STAC Index tidak tersedia: masukkan URL",
+    "portolanIndexUnavailable": "Portolan Registry tidak tersedia: masukkan URL",
     "indexLoadFailed": "Tidak dapat memuat STAC Index",
+    "portolanIndexLoadFailed": "Tidak dapat memuat Portolan Registry",
     "urlLabel": "URL katalog atau API STAC",
     "connect": "Hubungkan",
     "connecting": "Menghubungkan ke STAC…",
@@ -6322,6 +6335,7 @@
     "description": "Simpan, telusuri, dan terapkan gaya, simbol, preset label, dan gradasi warna yang dapat digunakan kembali di seluruh layer dan proyek.",
     "searchPlaceholder": "Cari gaya dan tag…",
     "presetsSection": "Preset bawaan",
+    "presetActions": "Aksi preset",
     "librarySection": "Pustaka saya",
     "projectSection": "Proyek ini",
     "empty": "Tidak ada gaya tersimpan yang cocok. Simpan gaya layer atau impor pustaka untuk memulai.",
@@ -7073,6 +7087,8 @@
     "saveEditsSuccess": "Menyimpan {{count}} fitur ke file sumber.",
     "saveEditsNoFeatures": "Layer ini tidak memiliki fitur untuk disimpan.",
     "saveEditsError": "Tidak dapat menyimpan pengeditan ke file sumber.",
+    "saveEditsToArcgis": "Simpan perubahan ke layanan ArcGIS",
+    "saveEditsArcgisSuccess": "Tersimpan ke ArcGIS: {{inserted}} ditambahkan, {{updated}} diperbarui, {{deleted}} dihapus.",
     "saveEditsToPostgis": "Simpan perubahan ke tabel PostGIS",
     "saveEditsPostgisSuccess": "Tersimpan ke {{table}}: {{inserted}} ditambahkan, {{updated}} diperbarui, {{deleted}} dihapus.",
     "saveEditsPostgisSkippedFields": "Bidang tanpa kolom tabel yang cocok tidak disimpan: {{fields}}.",

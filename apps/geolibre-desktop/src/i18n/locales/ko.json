@@ -345,6 +345,10 @@
       "polyline": {
         "label": "인코딩된 폴리라인 레이어 추가",
         "description": "인코딩된 폴리라인 문자열(Google, OSRM, Valhalla)을 텍스트 또는 파일에서 벡터 라인으로 가져옵니다."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "원본 스타일, 오버레이 및 네트워크 링크를 유지하여 KML 또는 KMZ를 지구본에 불러옵니다."
       }
     },
     "shared": {
@@ -399,6 +403,11 @@
       "errorRead": "해당 파일을 서비스 라이브러리로 읽을 수 없습니다.",
       "imported_other": "서비스 {{count}}개를 가져왔습니다.",
       "importedWithDropped_other": "서비스 {{count}}개를 가져왔습니다({{dropped}}개는 라이브러리가 가득 차서 건너뜀)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML / KMZ URL",
+      "errorSource": "KML/KMZ URL을 입력하거나 파일을 선택하세요."
     },
     "xyz": {
       "defaultName": "XYZ 레이어",
@@ -3534,10 +3543,14 @@
     "title": "STAC 카탈로그",
     "footprintLayerName": "STAC 검색 범위",
     "catalogSearch": "STAC Index에서 공개 카탈로그 찾기",
+    "portolanCatalogSearch": "Portolan Registry에서 공개 카탈로그 찾기",
     "catalogSearchPlaceholder": "카탈로그 이름 검색…",
     "indexLoading": "STAC Index 로드 중…",
+    "portolanIndexLoading": "Portolan Registry 로드 중…",
     "indexUnavailable": "STAC Index를 사용할 수 없습니다: URL을 입력하세요",
+    "portolanIndexUnavailable": "Portolan Registry를 사용할 수 없습니다: URL을 입력하세요",
     "indexLoadFailed": "STAC Index를 불러오지 못했습니다",
+    "portolanIndexLoadFailed": "Portolan Registry를 불러오지 못했습니다",
     "urlLabel": "STAC 카탈로그 또는 API URL",
     "connect": "연결",
     "connecting": "STAC에 연결 중…",
@@ -6322,6 +6335,7 @@
     "description": "레이어와 프로젝트 전반에서 재사용 가능한 스타일, 심볼, 레이블 사전 설정, 색상 램프를 저장, 탐색, 적용합니다.",
     "searchPlaceholder": "스타일 및 태그 검색…",
     "presetsSection": "내장 사전 설정",
+    "presetActions": "사전 설정 작업",
     "librarySection": "내 라이브러리",
     "projectSection": "이 프로젝트",
     "empty": "일치하는 저장된 스타일이 없습니다. 레이어의 스타일을 저장하거나 라이브러리를 가져와 시작하세요.",
@@ -7073,6 +7087,8 @@
     "saveEditsSuccess": "{{count}}개의 피처를 원본 파일에 저장했습니다.",
     "saveEditsNoFeatures": "이 레이어에는 저장할 피처가 없습니다.",
     "saveEditsError": "원본 파일에 편집 내용을 저장할 수 없습니다.",
+    "saveEditsToArcgis": "ArcGIS 서비스에 편집 저장",
+    "saveEditsArcgisSuccess": "ArcGIS에 저장했습니다: {{inserted}}개 삽입, {{updated}}개 수정, {{deleted}}개 삭제.",
     "saveEditsToPostgis": "PostGIS 테이블에 편집 저장",
     "saveEditsPostgisSuccess": "{{table}}에 저장했습니다: {{inserted}}개 삽입, {{updated}}개 수정, {{deleted}}개 삭제.",
     "saveEditsPostgisSkippedFields": "일치하는 테이블 열이 없는 필드는 저장되지 않았습니다: {{fields}}.",

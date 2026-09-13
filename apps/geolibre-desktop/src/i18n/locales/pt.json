@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Adicionar camada de polilinha codificada",
         "description": "Importar strings de polilinha codificada (Google, OSRM, Valhalla) de texto ou arquivos como linhas vetoriais."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Carregue KML ou KMZ com estilos nativos, sobreposições e links de rede no globo."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} serviços importados.",
       "importedWithDropped_one": "{{count}} serviço importado ({{dropped}} ignorado — biblioteca cheia).",
       "importedWithDropped_other": "{{count}} serviços importados ({{dropped}} ignorados — biblioteca cheia)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL KML / KMZ",
+      "errorSource": "Insira uma URL KML/KMZ ou escolha um arquivo."
     },
     "xyz": {
       "defaultName": "Camada XYZ",
@@ -3592,10 +3601,14 @@
     "title": "Catálogos STAC",
     "footprintLayerName": "Contornos de busca STAC",
     "catalogSearch": "Encontrar um catálogo público no STAC Index",
+    "portolanCatalogSearch": "Encontrar um catálogo público no Portolan Registry",
     "catalogSearchPlaceholder": "Buscar nomes de catálogos…",
     "indexLoading": "Carregando STAC Index…",
+    "portolanIndexLoading": "Carregando Portolan Registry…",
     "indexUnavailable": "STAC Index indisponível: informe uma URL",
+    "portolanIndexUnavailable": "Portolan Registry indisponível: informe uma URL",
     "indexLoadFailed": "Não foi possível carregar o STAC Index",
+    "portolanIndexLoadFailed": "Não foi possível carregar o Portolan Registry",
     "urlLabel": "URL do catálogo ou da API STAC",
     "connect": "Conectar",
     "connecting": "Conectando ao STAC…",
@@ -6397,6 +6410,7 @@
     "description": "Salve, navegue e aplique estilos, símbolos, predefinições de rótulos e rampas de cores reutilizáveis em camadas e projetos.",
     "searchPlaceholder": "Pesquisar estilos e tags…",
     "presetsSection": "Predefinições integradas",
+    "presetActions": "Ações da predefinição",
     "librarySection": "Minha biblioteca",
     "projectSection": "Este projeto",
     "empty": "Nenhum estilo salvo corresponde. Salve o estilo de uma camada ou importe uma biblioteca para começar.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} feição(ões) salva(s) no arquivo de origem.",
     "saveEditsNoFeatures": "Esta camada não tem feições para salvar.",
     "saveEditsError": "Não foi possível salvar as edições no arquivo de origem.",
+    "saveEditsToArcgis": "Salvar edições no serviço ArcGIS",
+    "saveEditsArcgisSuccess": "Salvo em ArcGIS: {{inserted}} inserida(s), {{updated}} atualizada(s), {{deleted}} excluída(s).",
     "saveEditsToPostgis": "Salvar edições na tabela PostGIS",
     "saveEditsPostgisSuccess": "Salvo em {{table}}: {{inserted}} inserida(s), {{updated}} atualizada(s), {{deleted}} excluída(s).",
     "saveEditsPostgisSkippedFields": "Os campos sem uma coluna correspondente na tabela não foram salvos: {{fields}}.",

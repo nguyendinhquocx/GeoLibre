@@ -1,4 +1,9 @@
 import {
+  arcGISLayerHasPendingEdits,
+  isArcGISWritableLayer,
+  saveArcGISLayerEdits,
+} from "@geolibre/plugins";
+import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -26,9 +31,11 @@ import {
   isStyleLibraryTargetLayer,
   canSaveLayerToLibrary,
   captureLayerLibraryEntry,
+  activeLayerFilterExpression,
   clearQuickFilterValues,
   createLayerLibraryEntryId,
   copyableLayerStyleKind,
+  hasActiveLayerFilter,
   hasActiveQuickFilter,
   isCesiumOnlyLayer,
   pluginOwnsPaint,
@@ -41,6 +48,7 @@ import {
   resolveLayerCapabilities,
 } from "@geolibre/core";
 import type { EllipsoidId, GeoLibreLayer, LayerGroup } from "@geolibre/core";
+import { layerFilteredHintKey } from "../../lib/layer-filter-hint";
 import type { FeatureCollection } from "geojson";
 import {
   buildTimeBindingFromRecords,
@@ -152,6 +160,7 @@ import {
   EyeOff,
   FilePlus2,
   Filter,
+  FilterX,
   Folder,
   FolderMinus,
   FolderOpen,
@@ -392,6 +401,7 @@ function isPostgisEditableLayer(layer: GeoLibreLayer): boolean {
  * deletes but not updates still offers the save.
  */
 function canWriteEditsToSource(layer: GeoLibreLayer): boolean {
+  if (isArcGISWritableLayer(layer)) return true;
   if (!isTauri() || layer.type !== "geojson") return false;
   // Both write-back paths (PostGIS tables and local files) run through the
   // Python sidecar, which the Mac App Store build compiles out, so edits are
@@ -713,7 +723,6 @@ export function LayerPanel({
   }, [selectedPlanet, basemapStyleUrl]);
   const setLayerVisibility = useAppStore((s) => s.setLayerVisibility);
   const setLayerOpacity = useAppStore((s) => s.setLayerOpacity);
-  const setLayerQuickFilters = useAppStore((s) => s.setLayerQuickFilters);
   const reorderLayer = useAppStore((s) => s.reorderLayer);
   const moveLayer = useAppStore((s) => s.moveLayer);
   const moveLayersRelative = useAppStore((s) => s.moveLayersRelative);
@@ -1618,7 +1627,9 @@ export function LayerPanel({
         if (latest) {
           updateLayer(layer.id, {
             ...setLayerConnectionResult(latest, { error: message }),
-            ...(latest.connection?.onFailure === "clear" && latest.geojson
+            ...(latest.connection?.onFailure === "clear" &&
+            latest.geojson &&
+            !arcGISLayerHasPendingEdits(latest.id)
               ? {
                   geojson: { type: "FeatureCollection" as const, features: [] },
                 }
@@ -2029,11 +2040,24 @@ export function LayerPanel({
   // is no save dialog: write-back targets the known source.
   const handleSaveEditsToSource = useCallback(
     async (layer: GeoLibreLayer) => {
+      if (!canEditLayer(layer.id)) return;
       clearRefreshStatusTimer(layer.id);
       const isPostgis = isPostgisEditableLayer(layer);
       const path = typeof layer.sourcePath === "string" ? layer.sourcePath.trim() : "";
-      if (!isPostgis && !path) return;
+      if (!isPostgis && !isArcGISWritableLayer(layer) && !path) return;
       try {
+        if (isArcGISWritableLayer(layer)) {
+          const result = await saveArcGISLayerEdits(layer.id);
+          setRefreshStatuses((current) => ({
+            ...current,
+            [layer.id]: {
+              type: result.errors.length ? "warning" : "success",
+              message: [t("layers.saveEditsArcgisSuccess", result), ...result.errors].join(" "),
+            },
+          }));
+          scheduleStatusClear(layer.id);
+          return;
+        }
         const geojson = await resolveLayerGeojson(
           layer,
           mapControllerRef.current?.getMap() ?? undefined,
@@ -2167,7 +2191,7 @@ export function LayerPanel({
         scheduleStatusClear(layer.id);
       }
     },
-    [clearRefreshStatusTimer, mapControllerRef, scheduleStatusClear, t, updateLayer],
+    [canEditLayer, clearRefreshStatusTimer, mapControllerRef, scheduleStatusClear, t, updateLayer],
   );
 
   // Close the bind dialog and invalidate any in-flight scan/confirm so a late
@@ -3336,6 +3360,12 @@ export function LayerPanel({
             // and attributes, so a read-only reference layer can still be
             // renamed or taken off the map.
             const layerEditable = canEditLayer(layer.id);
+            // Emptying Quick Filter answers narrows a view; discarding the
+            // authored expression changes the project. A read-only
+            // collaborator may do the first but not the second, so the row's
+            // clear action offers whichever half they are allowed.
+            const clearsExpression = layerEditable && activeLayerFilterExpression(layer) !== null;
+            const clearableQuickFilters = hasActiveQuickFilter(layer);
             const refreshConfig = getLayerRefreshConfig(layer);
             // Live SQL query layers (issue #1295) refresh by re-running their
             // stored DuckDB statement and offer a shortcut to edit it.
@@ -3515,13 +3545,13 @@ export function LayerPanel({
                           />
                         </span>
                       )}
-                      {/* A quick filter hides features, so say so on the row:
+                      {/* A layer filter hides features, so say so on the row:
                           without this a filtered layer reads as missing data. */}
-                      {hasActiveQuickFilter(layer) && (
-                        <span title={t("quickFilters.layerFilteredHint")}>
+                      {hasActiveLayerFilter(layer) && (
+                        <span title={t(layerFilteredHintKey(layer))}>
                           <Filter
                             className="h-3 w-3 shrink-0 text-primary"
-                            aria-label={t("quickFilters.layerFilteredHint")}
+                            aria-label={t(layerFilteredHintKey(layer))}
                           />
                         </span>
                       )}
@@ -3551,9 +3581,16 @@ export function LayerPanel({
                         {layerTypeLabel(layer, t)}
                       </span>
                     </div>
-                    {isPlaceholderLayer(layer) && (
-                      <p className="mt-1 text-[10px] text-amber-600">{placeholderMessage(layer)}</p>
-                    )}
+                    {/* Placeholder detection checks MapLibre source ids, which the
+                        globe's own layers never create. Suppress it only for the
+                        kinds Cesium actually draws — a kind it cannot draw (e.g.
+                        duckdb-query) keeps its message while the globe is primary. */}
+                    {(!cesiumPrimary || !isCesiumSupportedLayerType(layer)) &&
+                      isPlaceholderLayer(layer) && (
+                        <p className="mt-1 text-[10px] text-amber-600">
+                          {placeholderMessage(layer)}
+                        </p>
+                      )}
                     {refreshStatus && (
                       <p
                         title={layer.connection?.lastError ?? layer.connection?.lastSyncedAt ?? ""}
@@ -3766,20 +3803,33 @@ export function LayerPanel({
                               {t("layers.openStylePanel")}
                             </DropdownMenuItem>
                           )}
-                          {/* Clearing keeps the controls the author configured
-                              and only empties what they were answered with, so
-                              the next question does not start from scratch. */}
-                          {hasActiveQuickFilter(layer) && (
+                          {/* Clearing drops the persistent expression filter
+                              outright, but keeps the Quick Filter controls the
+                              author configured and only empties what they were
+                              answered with, so the next question does not start
+                              from scratch. */}
+                          {hasActiveLayerFilter(layer) && (
                             <DropdownMenuItem
-                              onSelect={() =>
-                                setLayerQuickFilters(
-                                  layer.id,
-                                  clearQuickFilterValues(layer.quickFilters),
-                                )
-                              }
+                              disabled={!clearsExpression && !clearableQuickFilters}
+                              onSelect={() => {
+                                if (!clearsExpression && !clearableQuickFilters) return;
+                                const quickFilters = clearQuickFilterValues(layer.quickFilters);
+                                updateLayer(layer.id, {
+                                  ...(clearsExpression ? { filterExpression: undefined } : {}),
+                                  quickFilters: quickFilters.length > 0 ? quickFilters : undefined,
+                                });
+                              }}
                             >
-                              <Filter className="me-2 h-3.5 w-3.5" />
-                              {t("quickFilters.clearAll")}
+                              {clearsExpression ? (
+                                <FilterX className="me-2 h-3.5 w-3.5" />
+                              ) : (
+                                <Filter className="me-2 h-3.5 w-3.5" />
+                              )}
+                              {t(
+                                clearsExpression
+                                  ? "quickFilters.clearAllWithExpression"
+                                  : "quickFilters.clearAll",
+                              )}
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuItem
@@ -4325,14 +4375,17 @@ export function LayerPanel({
                           )}
                           {canWriteBack && (
                             <DropdownMenuItem
+                              disabled={geometryEditActive || !layerEditable}
                               onSelect={() => {
                                 void handleSaveEditsToSource(layer);
                               }}
                             >
                               <Save className="me-2 h-3.5 w-3.5" />
-                              {isPostgisEditableLayer(layer)
-                                ? t("layers.saveEditsToPostgis")
-                                : t("layers.saveEditsToSource")}
+                              {isArcGISWritableLayer(layer)
+                                ? t("layers.saveEditsToArcgis")
+                                : isPostgisEditableLayer(layer)
+                                  ? t("layers.saveEditsToPostgis")
+                                  : t("layers.saveEditsToSource")}
                             </DropdownMenuItem>
                           )}
                           {canEditRasterStyle && (

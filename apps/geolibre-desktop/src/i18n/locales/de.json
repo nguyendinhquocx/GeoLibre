@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Kodierte Polyline-Ebene hinzufügen",
         "description": "Kodierte Polyline-Zeichenfolgen (Google, OSRM, Valhalla) aus Text oder Dateien als Vektorlinien importieren."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "KML oder KMZ mit nativen Stilen, Overlays und Netzwerklinks auf dem Globus laden."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} Dienste importiert.",
       "importedWithDropped_one": "{{count}} Dienst importiert ({{dropped}} übersprungen — Bibliothek voll).",
       "importedWithDropped_other": "{{count}} Dienste importiert ({{dropped}} übersprungen — Bibliothek voll)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML-/KMZ-URL",
+      "errorSource": "Geben Sie eine KML/KMZ-URL ein oder wählen Sie eine Datei."
     },
     "xyz": {
       "defaultName": "XYZ-Ebene",
@@ -3592,10 +3601,14 @@
     "title": "STAC-Kataloge",
     "footprintLayerName": "STAC-Suchumrisse",
     "catalogSearch": "Öffentlichen Katalog im STAC Index finden",
+    "portolanCatalogSearch": "Öffentlichen Katalog im Portolan Registry finden",
     "catalogSearchPlaceholder": "Katalognamen suchen…",
     "indexLoading": "STAC Index wird geladen…",
+    "portolanIndexLoading": "Portolan Registry wird geladen…",
     "indexUnavailable": "STAC Index nicht verfügbar: URL eingeben",
+    "portolanIndexUnavailable": "Portolan Registry nicht verfügbar: URL eingeben",
     "indexLoadFailed": "STAC Index konnte nicht geladen werden",
+    "portolanIndexLoadFailed": "Portolan Registry konnte nicht geladen werden",
     "urlLabel": "STAC-Katalog- oder API-URL",
     "connect": "Verbinden",
     "connecting": "Verbindung zu STAC wird hergestellt…",
@@ -6397,6 +6410,7 @@
     "description": "Speichern, durchsuchen und wenden Sie wiederverwendbare Stile, Symbole, Beschriftungsvorlagen und Farbverläufe über Ebenen und Projekte hinweg an.",
     "searchPlaceholder": "Stile und Tags durchsuchen…",
     "presetsSection": "Integrierte Vorlagen",
+    "presetActions": "Vorlagenaktionen",
     "librarySection": "Meine Bibliothek",
     "projectSection": "Dieses Projekt",
     "empty": "Keine gespeicherten Stile passen. Speichern Sie den Stil einer Ebene oder importieren Sie eine Bibliothek, um zu beginnen.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} Objekt(e) in der Quelldatei gespeichert.",
     "saveEditsNoFeatures": "Diese Ebene enthält keine zu speichernden Objekte.",
     "saveEditsError": "Änderungen konnten nicht in der Quelldatei gespeichert werden.",
+    "saveEditsToArcgis": "Änderungen im ArcGIS-Dienst speichern",
+    "saveEditsArcgisSuccess": "In ArcGIS gespeichert: {{inserted}} eingefügt, {{updated}} aktualisiert, {{deleted}} gelöscht.",
     "saveEditsToPostgis": "Änderungen in PostGIS-Tabelle speichern",
     "saveEditsPostgisSuccess": "In {{table}} gespeichert: {{inserted}} eingefügt, {{updated}} aktualisiert, {{deleted}} gelöscht.",
     "saveEditsPostgisSkippedFields": "Felder ohne passende Tabellenspalte wurden nicht gespeichert: {{fields}}.",

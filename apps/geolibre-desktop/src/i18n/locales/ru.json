@@ -351,6 +351,10 @@
       "polyline": {
         "label": "Добавить слой закодированной полилинии",
         "description": "Импорт закодированных строк полилиний (Google, OSRM, Valhalla) из текста или файлов в виде векторных линий."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Загрузите KML или KMZ на глобус с исходными стилями, наложениями и сетевыми ссылками."
       }
     },
     "shared": {
@@ -411,6 +415,11 @@
       "importedWithDropped_few": "Импортировано {{count}} сервиса ({{dropped}} пропущено — библиотека заполнена).",
       "importedWithDropped_many": "Импортировано {{count}} сервисов ({{dropped}} пропущено — библиотека заполнена).",
       "importedWithDropped_other": "Импортировано {{count}} сервиса ({{dropped}} пропущено — библиотека заполнена)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL KML / KMZ",
+      "errorSource": "Введите URL KML/KMZ или выберите файл."
     },
     "xyz": {
       "defaultName": "Слой XYZ",
@@ -3708,10 +3717,14 @@
     "title": "Каталоги STAC",
     "footprintLayerName": "Контуры поиска STAC",
     "catalogSearch": "Найти публичный каталог в STAC Index",
+    "portolanCatalogSearch": "Найти публичный каталог в Portolan Registry",
     "catalogSearchPlaceholder": "Поиск по названиям каталогов…",
     "indexLoading": "Загрузка STAC Index…",
+    "portolanIndexLoading": "Загрузка Portolan Registry…",
     "indexUnavailable": "STAC Index недоступен: введите URL",
+    "portolanIndexUnavailable": "Portolan Registry недоступен: введите URL",
     "indexLoadFailed": "Не удалось загрузить STAC Index",
+    "portolanIndexLoadFailed": "Не удалось загрузить Portolan Registry",
     "urlLabel": "URL каталога или API STAC",
     "connect": "Подключиться",
     "connecting": "Подключение к STAC…",
@@ -6547,6 +6560,7 @@
     "description": "Сохраняйте, просматривайте и применяйте многократно используемые стили, символы, шаблоны подписей и цветовые градиенты для слоёв и проектов.",
     "searchPlaceholder": "Поиск стилей и тегов…",
     "presetsSection": "Встроенные шаблоны",
+    "presetActions": "Действия с шаблоном",
     "librarySection": "Моя библиотека",
     "projectSection": "Этот проект",
     "empty": "Нет подходящих сохранённых стилей. Сохраните стиль слоя или импортируйте библиотеку, чтобы начать.",
@@ -7313,6 +7327,8 @@
     "saveEditsSuccess": "Сохранено объектов в исходный файл: {{count}}.",
     "saveEditsNoFeatures": "В этом слое нет объектов для сохранения.",
     "saveEditsError": "Не удалось сохранить изменения в исходный файл.",
+    "saveEditsToArcgis": "Сохранить изменения в сервис ArcGIS",
+    "saveEditsArcgisSuccess": "Сохранено в ArcGIS: добавлено {{inserted}}, обновлено {{updated}}, удалено {{deleted}}.",
     "saveEditsToPostgis": "Сохранить изменения в таблицу PostGIS",
     "saveEditsPostgisSuccess": "Сохранено в {{table}}: добавлено {{inserted}}, обновлено {{updated}}, удалено {{deleted}}.",
     "saveEditsPostgisSkippedFields": "Поля без соответствующего столбца таблицы не сохранены: {{fields}}.",

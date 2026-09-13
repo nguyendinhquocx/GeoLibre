@@ -345,6 +345,10 @@
       "polyline": {
         "label": "Thêm lớp polyline mã hóa",
         "description": "Nhập các chuỗi polyline mã hóa (Google, OSRM, Valhalla) từ văn bản hoặc tệp dưới dạng đường vector."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "Tải KML hoặc KMZ lên địa cầu với kiểu gốc, lớp phủ và liên kết mạng."
       }
     },
     "shared": {
@@ -399,6 +403,11 @@
       "errorNoServices": "Không tìm thấy dịch vụ hợp lệ trong tập tin đó.",
       "errorRead": "Không thể đọc tệp đó dưới dạng thư viện dịch vụ.",
       "imported_other": "Đã nhập dịch vụ {{count}}."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "URL KML / KMZ",
+      "errorSource": "Nhập URL KML/KMZ hoặc chọn một tệp."
     },
     "xyz": {
       "defaultName": "Lớp XYZ",
@@ -3534,10 +3543,14 @@
     "title": "Danh mục STAC",
     "footprintLayerName": "Dấu chân tìm kiếm STAC",
     "catalogSearch": "Tìm danh mục công khai từ STAC Index",
+    "portolanCatalogSearch": "Tìm danh mục công khai từ Portolan Registry",
     "catalogSearchPlaceholder": "Tìm kiếm tên danh mục…",
     "indexLoading": "Đang tải chỉ mục STAC…",
+    "portolanIndexLoading": "Đang tải Portolan Registry…",
     "indexUnavailable": "Chỉ mục STAC không có sẵn - hãy nhập URL",
+    "portolanIndexUnavailable": "Portolan Registry không có sẵn: hãy nhập URL",
     "indexLoadFailed": "Không thể tải chỉ mục STAC",
+    "portolanIndexLoadFailed": "Không thể tải Portolan Registry",
     "urlLabel": "Danh mục STAC hoặc URL API",
     "connect": "Kết nối",
     "connecting": "Đang kết nối với STAC…",
@@ -6332,6 +6345,7 @@
     "description": "Lưu kiểu",
     "searchPlaceholder": "Tìm kiếm kiểu và thẻ…",
     "presetsSection": "Cài đặt trước tích hợp",
+    "presetActions": "Hành động cài đặt trước",
     "librarySection": "Thư viện của tôi",
     "projectSection": "Dự án này",
     "empty": "Ẩn trường",
@@ -7073,6 +7087,8 @@
     "saveEditsSuccess": "Đã lưu {{count}} tính năng vào tệp nguồn.",
     "saveEditsNoFeatures": "Lớp này không có tính năng để lưu.",
     "saveEditsError": "Không thể lưu các chỉnh sửa vào tệp nguồn.",
+    "saveEditsToArcgis": "Lưu các chỉnh sửa vào dịch vụ ArcGIS",
+    "saveEditsArcgisSuccess": "Đã lưu vào ArcGIS: {{inserted}} đã chèn, {{updated}} đã cập nhật, {{deleted}} đã xóa.",
     "saveEditsToPostgis": "Lưu các chỉnh sửa vào bảng PostGIS",
     "saveEditsPostgisSuccess": "Đã lưu vào {{table}}: {{inserted}} đã chèn, {{updated}} đã cập nhật, {{deleted}} đã xóa.",
     "saveEditsPostgisSkippedFields": "Các trường không có cột bảng phù hợp sẽ không được lưu: {{fields}}.",

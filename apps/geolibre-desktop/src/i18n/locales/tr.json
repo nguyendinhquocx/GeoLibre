@@ -347,6 +347,10 @@
       "polyline": {
         "label": "Kodlanmış Çoklu Çizgi Katmanı Ekle",
         "description": "Kodlanmış çoklu çizgi dizelerini (Google, OSRM, Valhalla) metin veya dosyalardan vektör çizgiler olarak içe aktarın."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "KML veya KMZ dosyalarını özgün stiller, kaplamalar ve ağ bağlantılarıyla küreye yükleyin."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "{{count}} servis içe aktarıldı.",
       "importedWithDropped_one": "{{count}} servis içe aktarıldı ({{dropped}} tanesi atlandı — kitaplık dolu).",
       "importedWithDropped_other": "{{count}} servis içe aktarıldı ({{dropped}} tanesi atlandı — kitaplık dolu)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML / KMZ URL'si",
+      "errorSource": "Bir KML/KMZ URL’si girin veya dosya seçin."
     },
     "xyz": {
       "defaultName": "XYZ Katmanı",
@@ -3592,10 +3601,14 @@
     "title": "STAC Katalogları",
     "footprintLayerName": "STAC arama sınırları",
     "catalogSearch": "STAC Index'te herkese açık katalog bul",
+    "portolanCatalogSearch": "Portolan Registry'te herkese açık katalog bul",
     "catalogSearchPlaceholder": "Katalog adlarında ara…",
     "indexLoading": "STAC Index yükleniyor…",
+    "portolanIndexLoading": "Portolan Registry yükleniyor…",
     "indexUnavailable": "STAC Index kullanılamıyor: bir URL girin",
+    "portolanIndexUnavailable": "Portolan Registry kullanılamıyor: bir URL girin",
     "indexLoadFailed": "STAC Index yüklenemedi",
+    "portolanIndexLoadFailed": "Portolan Registry yüklenemedi",
     "urlLabel": "STAC katalog veya API URL'si",
     "connect": "Bağlan",
     "connecting": "STAC'a bağlanılıyor…",
@@ -6397,6 +6410,7 @@
     "description": "Katmanlar ve projeler arasında yeniden kullanılabilir stilleri, sembolleri, etiket ön ayarlarını ve renk geçişlerini kaydedin, göz atın ve uygulayın.",
     "searchPlaceholder": "Stilleri ve etiketleri ara…",
     "presetsSection": "Yerleşik ön ayarlar",
+    "presetActions": "Ön ayar eylemleri",
     "librarySection": "Kitaplığım",
     "projectSection": "Bu proje",
     "empty": "Eşleşen kayıtlı stil yok. Başlamak için bir katmanın stilini kaydedin veya bir kitaplık içe aktarın.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "{{count}} öğe kaynak dosyaya kaydedildi.",
     "saveEditsNoFeatures": "Bu katmanda kaydedilecek öğe yok.",
     "saveEditsError": "Düzenlemeler kaynak dosyaya kaydedilemedi.",
+    "saveEditsToArcgis": "Düzenlemeleri ArcGIS servisine kaydet",
+    "saveEditsArcgisSuccess": "ArcGIS hizmetine kaydedildi: {{inserted}} eklendi, {{updated}} güncellendi, {{deleted}} silindi.",
     "saveEditsToPostgis": "Düzenlemeleri PostGIS tablosuna kaydet",
     "saveEditsPostgisSuccess": "{{table}} tablosuna kaydedildi: {{inserted}} eklendi, {{updated}} güncellendi, {{deleted}} silindi.",
     "saveEditsPostgisSkippedFields": "Eşleşen tablo sütunu olmayan alanlar kaydedilmedi: {{fields}}.",

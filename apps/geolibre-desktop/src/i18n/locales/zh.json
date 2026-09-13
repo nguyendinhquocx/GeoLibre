@@ -345,6 +345,10 @@
       "polyline": {
         "label": "添加编码折线图层",
         "description": "将编码折线字符串（Google、OSRM、Valhalla）从文本或文件导入为矢量线。"
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "在地球仪上加载 KML 或 KMZ，保留原生样式、叠加层和网络链接。"
       }
     },
     "shared": {
@@ -399,6 +403,11 @@
       "errorRead": "无法将该文件作为服务库读取。",
       "imported_other": "已导入 {{count}} 个服务。",
       "importedWithDropped_other": "已导入 {{count}} 个服务（{{dropped}} 个因库已满而跳过）。"
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML / KMZ URL",
+      "errorSource": "输入 KML/KMZ URL 或选择文件。"
     },
     "xyz": {
       "defaultName": "XYZ 图层",
@@ -3534,10 +3543,14 @@
     "title": "STAC 目录",
     "footprintLayerName": "STAC 搜索范围",
     "catalogSearch": "在 STAC Index 中查找公共目录",
+    "portolanCatalogSearch": "在 Portolan Registry 中查找公共目录",
     "catalogSearchPlaceholder": "搜索目录名称…",
     "indexLoading": "正在加载 STAC Index…",
+    "portolanIndexLoading": "正在加载 Portolan Registry…",
     "indexUnavailable": "STAC Index 不可用：请输入网址",
+    "portolanIndexUnavailable": "Portolan Registry 不可用：请输入网址",
     "indexLoadFailed": "无法加载 STAC Index",
+    "portolanIndexLoadFailed": "无法加载 Portolan Registry",
     "urlLabel": "STAC 目录或 API 网址",
     "connect": "连接",
     "connecting": "正在连接 STAC…",
@@ -6322,6 +6335,7 @@
     "description": "保存、浏览和应用可复用的样式、符号、标注预设和色带，可跨图层与项目使用。",
     "searchPlaceholder": "搜索样式和标签…",
     "presetsSection": "内置预设",
+    "presetActions": "预设操作",
     "librarySection": "我的库",
     "projectSection": "此项目",
     "empty": "没有匹配的已保存样式。保存图层样式或导入样式库以开始使用。",
@@ -7073,6 +7087,8 @@
     "saveEditsSuccess": "已将 {{count}} 个要素保存到源文件。",
     "saveEditsNoFeatures": "此图层没有可保存的要素。",
     "saveEditsError": "无法将编辑保存到源文件。",
+    "saveEditsToArcgis": "保存编辑到 ArcGIS 服务",
+    "saveEditsArcgisSuccess": "已保存到 ArcGIS：新增 {{inserted}} 个，更新 {{updated}} 个，删除 {{deleted}} 个。",
     "saveEditsToPostgis": "保存编辑到 PostGIS 表",
     "saveEditsPostgisSuccess": "已保存到 {{table}}：新增 {{inserted}} 个，更新 {{updated}} 个，删除 {{deleted}} 个。",
     "saveEditsPostgisSkippedFields": "没有匹配表列的字段未被保存：{{fields}}。",

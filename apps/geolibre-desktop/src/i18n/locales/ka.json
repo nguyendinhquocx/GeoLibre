@@ -347,6 +347,10 @@
       "polyline": {
         "label": "დაშიფრული პოლიხაზის შრის დამატება",
         "description": "დაშიფრული პოლიხაზის სტრიქონების (Google, OSRM, Valhalla) იმპორტი ტექსტიდან ან ფაილებიდან ვექტორული ხაზების სახით."
+      },
+      "kml": {
+        "label": "KML / KMZ",
+        "description": "ჩატვირთეთ KML ან KMZ გლობუსზე ორიგინალური სტილებით, გადაფარვებითა და ქსელური ბმულებით."
       }
     },
     "shared": {
@@ -403,6 +407,11 @@
       "imported_other": "დაიმპორტდა {{count}} სერვისი.",
       "importedWithDropped_one": "დაიმპორტდა {{count}} სერვისი ({{dropped}} გამოტოვდა — ბიბლიოთეკა სავსეა).",
       "importedWithDropped_other": "დაიმპორტდა {{count}} სერვისი ({{dropped}} გამოტოვდა — ბიბლიოთეკა სავსეა)."
+    },
+    "kml": {
+      "defaultName": "KML / KMZ",
+      "url": "KML / KMZ URL",
+      "errorSource": "შეიყვანეთ KML/KMZ URL ან აირჩიეთ ფაილი."
     },
     "xyz": {
       "defaultName": "XYZ შრე",
@@ -3592,10 +3601,14 @@
     "title": "STAC კატალოგები",
     "footprintLayerName": "STAC ძიების საზღვრები",
     "catalogSearch": "იპოვეთ საჯარო კატალოგი STAC Index-ში",
+    "portolanCatalogSearch": "იპოვეთ საჯარო კატალოგი Portolan Registry-ში",
     "catalogSearchPlaceholder": "კატალოგების სახელების ძიება…",
     "indexLoading": "STAC Index იტვირთება…",
+    "portolanIndexLoading": "Portolan Registry იტვირთება…",
     "indexUnavailable": "STAC Index მიუწვდომელია: შეიყვანეთ URL",
+    "portolanIndexUnavailable": "Portolan Registry მიუწვდომელია: შეიყვანეთ URL",
     "indexLoadFailed": "STAC Index ვერ ჩაიტვირთა",
+    "portolanIndexLoadFailed": "Portolan Registry ვერ ჩაიტვირთა",
     "urlLabel": "STAC კატალოგის ან API-ის URL",
     "connect": "დაკავშირება",
     "connecting": "მიმდინარეობს STAC-თან დაკავშირება…",
@@ -6397,6 +6410,7 @@
     "description": "შეინახეთ, დაათვალიერეთ და გამოიყენეთ ხელახლა გამოსაყენებელი სტილები, სიმბოლოები, წარწერების წინასწარი პარამეტრები და ფერთა გრადიენტები ფენებსა და პროექტებზე.",
     "searchPlaceholder": "სტილებისა და ტეგების ძიება…",
     "presetsSection": "ჩაშენებული წინასწარი პარამეტრები",
+    "presetActions": "წინასწარი პარამეტრის მოქმედებები",
     "librarySection": "ჩემი ბიბლიოთეკა",
     "projectSection": "ეს პროექტი",
     "empty": "შენახული სტილები ვერ მოიძებნა. დასაწყებად შეინახეთ ფენის სტილი ან შემოიტანეთ ბიბლიოთეკა.",
@@ -7153,6 +7167,8 @@
     "saveEditsSuccess": "წყარო ფაილში შენახულია {{count}} ობიექტი.",
     "saveEditsNoFeatures": "ამ შრეს არ აქვს შესანახი ობიექტები.",
     "saveEditsError": "წყარო ფაილში ცვლილებების შენახვა ვერ მოხერხდა.",
+    "saveEditsToArcgis": "ცვლილებების შენახვა ArcGIS სერვისში",
+    "saveEditsArcgisSuccess": "შენახულია ArcGIS-ში: {{inserted}} ჩამატებული, {{updated}} განახლებული, {{deleted}} წაშლილი.",
     "saveEditsToPostgis": "ცვლილებების შენახვა PostGIS ცხრილში",
     "saveEditsPostgisSuccess": "შენახულია {{table}}-ში: {{inserted}} ჩამატებული, {{updated}} განახლებული, {{deleted}} წაშლილი.",
     "saveEditsPostgisSkippedFields": "ცხრილის შესაბამისი სვეტის გარეშე ველები არ შენახულა: {{fields}}.",
