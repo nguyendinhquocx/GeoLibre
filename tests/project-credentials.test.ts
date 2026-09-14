@@ -217,6 +217,38 @@ describe("project credential redaction", () => {
     assert.deepEqual(safe.layers[0].source, { sr: 4326, key: "layer-identifier" });
   });
 
+  it("strips tokens from the resolved ArcGIS vector-tile sources", () => {
+    // The ArcGIS plugin persists the SDK's resolved sources on the layer so
+    // the Cesium drape can rebuild them; a token-bearing tile URL rides along.
+    const project = credentialProject();
+    project.layers[0] = {
+      ...project.layers[0],
+      type: "arcgis",
+      source: {
+        arcgisSources: {
+          parcels: {
+            type: "vector",
+            tiles: ["https://tiles.example.com/{z}/{x}/{y}.pbf?token=arcgis-secret&f=pbf"],
+          },
+        },
+        arcgisLayers: [
+          { id: "parcels-fill", type: "fill", source: "parcels", "source-layer": "parcels" },
+        ],
+      },
+      metadata: { nativeLayerIds: ["parcels-fill"] },
+    };
+
+    const { project: safe, redactedPaths } = redactProjectCredentials(project);
+    const serialized = serializeProject(safe);
+    assert.ok(!serialized.includes("arcgis-secret"));
+    const sources = safe.layers[0].source.arcgisSources as {
+      parcels: { tiles: string[] };
+    };
+    assert.deepEqual(sources.parcels.tiles, ["https://tiles.example.com/{z}/{x}/{y}.pbf?f=pbf"]);
+    assert.deepEqual(safe.layers[0].source.arcgisLayers, project.layers[0].source.arcgisLayers);
+    assert.ok(redactedPaths.includes("layers[0].source.arcgisSources.parcels.tiles[0]"));
+  });
+
   it("sweeps a layer's connection record, not only its source", () => {
     // `lastError` is free-form text from a caught error, so a refresh path that
     // words it with the request URL must not carry the credential out.

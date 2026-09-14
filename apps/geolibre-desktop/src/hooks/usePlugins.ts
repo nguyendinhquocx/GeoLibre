@@ -1026,6 +1026,17 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
           callback(state.basemapStyleUrl);
         }
       }),
+    getLayers: () => useAppStore.getState().layers.map((layer) => layer.id),
+    onLayersChanged: (callback: (layerIds: string[]) => void) =>
+      useAppStore.subscribe((state, prev) => {
+        const layerIds = state.layers.map((layer) => layer.id);
+        if (
+          layerIds.length !== prev.layers.length ||
+          layerIds.some((id, index) => id !== prev.layers[index]?.id)
+        ) {
+          callback(layerIds);
+        }
+      }),
     fetchArrayBuffer: fetchRemoteArrayBuffer,
     resolvePluginAssetUrl: resolvePluginAssetUrlForLoadedPlugin,
     activatePlugin: async (pluginId: string, state?: unknown) => {
@@ -1063,6 +1074,14 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
     readRasterWindow: (layerId: string, options: GeoLibreRasterWindowOptions) =>
       readRasterWindow(layerId, options),
     getMapRenderer: () => useAppStore.getState().primaryRenderer,
+    getMapboxMap: () => {
+      const engine = mapControllerRef?.current;
+      return engine?.kind === "mapbox" &&
+        "getMapboxMap" in engine &&
+        typeof engine.getMapboxMap === "function"
+        ? engine.getMapboxMap()
+        : null;
+    },
     getCesiumScene: () => {
       const engine = mapControllerRef?.current;
       return engine instanceof CesiumEngine ? engine.getCesiumScene() : null;

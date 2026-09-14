@@ -47,6 +47,12 @@ import { useTranslation } from "react-i18next";
 import { useColormapRamps } from "../../hooks/useColormapRamps";
 import { formatLegendNumber, setLegendCustomEntry } from "../../lib/auto-legend";
 import { savedRasterAttributeTable } from "../../lib/raster-attribute-table";
+import {
+  normalizeStretchMethod,
+  stretchSamples,
+  viewportRange,
+  type ViewportStretchMethod,
+} from "../../lib/viewport-stretch";
 
 type RasterStateRecord = {
   mode: "single" | "rgb" | "index";
@@ -60,6 +66,7 @@ type RasterStateRecord = {
   stretch: "linear" | "log" | "sqrt";
   gamma: number;
   viewportStretchAuto?: boolean;
+  viewportStretchMethod?: ViewportStretchMethod;
 };
 
 const CLASSIFICATION_METHODS: {
@@ -123,6 +130,7 @@ function readRasterState(layer: GeoLibreLayer): RasterStateRecord {
     stretch: raw.stretch === "log" || raw.stretch === "sqrt" ? raw.stretch : "linear",
     gamma: typeof raw.gamma === "number" && raw.gamma > 0 ? raw.gamma : 1,
     viewportStretchAuto: raw.viewportStretchAuto === true,
+    viewportStretchMethod: normalizeStretchMethod(raw.viewportStretchMethod),
   };
 }
 
@@ -809,6 +817,8 @@ export function RasterSymbologySection({
           mapControllerRef={mapControllerRef}
           autoUpdateInitial={state.viewportStretchAuto === true}
           onAutoUpdate={(enabled) => commit({ statePatch: { viewportStretchAuto: enabled } })}
+          methodInitial={state.viewportStretchMethod ?? "minmax"}
+          onMethod={(method) => commit({ statePatch: { viewportStretchMethod: method } })}
           onChange={(rescale) => commit({ statePatch: { rescale } })}
         />
       )}
@@ -1169,14 +1179,14 @@ function ClassOpacityInput({
   );
 }
 
-type ViewportStretchMethod = "minmax" | "percentile" | "stddev";
-
 function ViewportStretchControls({
   layerId,
   band,
   mapControllerRef,
   autoUpdateInitial,
   onAutoUpdate,
+  methodInitial,
+  onMethod,
   onChange,
 }: {
   layerId: string;
@@ -1184,10 +1194,12 @@ function ViewportStretchControls({
   mapControllerRef?: RefObject<MapEngine | null>;
   autoUpdateInitial: boolean;
   onAutoUpdate: (enabled: boolean) => void;
+  methodInitial: ViewportStretchMethod;
+  onMethod: (method: ViewportStretchMethod) => void;
   onChange: (rescale: [number, number][] | null) => void;
 }) {
   const { t } = useTranslation();
-  const [method, setMethod] = useState<ViewportStretchMethod>("minmax");
+  const [method, setMethod] = useState<ViewportStretchMethod>(methodInitial);
   const [autoUpdate, setAutoUpdate] = useState(autoUpdateInitial);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -1205,6 +1217,10 @@ function ViewportStretchControls({
   useEffect(() => {
     setAutoUpdate(autoUpdateInitial);
   }, [autoUpdateInitial]);
+
+  useEffect(() => {
+    setMethod(methodInitial);
+  }, [methodInitial]);
 
   const apply = useCallback(
     async (silent = false): Promise<void> => {
@@ -1270,18 +1286,6 @@ function ViewportStretchControls({
     [band, layerId, method],
   );
 
-  useEffect(() => {
-    if (!autoUpdate || !mapControllerRef?.current) return;
-    const stop = mapControllerRef.current.onCameraIdle(() => {
-      void apply(true);
-    });
-    void apply(true);
-    return () => {
-      stop();
-      abortRef.current?.abort();
-    };
-  }, [apply, autoUpdate, mapControllerRef]);
-
   return (
     <div className="mt-3 space-y-2 border-t pt-3">
       <Label htmlFor="rasterViewportStretch">{t("rasterSymbology.viewportStretch")}</Label>
@@ -1289,7 +1293,11 @@ function ViewportStretchControls({
         <Select
           id="rasterViewportStretch"
           value={method}
-          onChange={(event) => setMethod(event.target.value as ViewportStretchMethod)}
+          onChange={(event) => {
+            const next = event.target.value as ViewportStretchMethod;
+            setMethod(next);
+            onMethod(next);
+          }}
         >
           <option value="minmax">{t("rasterSymbology.viewportMinMax")}</option>
           <option value="percentile">{t("rasterSymbology.viewportPercentile")}</option>
@@ -1341,26 +1349,7 @@ async function readViewportValues(
     height: 32,
     signal,
   });
-  return reading?.values.filter(Number.isFinite) ?? [];
-}
-
-function viewportRange(values: number[], method: ViewportStretchMethod): [number, number] {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (method === "minmax") return [sorted[0], sorted[sorted.length - 1]];
-  if (method === "percentile") return [percentile(sorted, 0.05), percentile(sorted, 0.95)];
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-  const deviation = Math.sqrt(variance);
-  return [mean - 2 * deviation, mean + 2 * deviation];
-}
-
-function percentile(sorted: number[], fraction: number): number {
-  if (sorted.length === 1) return sorted[0];
-  const position = fraction * (sorted.length - 1);
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  const weight = position - lower;
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
+  return stretchSamples(reading);
 }
 
 function RescaleControls({
