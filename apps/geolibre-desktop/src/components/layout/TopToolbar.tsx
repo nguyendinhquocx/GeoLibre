@@ -1,3 +1,4 @@
+import { supportsAddDataRenderer } from "../../lib/add-data-renderer";
 import {
   DEFAULT_PROJECT_NAME,
   excludeHiddenFieldsFromProject,
@@ -1155,6 +1156,10 @@ export function TopToolbar({
   // The globe owns the primary map, so the MapLibre-only entries below are dead
   // while it is active and the View menu becomes the only way back to 2D (#2217).
   const primaryRenderer = useAppStore((s) => s.primaryRenderer);
+  // Mapbox publishes its engine only after the initial style loads. Before
+  // that, plugin panels cannot mount and their open requests would be lost.
+  // mapReadyGeneration rerenders this toolbar when the engine is published.
+  const addDataReady = primaryRenderer !== "mapbox" || mapControllerRef.current?.kind === "mapbox";
   const cesiumPrimary = primaryRenderer === "cesium";
   const capabilities = useMapCapabilities(mapControllerRef);
   const setSqlWorkspaceOpen = useAppStore((s) => s.setSqlWorkspaceOpen);
@@ -2096,10 +2101,17 @@ export function TopToolbar({
   const allowedCommands = useMemo(
     () =>
       filterCommandsByPrivileges(
-        filterCommandsByCapabilities(commands, deploymentCapabilities),
+        filterCommandsByCapabilities(
+          commands.filter(
+            (command) =>
+              !command.id.startsWith("add.") ||
+              (addDataReady && supportsAddDataRenderer(command.id.slice(4), primaryRenderer)),
+          ),
+          deploymentCapabilities,
+        ),
         appPrivileges,
       ),
-    [commands, deploymentCapabilities, appPrivileges],
+    [commands, deploymentCapabilities, appPrivileges, primaryRenderer, addDataReady],
   );
   const shortcutCommands = useMemo(
     () =>
@@ -2247,6 +2259,7 @@ export function TopToolbar({
       />
       {!viewer && isMenuVisible(uiProfile, "addData") && deploymentCapabilities.has("data:add") && (
         <AddDataMenu
+          disabled={!addDataReady}
           chrome={chrome}
           addLayer={addLayer}
           osmPbfBusy={osmPbf.busy}

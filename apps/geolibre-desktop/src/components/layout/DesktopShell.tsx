@@ -1305,6 +1305,16 @@ export function DesktopShell({
     reattachFlightSimulator(appAPI);
     // VectorControl has a Cesium bridge and must restore on either engine.
     restoreVectorLayers(appAPI);
+    if (engine.kind === "mapbox") {
+      restoreThreeDTilesLayers(appAPI);
+      void restoreLidarLayers(appAPI).catch(console.error);
+    }
+    // Same contract for the shared deck.gl overlay: re-attach it to the current
+    // map and re-render any deckgl-viz layers a restored project carries. It
+    // binds to either 2D engine (`getMap()` or `getMapboxMap()`), so it sits
+    // above the native-map gate below; on Cesium the plugin manager has
+    // already deactivated the plugin and this only clears its layers.
+    restoreDeckViz(appAPI, pluginManager.isActive(DECK_VIZ_PLUGIN_ID));
     if (!engine.capabilities.nativeMapInstance) {
       void restoreLocalFileLayers();
       return;
@@ -1350,9 +1360,6 @@ export function DesktopShell({
       pluginManager.deactivate(REVERSE_GEOCODE_PLUGIN_ID, appAPI);
     }
     restoreReverseGeocode(appAPI, pluginManager.isActive(REVERSE_GEOCODE_PLUGIN_ID));
-    // Same contract for the deck.gl overlay: re-attach it to the current map
-    // and re-render any deckgl-viz layers a restored project carries.
-    restoreDeckViz(appAPI, pluginManager.isActive(DECK_VIZ_PLUGIN_ID));
   }, [enforceViewerPlugins, externalPluginsReady, mapReadyGeneration, projectGeneration]);
 
   useEffect(() => {
@@ -1457,6 +1464,8 @@ export function DesktopShell({
       // Frame ids for each time-animated overlay sequence (keyed by the loader's
       // group marker), so they can be gathered into one layer group afterward.
       const frameGroups = new Map<string, string[]>();
+      // The same for time-tagged KML placemark layers outside any Folder.
+      const placemarkFrameGroups = new Map<string, { name: string; ids: string[] }>();
       // KML Folder ancestry becomes nested GeoLibre groups. Prefix keys with
       // the source path so identically named folders from separate files do not
       // get combined when several files are imported in one batch.
@@ -1469,6 +1478,9 @@ export function DesktopShell({
       // whose placemarks are followed by an overlay or model is still
       // recognized as the last source imported.
       let lastSourcePath: string | null = null;
+      // Whether any time-tagged KML placemark layer was added, so the Time
+      // Slider opens even when every frame already sits in a KML Folder group.
+      let hasVectorTimeFrames = false;
       for (const layer of importedLayers) {
         if (layer.path) lastSourcePath = layer.path;
         if (isLoadedKmlSuperOverlay(layer)) {
@@ -1535,6 +1547,28 @@ export function DesktopShell({
           );
         }
         lastLayerId = addGeoJsonLayer(layerName, layer.data, layer.path);
+        // Time-tagged KML placemarks are Time Slider frames, animated through
+        // the same `metadata.timeSpan` visibility toggling as ground overlays.
+        if (layer.timeSpan) {
+          const frameId = lastLayerId;
+          // `addGeoJsonLayer` starts every layer with empty metadata.
+          useAppStore.getState().updateLayer(frameId, {
+            metadata: { timeSpan: layer.timeSpan },
+            ...(layer.visible === false ? { visible: false } : {}),
+          });
+          hasVectorTimeFrames = true;
+          // Frames outside any KML Folder are gathered into one group named
+          // after their file below; foldered frames already sit in their
+          // Folder groups.
+          if (layer.groupId && !layer.groupPath?.length) {
+            const group = placemarkFrameGroups.get(layer.groupId) ?? {
+              name: layerNameFromPath(layer.path),
+              ids: [],
+            };
+            group.ids.push(frameId);
+            placemarkFrameGroups.set(layer.groupId, group);
+          }
+        }
         if (layer.path) {
           const sourceIds = layerIdsBySource.get(layer.path) ?? [];
           sourceIds.push(lastLayerId);
@@ -1578,7 +1612,10 @@ export function DesktopShell({
             : t("kml.timeOverlayGroup");
         addLayerGroup(name, ids);
       });
-      const hasTimeAnimation = sequences.length > 0;
+      for (const { name, ids } of placemarkFrameGroups.values()) {
+        if (ids.length > 1) addLayerGroup(name, ids);
+      }
+      const hasTimeAnimation = sequences.length > 0 || hasVectorTimeFrames;
       // Auto-open the Time Slider so a time-animated overlay sequence can be
       // stepped through immediately, without the user hunting for the plugin.
       if (hasTimeAnimation && !isPluginActive(TIME_SLIDER_PLUGIN_ID)) {

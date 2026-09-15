@@ -163,8 +163,17 @@ export function AddDataDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const martin = useMartinConnection();
 
+  const nativeGlobe = useAppStore((s) => s.primaryRenderer === "cesium");
+
   const title = kind ? t(`addData.kind.${KIND_I18N_KEY[kind]}.label`) : t("addData.title");
-  const description = kind ? t(`addData.kind.${KIND_I18N_KEY[kind]}.description`) : "";
+  // KML/KMZ is the one kind whose loader differs by renderer: native on the
+  // globe, converted to map layers elsewhere.
+  const description =
+    kind === "kml" && !nativeGlobe
+      ? t("addData.kml.mapDescription")
+      : kind
+        ? t(`addData.kind.${KIND_I18N_KEY[kind]}.description`)
+        : "";
 
   const closeDialog = useCallback(() => {
     martin.stopTransient();

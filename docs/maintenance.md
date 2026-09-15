@@ -437,6 +437,29 @@ both counts in the entry. Anything upgradeable gets upgraded instead. Stale entr
 print a warning rather than failing, since the advisory database is a live service
 and a transient omission must not redden an unrelated PR.
 
+When the fix is a scoped `overrides` entry (such as `@loaders.gl/compression` →
+`fflate`), npm 12 accepts it and `npm ls` then checks against the override's
+range. The lockfile still lists the package's own declared dependency (`fflate:
+0.7.4`), though, and npm keeps the old nested copy, so `npm ls` reports it as
+`invalid`. Delete that package's
+nested `node_modules/.../<pkg>` entries from `package-lock.json` (and from
+`node_modules`), then run `npm install` again so it resolves them fresh. Confirm
+with `npm ls <pkg>` before you commit.
+
+If no other package already installs a copy that satisfies the override, npm
+does not fetch one. It leaves the package out of the tree and `npm audit`
+reports 0 vulnerabilities, which looks like a fix but isn't. That is why the
+`texture-compressor` → `image-size@^2.0.4` override needed a hand-written lock
+entry: `version`, `resolved`, `integrity`, `license`, `bin` and `engines`, taken
+from `npm view <pkg>@<version> --json` (npm 12 wraps that output in an array).
+Check a fresh `npm ci` with `npm ls <pkg>` before you commit. That override
+patches GHSA-w3rx-r6r6-pgpr and GHSA-5p2g-fcmc-qvqq, but image-size 2.x takes a
+buffer rather than a path, so texture-compressor's own CLI can no longer read
+image sizes. GeoLibre never runs it: only `@loaders.gl/textures`'
+`encodeImageURLToCompressedTextureURL`, a Node-only encoder, spawns it via
+`npx`. Drop the override once loaders.gl stops depending on texture-compressor
+(4.5.x already makes it a peer).
+
 ## Publishing `@geolibre/core` and `@geolibre/map`
 
 Both are published to npm by `.github/workflows/publish-packages.yml` on each

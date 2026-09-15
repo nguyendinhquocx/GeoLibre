@@ -110,7 +110,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { loadedVectorTileFeatures } from "../../hooks/useVectorTileGeometryBackfill";
+import { loadedVectorTileFeatures, vectorTileMap } from "../../hooks/useVectorTileGeometryBackfill";
 import { clamp } from "../../lib/clamp";
 import {
   getAttributePropertyNames,
@@ -1326,7 +1326,8 @@ export function StylePanel({
       // Tiled sources only expose the features currently loaded, so an empty
       // sample means the tiles have not arrived yet rather than an empty
       // attribute — keep re-reading until the map settles with features.
-      const map = mapControllerRef.current?.getMap();
+      const engine = mapControllerRef.current;
+      const map = vectorTileMap(engine);
       if (!map) {
         setLoadedVectorPropertyValues(null);
         setVectorPropertyValuesUnavailable(true);
@@ -1334,7 +1335,7 @@ export function StylePanel({
         return;
       }
       const sampleValues = (): boolean => {
-        const features = loadedVectorTileFeatures(map, layer);
+        const features = loadedVectorTileFeatures(map, layer, engine?.kind);
         if (features.length === 0) return false;
         const byProperty: Record<string, unknown[]> = {};
         for (const property of propertiesToLoad) {

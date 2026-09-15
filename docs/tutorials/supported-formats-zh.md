@@ -47,7 +47,7 @@ csv, tsv, kml, kmz, gml, gpx, dxf, tab, shp, zip
 | **GeoPackage** | `.gpkg` | **sql.js（SQLite WASM），不是 GDAL** | 多图层会弹选择器；会先修复 `gpkg_ogr_contents` |
 | **Shapefile（散文件）** | `.shp` | shpjs | 桌面端自动读同名 `.dbf/.shx/.prj/.cpg`；3D MultiPatch 改走 DuckDB |
 | **Shapefile（压缩包）** | `.zip` | fflate 解压 → shpjs | `.prj` 决定投影，`.cpg` 决定 DBF 编码（**中文属性乱码可以得到正确处理**）；自动跳过 macOS 的 `__MACOSX` |
-| **KML** | `.kml` | 自研解析器 | **保留内嵌符号化**；还能吐出 GroundOverlay 图像和 `<Model>` 三维模型 |
+| **KML** | `.kml` | 自研解析器 | **保留内嵌符号化**和 Folder 结构；带 `<TimeSpan>`/`<TimeStamp>` 的地标能接时间轴动画；还能吐出 GroundOverlay 图像和 `<Model>` 三维模型 |
 | **KMZ** | `.kmz` | fflate 解压 | 自定义图标、格式化描述都保留 |
 | **GML** | `.gml` | DuckDB `ST_Read` | — |
 | **GPX** | `.gpx` | 纯 JS | **自动拆成三个图层**：航点 / 轨迹 / 路线 |

@@ -445,7 +445,10 @@
     "kml": {
       "defaultName": "KML / KMZ",
       "url": "KML / KMZ URL",
-      "errorSource": "Enter a KML/KMZ URL or choose a file."
+      "errorSource": "Enter a KML/KMZ URL or choose a file.",
+      "errorImporter": "KML import is not available on this map.",
+      "mapDescription": "Load KML or KMZ placemarks, folders, ground overlays, and models as map layers.",
+      "mapLayerNamesNote": "Layer names and groups come from the document's folders and placemarks."
     },
     "xyz": {
       "defaultName": "XYZ Layer",

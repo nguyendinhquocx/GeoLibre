@@ -35,6 +35,14 @@ interface KmlStyle {
 export const KML_FOLDER_PATH_PROPERTY = "__geolibre_kml_folder_path";
 
 /**
+ * Internal import metadata carrying a placemark's (possibly inherited) KML
+ * `<TimeSpan>`/`<TimeStamp>` as {@link KmlTimeBounds}, so the importer can turn
+ * time-tagged placemarks into Time Slider frames. Stripped before the features
+ * reach the store.
+ */
+export const KML_TIME_PROPERTY = "__geolibre_kml_time";
+
+/**
  * Parse a KML document into a styled GeoJSON FeatureCollection.
  *
  * @param text - The raw KML XML text.
@@ -62,12 +70,14 @@ export function parseKmlText(text: string): FeatureCollection {
     const geometry = geometryFromPlacemark(placemark);
     if (!geometry) continue;
     const folders = folderPath(placemark);
+    const time = parseKmlTime(placemark);
     features.push({
       type: "Feature",
       geometry,
       properties: {
         ...placemarkProperties(placemark, styles, styleMaps),
         ...(folders.length > 0 ? { [KML_FOLDER_PATH_PROPERTY]: folders } : {}),
+        ...(time ? { [KML_TIME_PROPERTY]: time } : {}),
       },
     });
   }

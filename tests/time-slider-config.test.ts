@@ -190,6 +190,43 @@ describe("Time Slider selector display-unit restoration", () => {
   });
 });
 
+describe("Time Slider KML frame granularity", () => {
+  it("offers the hour unit for sub-day KML frames on a year/month/day track", () => {
+    const store = useAppStore.getState();
+    const previousLayers = store.layers;
+    const frame = (id: string, begin: number): GeoLibreLayer => ({
+      id,
+      name: id,
+      type: "geojson",
+      source: { type: "geojson" },
+      visible: true,
+      opacity: 1,
+      style: { ...DEFAULT_LAYER_STYLE },
+      metadata: { timeSpan: { begin, end: begin + 3_600_000 } },
+    });
+    const ranges: unknown[][] = [];
+    const granularities: string[][] = [];
+    const control = {
+      getConfig: () => baseConfig({ granularities: ["year", "month", "day"] }),
+      setRange: (...args: unknown[]) => ranges.push(args),
+      setGranularities: (units: string[]) => granularities.push(units),
+    } as unknown as TimeSliderControl;
+
+    try {
+      useAppStore.setState({
+        layers: [frame("t0", Date.UTC(2024, 0, 1)), frame("t1", Date.UTC(2024, 0, 1, 1))],
+      });
+      __reconcileBoundLayersForTests(control);
+      assert.equal(ranges.at(-1)?.[3], "hour");
+      assert.deepEqual(granularities.at(-1), ["hour", "year", "month", "day"]);
+    } finally {
+      useAppStore.setState({ layers: previousLayers });
+      // Reset the module's captured pre-binding range for later tests.
+      __reconcileBoundLayersForTests(control);
+    }
+  });
+});
+
 describe("Time Slider mosaic source persistence", () => {
   const mosaicSource = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     type: "mosaic",

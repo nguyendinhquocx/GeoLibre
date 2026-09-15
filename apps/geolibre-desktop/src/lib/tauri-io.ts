@@ -62,11 +62,13 @@ import { isTauri } from "./is-tauri";
 import { SHAPEFILE_COMPANION_EXTENSIONS, shapefileCompanionPathsFromSelection } from "./mas-build";
 import {
   KML_FOLDER_PATH_PROPERTY,
+  KML_TIME_PROPERTY,
   parseKmlGroundOverlays,
   parseKmlModels,
   parseKmlText,
   type KmlGroundOverlay,
   type KmlModel,
+  type KmlTimeBounds,
 } from "./kml";
 import {
   registerKmlSuperOverlay,
@@ -284,6 +286,16 @@ export interface LoadedVectorLayer {
   path: string;
   /** Enclosing KML Folder names, reconstructed as nested layer groups. */
   groupPath?: string[];
+  /**
+   * Epoch-ms time bounds when the layer is a frame of time-tagged KML
+   * placemarks. Set (with `groupId`/`visible`) by {@link sequenceTimeFrames};
+   * the Time Slider animates these frames.
+   */
+  timeSpan?: { begin: number | null; end: number | null };
+  /** Shared group id linking the frames of one animation. */
+  groupId?: string;
+  /** Initial visibility: only the first time step of a sequence starts visible. */
+  visible?: boolean;
 }
 
 /**
@@ -307,7 +319,7 @@ export interface LoadedImageOverlay {
   /**
    * Epoch-ms time bounds when the overlay is a `<TimeSpan>`/`<TimeStamp>` frame
    * in a time-animated sequence. Set (with `groupId`/`visible`) by
-   * {@link sequenceTimeOverlays}; the Time Slider animates these frames.
+   * {@link sequenceTimeFrames}; the Time Slider animates these frames.
    */
   timeSpan?: { begin: number | null; end: number | null };
   /** Shared group id linking the frames of one animation. */
@@ -483,58 +495,189 @@ function mergeFeatureCollections(collections: FeatureCollection[]): FeatureColle
 }
 
 /**
+ * Above this many foldered placemarks, a KML import stops giving each placemark
+ * its own layer and merges them into one layer per `<Folder>` instead. Every
+ * layer is a store mutation, a MapLibre source, and a Layers panel row, and the
+ * cost grows faster than the count: an isosurface export of a few hundred
+ * triangle placemarks froze the page for most of a minute (#2411).
+ */
+export const KML_PLACEMARK_LAYER_LIMIT = 50;
+
+/**
+ * The most layers a time-animated KML import may split into. Every time window
+ * becomes at least one layer, so a file with more distinct times than this
+ * loads as static layers rather than freezing the page the same way one layer
+ * per placemark did (#2411).
+ */
+export const KML_TIME_FRAME_LAYER_LIMIT = 100;
+
+/** A placemark with its internal KML import metadata read off and stripped. */
+interface KmlPlacemarkEntry {
+  feature: Feature;
+  groupPath: string[];
+  time: KmlTimeBounds | null;
+  index: number;
+}
+
+/** Placemarks that end up in one layer. */
+interface KmlPlacemarkBucket {
+  entries: KmlPlacemarkEntry[];
+  groupPath: string[];
+  time: KmlTimeBounds | null;
+}
+
+function kmlTimeFromProperty(value: unknown): KmlTimeBounds | null {
+  if (!value || typeof value !== "object") return null;
+  const { begin, end } = value as { begin?: unknown; end?: unknown };
+  return {
+    begin: typeof begin === "number" && Number.isFinite(begin) ? begin : null,
+    end: typeof end === "number" && Number.isFinite(end) ? end : null,
+  };
+}
+
+/** A short UTC label for a frame start, e.g. "2024-01-01" or "2024-01-01 06:00". */
+function kmlTimeLabel(begin: number): string {
+  const iso = new Date(begin).toISOString();
+  const [date, clock] = [iso.slice(0, 10), iso.slice(11, 19)];
+  if (clock === "00:00:00") return date;
+  return `${date} ${clock.endsWith(":00") ? clock.slice(0, 5) : clock}`;
+}
+
+/**
  * Split folder-aware KML placemarks into layers that can occupy distinct groups.
  *
- * Only placemarks that actually sit inside a `<Folder>` become their own layer;
+ * Only placemarks that actually sit inside a `<Folder>` are split out;
  * everything else stays merged into a single layer, as it was before folder
  * support. A real-world export is often a handful of foldered placemarks among
  * hundreds of flat ones, and splitting those too would turn one cheap layer add
- * into hundreds of store mutations and layer-panel rows.
+ * into hundreds of store mutations and layer-panel rows. For the same reason a
+ * file with more than {@link KML_PLACEMARK_LAYER_LIMIT} foldered placemarks gets
+ * one layer per Folder rather than one per placemark.
+ *
+ * Placemarks carrying a `<TimeSpan>`/`<TimeStamp>` (their own or inherited from
+ * a Folder) with at least two distinct start times become Time Slider frames:
+ * placemarks sharing a folder and a time window share a layer, and the layers
+ * are sequenced like ground-overlay frames so only the first time step starts
+ * visible.
+ *
+ * @param collection - Placemarks parsed by `parseKmlText`, still carrying the
+ *   internal folder/time properties.
+ * @param path - The source file path.
+ * @returns The layers to add, in store insertion order.
  */
 export function splitKmlFolderLayers(
   collection: FeatureCollection,
   path: string,
 ): LoadedVectorLayer[] {
-  const hasFolderMetadata = collection.features.some((feature) =>
-    Array.isArray(feature.properties?.[KML_FOLDER_PATH_PROPERTY]),
+  const hasImportMetadata = collection.features.some(
+    (feature) =>
+      Array.isArray(feature.properties?.[KML_FOLDER_PATH_PROPERTY]) ||
+      feature.properties?.[KML_TIME_PROPERTY] != null,
   );
-  if (!hasFolderMetadata) return [{ data: collection, path }];
+  if (!hasImportMetadata) return [{ data: collection, path }];
 
-  const layers: LoadedVectorLayer[] = [];
-  // Placemarks outside any Folder, gathered into the one merged layer below.
-  const ungrouped: Feature[] = [];
-  collection.features.forEach((feature, index) => {
+  const entries: KmlPlacemarkEntry[] = collection.features.map((feature, index) => {
     const properties = { ...(feature.properties ?? {}) };
     const rawPath = properties[KML_FOLDER_PATH_PROPERTY];
+    const time = kmlTimeFromProperty(properties[KML_TIME_PROPERTY]);
     delete properties[KML_FOLDER_PATH_PROPERTY];
+    delete properties[KML_TIME_PROPERTY];
     const groupPath = Array.isArray(rawPath)
       ? rawPath.filter((part): part is string => typeof part === "string" && part.trim() !== "")
       : [];
-    const stripped: Feature = { ...feature, properties };
-    if (groupPath.length === 0) {
-      ungrouped.push(stripped);
-      return;
-    }
-    const name =
-      typeof properties.name === "string" && properties.name.trim() !== ""
-        ? properties.name
-        : `Placemark ${index + 1}`;
-    layers.push({
-      data: { type: "FeatureCollection", features: [stripped] },
-      name,
-      path,
-      groupPath,
-    });
+    return { feature: { ...feature, properties }, groupPath, time, index };
   });
 
-  // Store insertion is top-first, so feed placemarks in reverse document order
-  // to keep their visible layer/group order aligned with Google Earth. The
-  // merged ungrouped layer is added first so it settles below the folders.
-  layers.reverse();
-  if (ungrouped.length > 0) {
-    layers.unshift({ data: { type: "FeatureCollection", features: ungrouped }, path });
+  // Time only splits layers when the placemarks form an animation. A lone
+  // time-tagged placemark, or a whole file under one inherited `<TimeSpan>`, is
+  // not a sequence and stays an ordinary static layer.
+  const begins = new Set(
+    entries.flatMap((entry) => (typeof entry.time?.begin === "number" ? [entry.time.begin] : [])),
+  );
+  const perPlacemark =
+    entries.filter((entry) => entry.groupPath.length > 0).length <= KML_PLACEMARK_LAYER_LIMIT;
+
+  const planBuckets = (animated: boolean): Map<string, KmlPlacemarkBucket> => {
+    // Map iteration keeps first-seen document order.
+    const planned = new Map<string, KmlPlacemarkBucket>();
+    for (const entry of entries) {
+      const time = animated && typeof entry.time?.begin === "number" ? entry.time : null;
+      const key =
+        perPlacemark && entry.groupPath.length > 0
+          ? `placemark:${entry.index}`
+          : `${JSON.stringify(entry.groupPath)}|${time ? `${time.begin}|${time.end}` : ""}`;
+      const bucket = planned.get(key);
+      if (bucket) bucket.entries.push(entry);
+      else planned.set(key, { entries: [entry], groupPath: entry.groupPath, time });
+    }
+    return planned;
+  };
+
+  let buckets = planBuckets(begins.size >= 2);
+  if (begins.size >= 2 && buckets.size > KML_TIME_FRAME_LAYER_LIMIT) {
+    // One layer per time window would bring back the per-layer freeze (e.g. a
+    // GPS track with a `<TimeStamp>` on every point), so load the placemarks
+    // as static layers instead.
+    console.warn(
+      `[GeoLibre] "${path}" has ${begins.size} distinct KML times, which would need ${buckets.size} layers; loading it without Time Slider animation (limit ${KML_TIME_FRAME_LAYER_LIMIT}).`,
+    );
+    buckets = planBuckets(false);
   }
-  return layers;
+
+  // A merged Folder layer stands in for the Folder itself (so it is not nested
+  // in a group of the same name) unless the Folder also needs to be a group:
+  // it has sub-folders of its own, or splits into several time frames.
+  const folderKey = (groupPath: string[]) => JSON.stringify(groupPath);
+  const bucketsPerFolder = new Map<string, number>();
+  const ancestorFolders = new Set<string>();
+  for (const { groupPath } of buckets.values()) {
+    const key = folderKey(groupPath);
+    bucketsPerFolder.set(key, (bucketsPerFolder.get(key) ?? 0) + 1);
+    for (let depth = 1; depth < groupPath.length; depth += 1) {
+      ancestorFolders.add(folderKey(groupPath.slice(0, depth)));
+    }
+  }
+
+  const ungroupedLayers: LoadedVectorLayer[] = [];
+  const folderLayers: LoadedVectorLayer[] = [];
+  for (const bucket of buckets.values()) {
+    const data: FeatureCollection = {
+      type: "FeatureCollection",
+      features: bucket.entries.map((entry) => entry.feature),
+    };
+    const timeSpan = bucket.time ? { timeSpan: { ...bucket.time } } : {};
+    const timeLabel = typeof bucket.time?.begin === "number" ? kmlTimeLabel(bucket.time.begin) : "";
+    if (bucket.groupPath.length === 0) {
+      // The untimed merged layer carries no name so the import falls back to
+      // the file name; a time frame is named by its start.
+      ungroupedLayers.push({ data, path, ...(timeLabel ? { name: timeLabel } : {}), ...timeSpan });
+      continue;
+    }
+    if (perPlacemark) {
+      const [{ feature, index }] = bucket.entries;
+      const name =
+        typeof feature.properties?.name === "string" && feature.properties.name.trim() !== ""
+          ? feature.properties.name
+          : `Placemark ${index + 1}`;
+      folderLayers.push({ data, name, path, groupPath: bucket.groupPath, ...timeSpan });
+      continue;
+    }
+    const key = folderKey(bucket.groupPath);
+    const folderName = bucket.groupPath[bucket.groupPath.length - 1];
+    const standsInForFolder = bucketsPerFolder.get(key) === 1 && !ancestorFolders.has(key);
+    folderLayers.push({
+      data,
+      name: timeLabel && !standsInForFolder ? `${folderName} ${timeLabel}` : folderName,
+      path,
+      groupPath: standsInForFolder ? bucket.groupPath.slice(0, -1) : bucket.groupPath,
+      ...timeSpan,
+    });
+  }
+
+  // Store insertion is top-first, so feed layers in reverse document order to
+  // keep their visible layer/group order aligned with Google Earth. The
+  // ungrouped placemarks are added first so they settle below the folders.
+  return sequenceTimeFrames([...ungroupedLayers.reverse(), ...folderLayers.reverse()]);
 }
 
 function normalizeShapefileResult(value: unknown): FeatureCollection {
@@ -1126,61 +1269,67 @@ function imageOverlayLayer(
   };
 }
 
+/** A layer record that can be a frame of a time-animated KML sequence. */
+interface TimeFrameCandidate {
+  timeSpan?: { begin: number | null; end: number | null };
+  groupId?: string;
+  visible?: boolean;
+}
+
 /**
- * Turn the time-tagged overlays in a set into an animation: sort them by start
- * time, fill an open `<TimeStamp>`/`<TimeSpan>` end with the next frame's start
- * (a step function), give them a shared group id, and leave only the first
- * frame visible so the others do not all stack at once before the Time Slider
- * is opened.
+ * Turn the time-tagged layers in a set into an animation: sort them by start
+ * time, fill an open `<TimeStamp>`/`<TimeSpan>` end with the next later frame's
+ * start (a step function), give them a shared group id, and leave only the
+ * first time step visible so the others do not all stack at once before the
+ * Time Slider is opened. Frames sharing a start time (e.g. two folders tagged
+ * with the same `<TimeSpan>`) step together.
  *
- * Only overlays with a numeric start (`timeSpan.begin`) are treated as frames,
- * matching what the Time Slider can animate; an overlay with an open-start span
- * (or a lone time-tagged overlay that is not part of a sequence) has its
- * transient `timeSpan` dropped so it stays a normal static overlay the slider
+ * Only layers with a numeric start (`timeSpan.begin`) are treated as frames,
+ * matching what the Time Slider can animate; a layer with an open-start span
+ * (or a lone time-tagged layer that is not part of a sequence) has its
+ * transient `timeSpan` dropped so it stays a normal static layer the slider
  * never hides.
  *
- * @param overlays - The resolved overlays for one file, mutated in place.
+ * @param layers - The resolved ground overlays or placemark layers for one
+ *   file, mutated in place.
  * @returns The same array, for chaining.
  */
-function sequenceTimeOverlays(overlays: LoadedImageOverlay[]): LoadedImageOverlay[] {
-  const frames = overlays
+export function sequenceTimeFrames<T extends TimeFrameCandidate>(layers: T[]): T[] {
+  const frames = layers
     .filter(
-      (
-        overlay,
-      ): overlay is LoadedImageOverlay & {
-        timeSpan: { begin: number; end: number | null };
-      } => typeof overlay.timeSpan?.begin === "number",
+      (layer): layer is T & { timeSpan: { begin: number; end: number | null } } =>
+        typeof layer.timeSpan?.begin === "number",
     )
     .sort((a, b) => a.timeSpan.begin - b.timeSpan.begin);
 
   // An animation needs at least two frames with distinct start times. A lone
-  // time-tagged overlay, or several sharing one time (e.g. a single inherited
+  // time-tagged layer, or several sharing one time (e.g. a single inherited
   // Folder `<TimeSpan>`), is not a sequence; strip every transient timeSpan so
-  // the Time Slider treats these overlays as ordinary static layers.
-  const distinctBegins = new Set(frames.map((frame) => frame.timeSpan.begin));
-  if (distinctBegins.size < 2) {
-    for (const overlay of overlays) delete overlay.timeSpan;
-    return overlays;
+  // the Time Slider treats these layers as ordinary static layers.
+  const begins = [...new Set(frames.map((frame) => frame.timeSpan.begin))];
+  if (begins.length < 2) {
+    for (const layer of layers) delete layer.timeSpan;
+    return layers;
   }
 
-  const inSequence = new Set<LoadedImageOverlay>(frames);
+  const inSequence = new Set<T>(frames);
   const groupId = crypto.randomUUID();
-  frames.forEach((frame, index) => {
+  for (const frame of frames) {
     frame.groupId = groupId;
-    frame.visible = index === 0;
-    // A frame with an open end runs until the next frame begins (or stays open
-    // for the last frame), so an instant-tagged sequence steps cleanly.
+    frame.visible = frame.timeSpan.begin === begins[0];
+    // A frame with an open end runs until the next time step begins (or stays
+    // open for the last step), so an instant-tagged sequence steps cleanly.
     if (frame.timeSpan.end === null) {
-      const next = frames[index + 1]?.timeSpan.begin;
+      const next = begins.find((begin) => begin > frame.timeSpan.begin);
       if (typeof next === "number") frame.timeSpan.end = next;
     }
-  });
-  // Any time-tagged overlay left out of the sequence (e.g. an open-start span)
-  // should not be animated, so drop its timeSpan too.
-  for (const overlay of overlays) {
-    if (!inSequence.has(overlay)) delete overlay.timeSpan;
   }
-  return overlays;
+  // Any time-tagged layer left out of the sequence (e.g. an open-start span)
+  // should not be animated, so drop its timeSpan too.
+  for (const layer of layers) {
+    if (!inSequence.has(layer)) delete layer.timeSpan;
+  }
+  return layers;
 }
 
 // A ground-overlay image is inlined as a base64 `data:` URL on the layer and
@@ -1266,7 +1415,7 @@ async function groundOverlaysFromKmz(
     }
     overlays.push(imageOverlayLayer(overlay, await bytesToDataUrl(image, mime), path));
   }
-  return sequenceTimeOverlays(overlays);
+  return sequenceTimeFrames(overlays);
 }
 
 // Whether an overlay's image is a TIFF that lives at an absolute URL. Unlike an
@@ -1319,7 +1468,7 @@ function groundOverlaysFromKml(text: string, path: string): LoadedImageOverlay[]
     if (isRemoteTiffOverlay(overlay.href)) continue;
     overlays.push(imageOverlayLayer(overlay, overlay.href.trim(), path));
   }
-  return sequenceTimeOverlays(overlays);
+  return sequenceTimeFrames(overlays);
 }
 
 // A KML `<Model>` GLB is inlined as a base64 `data:` URL on the layer (textures

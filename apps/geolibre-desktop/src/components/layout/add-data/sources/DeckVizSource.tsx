@@ -11,6 +11,7 @@ import {
   type DeckVizScenegraphConfig,
   type DeckVizStyle,
 } from "@geolibre/plugins";
+import type { MapboxEngine } from "@geolibre/map";
 import { Button, ColorField, Input, Label, Select } from "@geolibre/ui";
 import { Columns3, FileUp, Globe2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -88,9 +89,14 @@ export function DeckVizSource({ initialDeckVizKind }: DeckVizSourceProps) {
   const [deckVizModelLat, setDeckVizModelLat] = useState(String(startLat));
 
   // The deck.gl overlay only aligns in a Mercator viewport, so switch away from
-  // globe as soon as the Deck.gl Layer dialog opens.
+  // globe as soon as the Deck.gl Layer dialog opens. `getMap` is MapLibre-only;
+  // the Mapbox engine exposes its map through `getMapboxMap` instead.
   useEffect(() => {
-    ensureMercatorProjection(source.shell.mapControllerRef.current?.getMap());
+    const engine = source.shell.mapControllerRef.current;
+    ensureMercatorProjection(
+      engine?.getMap() ??
+        (engine?.kind === "mapbox" ? (engine as MapboxEngine).getMapboxMap() : null),
+    );
     // Mount-only: switch the projection once when the dialog opens.
     // `mapControllerRef` is a stable ref and must not be a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -365,7 +365,8 @@ export function identifyDuckDBLayerAtPoint(
 }
 
 async function openStandaloneDuckDBControl(app: GeoLibreAppAPI): Promise<boolean> {
-  ensureMercatorProjection(app.getMap?.());
+  // The control's deck overlay only aligns under Mercator on both 2D engines.
+  ensureMercatorProjection(app.getMap?.() ?? app.getMapboxMap?.());
 
   const { DuckDBControl: DuckDBControlClass } = await getDuckDBConstructors();
 
@@ -378,6 +379,19 @@ async function openStandaloneDuckDBControl(app: GeoLibreAppAPI): Promise<boolean
       return false;
     }
     duckdbControlMounted = true;
+    // A remount (after a renderer swap or map re-init removed the control)
+    // starts without a renderer: the control drops it in onRemove and only
+    // rebuilds it, against the new map, inside renderLayer(). Kick that, then
+    // redraw every cached result with the store's styles and order. A first
+    // open has nothing cached, so it skips the kick.
+    if (duckdbRenderedLayers.size > 0) {
+      void getMutableDuckDBControl()
+        ?.renderLayer?.()
+        .then(() => syncDuckDBRenderedLayersFromStore(useAppStore.getState().layers))
+        .catch((error: unknown) => {
+          console.warn("[GeoLibre] duckdb: could not redraw cached layers after remount", error);
+        });
+    }
   }
 
   setTimeout(() => {
@@ -400,6 +414,15 @@ function getDuckDBConstructors(): Promise<{
 
 function createDuckDBControl(DuckDBControlClass: DuckDBControlConstructor): DuckDBControl {
   const control = new DuckDBControlClass(DUCKDB_OPTIONS);
+  // The map removes every control when it is torn down (a MapLibre re-init, or
+  // a MapLibre ↔ Mapbox renderer swap). Track that here, as the 3D Tiles panel
+  // does, or the next Add Data → DuckDB would skip addMapControl and the panel
+  // could never come back on the new map.
+  const originalOnRemove = control.onRemove.bind(control);
+  control.onRemove = (...args) => {
+    originalOnRemove(...args);
+    if (duckdbControl === control) duckdbControlMounted = false;
+  };
   patchDuckDBControlSelection(control);
   syncDuckDBPickableFromStore();
   control.on("collapse", () => hideDuckDBControl(control));

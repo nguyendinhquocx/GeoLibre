@@ -54,8 +54,9 @@ type CesiumNs = typeof import("@cesium/engine");
  *   primitives, not a Mapbox Style document, and there is no `maplibregl.Map`
  *   behind it. Everything that edits paint properties or reads the MapLibre
  *   canvas stays 2D-only.
- * - `customLayers`: a MapLibre `CustomLayerInterface` is a callback into
- *   MapLibre's own WebGL pass; deck.gl's MapLibre interop is the same shape.
+ * - `customLayers` / `deckOverlay`: a MapLibre `CustomLayerInterface` is a
+ *   callback into MapLibre's own WebGL pass, and deck.gl's `MapboxOverlay` is
+ *   the same shape; neither has a Cesium interop.
  *
  * `terrain: true` is the flag worth noting in the other direction — terrain is
  * native on the globe, and the old `primaryRenderer === "cesium"` gates disabled
@@ -65,6 +66,7 @@ export const CESIUM_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   styleSpec: false,
   nativeMapInstance: false,
   customLayers: false,
+  deckOverlay: false,
   terrain: true,
   picking: true,
   onMapDrawing: true,

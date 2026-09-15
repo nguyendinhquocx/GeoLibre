@@ -100,6 +100,7 @@ export {
   lineDecorationColorValue,
 } from "./derived-geometry";
 export { ResetBearingControl } from "./reset-bearing-control";
+export { MapboxGlobeControl, type MapboxGlobeControlOptions } from "./mapbox-globe-control";
 export { MaptoolkitLogoControl } from "./maptoolkit-logo-control";
 export {
   LAYER_OPACITY_FOR_BLEND,

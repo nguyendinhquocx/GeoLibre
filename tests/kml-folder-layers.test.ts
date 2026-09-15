@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import type { Feature, FeatureCollection } from "geojson";
-import { KML_FOLDER_PATH_PROPERTY } from "../apps/geolibre-desktop/src/lib/kml";
+import { KML_FOLDER_PATH_PROPERTY, KML_TIME_PROPERTY } from "../apps/geolibre-desktop/src/lib/kml";
 
 // tauri-io statically pulls in shpjs, whose bundle reads the browser `self`
 // global at module-eval time; shim it before the dynamic import.
@@ -10,23 +10,51 @@ import { KML_FOLDER_PATH_PROPERTY } from "../apps/geolibre-desktop/src/lib/kml";
 type SplitKmlFolderLayers =
   typeof import("../apps/geolibre-desktop/src/lib/tauri-io").splitKmlFolderLayers;
 
+type TauriIo = typeof import("../apps/geolibre-desktop/src/lib/tauri-io");
+
 let splitKmlFolderLayers: SplitKmlFolderLayers;
+let sequenceTimeFrames: TauriIo["sequenceTimeFrames"];
+let placemarkLayerLimit: number;
+let timeFrameLayerLimit: number;
 
 before(async () => {
   const mod = await import("../apps/geolibre-desktop/src/lib/tauri-io");
   splitKmlFolderLayers = mod.splitKmlFolderLayers;
+  sequenceTimeFrames = mod.sequenceTimeFrames;
+  placemarkLayerLimit = mod.KML_PLACEMARK_LAYER_LIMIT;
+  timeFrameLayerLimit = mod.KML_TIME_FRAME_LAYER_LIMIT;
 });
 
-/** A point placemark, optionally inside the given KML Folder ancestry. */
-function placemark(name: string | undefined, folders?: string[]): Feature {
+/** A point placemark, optionally inside the given KML Folder ancestry and time window. */
+function placemark(
+  name: string | undefined,
+  folders?: string[],
+  time?: { begin: number | null; end: number | null },
+): Feature {
   return {
     type: "Feature",
     geometry: { type: "Point", coordinates: [0, 0] },
     properties: {
       ...(name === undefined ? {} : { name }),
       ...(folders ? { [KML_FOLDER_PATH_PROPERTY]: folders } : {}),
+      ...(time ? { [KML_TIME_PROPERTY]: time } : {}),
     },
   };
+}
+
+const HOUR = 3_600_000;
+const T0 = Date.UTC(2024, 0, 1);
+
+/** `count` placemarks named `${prefix} n`, all in one folder and time window. */
+function placemarks(
+  count: number,
+  prefix: string,
+  folders: string[],
+  time?: { begin: number | null; end: number | null },
+): Feature[] {
+  return Array.from({ length: count }, (_, index) =>
+    placemark(`${prefix} ${index}`, folders, time),
+  );
 }
 
 function collection(features: Feature[]): FeatureCollection {
@@ -123,5 +151,160 @@ describe("splitKmlFolderLayers", () => {
       ["A"],
     );
     assert.deepEqual(layers[1]?.groupPath, ["Folder"]);
+  });
+
+  it("merges placemarks into one layer per folder above the per-placemark limit", () => {
+    const layers = splitKmlFolderLayers(
+      collection([
+        ...placemarks(placemarkLayerLimit, "a", ["Root", "A"]),
+        ...placemarks(2, "b", ["Root", "B"]),
+      ]),
+      "big.kml",
+    );
+
+    // Store insertion is top-first, so the folders come back in reverse order.
+    assert.deepEqual(
+      layers.map((layer) => [layer.name, layer.groupPath, layer.data.features.length]),
+      [
+        ["B", ["Root"], 2],
+        ["A", ["Root"], placemarkLayerLimit],
+      ],
+    );
+    assert.equal(layers[1]?.data.features[0]?.properties?.[KML_FOLDER_PATH_PROPERTY], undefined);
+  });
+
+  it("keeps a merged folder as a group when it also has sub-folders", () => {
+    const layers = splitKmlFolderLayers(
+      collection([
+        ...placemarks(placemarkLayerLimit, "root", ["Root"]),
+        ...placemarks(1, "child", ["Root", "Child"]),
+      ]),
+      "big.kml",
+    );
+
+    assert.deepEqual(
+      layers.map((layer) => [layer.name, layer.groupPath]),
+      [
+        ["Child", ["Root"]],
+        ["Root", ["Root"]],
+      ],
+    );
+  });
+
+  it("turns time-step folders into Time Slider frames", () => {
+    const steps = [0, 1, 2].map((step) => ({
+      begin: T0 + step * HOUR,
+      end: T0 + (step + 1) * HOUR,
+    }));
+    const layers = splitKmlFolderLayers(
+      collection(
+        steps.flatMap((time, step) =>
+          placemarks(40, "tri", ["3D concentration isosurfaces", `Step ${step}`], time),
+        ),
+      ),
+      "plume.kmz",
+    );
+
+    assert.equal(layers.length, 3);
+    assert.deepEqual(
+      layers.map((layer) => [layer.name, layer.groupPath, layer.timeSpan, layer.visible]),
+      [
+        ["Step 2", ["3D concentration isosurfaces"], steps[2], false],
+        ["Step 1", ["3D concentration isosurfaces"], steps[1], false],
+        ["Step 0", ["3D concentration isosurfaces"], steps[0], true],
+      ],
+    );
+    assert.ok(layers[0]?.groupId);
+    assert.ok(layers.every((layer) => layer.groupId === layers[0]?.groupId));
+    assert.equal(layers[0]?.data.features[0]?.properties?.[KML_TIME_PROPERTY], undefined);
+  });
+
+  it("gives small time-tagged placemark files per-placemark frames", () => {
+    const layers = splitKmlFolderLayers(
+      collection([
+        placemark("First", ["Track"], { begin: T0, end: null }),
+        placemark("Second", ["Track"], { begin: T0 + HOUR, end: null }),
+      ]),
+      "track.kml",
+    );
+
+    assert.deepEqual(
+      layers.map((layer) => [layer.name, layer.timeSpan, layer.visible]),
+      [
+        ["Second", { begin: T0 + HOUR, end: null }, false],
+        ["First", { begin: T0, end: T0 + HOUR }, true],
+      ],
+    );
+  });
+
+  it("splits untimed and timed placemarks outside any folder", () => {
+    const layers = splitKmlFolderLayers(
+      collection([
+        placemark("Static"),
+        placemark("t0", undefined, { begin: T0, end: T0 + HOUR }),
+        placemark("t1", undefined, { begin: T0 + HOUR, end: T0 + 2 * HOUR }),
+      ]),
+      "flat.kml",
+    );
+
+    assert.deepEqual(
+      layers.map((layer) => [layer.name, layer.timeSpan?.begin, layer.visible]),
+      [
+        ["2024-01-01 01:00", T0 + HOUR, false],
+        ["2024-01-01", T0, true],
+        [undefined, undefined, undefined],
+      ],
+    );
+  });
+
+  it("loads too many distinct times as static layers instead of one layer per time", () => {
+    // A flat GPS track: every point carries its own <TimeStamp>, no Folder.
+    const track = Array.from({ length: timeFrameLayerLimit + 1 }, (_, index) =>
+      placemark(`Point ${index}`, undefined, { begin: T0 + index * HOUR, end: null }),
+    );
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const layers = splitKmlFolderLayers(collection(track), "track.kml");
+
+      assert.equal(layers.length, 1);
+      assert.equal(layers[0]?.data.features.length, timeFrameLayerLimit + 1);
+      assert.equal(layers[0]?.timeSpan, undefined);
+      assert.equal(layers[0]?.data.features[0]?.properties?.[KML_TIME_PROPERTY], undefined);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("does not animate placemarks that all share one inherited time", () => {
+    const time = { begin: T0, end: null };
+    const layers = splitKmlFolderLayers(
+      collection([placemark("A", undefined, time), placemark("B", undefined, time)]),
+      "static.kml",
+    );
+
+    assert.equal(layers.length, 1);
+    assert.equal(layers[0]?.timeSpan, undefined);
+    assert.equal(layers[0]?.visible, undefined);
+    assert.equal(layers[0]?.data.features[0]?.properties?.[KML_TIME_PROPERTY], undefined);
+  });
+});
+
+describe("sequenceTimeFrames", () => {
+  it("steps frames that share a start time together", () => {
+    const frames = sequenceTimeFrames([
+      { timeSpan: { begin: T0 + HOUR, end: null } },
+      { timeSpan: { begin: T0, end: null } },
+      { timeSpan: { begin: T0, end: null } },
+    ]);
+
+    assert.deepEqual(
+      frames.map((frame) => [frame.timeSpan, frame.visible]),
+      [
+        [{ begin: T0 + HOUR, end: null }, false],
+        [{ begin: T0, end: T0 + HOUR }, true],
+        [{ begin: T0, end: T0 + HOUR }, true],
+      ],
+    );
   });
 });

@@ -1,7 +1,6 @@
-import { useAppStore } from "@geolibre/core";
 import { MapboxCanvas, type MapEngine } from "@geolibre/map";
 import type { ComponentType, ReactElement, RefObject } from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { Trans } from "react-i18next";
 import { useMapboxAccessToken } from "../../hooks/useMapboxAccessToken";
 import { openSettingsSection } from "./SettingsDialog";
 
@@ -23,26 +22,7 @@ export function PrimaryMapboxCanvas({
   onEngineReady?: () => void;
   viewId?: string;
 }) {
-  const { t } = useTranslation();
   const token = useMapboxAccessToken();
-  const basemap = useAppStore((s) => s.preferences.map.mapboxStyleUrl ?? "");
-  const setBasemap = (url: string) => {
-    const state = useAppStore.getState();
-    state.setPreferences({
-      ...state.preferences,
-      map: { ...state.preferences.map, mapboxStyleUrl: url || undefined },
-    });
-  };
-  const styles = [
-    ["", t("renderer.projectBasemap")],
-    ["mapbox://styles/mapbox/standard", "Mapbox Standard"],
-    ["mapbox://styles/mapbox/streets-v12", "Mapbox Streets"],
-    ["mapbox://styles/mapbox/outdoors-v12", "Mapbox Outdoors"],
-    ["mapbox://styles/mapbox/satellite-v9", "Mapbox Satellite"],
-    ["mapbox://styles/mapbox/satellite-streets-v12", "Mapbox Satellite Streets"],
-    ["mapbox://styles/mapbox/light-v11", "Mapbox Light"],
-    ["mapbox://styles/mapbox/dark-v11", "Mapbox Dark"],
-  ];
   return (
     <div className="absolute inset-0" data-testid="primary-mapbox">
       {token ? (
@@ -76,23 +56,6 @@ export function PrimaryMapboxCanvas({
             />
           </p>
         </div>
-      )}
-      {token && (
-        <select
-          aria-label={t("renderer.basemap")}
-          value={basemap}
-          onChange={(event) => setBasemap(event.target.value)}
-          className="absolute top-12 start-2 z-10 max-w-[45%] rounded border border-input bg-background px-2 py-1 text-xs text-foreground shadow"
-        >
-          {!styles.some(([url]) => url === basemap) && (
-            <option value={basemap}>{t("renderer.projectBasemap")}</option>
-          )}
-          {styles.map(([url, label]) => (
-            <option key={url} value={url}>
-              {label}
-            </option>
-          ))}
-        </select>
       )}
     </div>
   );

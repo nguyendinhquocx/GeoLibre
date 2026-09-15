@@ -1611,7 +1611,7 @@ export interface MapPreferences {
   showPointerElevation: boolean;
   /** Whether the built-in 3D terrain control and terrain surface are enabled. */
   terrainEnabled: boolean;
-  /** Optional Mapbox-only style; absent follows the shared project basemap. */
+  /** Mapbox-only style. New projects use Streets; absent follows the shared basemap. */
   mapboxStyleUrl?: string;
   /** Cesium imagery override; absent follows the shared project basemap. */
   cesiumBasemap?: import("./cesium-imagery").CesiumBasemapId;
@@ -1693,6 +1693,7 @@ export const DEFAULT_PROJECT_PREFERENCES: ProjectPreferences = {
     showPointerElevation: false,
     terrainEnabled: false,
     coordinateFormat: "dd",
+    mapboxStyleUrl: "mapbox://styles/mapbox/standard",
   },
   environmentVariables: [],
   geocoding: {

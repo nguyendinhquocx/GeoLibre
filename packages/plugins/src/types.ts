@@ -398,6 +398,12 @@ export interface GeoLibreAppAPI {
    * See AssistantToolSpec for input validation and return-value requirements.
    */
   registerAssistantToolSpec?: (spec: AssistantToolSpec, ownerPluginId?: string) => () => void;
+  /** Append guidance text to the assistant's system prompt while the plugin is
+   * active, e.g. when to call the plugin's tools instead of run_sql. The host
+   * scopes ownership to the calling plugin, removes the text on deactivation,
+   * and refreshes the assistant before its next prompt. Returns a disposer.
+   */
+  registerAssistantGuidance?: (text: string, ownerPluginId?: string) => () => void;
 
   setBasemap: (styleUrl: string) => void;
   addGeoJsonLayer: (name: string, data: FeatureCollection, sourcePath?: string) => string;

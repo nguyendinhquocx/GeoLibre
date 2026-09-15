@@ -232,8 +232,13 @@ export function AddNetcdfDialog({ open, appApi, onOpenChange }: AddNetcdfDialogP
   // added as an image overlay rather than drawn by @carbonplan/zarr-layer, whose
   // `shift_x` uniform lookup throws on drivers that eliminate it (Mesa, so most
   // Linux Intel/AMD machines), leaving the layer permanently blank. See
-  // composeColormappedImage.
-  const useImagePath = dataset !== null && !rgbMode && !hasTimeAxis;
+  // composeColormappedImage. Local cubes with a time axis go through the Zarr
+  // control on both 2D engines (@carbonplan/zarr-layer hosts on Mapbox GL as
+  // well). A remote NetCDF/HDF file has no layer-refs builder — its reader
+  // serves grids, not a store — so a remote cube renders its selected time
+  // slice as an image; without this, submit had no branch for it and added
+  // nothing.
+  const useImagePath = dataset !== null && !rgbMode && (!hasTimeAxis || dataset.kind === "remote");
 
   const closeOpenFile = () => {
     const open = openFileRef.current;

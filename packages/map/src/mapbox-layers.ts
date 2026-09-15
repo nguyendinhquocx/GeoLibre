@@ -13,10 +13,13 @@ import type {
 } from "mapbox-gl";
 import { circlePaint, fillPaint, fillExtrusionPaint, linePaint, rasterPaint } from "./style-mapper";
 import { proxyWmsTiles } from "./wms-proxy";
+import { arcgisOpacity, arcgisVectorStyle } from "./arcgis-vector-style";
+import { mapboxFillLayerId, mapboxLineLayerId, mapboxSourceId } from "./style-layer-ids";
 
 export interface MapboxLayerPlan {
   sourceId: string;
   source: SourceSpecification;
+  additionalSources?: Record<string, SourceSpecification>;
   layers: LayerSpecification[];
 }
 
@@ -53,12 +56,12 @@ export function styleUsesUnsupportedSource(style: { sources?: object }): boolean
 }
 
 /**
- * Whether Mapbox can draw a layer through a native plan or the raster plugin.
+ * Whether Mapbox can draw a layer through a native plan or a supported plugin.
  * The layer panels use it to badge unsupported layers before the engine's
  * error banner would report them.
  */
 export function isMapboxSupportedLayer(layer: GeoLibreLayer): boolean {
-  if (isMapboxPluginRaster(layer)) return true;
+  if (isMapboxPluginLayer(layer)) return true;
   const cached = supportedLayerCache.get(layer);
   if (cached !== undefined) return cached;
   let supported = true;
@@ -71,8 +74,26 @@ export function isMapboxSupportedLayer(layer: GeoLibreLayer): boolean {
   return supported;
 }
 
-/** The raster plugin mounts its GPU overlay or TiTiler layer on Mapbox itself. */
-export function isMapboxPluginRaster(layer: GeoLibreLayer): boolean {
+/** These plugins own their Mapbox overlays and synchronize the layer store themselves. */
+export function isMapboxPluginLayer(layer: GeoLibreLayer): boolean {
+  // Drawn by the shared deck.gl overlay (deckgl-viz plugin) and the DuckDB
+  // control's own deck overlay; both bind to the Mapbox map directly.
+  if (layer.type === "deckgl-viz" && layer.metadata.sourceKind === "deckgl-viz") return true;
+  if (layer.type === "duckdb-query" && layer.metadata.sourceKind === "duckdb-query") return true;
+  if (layer.metadata.externalNativeLayer === true) {
+    if (layer.type === "lidar" && layer.metadata.sourceKind === "lidar-url") return true;
+    // @carbonplan/zarr-layer is a CustomLayerInterface implementation that
+    // targets Mapbox GL as well as MapLibre; the Zarr control adds it to
+    // whichever map hosts the control.
+    if (layer.type === "zarr" && layer.metadata.sourceKind === "zarr-url") return true;
+    if (
+      layer.type === "3d-tiles" &&
+      ["3d-tiles-url", "google-photorealistic-3d-tiles", "arcgis-i3s"].includes(
+        String(layer.metadata.sourceKind),
+      )
+    )
+      return true;
+  }
   return (
     layer.type === "cog" &&
     layer.metadata.sourceKind === "maplibre-gl-raster" &&
@@ -103,7 +124,60 @@ export function compileMapboxLayer(
   layer: GeoLibreLayer,
   compileOptions: CompileMapboxLayerOptions = {},
 ): MapboxLayerPlan {
-  const sourceId = `geolibre-mapbox-${layer.id}`;
+  const arcgis = arcgisVectorStyle(layer);
+  if (arcgis) {
+    if (styleUsesUnsupportedSource(arcgis)) {
+      throw new Error("MapLibre custom tile protocols are not supported by Mapbox");
+    }
+    const sources = Object.entries(arcgis.sources).map(([id, original]) => {
+      // ArcGIS includes both its REST service URL and resolved tile templates.
+      // The service URL is not a Mapbox TileJSON endpoint; use the templates.
+      // The Esri SDK always resolves them, so a source without any is a
+      // hand-edited project that would only fail later inside Mapbox's worker.
+      const source = { ...original };
+      if (!("tiles" in source) || !source.tiles?.length) {
+        throw new Error(`ArcGIS source "${id}" has no resolved tile templates for Mapbox`);
+      }
+      delete source.url;
+      return [id, source as SourceSpecification] as const;
+    });
+    const [sourceId, source] = sources[0];
+    return {
+      sourceId,
+      source,
+      additionalSources: Object.fromEntries(sources.slice(1)),
+      layers: arcgis.layers.map((spec) => {
+        const paint = mapboxPaint({ ...spec.paint });
+        const properties =
+          spec.type === "symbol" ? ["text-opacity", "icon-opacity"] : [`${spec.type}-opacity`];
+        for (const property of properties) {
+          paint[property] = arcgisOpacity(paint[property], layer.opacity);
+        }
+        return {
+          ...spec,
+          paint,
+          layout: {
+            ...spec.layout,
+            visibility: layer.visible ? (spec.layout?.visibility ?? "visible") : "none",
+          },
+        } as LayerSpecification;
+      }),
+    };
+  }
+  // Adopt raster basemaps created by the shared control. Reusing their native
+  // IDs lets store visibility, opacity, removal and style restoration work
+  // without leaving a second, uncontrolled copy on the map.
+  const basemap =
+    layer.type === "raster" && layer.metadata?.sourceKind === "maplibre-basemap-control";
+  const sourceId =
+    basemap && typeof layer.metadata?.sourceId === "string"
+      ? layer.metadata.sourceId
+      : mapboxSourceId(layer.id);
+  const nativeIds = basemap ? layer.metadata?.nativeLayerIds : undefined;
+  const rasterId =
+    Array.isArray(nativeIds) && typeof nativeIds[0] === "string"
+      ? nativeIds[0]
+      : `${sourceId}-raster`;
   const style = { ...DEFAULT_LAYER_STYLE, ...layer.style };
   const layout = { visibility: layer.visible ? ("visible" as const) : ("none" as const) };
   const zoom = { minzoom: style.minZoom, maxzoom: style.maxZoom };
@@ -134,7 +208,7 @@ export function compileMapboxLayer(
     const result = [
       {
         ...base,
-        id: `${id}-fill`,
+        id: mapboxFillLayerId(layer.id, sourceLayer),
         type: style.extrusionEnabled ? "fill-extrusion" : "fill",
         filter: geometryFilter("Polygon"),
         paint: mapboxPaint(
@@ -145,7 +219,7 @@ export function compileMapboxLayer(
       },
       {
         ...base,
-        id: `${id}-line`,
+        id: mapboxLineLayerId(layer.id, sourceLayer),
         type: "line",
         filter: (filter ? ["all", notPoint, filter] : notPoint) as FilterSpecification,
         paint: mapboxPaint(linePaint(style, layer.opacity)),
@@ -208,6 +282,24 @@ export function compileMapboxLayer(
       layers: vectorLayers(),
     };
   }
+  if (layer.type === "pmtiles") {
+    const url = String(layer.source.url ?? layer.sourcePath ?? "").replace(/^pmtiles:\/\//, "");
+    if (
+      layer.source.tileType !== "vector" ||
+      !/^https?:\/\//.test(url) ||
+      !new URL(url).pathname.endsWith(".pmtiles")
+    ) {
+      throw new Error("Mapbox PMTiles requires a remote vector .pmtiles archive");
+    }
+    const names = layer.source.sourceLayers;
+    if (!Array.isArray(names) || !names.length)
+      throw new Error("Vector tiles need a source-layer name");
+    return {
+      sourceId,
+      source: { type: "vector", url },
+      layers: names.flatMap((name) => vectorLayers(String(name))),
+    };
+  }
   const urls = [
     layer.source.url,
     ...(Array.isArray(layer.source.tiles) ? layer.source.tiles : []),
@@ -245,7 +337,7 @@ export function compileMapboxLayer(
   }
   const rasterLayers = [
     {
-      id: `${sourceId}-raster`,
+      id: rasterId,
       type: "raster",
       source: sourceId,
       layout,

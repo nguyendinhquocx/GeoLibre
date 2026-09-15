@@ -1224,13 +1224,10 @@ function normalizeProjectPreferences(preferences: unknown): ProjectPreferences {
         (map as Partial<ProjectPreferences["map"]>).showPointerElevation,
         DEFAULT_PROJECT_PREFERENCES.map.showPointerElevation,
       ),
-      ...(normalizeString((map as Partial<ProjectPreferences["map"]>).mapboxStyleUrl)
-        ? {
-            mapboxStyleUrl: normalizeString(
-              (map as Partial<ProjectPreferences["map"]>).mapboxStyleUrl,
-            ),
-          }
-        : {}),
+      // Missing means follow the saved project basemap. Do not reapply the
+      // new-project Streets default after a user has selected a shared style.
+      mapboxStyleUrl:
+        normalizeString((map as Partial<ProjectPreferences["map"]>).mapboxStyleUrl) || undefined,
       cesiumBasemap: normalizeCesiumBasemap(
         (map as Partial<ProjectPreferences["map"]>).cesiumBasemap,
       ),

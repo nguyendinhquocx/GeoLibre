@@ -8,8 +8,10 @@ import {
 import type { StyleSpecification, Popup } from "mapbox-gl";
 import type { MapEngine } from "./map-engine";
 import { MapboxEngine, redactMapboxError } from "./mapbox-engine";
+import { prepareMapboxStandard } from "./mapbox-standard-style";
 import { styleUsesUnsupportedSource } from "./mapbox-layers";
 import { resolveMapStyle } from "./map-controller";
+import { isGlobeControlToggleClick } from "./globe-control-toggle";
 
 export interface MapboxCanvasProps {
   accessToken: string;
@@ -30,7 +32,7 @@ export function MapboxCanvas({ accessToken, viewId, engineRef, onEngineReady }: 
     let cleanup = () => {};
     setError(null);
     void Promise.all([import("mapbox-gl"), import("mapbox-gl/dist/mapbox-gl.css")])
-      .then(([module]) => {
+      .then(async ([module]) => {
         if (cancelled || !container.current) return;
         const gl = module.default;
         const state = useAppStore.getState();
@@ -55,16 +57,25 @@ export function MapboxCanvas({ accessToken, viewId, engineRef, onEngineReady }: 
             ...(projection ? { projection: { name: projection.type } } : {}),
           } as StyleSpecification;
         };
+        const initialStyle = await prepareMapboxStandard(
+          resolvedStyle(state.preferences.map.mapboxStyleUrl ?? state.basemapStyleUrl),
+          accessToken,
+        );
+        if (cancelled || !container.current) return;
         const map = new gl.Map({
           container: container.current,
           accessToken,
           ...view,
-          style: resolvedStyle(state.preferences.map.mapboxStyleUrl ?? state.basemapStyleUrl),
+          style: initialStyle,
           projection: state.preferences.map.projection,
           attributionControl: false,
           preserveDrawingBuffer: true,
         });
-        engine = new MapboxEngine(map, gl);
+        engine = new MapboxEngine(map, gl, accessToken, {
+          // Split/grid panes share the primary pane's layer control; a second
+          // one would write the same store state back from another map.
+          controlVisibility: viewId ? { "layer-control": false } : undefined,
+        });
         const current = engine;
         let applying = false;
         let popup: Popup | undefined;
@@ -137,6 +148,7 @@ export function MapboxCanvas({ accessToken, viewId, engineRef, onEngineReady }: 
         const unsubscribe = useAppStore.subscribe(update);
         cleanup = unsubscribe;
         update(state);
+        update(useAppStore.getState(), state);
         map.on("moveend", () => {
           if (applying || cancelled) return;
           const next = useAppStore.getState(),
@@ -147,6 +159,26 @@ export function MapboxCanvas({ accessToken, viewId, engineRef, onEngineReady }: 
           if (!viewId || next.mapLayout.syncView) next.setMapView(camera, true);
           if (viewId) next.setSecondaryMapView(viewId, camera, true);
         });
+        // Persist clicks on the engine's globe toggle into project preferences,
+        // as MapCanvas does for MapLibre's GlobeControl, so a project reopens in
+        // the projection it was saved in. The control's own handler runs on the
+        // button before this container listener and `setProjection` is
+        // synchronous, so `readProjection()` already reflects the toggle. A
+        // split pane's toggle stays local to that pane, as on MapLibre.
+        const handleGlobeToggleClick = (event: MouseEvent) => {
+          if (viewId || cancelled || !isGlobeControlToggleClick(event.target)) return;
+          const projection = current.readProjection();
+          // Functional update so a concurrent preference change between read
+          // and write is not clobbered by a stale snapshot.
+          useAppStore.setState((s) => {
+            if (s.preferences.map.projection === projection) return s;
+            return {
+              preferences: { ...s.preferences, map: { ...s.preferences.map, projection } },
+              isDirty: true,
+            };
+          });
+        };
+        map.getContainer().addEventListener("click", handleGlobeToggleClick);
         map.on("mousemove", (e) => {
           if (!viewId) useAppStore.getState().setPointerCoords(e.lngLat.toArray());
         });
@@ -197,6 +229,9 @@ export function MapboxCanvas({ accessToken, viewId, engineRef, onEngineReady }: 
         }, 1000);
         cleanup = () => {
           unsubscribe();
+          // A DOM listener on the container outlives map.remove(); drop it so a
+          // re-run of this effect (token change) does not stack another.
+          map.getContainer().removeEventListener("click", handleGlobeToggleClick);
           resize.disconnect();
           window.clearInterval(status);
           popup?.remove();

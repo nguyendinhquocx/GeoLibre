@@ -293,6 +293,7 @@ export function AddDataSourceForm({
   error,
   submitDisabled,
   useServiceIcon,
+  hideLayerFields = false,
   children,
 }: {
   layerName: string;
@@ -303,12 +304,19 @@ export function AddDataSourceForm({
   error: string | null;
   submitDisabled: boolean;
   useServiceIcon?: boolean;
+  /**
+   * Omits the layer-name and insert-below fields for a source whose layers
+   * are named and placed by an importer (e.g. a KML document's folders).
+   */
+  hideLayerFields?: boolean;
   children: ReactNode;
 }) {
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
-      <LayerNameField value={layerName} onChange={onLayerNameChange} />
-      <InsertBeforeField value={beforeLayerId} onChange={onBeforeLayerIdChange} />
+      {!hideLayerFields && <LayerNameField value={layerName} onChange={onLayerNameChange} />}
+      {!hideLayerFields && (
+        <InsertBeforeField value={beforeLayerId} onChange={onBeforeLayerIdChange} />
+      )}
       {children}
       <AddDataFooter
         error={error}

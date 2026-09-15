@@ -170,9 +170,11 @@ function renderDeckVizLayers(): void {
   }
 
   // The deck.gl overlay renders in a Mercator viewport and does not align with
-  // MapLibre's globe projection, so force Mercator while deck layers are shown
-  // (same contract as the DuckDB deck overlay).
-  ensureMercatorProjection(appRef.getMap?.());
+  // either engine's globe projection, so force Mercator while deck layers are
+  // shown (same contract as the DuckDB deck overlay). `getMap` is MapLibre-only;
+  // on the Mapbox renderer the overlay is bound to the Mapbox map instead.
+  const map = appRef.getMap?.() ?? appRef.getMapboxMap?.() ?? null;
+  ensureMercatorProjection(map);
 
   const contexts = vizLayers
     .map((layer) => buildContext(layer))
@@ -182,8 +184,8 @@ function renderDeckVizLayers(): void {
   const contextById = new Map(contexts.map((entry) => [entry.id, entry]));
 
   // Diagram layers need the live view for their min-zoom gate and optional
-  // screen-space decluttering, and a rebuild when the view settles.
-  const map = appRef.getMap?.() ?? null;
+  // screen-space decluttering, and a rebuild when the view settles. Both
+  // engines' maps expose the same getZoom/project/on/off surface.
   const diagramOptions = {
     zoom: map?.getZoom(),
     project: map ? (position: [number, number]) => map.project(position) : null,

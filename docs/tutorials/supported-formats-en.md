@@ -45,7 +45,7 @@ What's truly interesting is **which engine reads each format behind the scenes**
 | **GeoPackage** | `.gpkg` | **sql.js (SQLite WASM), not GDAL** | Multi-layer files prompt a layer selector; auto-repairs `gpkg_ogr_contents` |
 | **Shapefile (individual files)** | `.shp` | shpjs | Desktop auto-reads companion `.dbf/.shx/.prj/.cpg`; 3D MultiPatch falls back to DuckDB |
 | **Shapefile (zip archive)** | `.zip` | fflate decompress → shpjs | `.prj` determines projection, `.cpg` determines DBF encoding (**Chinese attribute encoding issues resolved**); auto-skips macOS `__MACOSX` |
-| **KML** | `.kml` | Custom parser | **Preserves embedded styling**; also extracts GroundOverlay images and `<Model>` 3D models |
+| **KML** | `.kml` | Custom parser | **Preserves embedded styling** and Folder structure; placemarks with `<TimeSpan>`/`<TimeStamp>` animate on the Time Slider; also extracts GroundOverlay images and `<Model>` 3D models |
 | **KMZ** | `.kmz` | fflate decompress | Custom icons and formatted descriptions are preserved |
 | **GML** | `.gml` | DuckDB `ST_Read` | — |
 | **GPX** | `.gpx` | Pure JS | **Auto-splits into three layers**: waypoints / tracks / routes |

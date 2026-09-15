@@ -308,6 +308,7 @@ kepler.gl, see the [Comparison](comparison.md).
     - Expose layer groups of their own
     - Declare which map engines they support, so switching renderers suspends an unsupported plugin while keeping its settings, and reach the globe's scene through `app.getCesiumScene()`
     - Register AI Assistant tools with plain JSON Schema, without bundling the agent SDK
+    - Contribute guidance text to the AI Assistant's system prompt, so the model knows when to call a plugin's tools
     - Query a layer's features read-only through the host, instead of re-fetching and re-parsing the source the app has already loaded
     - Register first-class right-sidebar panels, toolbar menus, and floating panels through the plugin UI host API, including a shared-rail replace-style dock mode, and place their toolbar menus after the Help menu
 - Dimensions plugin for CAD-style linear and angular dimension lines, whose endpoints can snap to any visible vector vertex and stay associated when that vertex is edited

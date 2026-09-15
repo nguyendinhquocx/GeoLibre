@@ -15,52 +15,7 @@ import { spawnSync } from "node:child_process";
 // Severities that fail the build. Moderate/low are left to Dependabot PRs.
 const BLOCKING = new Set(["high", "critical"]);
 
-const ALLOWLIST = new Map([
-  [
-    "GHSA-w3rx-r6r6-pgpr",
-    "image-size DoS (ICNS parser infinite loop). No patched version exists — " +
-      "the advisory covers <=2.0.2, 2.0.2 is the latest release, and the GitHub " +
-      "advisory API reports first_patched_version: null. Nor can we upgrade past " +
-      "it: the latest @loaders.gl/textures (4.4.4) still depends on " +
-      "texture-compressor@^1.0.2, which pins image-size@^0.7.4. It reaches " +
-      "us only as a dependency of texture-compressor, which @loaders.gl/textures " +
-      "spawns via `npx` from encodeImageURLToCompressedTextureURL (a Node-only " +
-      "encoder). GeoLibre never calls that encoder and it cannot bundle into the " +
-      "browser build, so no attacker-supplied image is ever parsed by it — " +
-      "confirmed by grepping the production build, which contains no reference " +
-      "to image-size or texture-compressor. Re-verified 2026-08-07.",
-  ],
-  [
-    "GHSA-5p2g-fcmc-qvqq",
-    "image-size DoS (JXL/HEIF parser infinite loops). Same package, same lack of " +
-      "a patched version, and the same unreachable texture-compressor path as " +
-      "GHSA-w3rx-r6r6-pgpr above. Note that plain `npm audit` inflates these two " +
-      "advisories into ~16 high findings by counting them once per package in the " +
-      "chain (texture-compressor → @loaders.gl/textures → gltf/3d-tiles/i3s → " +
-      "deck.gl → the maplibre-gl-* wrappers). There is only ever one copy of " +
-      "image-size in the tree; `npm ls image-size` is the honest count. " +
-      "Re-verified 2026-08-07.",
-  ],
-  [
-    "GHSA-2883-xcg3-v3hh",
-    "js-yaml DoS (maxTotalMergeKeys does not bound CPU for empty merge sources). " +
-      "This one is the exception to the no-patched-version rule above, so it needs " +
-      "the extra justification: patches exist (3.15.2 and 4.3.2) but npm 12 will " +
-      "not install them here. An `overrides` entry — plain, exact, and with the " +
-      "nested read-yaml-file form, since that consumer needs 3.x for safeLoad — is " +
-      "accepted and rewrites the declared ranges, but the tree is left permanently " +
-      '`invalid: "^4.3.2" from node_modules/@changesets/parse` and the installed ' +
-      "copies stay at 4.3.1/3.15.1. Reachability is what makes the hold safe: " +
-      "js-yaml is in the production graph only because " +
-      "@placemarkio/geojson-rewind@1.0.3 declares @changesets/cli as a *runtime* " +
-      "dependency, which is an upstream packaging mistake — changesets is a " +
-      "release tool. Nothing in GeoLibre parses YAML through it at runtime, and " +
-      "the production build contains no js-yaml: grepping dist for `js-yaml`, " +
-      "`YAMLException` and `DUMPER_STATE` finds nothing. Revisit when npm honors " +
-      "the override, or when geojson-rewind moves changesets to devDependencies. " +
-      "Added 2026-09-08.",
-  ],
-]);
+const ALLOWLIST = new Map();
 
 const audit = spawnSync("npm", ["audit", "--omit=dev", "--json"], {
   encoding: "utf8",

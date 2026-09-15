@@ -242,6 +242,15 @@ export interface MapEngineCapabilities {
    * overlays — layers whose pixels something other than the engine draws.
    */
   readonly customLayers: boolean;
+  /**
+   * The engine hosts deck.gl's `MapboxOverlay` (`@deck.gl/mapbox`), so the
+   * shared interleaved deck overlay and everything drawn through it — Deck.gl
+   * Layers, glTF models, DuckDB query results, 3D Tiles, LiDAR — has a map to
+   * bind to. Narrower than {@link customLayers}: Mapbox GL JS is that
+   * overlay's native host without exposing a MapLibre map or hosting MapLibre
+   * `CustomLayerInterface` layers.
+   */
+  readonly deckOverlay: boolean;
   /** 3D terrain can be enabled and exaggerated. */
   readonly terrain: boolean;
   /** {@link MapEngine.identifyFeatures} can return features. */
@@ -271,6 +280,7 @@ export const MAPLIBRE_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   styleSpec: true,
   nativeMapInstance: true,
   customLayers: true,
+  deckOverlay: true,
   terrain: true,
   picking: true,
   onMapDrawing: true,
@@ -347,3 +357,40 @@ export type BuiltInMapControl =
   | "logo"
   | "maptoolkit-logo"
   | "layer-control";
+
+/**
+ * Which built-in controls a fresh map shows, and where. Every engine starts
+ * from these so the Controls menu's checkboxes (seeded from the same table)
+ * agree with the map whichever renderer is primary; the Mapbox engine mounts
+ * the same set as MapLibre and only skips the ids it cannot host.
+ */
+export const DEFAULT_BUILT_IN_CONTROL_VISIBILITY: Record<BuiltInMapControl, boolean> = {
+  navigation: false,
+  fullscreen: true,
+  compass: true,
+  geolocate: false,
+  globe: true,
+  terrain: false,
+  scale: true,
+  attribution: true,
+  logo: false,
+  "maptoolkit-logo": false,
+  "layer-control": true,
+};
+
+export const DEFAULT_BUILT_IN_CONTROL_POSITIONS: Record<
+  BuiltInMapControl,
+  maplibregl.ControlPosition
+> = {
+  navigation: "top-right",
+  fullscreen: "top-right",
+  compass: "top-right",
+  geolocate: "top-right",
+  globe: "top-right",
+  terrain: "top-right",
+  scale: "bottom-left",
+  attribution: "bottom-right",
+  logo: "bottom-left",
+  "maptoolkit-logo": "bottom-left",
+  "layer-control": "top-right",
+};
