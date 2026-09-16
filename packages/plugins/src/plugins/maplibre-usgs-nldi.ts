@@ -6,6 +6,7 @@ import {
   type MapMouseEvent,
 } from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
+import { getStyleMap } from "./style-map";
 
 export const USGS_NLDI_PLUGIN_ID = "maplibre-usgs-nldi";
 export const NLDI_API = "https://api.water.usgs.gov/nldi";
@@ -570,8 +571,11 @@ export const maplibreUsgsNldiPlugin: GeoLibrePlugin = {
   id: USGS_NLDI_PLUGIN_ID,
   name: "USGS NLDI",
   version: "1.0.0",
+  // Draws its trace/basin results as GeoJSON sources and style layers, which
+  // both 2D engines host.
+  engines: ["maplibre", "mapbox"],
   activate(app: GeoLibreAppAPI) {
-    const map = app.getMap?.();
+    const map = getStyleMap(app);
     if (!map) return false;
     let selected: { point: Point; comid?: string } | null = null;
     let traceResult: NldiTraceResult | null = null;

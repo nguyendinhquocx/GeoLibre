@@ -110,6 +110,40 @@ describe("Mapbox Add Data adapters", () => {
       assert.equal(supportsAddDataRenderer(id, "mapbox"), true);
     assert.equal(supportsAddDataRenderer("splatting", "mapbox"), false);
   });
+  it("treats the Time Slider and Timelapse store mirrors as plugin-owned on Mapbox", () => {
+    // Both plugins draw their own native sources and layers (registered on the
+    // mirror as nativeLayerIds) and forward the store's visibility/opacity to
+    // them; the mirrors carry no tiles, so the engine could not compile them
+    // and would otherwise raise an adapter error while the plugin is drawing.
+    const base = { ...geojsonLayer(), geojson: undefined };
+    assert.equal(
+      isMapboxSupportedLayer({
+        ...base,
+        type: "raster",
+        source: { type: "raster", sourceId: "landsat" },
+        metadata: {
+          externalNativeLayer: true,
+          sourceKind: "time-slider",
+          nativeLayerIds: ["landsat"],
+          sourceId: "landsat",
+        },
+      }),
+      true,
+    );
+    assert.equal(
+      isMapboxSupportedLayer({
+        ...base,
+        type: "raster",
+        source: { type: "raster", providerId: "eox-s2cloudless" },
+        metadata: {
+          externalNativeLayer: true,
+          sourceKind: "timelapse",
+          nativeLayerIds: ["timelapse-frame-2020"],
+        },
+      }),
+      true,
+    );
+  });
   it("treats deck.gl-drawn store layers as plugin-owned on Mapbox", () => {
     // Deck.gl Layers (and glTF models, which are the scenegraph kind) render
     // through the shared MapboxOverlay; DuckDB results through the control's
@@ -121,7 +155,10 @@ describe("Mapbox Add Data adapters", () => {
       isMapboxSupportedLayer({
         ...base,
         type: "deckgl-viz",
-        metadata: { sourceKind: "deckgl-viz", deckViz: { layerKind: "scatterplot" } },
+        metadata: {
+          sourceKind: "deckgl-viz",
+          deckViz: { layerKind: "scatterplot" },
+        },
       }),
       true,
     );
@@ -135,7 +172,11 @@ describe("Mapbox Add Data adapters", () => {
     );
     // The type alone is not enough: a foreign source kind is still unsupported.
     assert.equal(
-      isMapboxSupportedLayer({ ...base, type: "deckgl-viz", metadata: { sourceKind: "other" } }),
+      isMapboxSupportedLayer({
+        ...base,
+        type: "deckgl-viz",
+        metadata: { sourceKind: "other" },
+      }),
       false,
     );
     for (const id of ["deckgl-viz", "gltf-model", "duckdb", "kml"])

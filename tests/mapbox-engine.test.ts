@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type * as mapboxgl from "mapbox-gl";
+import type { Geometry } from "geojson";
 import { useAppStore, type MapPreferences } from "@geolibre/core";
 import { MapboxEngine } from "../packages/map/src/mapbox-engine";
 import { isMapboxSupportedLayer } from "../packages/map/src/mapbox-layers";
@@ -123,6 +124,10 @@ function makeMap() {
       const layer = layers.find((l) => l.id === id)!;
       layer.layout = { ...(layer.layout as Record<string, unknown>), [key]: value };
     },
+    getPaintProperty: (id: string, key: string) =>
+      (layers.find((l) => l.id === id)?.paint as Record<string, unknown> | undefined)?.[key],
+    getLayoutProperty: (id: string, key: string) =>
+      (layers.find((l) => l.id === id)?.layout as Record<string, unknown> | undefined)?.[key],
     setFilter: (id: string) => {
       calls.push(`setFilter:${id}`);
     },
@@ -234,6 +239,19 @@ describe("MapboxEngine construction", () => {
     assert.equal(map.controls.filter((c) => c === adapter).length, 1);
     engine.removeControl(control);
     assert.ok(!map.controls.includes(adapter));
+  });
+  it("hands a second map the token, and nothing at all when there is none", () => {
+    // The Layer Swipe comparison pane builds its own mapbox-gl map and has to
+    // pass the token along, because GeoLibre sets it per map rather than on the
+    // global mapbox-gl reads by default. A blank one is not a token: forwarding
+    // `""` would put an empty `accessToken` in that map's options instead of
+    // leaving the key out, so the accessor reports absence as `null`.
+    const map = makeMap();
+    assert.equal(
+      new MapboxEngine(map as unknown as mapboxgl.Map, gl, "pk.test").getMapboxAccessToken(),
+      "pk.test",
+    );
+    assert.equal(makeEngine().engine.getMapboxAccessToken(), null);
   });
   it("mounts MapLibre's default controls, in MapLibre's order, and takes the style's layers as the basemap", () => {
     const { engine, map } = makeEngine();
@@ -417,6 +435,148 @@ describe("MapboxEngine.syncLayers", () => {
     assert.deepEqual(engine.getRenderStatus().errors, []);
   });
 
+  /**
+   * Run `body` with a DOM installed, and hand it the names the engine
+   * published on the window. The label bridge is a window global because the
+   * rewrite it feeds happens in the app's DOM, outside the engine.
+   */
+  const withPublishedLabels = (body: (labels: () => Record<string, string>) => void): void => {
+    // The engine names style layers off the live style, so the fake has to
+    // report the ones it was given rather than the fixed background-only stub.
+    map.getStyle = () => ({
+      sources: {},
+      layers: map.layers as { id: string; type: string }[],
+    });
+    const { document, window } = parseHTML("<html><body></body></html>");
+    const previous = { document: globalThis.document, window: globalThis.window };
+    Object.assign(globalThis, { document, window });
+    try {
+      body(
+        () =>
+          (window as unknown as { __GEOLIBRE_LAYER_LABELS__?: Record<string, string> })
+            .__GEOLIBRE_LAYER_LABELS__ ?? {},
+      );
+    } finally {
+      Object.assign(globalThis, previous);
+    }
+  };
+
+  it("publishes friendly names for the style layers it compiles", () => {
+    // The Layer Swipe panel drives its sides by style layer id and would
+    // otherwise list `geolibre-mapbox-layer-a-geojson-fill`. MapLibre's
+    // controller publishes the same bridge for its own id scheme, so a layer
+    // has to read the same whichever engine is drawing it.
+    withPublishedLabels((labels) => {
+      engine.syncLayers([geojsonLayer()]);
+      assert.equal(labels()[FILL], "Layer A Polygons");
+      assert.equal(labels()[LINE], "Layer A Lines");
+      assert.equal(labels()[CIRCLE], "Layer A Points");
+      // The swipe panel's grouped basemap row, as the Layers panel names it.
+      assert.equal(labels().__basemap__, "Background");
+    });
+  });
+
+  it("does not let one layer claim a same-prefixed neighbour's rows", () => {
+    // `geolibre-mapbox-a-` is a prefix of `geolibre-mapbox-a-b-`, so matching
+    // ids by prefix would hand "A" its neighbour's three rows as well. The
+    // visible consequence is the qualifier: a layer drawing through one style
+    // layer is named bare, and four would wrongly make it "A Raster".
+    withPublishedLabels((labels) => {
+      engine.syncLayers([
+        geojsonLayer({
+          id: "a",
+          name: "A",
+          type: "xyz",
+          source: { type: "raster", tiles: ["https://tiles.test/{z}/{x}/{y}.png"] },
+          geojson: undefined,
+        }),
+        geojsonLayer({ id: "a-b", name: "A B" }),
+      ]);
+      assert.equal(labels()["geolibre-mapbox-a-raster"], "A");
+      assert.equal(labels()["geolibre-mapbox-a-b-geojson-fill"], "A B Polygons");
+    });
+  });
+
+  it("distinguishes the rows of a layer whose ids the engine did not choose", () => {
+    // ArcGIS (and every plugin that hands the engine `nativeLayerIds`) names
+    // its own style layers, so they carry no `geolibre-mapbox-<id>-` prefix.
+    // The kind is still the id's last segment, and taking it from there is
+    // what keeps the two rows apart — without it both are named "Parcels" and
+    // the swipe panel offers the user the same row twice.
+    withPublishedLabels((labels) => {
+      const layer = geojsonLayer({ id: "parcels", name: "Parcels" });
+      layer.type = "arcgis";
+      delete layer.geojson;
+      layer.source = {
+        arcgisSources: {
+          parcels: { type: "vector", tiles: ["https://tiles.test/{z}/{x}/{y}.pbf"] },
+        },
+        arcgisLayers: [
+          { id: "parcels-fill", type: "fill", source: "parcels", "source-layer": "parcels" },
+          { id: "parcels-line", type: "line", source: "parcels", "source-layer": "parcels" },
+        ],
+      };
+      layer.metadata = { nativeLayerIds: ["parcels-fill", "parcels-line"] };
+      engine.syncLayers([layer]);
+      assert.equal(labels()["parcels-fill"], "Parcels Polygons");
+      assert.equal(labels()["parcels-line"], "Parcels Lines");
+    });
+  });
+
+  it("names a single-style-layer row without a geometry qualifier", () => {
+    withPublishedLabels((labels) => {
+      engine.syncLayers([
+        geojsonLayer({
+          id: "raster-a",
+          name: "Imagery",
+          type: "xyz",
+          source: { type: "raster", tiles: ["https://tiles.test/{z}/{x}/{y}.png"] },
+          geojson: undefined,
+        }),
+      ]);
+      // One style layer, so no "Imagery Raster" — just the layer's own name.
+      assert.deepEqual(
+        Object.entries(labels()).filter(([id]) => id.includes("raster-a")),
+        [["geolibre-mapbox-raster-a-raster", "Imagery"]],
+      );
+    });
+  });
+
+  it("leaves the bridge to the primary pane", () => {
+    // The bridge is one window global. A split/grid pane draws the same layers
+    // under the same style-layer ids but filtered by its own visibility, so
+    // publishing from there would republish a subset — changing the sibling
+    // count and so the qualifiers — and clearing on teardown would wipe the
+    // primary's names until its next sync, leaving the swipe panel on raw ids.
+    withPublishedLabels((labels) => {
+      engine.syncLayers([geojsonLayer()]);
+      assert.equal(labels()[FILL], "Layer A Polygons");
+
+      const paneMap = makeMap();
+      paneMap.getStyle = () => ({
+        sources: {},
+        layers: paneMap.layers as { id: string; type: string }[],
+      });
+      const pane = new MapboxEngine(paneMap as unknown as mapboxgl.Map, gl, "", {
+        ownsLayerLabels: false,
+      });
+      pane.syncLayers([geojsonLayer({ id: "layer-a", name: "Renamed In The Pane" })]);
+      assert.equal(labels()[FILL], "Layer A Polygons");
+      pane.destroy();
+      assert.equal(labels()[FILL], "Layer A Polygons");
+    });
+  });
+
+  it("carries the translated basemap label into the bridge", () => {
+    withPublishedLabels((labels) => {
+      engine.syncLayers([geojsonLayer()]);
+      engine.setBackgroundLabel("Hintergrund");
+      assert.equal(labels().__basemap__, "Hintergrund");
+      // The layer names survive the republish.
+      assert.equal(labels()[FILL], "Layer A Polygons");
+    });
+  });
+
   it("defers the sync until the style has loaded and flushes on idle", () => {
     map.setStyleLoaded(false);
     engine.syncLayers([geojsonLayer()]);
@@ -582,17 +742,32 @@ describe("MapboxEngine.syncLayers", () => {
 describe("MapboxEngine.identifyFeatures", () => {
   it("maps Mapbox's generated ids back to the layer's own feature identity", () => {
     const { engine, map } = makeEngine();
-    const feature = (id: string | undefined, name: string) => ({
+    // A polygon and a point, so the engine compiles the fill, line and circle
+    // layers the hits below come from; it only adds the ones the data can draw.
+    const feature = (id: string | undefined, name: string, geometry: Geometry) => ({
       type: "Feature" as const,
       ...(id === undefined ? {} : { id }),
       properties: { name },
-      geometry: { type: "Point" as const, coordinates: [0, 0] },
+      geometry,
     });
     engine.syncLayers([
       geojsonLayer({
         geojson: {
           type: "FeatureCollection",
-          features: [feature("ca", "California"), feature(undefined, "Nevada")],
+          features: [
+            feature("ca", "California", {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            }),
+            feature(undefined, "Nevada", { type: "Point", coordinates: [0, 0] }),
+          ],
         },
       }),
     ]);
@@ -767,6 +942,260 @@ describe("Mapbox shared raster basemaps", () => {
     engine.syncLayers([]);
     assert.equal(map.sources.size, 0);
     assert.equal(map.layers.length, 0);
+  });
+});
+
+describe("Mapbox plugin-drawn native layers", () => {
+  // The Web Services panels (FEMA NFHL here) add their raster source and layer
+  // to the map themselves and mirror them into the store as external native
+  // layers. MapLibre's layer-sync rebuilds those under the control's own ids;
+  // the Mapbox engine must do the same rather than draw a second copy.
+  it("adopts a Web Services raster layer under its native ids and rebuilds it after a style reload", () => {
+    const { engine, map } = makeEngine();
+    const nativeId = "fema-wms-NFHL";
+    const source = { type: "raster", tiles: ["https://example.test/{z}/{x}/{y}"], tileSize: 256 };
+    map.addSource(nativeId, source);
+    map.addLayer({ id: nativeId, type: "raster", source: nativeId, paint: {} });
+    const layer = {
+      ...geojsonLayer({ id: nativeId }),
+      type: "wms" as const,
+      geojson: undefined,
+      source: { ...source, sourceId: nativeId },
+      metadata: {
+        externalNativeLayer: true,
+        sourceKind: "fema-wms",
+        sourceId: nativeId,
+        sourceIds: [nativeId],
+        nativeLayerIds: [nativeId],
+      },
+    };
+    engine.syncLayers([layer]);
+    assert.deepEqual([...map.sources.keys()], [nativeId]);
+    assert.deepEqual(
+      map.layers.map((l) => l.id),
+      [nativeId],
+    );
+    engine.syncLayers([{ ...layer, visible: false, opacity: 0.3 }]);
+    assert.equal((map.getLayer(nativeId)?.layout as Record<string, unknown>).visibility, "none");
+    assert.equal((map.getLayer(nativeId)?.paint as Record<string, unknown>)["raster-opacity"], 0.3);
+    // A basemap swap drops every source and layer; the engine puts the
+    // control's layer back under the same ids, as MapLibre's layer-sync does.
+    map.sources.clear();
+    map.layers.length = 0;
+    map.fire("style.load");
+    assert.deepEqual([...map.sources.keys()], [nativeId]);
+    assert.deepEqual(
+      map.layers.map((l) => l.id),
+      [nativeId],
+    );
+    engine.syncLayers([]);
+    assert.equal(map.sources.size, 0);
+    assert.equal(map.layers.length, 0);
+  });
+
+  it("mirrors store visibility and opacity onto a plugin-owned layer's native style layers", () => {
+    const { engine, map } = makeEngine();
+    // A plugin-owned kind (the engine never compiles it) whose plugin also
+    // registered a native style layer under the store layer's nativeLayerIds.
+    map.addSource("dep-index", { type: "raster", tiles: ["https://example.test/{z}/{x}/{y}"] });
+    map.addLayer({ id: "dep-index", type: "raster", source: "dep-index", paint: {} });
+    const layer = {
+      ...geojsonLayer({ id: "cloud" }),
+      type: "lidar" as const,
+      geojson: undefined,
+      source: { type: "lidar", url: "https://example.test/cloud.copc.laz" },
+      metadata: {
+        externalNativeLayer: true,
+        sourceKind: "lidar-url",
+        nativeLayerIds: ["dep-index", "not-on-the-map"],
+      },
+    };
+    engine.syncLayers([{ ...layer, visible: false, opacity: 0.5 }]);
+    assert.equal((map.getLayer("dep-index")?.layout as Record<string, unknown>).visibility, "none");
+    assert.equal(
+      (map.getLayer("dep-index")?.paint as Record<string, unknown>)["raster-opacity"],
+      0.5,
+    );
+    // Nothing of the engine's own was added for it.
+    assert.deepEqual([...map.sources.keys()], ["dep-index"]);
+    map.calls.length = 0;
+    engine.syncLayers([{ ...layer, visible: false, opacity: 0.5 }]);
+    assert.deepEqual(
+      map.calls.filter((call) => call.startsWith("set")),
+      [],
+      "an unchanged state is not re-applied",
+    );
+    map.calls.length = 0;
+    engine.syncLayers([
+      {
+        ...layer,
+        visible: true,
+        opacity: 0.8,
+        metadata: { ...layer.metadata, controlOwnsPaint: true },
+      },
+    ]);
+    assert.deepEqual(
+      map.calls.filter((call) => call.startsWith("setPaintProperty:")),
+      [],
+      "no paint setter runs for a control that owns its paint",
+    );
+    assert.equal(
+      (map.getLayer("dep-index")?.layout as Record<string, unknown>).visibility,
+      "visible",
+    );
+    assert.equal(
+      (map.getLayer("dep-index")?.paint as Record<string, unknown>)["raster-opacity"],
+      0.5,
+      "paint is left to a control that owns it",
+    );
+  });
+
+  it("leaves a control-rendered layer's paint alone and never compiles its archive URL", () => {
+    const { engine, map } = makeEngine();
+    // The Overture Maps control adds its own PMTiles source and styled layers;
+    // the store row mirrors them (`customLayerType`) and names the archive URL
+    // only for the record.
+    map.addSource("overture-buildings", {
+      type: "vector",
+      url: "https://tiles.example.test/2026-05-20.0/buildings.pmtiles",
+    });
+    map.addLayer({
+      id: "overture-buildings-building-fill",
+      type: "fill",
+      source: "overture-buildings",
+      "source-layer": "building",
+      paint: { "fill-color": "#4363d8", "fill-opacity": 0.8 },
+    });
+    map.calls.length = 0;
+    const layer = {
+      ...geojsonLayer({ id: "overture-maps-buildings-building" }),
+      type: "vector-tiles" as const,
+      geojson: undefined,
+      source: {
+        type: "vector",
+        sourceId: "overture-buildings",
+        url: "https://tiles.example.test/2026-05-20.0/buildings.pmtiles",
+      },
+      metadata: {
+        customLayerType: "overture-maps",
+        externalNativeLayer: true,
+        sourceKind: "overture-maps",
+        sourceId: "overture-buildings",
+        nativeLayerIds: ["overture-buildings-building-fill", "overture-buildings-building-line"],
+      },
+    };
+    engine.syncLayers([{ ...layer, visible: false, opacity: 0.3 }]);
+    assert.deepEqual([...map.sources.keys()], ["overture-buildings"], "no second source");
+    assert.equal(
+      map.layers.filter((l) => l.id === "overture-buildings-building-fill").length,
+      1,
+      "the control's fill is not drawn twice",
+    );
+    assert.equal(
+      (map.getLayer("overture-buildings-building-fill")?.layout as Record<string, unknown>)
+        .visibility,
+      "none",
+      "store visibility is mirrored",
+    );
+    assert.deepEqual(
+      map.calls.filter((call) => call.startsWith("setPaintProperty:")),
+      [],
+      "the control keeps its own color and opacity",
+    );
+    assert.deepEqual(
+      (map.getLayer("overture-buildings-building-fill")?.paint as Record<string, unknown>)[
+        "fill-color"
+      ],
+      "#4363d8",
+    );
+    // A story chapter's fade still reaches the control's layers (replacing
+    // their opacity, as on MapLibre) and hands the control's paint back when
+    // playback ends.
+    engine.syncLayers([layer]);
+    engine.setStoryLayerOpacity("overture-maps-buildings-building", 0.25);
+    const fillPaint = () =>
+      map.getLayer("overture-buildings-building-fill")?.paint as Record<string, unknown>;
+    assert.equal(fillPaint()["fill-opacity"], 0.25, "story opacity applied");
+    assert.equal(fillPaint()["fill-color"], "#4363d8", "color untouched by the fade");
+    engine.restoreLayerStyles();
+    assert.equal(fillPaint()["fill-opacity"], 0.8, "the control's opacity is restored");
+    map.calls.length = 0;
+    engine.syncLayers([layer]);
+    assert.deepEqual(
+      map.calls.filter((call) => call.startsWith("setPaintProperty:")),
+      [],
+      "nothing is re-applied once restored",
+    );
+    // A row that leaves the store mid-fade gets the control's paint back at
+    // once, and a row re-added under the same id later is not handed the old
+    // snapshot when its own fade ends.
+    engine.setStoryLayerOpacity("overture-maps-buildings-building", 0.25);
+    assert.equal(fillPaint()["fill-opacity"], 0.25);
+    engine.syncLayers([]);
+    assert.equal(fillPaint()["fill-opacity"], 0.8, "restored when the row is removed");
+    map.setPaintProperty("overture-buildings-building-fill", "fill-opacity", 0.6);
+    engine.syncLayers([layer]);
+    assert.equal(fillPaint()["fill-opacity"], 0.25, "the active fade applies to the new row");
+    engine.restoreLayerStyles();
+    assert.equal(fillPaint()["fill-opacity"], 0.6, "the control's current paint comes back");
+  });
+
+  it("scales a plugin-owned fill's own opacity by the store opacity instead of replacing it", () => {
+    const { engine, map } = makeEngine();
+    map.addSource("footprints", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer({ id: "footprints-fill", type: "fill", source: "footprints", paint: {} });
+    engine.syncLayers([
+      {
+        ...geojsonLayer({ id: "oam" }),
+        opacity: 0.5,
+        style: { fillOpacity: 0.08, fillColor: "#ff0000" },
+        metadata: {
+          externalNativeLayer: true,
+          sourceKind: "openaerialmap-footprints",
+          nativeLayerIds: ["footprints-fill"],
+        },
+      },
+    ]);
+    const paint = map.getLayer("footprints-fill")?.paint as Record<string, unknown>;
+    const opacity = paint["fill-opacity"] as number;
+    assert.ok(Math.abs(opacity - 0.04) < 1e-9, `fill-opacity ${opacity}`);
+    // The whole paint object lands, not only opacity: a Style panel colour edit
+    // on a plugin-owned layer shows on Mapbox as it does on MapLibre.
+    assert.equal(paint["fill-color"], "#ff0000");
+  });
+});
+
+describe("Mapbox story opacity on plugin-owned layers", () => {
+  it("applies a story chapter's transient opacity to a plugin-owned native layer", () => {
+    const { engine, map } = makeEngine();
+    map.addSource("dep-index", { type: "raster", tiles: ["https://example.test/{z}/{x}/{y}"] });
+    map.addLayer({ id: "dep-index", type: "raster", source: "dep-index", paint: {} });
+    const layer = {
+      ...geojsonLayer({ id: "cloud" }),
+      type: "lidar" as const,
+      geojson: undefined,
+      opacity: 1,
+      source: { type: "lidar", url: "https://example.test/cloud.copc.laz" },
+      metadata: {
+        externalNativeLayer: true,
+        sourceKind: "lidar-url",
+        nativeLayerIds: ["dep-index"],
+      },
+    };
+    engine.syncLayers([layer]);
+    engine.setStoryLayerOpacity("cloud", 0.2);
+    assert.equal(
+      (map.getLayer("dep-index")?.paint as Record<string, unknown>)["raster-opacity"],
+      0.2,
+    );
+    engine.restoreLayerStyles();
+    assert.equal(
+      (map.getLayer("dep-index")?.paint as Record<string, unknown>)["raster-opacity"],
+      1,
+    );
   });
 });
 

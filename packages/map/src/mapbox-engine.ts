@@ -9,9 +9,12 @@ import type {
   StoryChapterAnimation,
   StoryChapterLocation,
 } from "@geolibre/core";
+import { DEFAULT_LAYER_STYLE, controlRendersLayer } from "@geolibre/core";
+import { circlePaint, fillPaint, linePaint, rasterPaint } from "./style-mapper";
 import {
   DEFAULT_BUILT_IN_CONTROL_POSITIONS,
   DEFAULT_BUILT_IN_CONTROL_VISIBILITY,
+  STORY_OPACITY_PAINT_PROPERTIES,
   type MapEngine,
   type MapEngineCapabilities,
   type MapRenderSurface,
@@ -27,7 +30,15 @@ import {
   isMapboxPluginLayer,
   DEFAULT_MAPBOX_TEXT_FONT,
   type MapboxLayerPlan,
+  mapboxPaint,
 } from "./mapbox-layers";
+import {
+  BASEMAP_LABEL_KEY,
+  clearLayerLabels,
+  publishLayerLabels,
+  styleLayerLabel,
+} from "./layer-labels";
+import { mapboxSourceId } from "./style-layer-ids";
 import { resolveTextFontFromStyleLayers } from "./text-font";
 import { getLayerBounds } from "./geojson-loader";
 import { captureEngineImage } from "./map-capture";
@@ -58,6 +69,7 @@ export const MAPBOX_CAPABILITIES: MapEngineCapabilities = Object.freeze({
 });
 
 const BLANK_BACKGROUND_LAYER_ID = "geolibre-blank-background";
+
 const HIGHLIGHT_SOURCE_ID = "geolibre-mapbox-highlight";
 const HIGHLIGHT_LAYER_IDS = ["geolibre-mapbox-highlight-line", "geolibre-mapbox-highlight-point"];
 
@@ -95,6 +107,8 @@ export class MapboxEngine implements MapEngine {
   private map: mapboxgl.Map | null;
   private surface: MapRenderSurface | null;
   private layers: GeoLibreLayer[] = [];
+  /** The Layers panel's name for the basemap row, mirrored into the label bridge. */
+  private backgroundLabel = "Background";
   private plans = new Map<string, MapboxLayerPlan>();
   private previous = new Map<string, GeoLibreLayer>();
   private errors = new Map<string, string>();
@@ -110,6 +124,8 @@ export class MapboxEngine implements MapEngine {
   private preferences: MapPreferences | null = null;
   private pluginControls = new Map<maplibregl.IControl, mapboxgl.IControl>();
   private controlVisibility: Record<BuiltInMapControl, boolean>;
+  /** See the constructor option of the same name. */
+  private ownsLayerLabels: boolean;
   private controlPositions: Record<BuiltInMapControl, maplibregl.ControlPosition> = {
     ...DEFAULT_BUILT_IN_CONTROL_POSITIONS,
   };
@@ -147,6 +163,11 @@ export class MapboxEngine implements MapEngine {
     getBasemapState: () => ({ visible: this.basemapVisible, opacity: this.basemapOpacity }),
   });
   private storyOpacities = new Map<string, number>();
+  // The paint a control-owned native layer carried before a story fade
+  // replaced its opacity, keyed by store layer id then native id, so
+  // `restoreLayerStyles` can hand it back: the ordinary mirror never writes
+  // paint on those layers.
+  private storyPaintBackups = new Map<string, Map<string, Map<string, unknown>>>();
   private rotating = false;
   private syncPending = false;
   private basemapPending = false;
@@ -167,9 +188,21 @@ export class MapboxEngine implements MapEngine {
        * layer/basemap state back to the global store.
        */
       controlVisibility?: Partial<Record<BuiltInMapControl, boolean>>;
+      /**
+       * Whether this engine publishes the friendly style-layer names the swipe
+       * panel reads (see `./layer-labels`). The bridge is one window global, so
+       * only the primary pane may write it: a secondary (split/grid) pane draws
+       * the same layers under the same style-layer ids but filtered by its own
+       * per-pane visibility, so letting it publish would republish a subset —
+       * changing the sibling count and so the qualifiers — and letting it clear
+       * on teardown would wipe the primary's names until its next sync, leaving
+       * the swipe panel listing raw ids. Secondary panes pass `false`.
+       */
+      ownsLayerLabels?: boolean;
     } = {},
   ) {
     this.map = map;
+    this.ownsLayerLabels = options.ownsLayerLabels ?? true;
     this.controlVisibility = {
       ...DEFAULT_BUILT_IN_CONTROL_VISIBILITY,
       ...options.controlVisibility,
@@ -207,6 +240,33 @@ export class MapboxEngine implements MapEngine {
   getMapboxMap(): mapboxgl.Map | null {
     return this.map;
   }
+  /**
+   * The mapbox-gl namespace the engine was built with, for an integration that
+   * has to construct Mapbox's own `Marker` / `Popup` / `LngLatBounds` on the map
+   * (MapLibre's throw there). The Mapbox counterpart of the `@cesium/engine`
+   * namespace `getCesiumScene` hands out: plugins never import mapbox-gl.
+   */
+  getMapboxGl(): typeof mapboxgl.default {
+    return this.gl;
+  }
+  /**
+   * The access token this engine's map was built with.
+   *
+   * mapbox-gl reads its token from the global `mapboxgl.accessToken` unless a
+   * map is handed one in its constructor options, which is what the canvas
+   * does — the global is never set. A plugin that constructs a second Mapbox
+   * map (the Layer Swipe comparison pane) therefore has to pass the token
+   * along, or that map refuses to render with "An API access token is
+   * required to use Mapbox GL".
+   *
+   * `null` rather than the empty string when the app has no token configured,
+   * so a caller that forwards it into another map's options omits the key
+   * instead of handing mapbox-gl a blank token — the state a plugin has to
+   * distinguish is "there is no token", not "the token is zero characters".
+   */
+  getMapboxAccessToken(): string | null {
+    return this.accessToken || null;
+  }
   private onError = (event: { error: Error; sourceId?: string }) => {
     this.errors.set(event.sourceId ?? "map", redactMapboxError(event.error.message));
   };
@@ -220,8 +280,14 @@ export class MapboxEngine implements MapEngine {
     sourceDataType?: "metadata" | "content" | "visibility" | "error";
     isSourceLoaded?: boolean;
   }) => {
-    if (event.sourceId && event.sourceDataType === "content" && event.isSourceLoaded)
+    if (event.sourceId && event.sourceDataType === "content" && event.isSourceLoaded) {
       this.errors.delete(event.sourceId);
+      // A sync deferred while this source was still loading is otherwise only
+      // retried on `idle`, which a map with an animated canvas source (the Sun
+      // plugin's night mask) or a render loop never reaches — so a layer added
+      // during any tile fetch would stay off the map for good.
+      this.flushLayers();
+    }
   };
   private styleLoaded = () => {
     const map = this.map;
@@ -259,6 +325,9 @@ export class MapboxEngine implements MapEngine {
     this.map.off("idle", this.flushLayers);
     this.map.off("styledata", this.onStyleData);
     this.layerControlHost.destroy();
+    // Leave no stale names behind for whichever engine mounts next — but only
+    // for the pane that owns the bridge; see `ownsLayerLabels`.
+    if (this.ownsLayerLabels) clearLayerLabels();
     this.map.remove();
     this.pluginControls.clear();
     this.builtInControls.clear();
@@ -430,21 +499,31 @@ export class MapboxEngine implements MapEngine {
     this.syncPending = false;
     const ids = new Set(layers.map((layer) => layer.id));
     for (const id of this.plans.keys()) if (!ids.has(id)) this.removeLayer(id);
+    // A control-rendered row that leaves the store mid-story gets its paint
+    // back now; a later row under the same id starts from the control's
+    // paint at that time, not from this snapshot.
+    for (const id of [...this.storyPaintBackups.keys()])
+      if (!ids.has(id)) this.restoreControlLayerPaint(id);
     for (const key of this.errors.keys())
       if (key.startsWith("layer:") && !ids.has(key.slice(6))) this.errors.delete(key);
     // Store order is topmost first. Add and move in reverse so overlays agree
     // with the layer panel, including after a style swap or drag reorder.
     for (const original of [...layers].reverse()) {
       try {
-        // The plugin controls own these layers and synchronizes their display
-        // settings from the store. They synchronize custom renderers separately from native sources.
+        // The plugin controls own these layers and synchronize their display
+        // settings from the store. They synchronize custom renderers separately
+        // from native sources; the ones that also draw native style layers get
+        // the store's visibility and opacity mirrored onto those, as MapLibre's
+        // layer-sync does for every external native layer.
+        // A story chapter's transient opacity applies to plugin-owned layers too.
+        const opacity = this.storyOpacities.get(original.id);
+        const layer = opacity === undefined ? original : { ...original, opacity };
         if (isMapboxPluginLayer(original)) {
           this.removeLayer(original.id);
+          this.mirrorPluginLayerState(layer);
           continue;
         }
         if (!original.visible) this.errors.delete(`layer:${original.id}`);
-        const opacity = this.storyOpacities.get(original.id);
-        const layer = opacity === undefined ? original : { ...original, opacity };
         const plan = compileMapboxLayer(layer, { textFont: this.textFont });
         const previous = this.previous.get(layer.id);
         const oldPlan = this.plans.get(layer.id);
@@ -497,8 +576,173 @@ export class MapboxEngine implements MapEngine {
           );
       }
     }
+    this.publishLayerDisplayNames(layers);
     this.layerControlHost.refresh();
     this.layerControlHost.syncState();
+  }
+  /**
+   * Publish what each style layer on this map should be called, so a control
+   * that lists style layers can show the name the Layers panel shows.
+   *
+   * The Layer Swipe panel is the one that needs it: it drives its two sides by
+   * style layer id, and this engine compiles a store layer into
+   * `geolibre-mapbox-<id>-<sourceLayer>-<kind>` rows, which is not a name to
+   * put in front of anyone. MapLibre's controller publishes the same bridge for
+   * its own id scheme — without this the panel fell back to the raw ids on
+   * Mapbox while showing "Counties Polygons" on MapLibre.
+   *
+   * A layer's style layers are taken from the plan the engine compiled for it,
+   * plus the ids a plugin registered itself — never by matching the
+   * `geolibre-mapbox-<id>-` prefix against the whole style, which would let a
+   * layer named `a` claim the rows of one named `a-b`. Both are then filtered
+   * against the live style, so a layer is not named before its rows exist.
+   */
+  private publishLayerDisplayNames(layers: GeoLibreLayer[]): void {
+    const map = this.map;
+    if (!map || !this.ownsLayerLabels) return;
+    let present: Set<string>;
+    try {
+      present = new Set((map.getStyle()?.layers ?? []).map((styleLayer) => styleLayer.id));
+    } catch {
+      // getStyle throws while a style is loading; the next sync republishes.
+      return;
+    }
+
+    const entries: Array<readonly [string, string]> = [];
+    for (const layer of layers) {
+      const prefix = `${mapboxSourceId(layer.id)}-`;
+      const planned = this.plans.get(layer.id)?.layers.map((spec) => spec.id) ?? [];
+      const native = Array.isArray(layer.metadata?.nativeLayerIds)
+        ? layer.metadata.nativeLayerIds.filter((id): id is string => typeof id === "string")
+        : [];
+      const own = [...new Set([...planned, ...native])].filter((id) => present.has(id));
+      for (const id of own) {
+        // The kind is the last segment either way —
+        // `geolibre-mapbox-<layerId>-<sourceLayer>-<kind>` for a layer this
+        // engine compiled, and whatever a plugin named its own rows for one it
+        // only adopted. Taking it from the id in both cases is what lets a
+        // plugin that registered several native layers get a distinct name per
+        // row, as MapLibre's `nativeLayerSuffix` does for the same case.
+        const suffix = (id.startsWith(prefix) ? id.slice(prefix.length) : id).split("-").pop();
+        entries.push([id, styleLayerLabel(layer, suffix, own.length)]);
+      }
+    }
+    // Last, so this synthetic row always wins over a layer that happens to
+    // share the id — the same ordering MapController uses.
+    entries.push([BASEMAP_LABEL_KEY, this.backgroundLabel]);
+    publishLayerLabels(entries);
+  }
+  /**
+   * Apply a plugin-owned store layer's visibility and paint to the native
+   * style layers its plugin registered under `metadata.nativeLayerIds` (the
+   * Time Slider's and Timelapse's rasters, Mapillary's coverage lines, for
+   * instance), the way MapLibre's layer-sync (`setExternalNativeLayerPaint`)
+   * does: the whole paint object from the shared builders, so the Style
+   * panel's colour/width/radius edits land and the store opacity scales the
+   * style's own opacity instead of replacing it. Layers the plugin draws
+   * outside the style (deck.gl overlays) have no such ids, or none the style
+   * knows, and are left alone; so is paint when the control declares it owns
+   * it (`metadata.controlOwnsPaint`).
+   */
+  private mirrorPluginLayerState(layer: GeoLibreLayer): void {
+    const map = this.map;
+    const ids = layer.metadata.nativeLayerIds;
+    if (!map || !Array.isArray(ids)) return;
+    const style = { ...DEFAULT_LAYER_STYLE, ...layer.style };
+    for (const id of ids) {
+      if (typeof id !== "string") continue;
+      const native = map.getLayer(id);
+      if (!native) continue;
+      const visibility = layer.visible ? "visible" : "none";
+      if (map.getLayoutProperty(id, "visibility") !== visibility)
+        map.setLayoutProperty(id, "visibility", visibility);
+      // A control that paints its own layers (`controlOwnsPaint`), or renders
+      // them outright from its own panel state (`customLayerType`, the
+      // ordering-only path on MapLibre: Overture Maps), keeps its paint; the
+      // store's opacity reaches it through the plugin's own store sync. A
+      // story chapter's transient opacity is the one exception, applied (and
+      // taken back) directly, as MapLibre's `setStoryLayerOpacity` does.
+      if (layer.metadata.controlOwnsPaint === true || controlRendersLayer(layer)) {
+        this.applyStoryOpacityToControlLayer(layer.id, id, native.type);
+        continue;
+      }
+      const paint =
+        native.type === "raster"
+          ? rasterPaint(style, layer.opacity)
+          : native.type === "fill"
+            ? fillPaint(style, layer.opacity)
+            : native.type === "line"
+              ? linePaint(style, layer.opacity)
+              : native.type === "circle"
+                ? circlePaint(style, layer.opacity)
+                : null;
+      if (!paint) continue;
+      for (const [property, value] of Object.entries(mapboxPaint(paint))) {
+        if (value === undefined || value === null) continue;
+        const key = property as keyof mapboxgl.AnyPaint;
+        try {
+          if (JSON.stringify(map.getPaintProperty(id, key)) !== JSON.stringify(value))
+            map.setPaintProperty(id, key, value as mapboxgl.AnyPaint[keyof mapboxgl.AnyPaint]);
+        } catch {
+          // A control's native layers can be heterogeneous; skip a paint
+          // property that does not apply to this one.
+        }
+      }
+    }
+  }
+  /**
+   * Replace a control-owned native layer's opacity with the active story
+   * chapter's value, remembering the control's own paint the first time, and
+   * put that paint back once the chapter opacity is cleared.
+   */
+  private applyStoryOpacityToControlLayer(layerId: string, nativeId: string, type: string): void {
+    const map = this.map;
+    if (!map) return;
+    const story = this.storyOpacities.get(layerId);
+    const props = STORY_OPACITY_PAINT_PROPERTIES[type] ?? [];
+    const backups = this.storyPaintBackups.get(layerId);
+    const saved = backups?.get(nativeId);
+    if (story === undefined) {
+      this.restoreControlLayerPaint(layerId, nativeId);
+      return;
+    }
+    const backup = saved ?? new Map<string, unknown>();
+    for (const prop of props) {
+      const key = prop as keyof mapboxgl.AnyPaint;
+      if (!backup.has(prop)) backup.set(prop, map.getPaintProperty(nativeId, key));
+      try {
+        if (map.getPaintProperty(nativeId, key) !== story)
+          map.setPaintProperty(nativeId, key, story as never);
+      } catch {
+        // A property this native layer does not carry.
+      }
+    }
+    if (!backups) this.storyPaintBackups.set(layerId, new Map([[nativeId, backup]]));
+    else backups.set(nativeId, backup);
+  }
+  /**
+   * Hand a control-owned native layer (or all of a store layer's) the paint it
+   * carried before a story fade, and forget the snapshot.
+   */
+  private restoreControlLayerPaint(layerId: string, nativeId?: string): void {
+    const map = this.map;
+    const backups = this.storyPaintBackups.get(layerId);
+    if (!backups) return;
+    for (const [id, saved] of backups) {
+      if (nativeId !== undefined && id !== nativeId) continue;
+      if (map?.getLayer(id)) {
+        for (const [prop, value] of saved) {
+          try {
+            map.setPaintProperty(id, prop as keyof mapboxgl.AnyPaint, value as never);
+          } catch {
+            // The control may have replaced the layer meanwhile; its own paint
+            // then already applies.
+          }
+        }
+      }
+      backups.delete(id);
+    }
+    if (backups.size === 0) this.storyPaintBackups.delete(layerId);
   }
   private removeLayer(id: string): void {
     const plan = this.plans.get(id),
@@ -710,7 +954,11 @@ export class MapboxEngine implements MapEngine {
       type: "circle",
       source: HIGHLIGHT_SOURCE_ID,
       filter: ["==", ["geometry-type"], "Point"],
-      paint: { "circle-radius": 10, "circle-color": "#facc15", "circle-opacity": 0.6 },
+      paint: {
+        "circle-radius": 10,
+        "circle-color": "#facc15",
+        "circle-opacity": 0.6,
+      },
     });
     if (options?.fit) this.fitLayer({ ...layer, geojson: data });
   }
@@ -987,7 +1235,13 @@ export class MapboxEngine implements MapEngine {
     this.compassLabel = label;
     this.compassControl?.setLabel(label);
   }
-  setBackgroundLabel(_label: string): void {}
+  setBackgroundLabel(label: string): void {
+    // Kept, not ignored: the swipe panel groups every basemap style layer under
+    // one row and reads its name from the label bridge, so the translated
+    // "Background" has to reach it here as it does on MapLibre.
+    this.backgroundLabel = label;
+    this.publishLayerDisplayNames(this.layers);
+  }
   setTerrainLabel(_label: string): void {}
   isTerrainEnabled(): boolean {
     return this.terrain;

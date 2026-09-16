@@ -67,6 +67,7 @@ export {
   type GeoLibreToolbarLabel,
 } from "./toolbar-menu-label";
 export { maplibreLayerControlPlugin } from "./plugins/layer-control";
+export { getStyleMap } from "./plugins/style-map";
 export { osmBasemapPlugin } from "./plugins/osm-basemap";
 export { cartoLightPlugin } from "./plugins/carto-light";
 export {

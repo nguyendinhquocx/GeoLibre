@@ -74,13 +74,26 @@ describe("Tier 1 built-in plugin engine support audit", () => {
   it("declares support for both MapLibre and Cesium on all audited Tier 1 plugins", () => {
     for (const plugin of tier1Plugins) {
       assert.ok(plugin.engines, `Plugin ${plugin.id} must declare engines`);
-      assert.deepEqual(
-        plugin.engines,
-        ["maplibre", "cesium"],
-        `Plugin ${plugin.id} must declare ["maplibre", "cesium"]`,
-      );
-      assert.equal(isPluginEngineSupported(plugin, "maplibre"), true);
-      assert.equal(isPluginEngineSupported(plugin, "cesium"), true);
+      assert.equal(isPluginEngineSupported(plugin, "maplibre"), true, plugin.id);
+      assert.equal(isPluginEngineSupported(plugin, "cesium"), true, plugin.id);
+    }
+  });
+
+  // The catalog browsers only write to the store, so the Mapbox renderer draws
+  // what they add as well; the basemap presets are style swaps the Mapbox
+  // engine does not host.
+  it("declares Mapbox support on the store-only catalog browsers", () => {
+    for (const plugin of [
+      maplibreSourceCoopPlugin,
+      maplibreNaturalEarthPlugin,
+      maplibreArcGisHubPlugin,
+      maplibreSocrataPlugin,
+      maplibreCkanPlugin,
+    ]) {
+      assert.deepEqual(plugin.engines, ["maplibre", "cesium", "mapbox"], plugin.id);
+    }
+    for (const plugin of [osmBasemapPlugin, cartoLightPlugin]) {
+      assert.equal(isPluginEngineSupported(plugin, "mapbox"), false, plugin.id);
     }
   });
 

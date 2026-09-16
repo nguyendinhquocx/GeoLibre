@@ -18,6 +18,7 @@ import {
 } from "a5-js";
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent } from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
+import { getStyleMap } from "./style-map";
 
 export const A5_PLUGIN_ID = "maplibre-a5-grid";
 
@@ -138,7 +139,10 @@ let unsubscribeBasemap: (() => void) | null = null;
 let panelContainer: HTMLElement | null = null;
 let selectedCell: string | null = null;
 
-let currentGrid: FeatureCollection<Polygon> = { type: "FeatureCollection", features: [] };
+let currentGrid: FeatureCollection<Polygon> = {
+  type: "FeatureCollection",
+  features: [],
+};
 let currentError: string | null = null;
 let cachedTextFont: string[] | null = null;
 let pendingRefresh: number | null = null;
@@ -415,13 +419,19 @@ function ensureLayers(): void {
       id: FILL_LAYER_ID,
       type: "fill",
       source: SOURCE_ID,
-      paint: { "fill-color": settings.fillColor, "fill-opacity": settings.fillOpacity },
+      paint: {
+        "fill-color": settings.fillColor,
+        "fill-opacity": settings.fillOpacity,
+      },
     });
     map.addLayer({
       id: LINE_LAYER_ID,
       type: "line",
       source: SOURCE_ID,
-      paint: { "line-color": settings.lineColor, "line-width": settings.lineWidth },
+      paint: {
+        "line-color": settings.lineColor,
+        "line-width": settings.lineWidth,
+      },
     });
     map.addLayer({
       id: LABEL_LAYER_ID,
@@ -543,7 +553,10 @@ function parentCells(cell: string): string[] {
   if (resolution <= 0) return [];
   const [centerLng, centerLat] = cellToLonLat(id);
   const parents = new Set<string>([u64ToHex(cellToParent(id))]);
-  for (const [lng, lat] of cellToBoundary(id, { closedRing: false, segments: 12 })) {
+  for (const [lng, lat] of cellToBoundary(id, {
+    closedRing: false,
+    segments: 12,
+  })) {
     const inset = [
       centerLng + (lng - centerLng) * 0.999,
       centerLat + (lat - centerLat) * 0.999,
@@ -826,8 +839,12 @@ export const maplibreA5Plugin: GeoLibrePlugin = {
   id: A5_PLUGIN_ID,
   name: "A5 Grid",
   version: "1.0.0",
+  // Draws the grid through the Style Spec surface both 2D engines share
+  // (GeoJSON sources, fill/line/symbol layers, camera and pointer events), read
+  // through getStyleMap so the Mapbox renderer hosts it as well.
+  engines: ["maplibre", "mapbox"],
   activate: (app) => {
-    const activeMap = app.getMap?.();
+    const activeMap = getStyleMap(app);
     if (!activeMap) return false;
     map = activeMap;
     appRef = app;
@@ -869,7 +886,14 @@ export const maplibreA5Plugin: GeoLibrePlugin = {
     if (map && clickHandler) map.off("click", clickHandler);
     unsubscribeBasemap?.();
     unregisterPanel?.();
-    if (map) removeLayers(map);
+    // A renderer swap deactivates this plugin after the old map was removed;
+    // a removed mapbox-gl map throws from getLayer (its style is gone), and
+    // there is nothing left to remove.
+    try {
+      if (map) removeLayers(map);
+    } catch {
+      // Already torn down with the map.
+    }
     moveHandler = null;
     clickHandler = null;
     unsubscribeBasemap = null;

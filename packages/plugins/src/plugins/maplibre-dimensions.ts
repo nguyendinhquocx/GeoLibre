@@ -5,6 +5,7 @@ import type { Feature, FeatureCollection, Position } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibreMapControlPosition, GeoLibrePlugin } from "../types";
 import { DIMENSIONS_PLUGIN_ID } from "../plugin-ids";
+import { getStyleMap } from "./style-map";
 import {
   haversineMeters,
   type LngLat as LngLatTuple,
@@ -588,6 +589,11 @@ export const maplibreDimensionsPlugin: GeoLibrePlugin = {
   id: DIMENSIONS_PLUGIN_ID,
   name: "Dimensions",
   version: "0.1.0",
+  // Draws its dimension lines and labels through the style API both 2D
+  // engines share (`addSource`/`addLayer`, `project`/`unproject`, pointer
+  // events) and keeps the measurements in a store GeoJSON layer, so it binds
+  // to the Mapbox map through getStyleMap as well.
+  engines: ["maplibre", "mapbox"],
   activate: (app: GeoLibreAppAPI) => {
     appApi = app;
     pluginActive = true;
@@ -601,7 +607,7 @@ export const maplibreDimensionsPlugin: GeoLibrePlugin = {
       return false;
     }
 
-    const map = app.getMap?.();
+    const map = getStyleMap(app);
     if (map) bindMap(map);
     rediscoverDimensionLayer();
   },
@@ -912,12 +918,24 @@ function setActiveTool(tool: DimensionTool | null): void {
   if (boundMap) clearPreview(boundMap);
   activeTool = tool;
   toolbarControl?.syncActiveTool();
-  if (boundMap) boundMap.getCanvas().style.cursor = tool ? "crosshair" : "";
+  if (boundMap) {
+    const canvas = liveCanvas(boundMap);
+    if (canvas) canvas.style.cursor = tool ? "crosshair" : "";
+  }
 }
 
 function resetDrawState(): void {
   pendingPoints = [];
   pendingTies = [];
+}
+
+/**
+ * The map canvas, or nothing once the map is gone. Deactivation on a renderer
+ * swap runs after the old map is torn down, and a removed mapbox-gl map has
+ * no canvas any more (`getCanvas()` returns `undefined` despite its type).
+ */
+function liveCanvas(map: maplibregl.Map): HTMLCanvasElement | undefined {
+  return map.getCanvas() as HTMLCanvasElement | undefined;
 }
 
 function bindMap(map: maplibregl.Map): void {
@@ -940,8 +958,9 @@ function unbindMap(): void {
   if (!map) return;
   map.off("click", handleClick);
   map.off("mousemove", handleMouseMove);
-  map.getCanvas().removeEventListener("keydown", handleKeyDown, { capture: true });
-  map.getCanvas().style.cursor = "";
+  const canvas = liveCanvas(map);
+  canvas?.removeEventListener("keydown", handleKeyDown, { capture: true });
+  if (canvas) canvas.style.cursor = "";
   clearPreview(map);
   boundMap = null;
 }
@@ -1190,10 +1209,17 @@ function setPreview(map: maplibregl.Map, data: FeatureCollection): void {
 }
 
 function clearPreview(map: maplibregl.Map): void {
-  if (map.getLayer(PREVIEW_TEXT_LAYER_ID)) map.removeLayer(PREVIEW_TEXT_LAYER_ID);
-  if (map.getLayer(PREVIEW_LINE_LAYER_ID)) map.removeLayer(PREVIEW_LINE_LAYER_ID);
-  if (map.getLayer(PREVIEW_FILL_LAYER_ID)) map.removeLayer(PREVIEW_FILL_LAYER_ID);
-  if (map.getSource(PREVIEW_SOURCE_ID)) map.removeSource(PREVIEW_SOURCE_ID);
+  // Deactivation on a renderer swap runs after the old map is torn down, and a
+  // removed mapbox-gl map throws from `getLayer` (its style is gone); there is
+  // nothing left to clear from it either way.
+  try {
+    if (map.getLayer(PREVIEW_TEXT_LAYER_ID)) map.removeLayer(PREVIEW_TEXT_LAYER_ID);
+    if (map.getLayer(PREVIEW_LINE_LAYER_ID)) map.removeLayer(PREVIEW_LINE_LAYER_ID);
+    if (map.getLayer(PREVIEW_FILL_LAYER_ID)) map.removeLayer(PREVIEW_FILL_LAYER_ID);
+    if (map.getSource(PREVIEW_SOURCE_ID)) map.removeSource(PREVIEW_SOURCE_ID);
+  } catch {
+    // Already torn down with the map.
+  }
 }
 
 // ---------------------------------------------------------------------------

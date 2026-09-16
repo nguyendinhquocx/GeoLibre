@@ -162,8 +162,8 @@ describe("Sun simulation on the globe", () => {
     setSunSettings(DEFAULT_SUN_SETTINGS);
   });
 
-  it("declares both engines", () => {
-    assert.deepEqual(maplibreSunPlugin.engines, ["maplibre", "cesium"]);
+  it("declares every engine it has a branch for", () => {
+    assert.deepEqual(maplibreSunPlugin.engines, ["maplibre", "cesium", "mapbox"]);
   });
 
   it("lights the globe from a SunLight at the simulated instant", () => {
@@ -271,8 +271,8 @@ describe("Atmospheric Effects on the globe", () => {
     setEffectsSettings(DEFAULT_EFFECTS_SETTINGS);
   });
 
-  it("declares both engines", () => {
-    assert.deepEqual(maplibreEffectsPlugin.engines, ["maplibre", "cesium"]);
+  it("declares every engine it has a branch for", () => {
+    assert.deepEqual(maplibreEffectsPlugin.engines, ["maplibre", "cesium", "mapbox"]);
   });
 
   it("drives the sky box, atmosphere, and space colour while active", () => {

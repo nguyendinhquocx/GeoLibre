@@ -1126,7 +1126,7 @@ function createSourceCoopPlugin(config: SourceCoopPluginConfig): GeoLibrePlugin 
     id: config.id,
     name: config.name,
     version: "0.1.0",
-    engines: ["maplibre", "cesium"],
+    engines: ["maplibre", "cesium", "mapbox"],
     activate: (app: GeoLibreAppAPI) => {
       appRef = app;
       mountedPanels.add(remount);

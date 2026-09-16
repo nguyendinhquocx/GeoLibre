@@ -30,6 +30,7 @@ import {
 import type { Map as MapLibreMap, RequestParameters, ResourceType } from "maplibre-gl";
 import { createLayerId } from "../layer-ids";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
+import { getStyleMap } from "./style-map";
 import {
   applyFeatureEdits,
   captureFeatureBaseline,
@@ -145,6 +146,8 @@ export interface GeoLensLabels {
   viewOnlyHelp: string;
   viewSuffix: string;
   addError: (message: string) => string;
+  /** Why a keyed raster cannot be added on the Mapbox renderer. */
+  privateRasterNeedsMapLibre: string;
   features: (count: number) => string;
   editsHeading: string;
   editsPending: (added: number, changed: number, deleted: number) => string;
@@ -211,6 +214,8 @@ export const DEFAULT_GEOLENS_LABELS: GeoLensLabels = {
     "caps what is loaded from that area instead of taking an arbitrary slice of the whole dataset.",
   viewSuffix: "current view",
   addError: (message) => `Could not add layer: ${message}`,
+  privateRasterNeedsMapLibre:
+    "Private rasters need the MapLibre renderer: Mapbox GL cannot attach the API key to tile requests.",
   features: (count) => `${count.toLocaleString()} features`,
   editsHeading: "Edits",
   editsPending: (added, changed, deleted) =>
@@ -446,7 +451,7 @@ function originOf(baseUrl: string): string | null {
  * filtering to it would only add a pointless query parameter.
  */
 function currentViewBbox(app: GeoLibreAppAPI | null): GeoLensBbox | null {
-  const bounds = app?.getMap?.()?.getBounds();
+  const bounds = getStyleMap(app)?.getBounds();
   if (!bounds) return null;
   const west = bounds.getWest();
   const east = bounds.getEast();
@@ -523,8 +528,18 @@ function geolensTransformRequest(
  */
 function registerRasterApiKey(app: GeoLibreAppAPI, tiles: string, apiKey: string): void {
   rasterApiKeys.set(tileUrlPrefix(tiles), apiKey);
+  // Deliberately the MapLibre map, not the shared one: `setTransformRequest`
+  // is MapLibre-only (mapbox-gl accepts a transform at construction and never
+  // again), so a private raster cannot authenticate on Mapbox. Say so rather
+  // than add a layer whose every tile 401s.
+  // engine-audit-allow: getMap-mapbox
   const map = app.getMap?.();
-  if (!map || installedOnMap === map) return;
+  if (!map) {
+    if (app.getMapboxMap?.()) throw new Error(labels.privateRasterNeedsMapLibre);
+    return;
+  }
+  if (installedOnMap === map) return;
+  // engine-audit-allow: maplibre-only
   map.setTransformRequest(geolensTransformRequest);
   installedOnMap = map;
 }
@@ -540,6 +555,7 @@ function registerRasterApiKey(app: GeoLibreAppAPI, tiles: string, apiKey: string
  */
 function clearRasterApiKeys(): void {
   rasterApiKeys.clear();
+  // engine-audit-allow: maplibre-only (installedOnMap is only ever a MapLibre map)
   installedOnMap?.setTransformRequest(null);
   installedOnMap = null;
 }
@@ -2077,7 +2093,14 @@ function buildPanel(
     if (connected && app && state.client?.apiKey) {
       const layers = useAppStore.getState().layers;
       for (const template of rasterTemplatesForServer(layers, state.client.baseUrl)) {
-        registerRasterApiKey(app, template, state.client.apiKey);
+        try {
+          registerRasterApiKey(app, template, state.client.apiKey);
+        } catch (error) {
+          // A restored private raster on Mapbox: connecting still succeeds, the
+          // layer just cannot authenticate there (see registerRasterApiKey).
+          showError(messageOf(error));
+          break;
+        }
       }
     }
   };
@@ -2177,6 +2200,9 @@ function createGeoLensPlugin(config: GeoLensPluginConfig): GeoLibrePlugin {
     id: config.id,
     name: config.name,
     version: "0.1.0",
+    // Public rasters and vector data are store layers; only a keyed raster
+    // needs MapLibre's request transform (see registerRasterApiKey).
+    engines: ["maplibre", "mapbox"],
     activate: (app: GeoLibreAppAPI) => {
       appRef = app;
       mountedPanels.add(remount);

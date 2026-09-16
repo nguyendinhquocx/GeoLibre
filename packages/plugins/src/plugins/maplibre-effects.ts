@@ -2,6 +2,7 @@ import type { CesiumSceneHandle } from "@geolibre/map";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { getActiveEllipsoid } from "@geolibre/core";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
+import { getStyleMap } from "./style-map";
 
 /**
  * GeoLibre atmosphere & particle effects plugin.
@@ -314,10 +315,13 @@ function isGlobeProjection(map: MapLibreMap): boolean {
   // older host or a thrown getter simply disables the effect instead of
   // breaking the render loop.
   try {
+    // MapLibre reports `{ type }`, mapbox-gl `{ name }`.
     const projection = (
-      map as unknown as { getProjection?: () => { type?: string } | undefined }
+      map as unknown as {
+        getProjection?: () => { type?: string; name?: string } | undefined;
+      }
     ).getProjection?.();
-    return projection?.type === "globe";
+    return (projection?.type ?? projection?.name) === "globe";
   } catch {
     return false;
   }
@@ -537,10 +541,15 @@ class EffectsEngine {
     this.map = map;
     this.settings = settings;
     this.mapCanvas = map.getCanvas();
-    this.mapRoot = this.mapCanvas.closest(".maplibregl-map");
+    // Either 2D engine: mapbox-gl names the same elements with its own prefix,
+    // and missing its control container would leave every control buried
+    // under the raised map canvas.
+    this.mapRoot = this.mapCanvas.closest(".maplibregl-map, .mapboxgl-map");
     this.previousMapCanvasZIndex = this.mapCanvas.style.zIndex;
     this.controlContainer =
-      this.mapRoot?.querySelector<HTMLElement>(".maplibregl-control-container") ?? null;
+      this.mapRoot?.querySelector<HTMLElement>(
+        ".maplibregl-control-container, .mapboxgl-control-container",
+      ) ?? null;
     this.previousControlContainerZIndex = this.controlContainer?.style.zIndex ?? "";
     this.overlayStyle = this.ensureOverlayStyle();
     this.spaceCanvas = this.createCanvas(0);
@@ -620,10 +629,12 @@ class EffectsEngine {
     const style = document.createElement("style");
     style.id = EFFECTS_OVERLAY_STYLE_ID;
     style.textContent = `
-      .${EFFECTS_MAP_CLASS} .maplibregl-boxzoom {
+      .${EFFECTS_MAP_CLASS} .maplibregl-boxzoom,
+      .${EFFECTS_MAP_CLASS} .mapboxgl-boxzoom {
         z-index: ${MAPLIBRE_OVERLAY_Z_INDEX};
       }
-      .${EFFECTS_MAP_CLASS} .maplibregl-marker {
+      .${EFFECTS_MAP_CLASS} .maplibregl-marker,
+      .${EFFECTS_MAP_CLASS} .mapboxgl-marker {
         z-index: ${MARKER_Z_INDEX};
       }
     `;
@@ -857,6 +868,15 @@ class EffectsEngine {
     const ctx = this.haloCtx;
     const base = parseHex(this.settings.haloColor);
     const outerRadius = disc.radius * haloExtent;
+    // A steeply pitched globe can project a silhouette sample behind the
+    // horizon to a non-finite point — mapbox-gl does, at the pitches the Flight
+    // Simulator flies at — and the under-three-points fallback in
+    // getGeoglifyGlobeCircle projects without checking. `createRadialGradient`
+    // throws on a non-finite argument, which would take the whole render loop
+    // down with it, so skip the halo for that frame instead. `radius < 5` above
+    // does not catch it: every comparison with NaN is false.
+    if (!Number.isFinite(disc.x) || !Number.isFinite(disc.y) || !Number.isFinite(outerRadius))
+      return;
     ctx.save();
     const gradient = ctx.createRadialGradient(
       disc.x,
@@ -1035,7 +1055,10 @@ function primaryGlobe(app: GeoLibreAppAPI): CesiumSceneHandle | null {
 }
 
 function attachEngine(app: GeoLibreAppAPI): boolean {
-  const map = app.getMap?.() ?? null;
+  // Either 2D engine takes the overlay branch (the effects are DOM canvases
+  // positioned through `project`, which mapbox-gl shares); only a globe
+  // primary takes the Cesium one.
+  const map = getStyleMap(app);
   const globe = map ? null : primaryGlobe(app);
   const target = map ?? globe?.viewer ?? null;
   if (!target) return false;
@@ -1076,7 +1099,7 @@ function detachEngine(app?: GeoLibreAppAPI): void {
   engine = null;
   // On the globe "off" is a state to apply, not merely the absence of the
   // engine (see applyCesiumEffectsOff).
-  const globe = app && !app.getMap?.() ? primaryGlobe(app) : null;
+  const globe = app && !getStyleMap(app) ? primaryGlobe(app) : null;
   if (globe) applyCesiumEffectsOff(globe);
 }
 
@@ -1109,7 +1132,7 @@ export const maplibreEffectsPlugin: GeoLibrePlugin = {
   name: "Atmospheric Effects",
   version: "1.1.0",
   activeByDefault: true,
-  engines: ["maplibre", "cesium"],
+  engines: ["maplibre", "cesium", "mapbox"],
   activate: (app: GeoLibreAppAPI) => attachEngine(app),
   deactivate: (app: GeoLibreAppAPI) => detachEngine(app),
   // Persist the appearance only when it differs from the defaults, so untouched

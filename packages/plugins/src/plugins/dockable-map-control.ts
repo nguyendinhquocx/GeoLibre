@@ -1,5 +1,6 @@
 import type { IControl, Map as MapLibreMap } from "maplibre-gl";
 import type { GeoLibreAppAPI } from "../types";
+import { getStyleMap } from "./style-map";
 
 const mountedControlCleanup = new WeakMap<IControl, () => void>();
 
@@ -14,6 +15,11 @@ export function unmountMapControlFromPanel(control: IControl): void {
  * The control lifecycle remains an implementation bridge for its map and
  * service logic, but its toolbar button and floating shell are not mounted.
  * Layout, resizing, and close/collapse chrome belong exclusively to GeoLibre.
+ *
+ * The bridge binds to whichever 2D engine is drawing the primary map
+ * ({@link getStyleMap}): the docked controls only use the style API both
+ * engines share, so a plugin that declares Mapbox support docks here on the
+ * Mapbox renderer without a second mount path.
  */
 export function mountMapControlInPanel(
   app: GeoLibreAppAPI,
@@ -21,7 +27,7 @@ export function mountMapControlInPanel(
   container: HTMLElement,
   onMountFailure?: () => void,
 ): (() => void) | null {
-  const map = app.getMap?.();
+  const map = getStyleMap(app);
   if (!map) {
     console.warn("Could not mount docked map control: the map is not ready.");
     onMountFailure?.();

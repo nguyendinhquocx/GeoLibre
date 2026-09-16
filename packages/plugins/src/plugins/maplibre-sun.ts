@@ -1,6 +1,7 @@
 import type { CesiumSceneHandle } from "@geolibre/map";
 import type { CanvasSource, LightSpecification, Map as MapLibreMap } from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
+import { getStyleMap } from "./style-map";
 
 /**
  * GeoLibre sun-position simulation plugin.
@@ -250,6 +251,11 @@ class SunEngine {
 
     this.handleStyleData = this.handleStyleData.bind(this);
     map.on("styledata", this.handleStyleData);
+    // `isStyleLoaded()` is also false while any source is still fetching
+    // tiles, and neither engine promises a later `styledata` once those land
+    // (mapbox-gl emits none); sources report their own completion, and the
+    // handler is a no-op once the night source exists.
+    map.on("sourcedata", this.handleStyleData);
 
     this.ensureLayers();
     this.render();
@@ -273,7 +279,15 @@ class SunEngine {
     this.destroyed = true;
     this.pause();
     this.map.off("styledata", this.handleStyleData);
-    this.removeLayers();
+    this.map.off("sourcedata", this.handleStyleData);
+    // A renderer swap tears the map down before the host rebinds the engine,
+    // and a removed mapbox-gl map throws from `getLayer` (its style is gone);
+    // there is nothing left to remove from it either way.
+    try {
+      this.removeLayers();
+    } catch {
+      // Already torn down with the map.
+    }
     // Restore the light the map had before the simulation took over.
     try {
       if (this.previousLight) this.map.setLight(this.previousLight);
@@ -648,7 +662,10 @@ function notifyState(): void {
 }
 
 function attachEngine(app: GeoLibreAppAPI): boolean {
-  const map = app.getMap?.() ?? null;
+  // Either 2D engine takes the style branch: the night mask is a canvas
+  // source under a raster layer and the lighting goes through `setLight`,
+  // both of which mapbox-gl shares. Only a globe primary takes the Cesium one.
+  const map = getStyleMap(app);
   const globe = map ? null : (app.getCesiumScene?.() ?? null);
   // Grid panes keep their own cameras but share the primary map's environment;
   // the simulation binds to the primary map area only, on either renderer.
@@ -794,7 +811,7 @@ export const maplibreSunPlugin: GeoLibrePlugin = {
   name: "Sun Simulation",
   version: "1.1.0",
   activeByDefault: false,
-  engines: ["maplibre", "cesium"],
+  engines: ["maplibre", "cesium", "mapbox"],
   activate: (app: GeoLibreAppAPI) => openSunPanel(app),
   deactivate: (app: GeoLibreAppAPI) => closeSunPanel(app),
   // Persist the panel-open flag plus settings so a saved project reopens with

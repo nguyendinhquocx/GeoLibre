@@ -177,7 +177,7 @@ export const maplibrePrecipitationPlugin: GeoLibrePlugin = {
   // The overlay is a store tile layer (`addTileLayer`), which both renderers
   // draw; the MapLibre map is only used for an instant frame swap and tile
   // error watching, and the controller does without it on the globe.
-  engines: ["maplibre", "cesium"],
+  engines: ["maplibre", "cesium", "mapbox"],
   activate: (app: GeoLibreAppAPI) => controller.activate(app),
   deactivate: () => controller.deactivate(),
 };

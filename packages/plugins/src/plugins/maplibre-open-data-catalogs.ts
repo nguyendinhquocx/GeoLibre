@@ -203,7 +203,7 @@ function createCatalogPlugin(options: {
     id: options.id,
     name: options.name,
     version: "0.1.0",
-    engines: ["maplibre", "cesium"],
+    engines: ["maplibre", "cesium", "mapbox"],
     activate(app) {
       unregister =
         app.registerRightPanel?.({

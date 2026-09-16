@@ -7,6 +7,7 @@ import {
 import { useAppStore, type GeoLibreLayer } from "@geolibre/core";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
 import { mountMapControlInPanel, unmountMapControlFromPanel } from "./dockable-map-control";
+import { getStyleMap } from "./style-map";
 import {
   createWebServiceStoreSync,
   layerTypeForTiles,
@@ -115,8 +116,12 @@ export const maplibreFemaWmsPlugin: GeoLibrePlugin = {
   id: "maplibre-gl-fema-wms",
   name: "FEMA NFHL",
   version: "0.1.2",
+  // Docks its panel and adds raster tile layers through the Style Spec API
+  // both 2D engines share; the engine adopts the layers under the control's
+  // own native ids on Mapbox as MapLibre's layer-sync does.
+  engines: ["maplibre", "mapbox"],
   activate: (app: GeoLibreAppAPI) => {
-    if (!app.getMap?.() || !app.registerRightPanel || !app.openRightPanel) return false;
+    if (!getStyleMap(app) || !app.registerRightPanel || !app.openRightPanel) return false;
     if (!femaWmsControl) {
       femaWmsControl = new FemaWmsControl(getFemaWmsControlOptions());
     }

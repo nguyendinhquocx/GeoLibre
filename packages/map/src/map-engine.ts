@@ -359,6 +359,25 @@ export type BuiltInMapControl =
   | "layer-control";
 
 /**
+ * The paint properties a story-map fade drives, per style layer type. Both 2D
+ * engines apply a chapter's transient layer opacity through these.
+ */
+export const STORY_OPACITY_PAINT_PROPERTIES: Record<string, string[]> = {
+  background: ["background-opacity"],
+  // A point's outline fades with its fill so story playback can fully hide a
+  // circle layer; without the stroke property a faded-out point still renders
+  // as a hollow ring (#934).
+  circle: ["circle-opacity", "circle-stroke-opacity"],
+  fill: ["fill-opacity"],
+  "fill-extrusion": ["fill-extrusion-opacity"],
+  heatmap: ["heatmap-opacity"],
+  hillshade: ["hillshade-exaggeration"],
+  line: ["line-opacity"],
+  raster: ["raster-opacity"],
+  symbol: ["icon-opacity", "text-opacity"],
+};
+
+/**
  * Which built-in controls a fresh map shows, and where. Every engine starts
  * from these so the Controls menu's checkboxes (seeded from the same table)
  * agree with the map whichever renderer is primary; the Mapbox engine mounts

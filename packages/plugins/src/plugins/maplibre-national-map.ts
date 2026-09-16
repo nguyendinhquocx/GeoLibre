@@ -7,6 +7,7 @@ import {
 import type { GeoLibreLayer } from "@geolibre/core";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
 import { mountMapControlInPanel, unmountMapControlFromPanel } from "./dockable-map-control";
+import { getStyleMap } from "./style-map";
 import {
   createWebServiceStoreSync,
   layerTypeForTiles,
@@ -129,8 +130,9 @@ export const maplibreNationalMapPlugin: GeoLibrePlugin = {
   id: "maplibre-gl-national-map",
   name: "USGS National Map",
   version: "0.1.1",
+  engines: ["maplibre", "mapbox"],
   activate: (app: GeoLibreAppAPI) => {
-    if (!app.getMap?.() || !app.registerRightPanel || !app.openRightPanel) return false;
+    if (!getStyleMap(app) || !app.registerRightPanel || !app.openRightPanel) return false;
     if (!nationalMapControl) {
       nationalMapControl = new NationalMapControl(getNationalMapControlOptions());
     }

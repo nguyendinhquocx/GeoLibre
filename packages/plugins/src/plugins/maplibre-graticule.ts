@@ -8,6 +8,7 @@ import type {
 } from "maplibre-gl";
 import proj4, { type Converter } from "proj4";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
+import { getStyleMap } from "./style-map";
 
 /**
  * Coordinate graticule plugin.
@@ -278,7 +279,9 @@ export function utmZoneDesignation(lon: number, lat: number): string {
 
 /** proj4 definition string for a WGS84 UTM zone (northern or southern). */
 function utmProjDef(zone: number, south: boolean): string {
-  return `+proj=utm +zone=${zone}${south ? " +south" : ""} +datum=WGS84 +units=m +no_defs +type=crs`;
+  return `+proj=utm +zone=${zone}${
+    south ? " +south" : ""
+  } +datum=WGS84 +units=m +no_defs +type=crs`;
 }
 
 /**
@@ -434,7 +437,10 @@ function buildGeometry(activeMap: MapLibreMap): GraticuleGeometry {
     lineFeatures.push({
       type: "Feature",
       properties: {},
-      geometry: { type: "LineString", coordinates: densifyLine(lon, south, north, "lon") },
+      geometry: {
+        type: "LineString",
+        coordinates: densifyLine(lon, south, north, "lon"),
+      },
     });
     if (settings.showLabels) {
       labelFeatures.push(
@@ -456,7 +462,10 @@ function buildGeometry(activeMap: MapLibreMap): GraticuleGeometry {
     lineFeatures.push({
       type: "Feature",
       properties: {},
-      geometry: { type: "LineString", coordinates: densifyLine(lat, west, east, "lat") },
+      geometry: {
+        type: "LineString",
+        coordinates: densifyLine(lat, west, east, "lat"),
+      },
     });
     if (settings.showLabels) {
       labelFeatures.push(
@@ -760,7 +769,7 @@ function pickTextFont(activeMap: MapLibreMap): string[] {
       if (!Array.isArray(font) || font.length === 0) continue;
       // Prefer an upright regular face; keep the first usable font as a fallback
       // for styles that only ship italic/bold faces.
-      if (font.every((f) => !/italic|bold/i.test(f))) return font;
+      if (font.every((f) => !/italic|bold/i.test(f))) return (cachedTextFont = font);
       if (!fallback) fallback = font;
     }
   } catch {
@@ -1101,7 +1110,10 @@ function buildPanelBody(container: HTMLElement): void {
       { value: "fixed", label: labels.spacingFixed },
     ],
     () => settings.spacingMode,
-    (v) => setGraticuleSettings({ spacingMode: v as GraticuleSettings["spacingMode"] }),
+    (v) =>
+      setGraticuleSettings({
+        spacingMode: v as GraticuleSettings["spacingMode"],
+      }),
   );
   if (settings.gridType === "utm") {
     number(
@@ -1268,8 +1280,12 @@ export const maplibreGraticulePlugin: GeoLibrePlugin = {
   id: GRATICULE_PLUGIN_ID,
   name: "Gridlines",
   version: "0.1.0",
+  // Draws the graticule through the Style Spec surface both 2D engines share
+  // (GeoJSON sources, fill/line/symbol layers, camera and pointer events), read
+  // through getStyleMap so the Mapbox renderer hosts it as well.
+  engines: ["maplibre", "mapbox"],
   activate: (app: GeoLibreAppAPI) => {
-    const activeMap = app.getMap?.();
+    const activeMap = getStyleMap(app);
     if (!activeMap) return false;
     map = activeMap;
     appRef = app;
@@ -1320,7 +1336,14 @@ export const maplibreGraticulePlugin: GeoLibrePlugin = {
     // deferred draw instead of waiting on the previous run's stale listener.
     idlePending = false;
     cachedTextFont = null;
-    if (map) teardownLayers(map);
+    // A renderer swap deactivates this plugin after the old map was removed;
+    // a removed mapbox-gl map throws from getLayer (its style is gone), and
+    // there is nothing left to remove.
+    try {
+      if (map) teardownLayers(map);
+    } catch {
+      // Already torn down with the map.
+    }
     map = null;
     appRef = null;
   },

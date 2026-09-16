@@ -7,6 +7,11 @@ import {
   type GeoLibreLayer,
 } from "@geolibre/core";
 import { Geoman, defaultLayerStyles } from "@geoman-io/maplibre-geoman-free";
+import {
+  mapboxFillLayerId,
+  mapboxLineLayerId,
+  mapboxSourceId,
+} from "@geolibre/map/style-layer-ids";
 import type { Feature, FeatureCollection } from "geojson";
 import type * as maplibregl from "maplibre-gl";
 import { GeoEditor, type GeoEditorOptions } from "maplibre-gl-geo-editor";
@@ -24,6 +29,11 @@ import {
   tagFeatureKeys,
 } from "./geo-editor-geometry";
 import {
+  type MapboxGl,
+  adaptGeomanToMapbox,
+  mapboxGeoEditorPopupFactory,
+} from "./geo-editor-mapbox";
+import {
   type ViewImportBaseline,
   type ViewImportExport,
   buildChangedExport,
@@ -31,6 +41,7 @@ import {
   captureViewImportBaseline,
   tagViewFeaturesForImport,
 } from "./geo-editor-view-import";
+import { getStyleMap } from "./style-map";
 import type { GeoLibreAppAPI, GeoLibreMapControlPosition, GeoLibrePlugin } from "../types";
 import { GEO_EDITOR_PLUGIN_ID } from "../plugin-ids";
 
@@ -213,18 +224,35 @@ export const maplibreGeoEditorPlugin: GeoLibrePlugin = {
   id: GEO_EDITOR_PLUGIN_ID,
   name: "GeoEditor",
   version: "0.9.0",
+  // Geoman and the toolbar both stay on the Style Spec surface the two 2D
+  // engines share once their few MapLibre object constructions are swapped for
+  // mapbox-gl's (see `adaptGeomanToMapbox` and the `createPopup` option below).
+  engines: ["maplibre", "mapbox"],
   activate: (app: GeoLibreAppAPI) => {
     pluginActive = true;
     appApi = app;
 
     if (!geoEditorControl) {
-      geoEditorControl = new GeoEditor(getGeoEditorOptions());
-      const map = app.getMap?.();
+      const mapboxMap = app.getMapboxMap?.() ?? null;
+      const mapboxGl = mapboxMap ? (app.getMapboxGl?.() ?? null) : null;
+      // A Mapbox map without the mapbox-gl namespace cannot host Geoman: its
+      // deferred init would run MapLibre's marker and image paths on the
+      // mapbox-gl map and fail. Refuse the activation rather than half-mount.
+      if (mapboxMap && !mapboxGl) {
+        pluginActive = false;
+        appApi = null;
+        return false;
+      }
+      geoEditorControl = new GeoEditor(getGeoEditorOptions(mapboxGl));
+      const map = getStyleMap(app);
       if (map) {
         geomanInstance = new Geoman(map, {
-          layerStyles: geomanLayerStylesForMap(map),
+          layerStyles: geomanLayerStylesForMap(map, mapboxGl !== null),
           settings: { useControlsUi: false },
         });
+        // Before anything else: Geoman's deferred init loads its marker image
+        // through the adapter member this swaps.
+        if (mapboxGl && mapboxMap) adaptGeomanToMapbox(geomanInstance, mapboxGl, mapboxMap);
         geoEditorControl.setGeoman(geomanInstance);
         bindGeomanEditSync(map);
       }
@@ -275,9 +303,12 @@ export const maplibreGeoEditorPlugin: GeoLibrePlugin = {
   },
 };
 
-function getGeoEditorOptions(): GeoEditorOptions {
+function getGeoEditorOptions(mapboxGl: MapboxGl | null): GeoEditorOptions {
   return {
     ...GEO_EDITOR_OPTIONS,
+    // Only when present: an explicit `createPopup: undefined` would override
+    // the control's MapLibre default rather than fall through to it.
+    ...(mapboxGl ? { createPopup: mapboxGeoEditorPopupFactory(mapboxGl) } : {}),
     position: geoEditorPosition,
     attributePanelTitle: geoEditorLabels.attributePanelTitle,
     attributeSchema: {
@@ -343,21 +374,31 @@ function unbindGeomanEditSync(): void {
   geomanEditSyncMap = null;
 }
 
-function geomanLayerStylesForMap(map: maplibregl.Map) {
+function geomanLayerStylesForMap(map: maplibregl.Map, mapbox: boolean) {
   const layerStyles = structuredClone(defaultLayerStyles);
+  const textFont = textFontForMapStyle(map, mapbox ? MAPBOX_TEXT_FONT : MAPLIBRE_TEXT_FONT);
 
   for (const sourceLayers of Object.values(layerStyles.text_marker ?? {})) {
     for (const layer of sourceLayers) {
       if (layer.type !== "symbol") continue;
       layer.layout = {
         ...layer.layout,
-        "text-font": textFontForMapStyle(map),
+        "text-font": textFont,
       };
     }
   }
 
   return layerStyles;
 }
+
+/** The font stack the default MapLibre basemaps serve glyphs for. */
+const MAPLIBRE_TEXT_FONT = ["Noto Sans Regular"];
+/**
+ * Mapbox Standard's root style carries no symbol layer to borrow a font from,
+ * and Mapbox's glyph server has no Noto Sans; these are the faces it serves
+ * (the same fallback the DGGS grid labels use on Mapbox).
+ */
+const MAPBOX_TEXT_FONT = ["Open Sans Regular", "Arial Unicode MS Regular"];
 
 // Operators that can start a data-driven text-font expression. A bare
 // ["get", "font"] is all strings, so an every(typeof === "string") check
@@ -382,7 +423,7 @@ const FONT_EXPRESSION_OPERATORS = new Set([
   "format",
 ]);
 
-function textFontForMapStyle(map: maplibregl.Map): string[] {
+function textFontForMapStyle(map: maplibregl.Map, fallback: string[]): string[] {
   for (const styleLayer of map.getStyle().layers ?? []) {
     if (styleLayer.type !== "symbol") continue;
     // Icon-only symbol layers may carry a glyph/sprite font unsuited to text.
@@ -403,7 +444,7 @@ function textFontForMapStyle(map: maplibregl.Map): string[] {
       return fonts as string[];
     }
   }
-  return ["Noto Sans Regular"];
+  return fallback;
 }
 
 function isSketchesLayer(layer: GeoLibreLayer): boolean {
@@ -843,7 +884,7 @@ function vectorSourceIdForLayer(layer: GeoLibreLayer): string | null {
 function writeBackToVectorSource(layer: GeoLibreLayer, collection: FeatureCollection): void {
   const sourceId = vectorSourceIdForLayer(layer);
   if (!sourceId) return;
-  const source = appApi?.getMap?.()?.getSource(sourceId) as
+  const source = getStyleMap(appApi)?.getSource(sourceId) as
     | { setData?: (data: FeatureCollection) => void }
     | undefined;
   if (source && typeof source.setData === "function") {
@@ -1218,6 +1259,13 @@ function isGeoEditorInteractionMode(): boolean {
   return activeDrawMode !== null || activeEditMode !== null;
 }
 
+/**
+ * The map layers a store GeoJSON layer is drawn with, under both 2D engines'
+ * id schemes: MapLibre's `layer-<id>-*` and the Mapbox engine's
+ * `geolibre-mapbox-<id>-geojson-*` (where the fill layer doubles as the
+ * extrusion). Every consumer checks `getLayer` first, so the ids of the engine
+ * that is not mounted are simply skipped.
+ */
 function sketchesMapLayerIds(layerId: string): string[] {
   return [
     `layer-${layerId}-fill`,
@@ -1225,6 +1273,10 @@ function sketchesMapLayerIds(layerId: string): string[] {
     `layer-${layerId}-line`,
     `layer-${layerId}-circle`,
     `layer-${layerId}-text`,
+    mapboxFillLayerId(layerId),
+    mapboxLineLayerId(layerId),
+    `${mapboxSourceId(layerId)}-geojson-circle`,
+    `${mapboxSourceId(layerId)}-geojson-labels`,
   ];
 }
 
@@ -1287,7 +1339,7 @@ function scheduleApplySketchesMapDisplay(): void {
 }
 
 function scheduleShowGeomanDisplayLayersOnStyleData(): void {
-  const map = appApi?.getMap?.();
+  const map = getStyleMap(appApi);
   if (!map || pendingStyleDataListener) return;
 
   pendingStyleDataListener = () => {
@@ -1312,7 +1364,7 @@ function setSketchesMapLayerSuppressed(suppress: boolean): void {
 }
 
 function setSketchesMapLayersVisibility(layer: GeoLibreLayer): void {
-  const map = appApi?.getMap?.();
+  const map = getStyleMap(appApi);
   if (!map) return;
 
   const visibility = layer.visible && !sketchesMapLayerSuppressed ? "visible" : "none";
@@ -1332,7 +1384,7 @@ function setGeomanDisplayLayersVisibility(
   visibility: "visible" | "none",
   matches: (layer: maplibregl.LayerSpecification) => boolean = isGeomanDisplayLayer,
 ): void {
-  const map = appApi?.getMap?.();
+  const map = getStyleMap(appApi);
   if (!map) return;
   const sketchesLayer = activeEditableLayer(useAppStore.getState().layers);
   // In a session the target is intentionally store-hidden, so its `visible`
@@ -1448,7 +1500,7 @@ function geoEditorTargetAnchorLayerIds(map: maplibregl.Map, layer: GeoLibreLayer
  * does not loop.
  */
 function positionGeoEditorOverlayLayers(): void {
-  const map = appApi?.getMap?.();
+  const map = getStyleMap(appApi);
   if (!map) return;
   const styleLayers = map.getStyle()?.layers;
   if (!styleLayers || styleLayers.length === 0) return;

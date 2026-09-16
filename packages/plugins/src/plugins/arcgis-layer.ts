@@ -318,6 +318,10 @@ export async function addArcGISLayer(
     return addArcGISImageServiceLayer(app, options, input);
   }
 
+  // Deliberately MapLibre-only: the SDK's runtime layer is added natively here,
+  // while the store layer below carries the same sources and styles for the
+  // other engines (Mapbox compiles them itself, see arcgisVectorStyle).
+  // engine-audit-allow: getMap-mapbox
   const map = app.getMap?.();
 
   const arcgis = await import("@esri/maplibre-arcgis");
@@ -544,11 +548,12 @@ async function addArcGISFeatureLayerAsGeoJson(
   const name =
     options.name?.trim() || layerInfo.name || layerNameFromArcGISInput(layerUrl, "ArcGIS Layer");
   const store = useAppStore.getState();
-  const map = app.getMap?.();
   // Headless/API consumers have no viewport to query, so retain the complete
   // paged download for them. The interactive app takes the bounded path below.
-  // A globe-primary app has no MapLibre map either, so it takes the same path:
-  // a complete download rather than a silently unfiltered viewport query.
+  // A globe- or Mapbox-primary app has no MapLibre map either, so it takes the
+  // same path: a complete download rather than a silently unfiltered viewport
+  // query. (engine-audit-allow: getMap-mapbox)
+  const map = app.getMap?.();
   const initialData: FeatureCollection = map
     ? { type: "FeatureCollection", features: [] }
     : identifyArcGISFeatures(
@@ -779,6 +784,9 @@ export function reloadArcGISViewportLayer(layerId: string): Promise<FeatureColle
  * @param app - The host app API, for the map the loaders bind to.
  */
 export function restoreArcGISViewportLayers(app: GeoLibreAppAPI): void {
+  // Viewport loaders only exist on MapLibre (the other engines hold the
+  // complete download, see addArcGISFeatureLayer).
+  // engine-audit-allow: getMap-mapbox
   const map = app.getMap?.();
   if (!map) return;
   for (const layer of useAppStore.getState().layers) {

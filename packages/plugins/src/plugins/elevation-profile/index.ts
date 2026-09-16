@@ -99,7 +99,10 @@ function isPluginState(value: unknown): value is Partial<ElevationProfileState> 
 
 export const maplibreElevationProfilePlugin: GeoLibrePlugin = {
   id: ELEVATION_PROFILE_PLUGIN_ID,
-  engines: ["maplibre", "cesium"],
+  // The control draws its line and markers through the style API both 2D
+  // engines share and samples elevations from tiles it fetches itself, so the
+  // Mapbox renderer hosts it as MapLibre does; the globe gets its own adapter.
+  engines: ["maplibre", "cesium", "mapbox"],
   name: "Elevation Profile",
   version: "0.1.0",
   urlParameterNames: [ELEVATION_LINE_PARAM],

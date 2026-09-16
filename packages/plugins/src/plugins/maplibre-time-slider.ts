@@ -130,6 +130,9 @@ function stopThemeSync(): void {
 
 let timeSliderPosition: GeoLibreMapControlPosition = "bottom-left";
 let timeSliderControl: TimeSliderControl | null = null;
+// The host the control was activated on, so the source reconciliation can ask
+// which renderer draws the map (see enforceEngineSupport).
+let activeHost: GeoLibreAppAPI | null = null;
 // Last known config, kept so deactivating/reactivating (or restoring a saved
 // project) rebuilds the timeline and its layers exactly.
 let savedConfig: TimeSliderConfig | null = null;
@@ -156,6 +159,13 @@ export const maplibreTimeSliderPlugin: GeoLibrePlugin = {
   id: "maplibre-gl-time-slider",
   name: "Time Slider",
   version: "1.0.3",
+  // The dock only uses the style API both 2D engines share (raster tile and
+  // GeoJSON sources, filters, paint), so it mounts on the Mapbox renderer too;
+  // its store mirrors are plugin-owned there (`isMapboxPluginLayer`). COG and
+  // mosaic sources render through maplibre-gl-raster, whose tile protocol only
+  // registers with MapLibre, so those source types stay blank on Mapbox while
+  // XYZ, WMS and GeoJSON sources animate as usual.
+  engines: ["maplibre", "mapbox"],
   // The dock's `collapsed` flag round-trips through getProjectState /
   // configToOptions, so the restored config decides whether it opens. Without
   // this the host's restore-time collapse sweep hid the dock entirely (its
@@ -163,6 +173,7 @@ export const maplibreTimeSliderPlugin: GeoLibrePlugin = {
   restoresPanelCollapseState: true,
   activate: (app: GeoLibreAppAPI) => {
     if (timeSliderControl) return;
+    activeHost = app;
     const control = savedConfig
       ? controlFromConfig(savedConfig)
       : new TimeSliderControl(buildDefaultOptions());
@@ -181,6 +192,7 @@ export const maplibreTimeSliderPlugin: GeoLibrePlugin = {
     setTimeout(() => syncStoreLayers(control), 0);
   },
   deactivate: (app: GeoLibreAppAPI) => {
+    activeHost = null;
     if (!timeSliderControl) return;
     savedConfig = timeSliderControl.getConfig();
     detachStoreSync?.();
@@ -1036,8 +1048,78 @@ export function isTimeSliderIdle(): boolean {
  * source id for every adapter type, so `nativeLayerIds` lets the Layers panel
  * and the on-map layer control drive the underlying layer.
  */
+/** The fields of a COG source the dock's form authors, minus the engine choice. */
+const COG_SOURCE_FIELDS = [
+  "id",
+  "name",
+  "opacity",
+  "visible",
+  "beforeId",
+  "bounds",
+  "url",
+  "endpoint",
+  "colormap",
+  "rescale",
+  "bidx",
+  "nodata",
+  "tileSize",
+] as const;
+
+/**
+ * Keeps every dock source on a renderer that can draw it.
+ *
+ * The library renders a COG on the `gpu`/`wasm` engines, and any mosaic
+ * manifest, through `maplibre-gl-raster`: a deck.gl tile layer that reads
+ * MapLibre's viewport, or the WASM tiler's own `mlrcog://` protocol, neither of
+ * which a mapbox-gl map can host (the protocol source fails to fetch and sits
+ * in the engine's error banner; the tile layer throws on every frame). On the
+ * Mapbox renderer a COG is therefore re-added on the `titiler` engine, which
+ * serves ordinary XYZ tiles and works there like any raster source — the same
+ * data, animated over the same dates — and a real mosaic manifest, which has
+ * no such fallback, is dropped with a console warning rather than left as a
+ * layer that renders nothing. MapLibre is untouched; each source keeps the
+ * engine the user chose.
+ *
+ * Removing and re-adding fires the control's `sourceremove`/`sourceadd`, so
+ * this runs before the store sync iterates and the nested sync sees only
+ * supported sources. Exported for unit tests, which cannot mount the real
+ * control (its `onAdd` builds DOM); it runs against the active host's renderer.
+ *
+ * @param control - The active control whose sources to reconcile.
+ */
+export function enforceEngineSupport(
+  control: Pick<TimeSliderControl, "getSources" | "removeSource" | "addSource">,
+): void {
+  if (activeHost?.getMapRenderer?.() !== "mapbox") return;
+  // Snapshot: the loop removes and re-adds sources on the control it iterates.
+  for (const spec of [...control.getSources()]) {
+    if (spec.type !== "mosaic" || !spec.id) continue;
+    // Tested on the raw template rather than the date-resolved URL
+    // ensureSourceBounds reads: this runs synchronously from the control's
+    // sourceadd/sourceremove handlers, and the check only keys off the file
+    // extension, which a date placeholder ({date}, %Y, ...) never sits in.
+    const url = typeof spec.url === "string" ? spec.url : "";
+    if (usesMosaicManifest(spec, url)) {
+      console.warn(
+        `[time-slider] Dropped source "${spec.id}": mosaic manifests render through maplibre-gl-raster, which the Mapbox renderer cannot host.`,
+      );
+      control.removeSource(spec.id);
+      continue;
+    }
+    // An engine-rewritten COG: keep the authored fields and hand it to TiTiler.
+    const cog: Record<string, unknown> = { type: "cog", engine: "titiler" };
+    for (const key of COG_SOURCE_FIELDS) {
+      const value = (spec as unknown as Record<string, unknown>)[key];
+      if (value !== undefined) cog[key] = value;
+    }
+    control.removeSource(spec.id);
+    control.addSource(cog as unknown as SourceSpec);
+  }
+}
+
 function syncStoreLayers(control: TimeSliderControl | null): void {
   if (!control) return;
+  enforceEngineSupport(control);
   const activeIds = new Set<string>();
   for (const spec of control.getSources()) {
     if (!spec.id) continue;

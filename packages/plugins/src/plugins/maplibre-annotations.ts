@@ -5,6 +5,8 @@ import type { Feature, FeatureCollection, Position } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import type { GeoLibreAppAPI, GeoLibreMapControlPosition, GeoLibrePlugin } from "../types";
 import { ANNOTATIONS_PLUGIN_ID } from "../plugin-ids";
+import { type AnnotationMarker, createAnnotationMarker } from "./annotation-marker";
+import { getStyleMap } from "./style-map";
 
 /**
  * Annotation layer plugin: lightweight cartographic decoration (free text,
@@ -86,6 +88,11 @@ export const maplibreAnnotationsPlugin: GeoLibrePlugin = {
   id: ANNOTATIONS_PLUGIN_ID,
   name: "Annotations",
   version: "0.1.0",
+  // Elements live in a store GeoJSON layer both 2D engines draw; the draw
+  // preview and the pin/sticky/image markers go through the style API and
+  // `project`, which mapbox-gl shares (see annotation-marker.ts for the one
+  // MapLibre-specific class this avoids).
+  engines: ["maplibre", "mapbox"],
   activate: (app: GeoLibreAppAPI) => {
     appApi = app;
     pluginActive = true;
@@ -99,7 +106,7 @@ export const maplibreAnnotationsPlugin: GeoLibrePlugin = {
       return false;
     }
 
-    const map = app.getMap?.();
+    const map = getStyleMap(app);
     if (map) bindMap(map);
     rediscoverAnnotationLayer();
 
@@ -455,7 +462,10 @@ class AnnotationToolbarControl implements maplibregl.IControl {
 function setActiveTool(tool: AnnotationTool | null): void {
   if (movingAnnotationId) {
     movingAnnotationId = null;
-    if (boundMap) boundMap.getCanvas().style.cursor = tool ? "crosshair" : "";
+    if (boundMap) {
+      const canvas = liveCanvas(boundMap);
+      if (canvas) canvas.style.cursor = tool ? "crosshair" : "";
+    }
   }
   if (activeTool === tool) return;
   resetDrawState();
@@ -616,9 +626,9 @@ function showElementPopup(map: maplibregl.Map, lngLat: maplibregl.LngLat, featur
   activePopupContainer = container;
 }
 
-const activeImageMarkers = new Map<string, maplibregl.Marker>();
-const activePinMarkers = new Map<string, maplibregl.Marker>();
-const activeStickyMarkers = new Map<string, maplibregl.Marker>();
+const activeImageMarkers = new Map<string, AnnotationMarker>();
+const activePinMarkers = new Map<string, AnnotationMarker>();
+const activeStickyMarkers = new Map<string, AnnotationMarker>();
 let elementMarkerUnsub: (() => void) | null = null;
 
 /** Sync all element HTML markers (pins, sticky notes, placed images). */
@@ -695,12 +705,10 @@ function syncPinMarkers(): void {
         showElementPopup(map, new maplibregl.LngLat(coords[0], coords[1]), f);
       };
 
-      const marker = new maplibregl.Marker({
+      const marker = createAnnotationMarker(map, {
         element: container,
         anchor: "bottom",
-      })
-        .setLngLat(coords as [number, number])
-        .addTo(map);
+      }).setLngLat(coords as [number, number]);
 
       activePinMarkers.set(id, marker);
     } else {
@@ -827,12 +835,10 @@ function syncStickyNoteMarkers(): void {
         showElementPopup(map, new maplibregl.LngLat(coords[0], coords[1]), f);
       };
 
-      const marker = new maplibregl.Marker({
+      const marker = createAnnotationMarker(map, {
         element: container,
         anchor: "bottom",
-      })
-        .setLngLat(coords as [number, number])
-        .addTo(map);
+      }).setLngLat(coords as [number, number]);
 
       activeStickyMarkers.set(id, marker);
     } else {
@@ -960,9 +966,9 @@ function syncPlacedImageMarkers(): void {
         showElementPopup(map, new maplibregl.LngLat(coords[0], coords[1]), f);
       };
 
-      const marker = new maplibregl.Marker({ element: container })
-        .setLngLat(coords as [number, number])
-        .addTo(map);
+      const marker = createAnnotationMarker(map, { element: container }).setLngLat(
+        coords as [number, number],
+      );
 
       activeImageMarkers.set(id, marker);
     } else {
@@ -1002,6 +1008,15 @@ function clearAllElementMarkers(): void {
   activePinMarkers.clear();
   for (const marker of activeStickyMarkers.values()) marker.remove();
   activeStickyMarkers.clear();
+}
+
+/**
+ * The map canvas, or nothing once the map is gone. Deactivation on a renderer
+ * swap runs after the old map is torn down, and a removed mapbox-gl map has
+ * no canvas any more (`getCanvas()` returns `undefined` despite its type).
+ */
+function liveCanvas(map: maplibregl.Map): HTMLCanvasElement | undefined {
+  return map.getCanvas() as HTMLCanvasElement | undefined;
 }
 
 function bindMap(map: maplibregl.Map): void {
@@ -1045,11 +1060,13 @@ function unbindMap(): void {
   map.off("mouseup", handleMouseUp);
   map.off("move", repositionElementPopup);
   window.removeEventListener("mouseup", handleWindowMouseUp);
-  map.getCanvas().removeEventListener("keydown", handleKeyDown, {
+  const canvas = liveCanvas(map);
+  canvas?.removeEventListener("keydown", handleKeyDown, {
     capture: true,
   });
-  map.dragPan.enable();
-  map.getCanvas().style.cursor = "";
+  // Handlers are gone with the map as well.
+  (map.dragPan as typeof map.dragPan | undefined)?.enable();
+  if (canvas) canvas.style.cursor = "";
   clearPreview(map);
   boundMap = null;
 }
@@ -1933,9 +1950,16 @@ function setPreview(map: maplibregl.Map, data: FeatureCollection): void {
 }
 
 function clearPreview(map: maplibregl.Map): void {
-  if (map.getLayer(PREVIEW_LINE_LAYER_ID)) map.removeLayer(PREVIEW_LINE_LAYER_ID);
-  if (map.getLayer(PREVIEW_FILL_LAYER_ID)) map.removeLayer(PREVIEW_FILL_LAYER_ID);
-  if (map.getSource(PREVIEW_SOURCE_ID)) map.removeSource(PREVIEW_SOURCE_ID);
+  // Deactivation on a renderer swap runs after the old map is torn down, and a
+  // removed mapbox-gl map throws from `getLayer` (its style is gone); there is
+  // nothing left to clear from it either way.
+  try {
+    if (map.getLayer(PREVIEW_LINE_LAYER_ID)) map.removeLayer(PREVIEW_LINE_LAYER_ID);
+    if (map.getLayer(PREVIEW_FILL_LAYER_ID)) map.removeLayer(PREVIEW_FILL_LAYER_ID);
+    if (map.getSource(PREVIEW_SOURCE_ID)) map.removeSource(PREVIEW_SOURCE_ID);
+  } catch {
+    // Already torn down with the map.
+  }
 }
 
 // ---------------------------------------------------------------------------
