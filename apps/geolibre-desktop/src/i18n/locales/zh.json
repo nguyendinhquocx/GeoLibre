@@ -22,6 +22,7 @@
     "noMatches": "无匹配项。",
     "addFailed": "无法添加此数据源。",
     "builtinBadge": "内置",
+    "configBadge": "配置",
     "newConnection": "新建 {{kind}} 连接",
     "loadingTables": "正在加载表…",
     "files": "文件",
@@ -357,6 +358,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "在地球仪上加载 KML 或 KMZ，保留原生样式、叠加层和网络链接。"
+      },
+      "wcs": {
+        "description": "从 WCS 1.0.0 服务加载数值型 GeoTIFF 子集。",
+        "label": "WCS 图层"
       }
     },
     "shared": {
@@ -396,6 +401,7 @@
       "loadAria": "加载已保存的服务",
       "loadPlaceholder": "加载已保存的服务…",
       "builtin": "{{name}}（内置）",
+      "config": "{{name}}（配置）",
       "deleteAria": "删除已保存的服务",
       "empty": "尚无已保存的服务 — 填写表单并选择“保存当前设置”。",
       "name": "名称",
@@ -945,6 +951,38 @@
       "sampleMultiLine": "多线路线批量（3 段）",
       "unitMeters": "{{value}} 米",
       "unitKm": "{{value}} 千米"
+    },
+    "pmtiles": {
+      "errorUrl": "请输入有效的 HTTP 或 HTTPS PMTiles 地址。",
+      "errorMlt": "ArcGIS 需要 MVT 矢量瓦片，不支持 MLT。"
+    },
+    "zarr": {
+      "errorUrl": "请输入有效的 HTTP 或 HTTPS Zarr 地址。",
+      "errorColorLimits": "颜色上限必须大于下限。"
+    },
+    "raster": {
+      "errorSource": "输入 GeoTIFF URL 或选择文件。"
+    },
+    "wcs": {
+      "coverage": "覆盖数据",
+      "retrieve": "获取覆盖数据",
+      "select": "选择覆盖数据",
+      "extent": "使用覆盖范围",
+      "width": "宽度（像素）",
+      "height": "高度（像素）",
+      "hint": "按所选像素尺寸下载 EPSG:4326 的 GeoTIFF。数值可能经过重采样。请保存栅格以保留下载的数据。",
+      "errors": {
+        "xml": "服务返回了无效的 XML。",
+        "version": "此数据源需要 WCS 1.0.0。服务返回了不支持的响应。",
+        "empty": "没有可用的匹配覆盖数据。",
+        "format": "覆盖数据未声明支持 GeoTIFF 输出。",
+        "crs": "覆盖数据必须支持使用 EPSG:4326 进行请求和输出。",
+        "size": "请选择 1 到 4096 像素的尺寸。下载大小限制为 128 MB。",
+        "metadata": "服务返回的元数据超出 GeoLibre 可加载的大小。元数据响应限制为 32 MB。",
+        "response": "服务未返回有效的 GeoTIFF。",
+        "bounds": "请输入有效的边界框：东西经度在 -180 到 180 之间，南北纬度在 -90 到 90 之间，且西 < 东、南 < 北。",
+        "url": "请输入 WCS 服务 URL。"
+      }
     }
   },
   "offline": {
@@ -1895,6 +1933,7 @@
     "layerCesiumOnly": "仅由 3D 地球渲染",
     "layerMapboxUnsupported": "Mapbox 引擎不渲染此图层",
     "layerArcgisUnsupported": "ArcGIS 引擎不渲染此图层",
+    "layerArcgisViewUnsupported": "当前 ArcGIS 视图不渲染此图层",
     "resetView": "重置视图",
     "scene3D": "3D 地球",
     "scene2D": "2D 地图",
@@ -2513,7 +2552,8 @@
       "gltfModel": "3D 模型（glTF）",
       "postgres": "PostgreSQL 图层",
       "iceberg": "Apache Iceberg 图层",
-      "polyline": "编码折线"
+      "polyline": "编码折线",
+      "wcs": "WCS 图层"
     },
     "conversion": {
       "vectorToVector": "矢量转矢量",
@@ -4599,6 +4639,10 @@
                 "inside": "内侧（收缩）",
                 "both": "两侧"
               }
+            },
+            "dissolve": {
+              "label": "融合结果",
+              "description": "将各缓冲区合并为单个要素，并融合它们之间的重叠部分。合并后的图形不属于任何输入要素，因此属性会被丢弃；若要按属性融合，请对结果运行“融合”工具。"
             }
           }
         },
@@ -7165,6 +7209,7 @@
     "saveEditsSuccess": "已将 {{count}} 个要素保存到源文件。",
     "saveEditsNoFeatures": "此图层没有可保存的要素。",
     "saveEditsError": "无法将编辑保存到源文件。",
+    "pendingTableDraftsBlocked": "属性表中有无法应用的未保存编辑。请修正或取消这些编辑后重试。",
     "saveEditsToArcgis": "保存编辑到 ArcGIS 服务",
     "saveEditsArcgisSuccess": "已保存到 ArcGIS：新增 {{inserted}} 个，更新 {{updated}} 个，删除 {{deleted}} 个。",
     "saveEditsToPostgis": "保存编辑到 PostGIS 表",
@@ -7892,5 +7937,10 @@
     "catalogHuc12pp": "HUC12 出水口",
     "catalogNmwdiSt": "新墨西哥州水文站点",
     "catalogFlowlines": "NHDPlus 河段"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "请在此 ArcGIS 视图中使用 3D Tiles 的 tileset.json URL。Google Photorealistic 和 I3S 瓦片需要其他渲染引擎。"
+    }
   }
 }

@@ -22,6 +22,7 @@
     "noMatches": "Keine Treffer.",
     "addFailed": "Diese Datenquelle konnte nicht hinzugefügt werden.",
     "builtinBadge": "integriert",
+    "configBadge": "Konfig",
     "newConnection": "Neue {{kind}}-Verbindung",
     "loadingTables": "Tabellen werden geladen…",
     "files": "Dateien",
@@ -359,6 +360,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "KML oder KMZ mit nativen Stilen, Overlays und Netzwerklinks auf dem Globus laden."
+      },
+      "wcs": {
+        "description": "Numerischen GeoTIFF-Ausschnitt von einem WCS-1.0.0-Dienst laden.",
+        "label": "WCS-Ebene"
       }
     },
     "shared": {
@@ -398,6 +403,7 @@
       "loadAria": "Einen gespeicherten Dienst laden",
       "loadPlaceholder": "Einen gespeicherten Dienst laden…",
       "builtin": "{{name}} (integriert)",
+      "config": "{{name}} (Konfig)",
       "deleteAria": "Gespeicherten Dienst löschen",
       "empty": "Noch keine gespeicherten Dienste — füllen Sie das Formular aus und wählen Sie „Aktuellen speichern“.",
       "name": "Name",
@@ -966,7 +972,39 @@
       "modelTooLarge": "Dieses Modell überschreitet das Limit von {{limit}} MB für die Einbettung in ein Projekt. Hosten Sie es stattdessen und fügen Sie es per URL hinzu.",
       "modelFileError": "Dieses Modell konnte nicht gelesen werden. Wählen Sie eine gültige glTF-2.0- oder GLB-Datei aus."
     },
-    "nonGeographicCoordinates": "Die Koordinaten in {{names}} sind keine geografische Länge/Breite, daher wird nichts auf der Karte gezeichnet. Das CRS ist falsch angegeben — projizieren Sie die Daten um (oder korrigieren Sie die .prj) und laden Sie sie erneut."
+    "nonGeographicCoordinates": "Die Koordinaten in {{names}} sind keine geografische Länge/Breite, daher wird nichts auf der Karte gezeichnet. Das CRS ist falsch angegeben — projizieren Sie die Daten um (oder korrigieren Sie die .prj) und laden Sie sie erneut.",
+    "pmtiles": {
+      "errorUrl": "Geben Sie eine gültige HTTP- oder HTTPS-URL für PMTiles ein.",
+      "errorMlt": "ArcGIS benötigt MVT-Vektorkacheln, nicht MLT."
+    },
+    "zarr": {
+      "errorUrl": "Geben Sie eine gültige HTTP- oder HTTPS-URL für Zarr ein.",
+      "errorColorLimits": "Der obere Farbgrenzwert muss größer als der untere sein."
+    },
+    "raster": {
+      "errorSource": "Geben Sie eine GeoTIFF-URL ein oder wählen Sie eine Datei."
+    },
+    "wcs": {
+      "coverage": "Coverage",
+      "retrieve": "Coverages abrufen",
+      "select": "Coverage auswählen",
+      "extent": "Coverage-Ausdehnung verwenden",
+      "width": "Breite (Pixel)",
+      "height": "Höhe (Pixel)",
+      "hint": "Lädt ein GeoTIFF in EPSG:4326 mit den gewählten Pixelmaßen herunter. Werte können neu abgetastet werden. Speichern Sie das Raster, um die Daten zu behalten.",
+      "errors": {
+        "xml": "Der Dienst hat ungültiges XML zurückgegeben.",
+        "version": "Diese Quelle benötigt WCS 1.0.0. Der Dienst hat eine nicht unterstützte Antwort zurückgegeben.",
+        "empty": "Keine passenden Coverages verfügbar.",
+        "format": "Die Coverage bietet keine GeoTIFF-Ausgabe an.",
+        "crs": "Die Coverage muss EPSG:4326 für Anfragen und Ausgabe unterstützen.",
+        "size": "Wählen Sie Abmessungen von 1 bis 4096 Pixeln. Downloads sind auf 128 MB begrenzt.",
+        "metadata": "Der Dienst hat mehr Metadaten zurückgegeben, als GeoLibre laden kann. Metadaten-Antworten sind auf 32 MB begrenzt.",
+        "response": "Der Dienst hat kein gültiges GeoTIFF zurückgegeben.",
+        "bounds": "Geben Sie einen gültigen Rahmen ein: West/Ost zwischen -180 und 180, Süd/Nord zwischen -90 und 90, mit West < Ost und Süd < Nord.",
+        "url": "Geben Sie eine WCS-Dienst-URL ein."
+      }
+    }
   },
   "offline": {
     "title": "Offline-Bereich herunterladen",
@@ -1941,6 +1979,7 @@
     "layerCesiumOnly": "Wird nur vom 3D-Globus dargestellt",
     "layerMapboxUnsupported": "Wird vom Mapbox-Renderer nicht dargestellt",
     "layerArcgisUnsupported": "Wird vom ArcGIS-Renderer nicht dargestellt",
+    "layerArcgisViewUnsupported": "In dieser ArcGIS-Ansicht nicht dargestellt",
     "resetView": "Ansicht zurücksetzen",
     "scene3D": "3D-Globus",
     "scene2D": "2D-Karte",
@@ -2561,7 +2600,8 @@
       "czml": "Dynamische CZML-3D-Szene",
       "gltfModel": "3D-Modell (glTF)",
       "postgres": "PostgreSQL-Ebene",
-      "iceberg": "Apache-Iceberg-Ebene"
+      "iceberg": "Apache-Iceberg-Ebene",
+      "wcs": "WCS-Ebene"
     },
     "conversion": {
       "vectorToVector": "Vektor zu Vektor",
@@ -4672,6 +4712,10 @@
                 "inside": "Innen (verkleinern)",
                 "both": "Beide Seiten"
               }
+            },
+            "dissolve": {
+              "label": "Ergebnis auflösen",
+              "description": "Die Puffer zu einem einzigen Objekt zusammenführen und die Überlappungen dazwischen auflösen. Die zusammengeführte Form gehört zu keinem Eingabeobjekt, daher entfallen die Attribute; zum Auflösen nach einem Attribut das Werkzeug „Auflösen“ auf das Ergebnis anwenden."
             }
           }
         },
@@ -7246,6 +7290,7 @@
     "saveEditsSuccess": "{{count}} Objekt(e) in der Quelldatei gespeichert.",
     "saveEditsNoFeatures": "Diese Ebene enthält keine zu speichernden Objekte.",
     "saveEditsError": "Änderungen konnten nicht in der Quelldatei gespeichert werden.",
+    "pendingTableDraftsBlocked": "Die Attributtabelle enthält nicht gespeicherte Änderungen, die nicht übernommen werden können. Korrigieren oder verwerfen Sie sie und versuchen Sie es erneut.",
     "saveEditsToArcgis": "Änderungen im ArcGIS-Dienst speichern",
     "saveEditsArcgisSuccess": "In ArcGIS gespeichert: {{inserted}} eingefügt, {{updated}} aktualisiert, {{deleted}} gelöscht.",
     "saveEditsToPostgis": "Änderungen in PostGIS-Tabelle speichern",
@@ -7979,5 +8024,10 @@
     "catalogHuc12pp": "HUC12-Abflusspunkte",
     "catalogNmwdiSt": "Wassermessstellen in New Mexico",
     "catalogFlowlines": "NHDPlus-Gewässerlinien"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "Verwenden Sie in dieser ArcGIS-Ansicht eine 3D-Tiles-URL für tileset.json. Google Photorealistic- und I3S-Kacheln benötigen eine andere Render-Engine."
+    }
   }
 }

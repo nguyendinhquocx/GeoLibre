@@ -7,8 +7,11 @@ import type {
   StoryChapterAnimation,
   StoryChapterLocation,
 } from "@geolibre/core";
-import type { FeatureCollection, Geometry } from "geojson";
+import type { FeatureCollection, Geometry, Point, Polygon } from "geojson";
 import type * as maplibregl from "maplibre-gl";
+
+/** Shared search highlight color across rendering engines. */
+export const SEARCH_HIGHLIGHT_COLOR = "#ef4444";
 
 /**
  * The renderer-neutral surface the app drives a map through (issue #2260).
@@ -145,6 +148,8 @@ export interface MapEngine {
     options?: { fit?: boolean },
   ): void;
   clearFeatureHighlight(): void;
+  /** Draw a temporary search marker or cell outline; dispose clears only this result. */
+  showSearchResult(geometry: Point | Polygon): () => void;
   /**
    * Drop a draggable pin for the user to position, returning a teardown
    * function. Requires {@link MapEngineCapabilities.onMapDrawing}; engines

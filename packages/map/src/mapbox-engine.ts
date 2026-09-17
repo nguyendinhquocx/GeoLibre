@@ -1,6 +1,7 @@
+import { showGlSearchResult } from "./gl-search-result";
 import type * as mapboxgl from "mapbox-gl";
 import type * as maplibregl from "maplibre-gl";
-import type { FeatureCollection } from "geojson";
+import type { FeatureCollection, Point, Polygon } from "geojson";
 import type {
   GeoLibreLayer,
   MapPreferences,
@@ -1009,6 +1010,17 @@ export class MapboxEngine implements MapEngine {
     const b = this.map?.getBounds();
     return b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] : null;
   }
+  showSearchResult(geometry: Point | Polygon): () => void {
+    const map = this.map;
+    if (!map) return () => {};
+    return showGlSearchResult(
+      map,
+      geometry,
+      (center, color) => new this.gl.Marker({ color }).setLngLat(center).addTo(map),
+      this.disposers,
+    );
+  }
+
   showExtent(extent: MapExtent): () => void {
     const map = this.map;
     if (!map?.isStyleLoaded()) return () => {};

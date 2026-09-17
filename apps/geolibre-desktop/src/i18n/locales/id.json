@@ -22,6 +22,7 @@
     "noMatches": "Tidak ada yang cocok.",
     "addFailed": "Tidak dapat menambahkan sumber data ini.",
     "builtinBadge": "bawaan",
+    "configBadge": "config",
     "newConnection": "Koneksi {{kind}} baru",
     "loadingTables": "Memuat tabel…",
     "files": "File",
@@ -357,6 +358,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "Muat KML atau KMZ dengan gaya asli, overlay, dan tautan jaringan pada globe."
+      },
+      "wcs": {
+        "description": "Muat subset GeoTIFF numerik dari layanan WCS 1.0.0.",
+        "label": "Layer WCS"
       }
     },
     "shared": {
@@ -396,6 +401,7 @@
       "loadAria": "Muat layanan tersimpan",
       "loadPlaceholder": "Muat layanan tersimpan…",
       "builtin": "{{name}} (bawaan)",
+      "config": "{{name}} (config)",
       "deleteAria": "Hapus layanan tersimpan",
       "empty": "Belum ada layanan tersimpan — isi formulir dan pilih “Simpan saat ini”.",
       "name": "Nama",
@@ -945,7 +951,39 @@
       "modelTooLarge": "Model ini melebihi batas {{limit}} MB untuk disematkan dalam proyek. Hosting model tersebut lalu tambahkan melalui URL.",
       "modelFileError": "Tidak dapat membaca model ini. Pilih file glTF 2.0 atau GLB yang valid."
     },
-    "nonGeographicCoordinates": "Koordinat pada {{names}} bukan bujur/lintang, sehingga tidak ada yang digambar di peta. CRS salah — proyeksikan ulang data (atau perbaiki .prj-nya) lalu muat kembali."
+    "nonGeographicCoordinates": "Koordinat pada {{names}} bukan bujur/lintang, sehingga tidak ada yang digambar di peta. CRS salah — proyeksikan ulang data (atau perbaiki .prj-nya) lalu muat kembali.",
+    "pmtiles": {
+      "errorUrl": "Masukkan URL PMTiles HTTP atau HTTPS yang valid.",
+      "errorMlt": "ArcGIS memerlukan ubin vektor MVT, bukan MLT."
+    },
+    "zarr": {
+      "errorUrl": "Masukkan URL Zarr HTTP atau HTTPS yang valid.",
+      "errorColorLimits": "Batas warna maksimum harus lebih besar dari minimum."
+    },
+    "raster": {
+      "errorSource": "Masukkan URL GeoTIFF atau pilih berkas."
+    },
+    "wcs": {
+      "coverage": "Cakupan",
+      "retrieve": "Ambil cakupan",
+      "select": "Pilih cakupan",
+      "extent": "Gunakan batas cakupan",
+      "width": "Lebar (piksel)",
+      "height": "Tinggi (piksel)",
+      "hint": "Mengunduh GeoTIFF dalam EPSG:4326 dengan dimensi piksel yang dipilih. Nilai dapat disampel ulang. Simpan raster untuk mempertahankan data yang diunduh.",
+      "errors": {
+        "xml": "Layanan mengembalikan XML yang tidak valid.",
+        "version": "Sumber ini memerlukan WCS 1.0.0. Layanan mengembalikan respons yang tidak didukung.",
+        "empty": "Tidak ada cakupan yang cocok.",
+        "format": "Cakupan tidak menawarkan keluaran GeoTIFF.",
+        "crs": "Cakupan harus mendukung EPSG:4326 untuk permintaan dan keluaran.",
+        "size": "Pilih dimensi 1 hingga 4096 piksel. Unduhan dibatasi hingga 128 MB.",
+        "metadata": "Layanan mengembalikan metadata lebih banyak daripada yang dapat dimuat GeoLibre. Respons metadata dibatasi hingga 32 MB.",
+        "response": "Layanan tidak mengembalikan GeoTIFF yang valid.",
+        "bounds": "Masukkan kotak yang valid: barat/timur antara -180 hingga 180, selatan/utara antara -90 hingga 90, dengan barat < timur dan selatan < utara.",
+        "url": "Masukkan URL layanan WCS."
+      }
+    }
   },
   "offline": {
     "title": "Unduh Area Offline",
@@ -1895,6 +1933,7 @@
     "layerCesiumOnly": "Hanya dirender oleh bola dunia 3D",
     "layerMapboxUnsupported": "Tidak dirender oleh mesin Mapbox",
     "layerArcgisUnsupported": "Tidak dirender oleh mesin ArcGIS",
+    "layerArcgisViewUnsupported": "Tidak dirender dalam tampilan ArcGIS ini",
     "resetView": "Atur Ulang Tampilan",
     "scene3D": "Bola dunia 3D",
     "scene2D": "Peta 2D",
@@ -2513,7 +2552,8 @@
       "czml": "Adegan 3D Dinamis CZML",
       "gltfModel": "Model 3D (glTF)",
       "postgres": "Layer PostgreSQL",
-      "iceberg": "Layer Apache Iceberg"
+      "iceberg": "Layer Apache Iceberg",
+      "wcs": "Layer WCS"
     },
     "conversion": {
       "vectorToVector": "Vektor ke Vektor",
@@ -4599,6 +4639,10 @@
                 "inside": "Dalam (perkecil)",
                 "both": "Kedua sisi"
               }
+            },
+            "dissolve": {
+              "label": "Dissolve hasil",
+              "description": "Menggabungkan buffer menjadi satu fitur dan meleburkan tumpang tindih di antaranya. Bentuk gabungan tidak dimiliki fitur masukan mana pun, sehingga atribut dihapus; untuk melakukan dissolve berdasarkan atribut, jalankan alat Dissolve pada hasilnya."
             }
           }
         },
@@ -7165,6 +7209,7 @@
     "saveEditsSuccess": "Menyimpan {{count}} fitur ke file sumber.",
     "saveEditsNoFeatures": "Layer ini tidak memiliki fitur untuk disimpan.",
     "saveEditsError": "Tidak dapat menyimpan pengeditan ke file sumber.",
+    "pendingTableDraftsBlocked": "Tabel atribut memiliki pengeditan yang belum disimpan dan tidak dapat diterapkan. Perbaiki atau batalkan, lalu coba lagi.",
     "saveEditsToArcgis": "Simpan perubahan ke layanan ArcGIS",
     "saveEditsArcgisSuccess": "Tersimpan ke ArcGIS: {{inserted}} ditambahkan, {{updated}} diperbarui, {{deleted}} dihapus.",
     "saveEditsToPostgis": "Simpan perubahan ke tabel PostGIS",
@@ -7892,5 +7937,10 @@
     "catalogHuc12pp": "Titik keluaran HUC12",
     "catalogNmwdiSt": "Situs air New Mexico",
     "catalogFlowlines": "Garis aliran NHDPlus"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "Gunakan URL tileset.json 3D Tiles pada tampilan ArcGIS ini. Ubin Google Photorealistic dan I3S memerlukan mesin perender lain."
+    }
   }
 }

@@ -4,6 +4,7 @@
 
 export type AddDataKind =
   | "xyz"
+  | "wcs"
   | "wms"
   | "csw"
   | "wfs"
@@ -16,6 +17,9 @@ export type AddDataKind =
   | "cad"
   | "gdb"
   | "photos"
+  | "raster"
+  | "zarr"
+  | "pmtiles"
   | "mbtiles"
   | "polyline"
   | "arcgis"

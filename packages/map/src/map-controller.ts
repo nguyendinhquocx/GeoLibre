@@ -1,3 +1,4 @@
+import { showGlSearchResult } from "./gl-search-result";
 import {
   BLANK_BASEMAP,
   DEFAULT_BASEMAP,
@@ -23,7 +24,7 @@ import type {
   StoryChapterLocation,
 } from "@geolibre/core";
 import bbox from "@turf/bbox";
-import type { Feature, FeatureCollection, Geometry } from "geojson";
+import type { Feature, FeatureCollection, Geometry, Point, Polygon } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import { getLayerMetadataBounds, LayerControlHost } from "./layer-control-host";
 export { layerControlPaintToStyle, restoreControlOrder } from "./layer-control-host";
@@ -962,6 +963,7 @@ export class MapController implements MapEngine {
   }
 
   destroy(): void {
+    for (const dispose of this.searchDisposers) dispose();
     this.extentDrawingDispose?.();
     this.removeNavigationControl();
     this.removeFullscreenControl();
@@ -1593,6 +1595,8 @@ export class MapController implements MapEngine {
     );
   }
 
+  private searchDisposers = new Set<() => void>();
+
   private extentDrawingDispose: (() => void) | null = null;
 
   getRenderSurface() {
@@ -1649,6 +1653,17 @@ export class MapController implements MapEngine {
     return bounds
       ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
       : null;
+  }
+
+  showSearchResult(geometry: Point | Polygon): () => void {
+    const map = this.map;
+    if (!map) return () => {};
+    return showGlSearchResult(
+      map,
+      geometry,
+      (center, color) => new maplibregl.Marker({ color }).setLngLat(center).addTo(map),
+      this.searchDisposers,
+    );
   }
 
   showExtent(_extent: MapExtent): () => void {

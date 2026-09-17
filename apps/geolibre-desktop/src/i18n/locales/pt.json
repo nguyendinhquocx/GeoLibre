@@ -22,6 +22,7 @@
     "noMatches": "Nenhum resultado.",
     "addFailed": "Não foi possível adicionar esta fonte de dados.",
     "builtinBadge": "integrado",
+    "configBadge": "config",
     "newConnection": "Nova conexão {{kind}}",
     "loadingTables": "Carregando tabelas…",
     "files": "Arquivos",
@@ -359,6 +360,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "Carregue KML ou KMZ com estilos nativos, sobreposições e links de rede no globo."
+      },
+      "wcs": {
+        "description": "Carregar um subconjunto GeoTIFF numérico de um serviço WCS 1.0.0.",
+        "label": "Camada WCS"
       }
     },
     "shared": {
@@ -398,6 +403,7 @@
       "loadAria": "Carregar um serviço salvo",
       "loadPlaceholder": "Carregar um serviço salvo…",
       "builtin": "{{name}} (integrado)",
+      "config": "{{name}} (config)",
       "deleteAria": "Excluir serviço salvo",
       "empty": "Nenhum serviço salvo ainda — preencha o formulário e escolha “Salvar atual”.",
       "name": "Nome",
@@ -966,7 +972,39 @@
       "modelTooLarge": "Este modelo excede o limite de {{limit}} MB para incorporação em um projeto. Hospede-o e adicione-o por URL.",
       "modelFileError": "Não foi possível ler este modelo. Escolha um arquivo glTF 2.0 ou GLB válido."
     },
-    "nonGeographicCoordinates": "As coordenadas em {{names}} não são de longitude/latitude, portanto nada será desenhado no mapa. O CRS está incorreto — reprojete os dados (ou corrija o .prj) e carregue novamente."
+    "nonGeographicCoordinates": "As coordenadas em {{names}} não são de longitude/latitude, portanto nada será desenhado no mapa. O CRS está incorreto — reprojete os dados (ou corrija o .prj) e carregue novamente.",
+    "pmtiles": {
+      "errorUrl": "Digite uma URL HTTP ou HTTPS válida de PMTiles.",
+      "errorMlt": "O ArcGIS requer blocos vetoriais MVT, não MLT."
+    },
+    "zarr": {
+      "errorUrl": "Digite uma URL HTTP ou HTTPS válida de Zarr.",
+      "errorColorLimits": "O limite máximo de cor deve ser maior que o mínimo."
+    },
+    "raster": {
+      "errorSource": "Insira uma URL GeoTIFF ou escolha um arquivo."
+    },
+    "wcs": {
+      "coverage": "Cobertura",
+      "retrieve": "Obter coberturas",
+      "select": "Selecionar uma cobertura",
+      "extent": "Usar extensão da cobertura",
+      "width": "Largura (pixels)",
+      "height": "Altura (pixels)",
+      "hint": "Baixa um GeoTIFF em EPSG:4326 nas dimensões selecionadas. Os valores podem ser reamostrados. Salve o raster para manter os dados baixados.",
+      "errors": {
+        "xml": "O serviço retornou XML inválido.",
+        "version": "Esta fonte requer WCS 1.0.0. O serviço retornou uma resposta não suportada.",
+        "empty": "Nenhuma cobertura correspondente disponível.",
+        "format": "A cobertura não anuncia saída GeoTIFF.",
+        "crs": "A cobertura deve suportar EPSG:4326 para solicitações e saída.",
+        "size": "Escolha dimensões de 1 a 4096 pixels. Os downloads são limitados a 128 MB.",
+        "metadata": "O serviço retornou mais metadados do que o GeoLibre pode carregar. As respostas de metadados são limitadas a 32 MB.",
+        "response": "O serviço não retornou um GeoTIFF válido.",
+        "bounds": "Digite uma caixa válida: oeste/leste entre -180 e 180, sul/norte entre -90 e 90, com oeste < leste e sul < norte.",
+        "url": "Digite uma URL de serviço WCS."
+      }
+    }
   },
   "offline": {
     "title": "Baixar área offline",
@@ -1941,6 +1979,7 @@
     "layerCesiumOnly": "Renderizado somente pelo globo 3D",
     "layerMapboxUnsupported": "Não renderizado pelo motor Mapbox",
     "layerArcgisUnsupported": "Não renderizado pelo motor ArcGIS",
+    "layerArcgisViewUnsupported": "Não renderizado nesta visualização do ArcGIS",
     "resetView": "Redefinir vista",
     "scene3D": "Globo 3D",
     "scene2D": "Mapa 2D",
@@ -2561,7 +2600,8 @@
       "czml": "Cena 3D dinâmica CZML",
       "gltfModel": "Modelo 3D (glTF)",
       "postgres": "Camada PostgreSQL",
-      "iceberg": "Camada Apache Iceberg"
+      "iceberg": "Camada Apache Iceberg",
+      "wcs": "Camada WCS"
     },
     "conversion": {
       "vectorToVector": "Vetor para vetor",
@@ -4672,6 +4712,10 @@
                 "inside": "Dentro (reduzir)",
                 "both": "Ambos os lados"
               }
+            },
+            "dissolve": {
+              "label": "Dissolver o resultado",
+              "description": "Mescla os buffers em uma única feição e dissolve as sobreposições entre eles. A forma resultante não pertence a nenhuma feição de entrada, por isso os atributos são descartados; para dissolver por um atributo, execute a ferramenta Dissolver no resultado."
             }
           }
         },
@@ -7246,6 +7290,7 @@
     "saveEditsSuccess": "{{count}} feição(ões) salva(s) no arquivo de origem.",
     "saveEditsNoFeatures": "Esta camada não tem feições para salvar.",
     "saveEditsError": "Não foi possível salvar as edições no arquivo de origem.",
+    "pendingTableDraftsBlocked": "A tabela de atributos tem edições não salvas que não podem ser aplicadas. Corrija-as ou cancele-as e tente novamente.",
     "saveEditsToArcgis": "Salvar edições no serviço ArcGIS",
     "saveEditsArcgisSuccess": "Salvo em ArcGIS: {{inserted}} inserida(s), {{updated}} atualizada(s), {{deleted}} excluída(s).",
     "saveEditsToPostgis": "Salvar edições na tabela PostGIS",
@@ -7979,5 +8024,10 @@
     "catalogHuc12pp": "Pontos de escoamento HUC12",
     "catalogNmwdiSt": "Estações hídricas do Novo México",
     "catalogFlowlines": "Linhas de fluxo NHDPlus"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "Use uma URL tileset.json de 3D Tiles nesta visualização do ArcGIS. Os blocos Google Photorealistic e I3S exigem outro renderizador."
+    }
   }
 }

@@ -22,6 +22,7 @@
     "noMatches": "Aucun résultat.",
     "addFailed": "Impossible d'ajouter cette source de données.",
     "builtinBadge": "intégré",
+    "configBadge": "config",
     "newConnection": "Nouvelle connexion {{kind}}",
     "loadingTables": "Chargement des tables…",
     "files": "Fichiers",
@@ -359,6 +360,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "Chargez un KML ou KMZ avec ses styles natifs, superpositions et liens réseau sur le globe."
+      },
+      "wcs": {
+        "description": "Charger un sous-ensemble GeoTIFF numérique depuis un service WCS 1.0.0.",
+        "label": "Couche WCS"
       }
     },
     "shared": {
@@ -398,6 +403,7 @@
       "loadAria": "Charger un service enregistré",
       "loadPlaceholder": "Charger un service enregistré…",
       "builtin": "{{name}} (intégré)",
+      "config": "{{name}} (config)",
       "deleteAria": "Supprimer le service enregistré",
       "empty": "Aucun service enregistré pour le moment — remplissez le formulaire et choisissez « Enregistrer l'actuel ».",
       "name": "Nom",
@@ -966,7 +972,39 @@
       "modelTooLarge": "Ce modèle dépasse la limite de {{limit}} Mo pour l'intégration dans un projet. Hébergez-le et ajoutez-le par URL.",
       "modelFileError": "Impossible de lire ce modèle. Choisissez un fichier glTF 2.0 ou GLB valide."
     },
-    "nonGeographicCoordinates": "Les coordonnées de {{names}} ne sont pas des longitudes/latitudes : rien ne sera dessiné sur la carte. Le SCR est mal déclaré — reprojetez les données (ou corrigez le .prj) puis rechargez-les."
+    "nonGeographicCoordinates": "Les coordonnées de {{names}} ne sont pas des longitudes/latitudes : rien ne sera dessiné sur la carte. Le SCR est mal déclaré — reprojetez les données (ou corrigez le .prj) puis rechargez-les.",
+    "pmtiles": {
+      "errorUrl": "Saisissez une URL HTTP ou HTTPS valide de PMTiles.",
+      "errorMlt": "ArcGIS nécessite des tuiles vectorielles MVT, et non MLT."
+    },
+    "zarr": {
+      "errorUrl": "Saisissez une URL HTTP ou HTTPS valide de Zarr.",
+      "errorColorLimits": "La limite maximale de couleur doit être supérieure à la limite minimale."
+    },
+    "raster": {
+      "errorSource": "Saisissez une URL GeoTIFF ou choisissez un fichier."
+    },
+    "wcs": {
+      "coverage": "Couverture",
+      "retrieve": "Récupérer les couvertures",
+      "select": "Sélectionner une couverture",
+      "extent": "Utiliser l’emprise de la couverture",
+      "width": "Largeur (pixels)",
+      "height": "Hauteur (pixels)",
+      "hint": "Télécharge un GeoTIFF en EPSG:4326 aux dimensions choisies. Les valeurs peuvent être rééchantillonnées. Enregistrez le raster pour conserver les données téléchargées.",
+      "errors": {
+        "xml": "Le service a renvoyé un XML invalide.",
+        "version": "Cette source nécessite WCS 1.0.0. Le service a renvoyé une réponse non prise en charge.",
+        "empty": "Aucune couverture correspondante n’est disponible.",
+        "format": "La couverture ne propose pas de sortie GeoTIFF.",
+        "crs": "La couverture doit prendre en charge EPSG:4326 pour les requêtes et la sortie.",
+        "size": "Choisissez des dimensions de 1 à 4096 pixels. Les téléchargements sont limités à 128 Mo.",
+        "metadata": "Le service a renvoyé plus de métadonnées que GeoLibre ne peut charger. Les réponses de métadonnées sont limitées à 32 Mo.",
+        "response": "Le service n’a pas renvoyé de GeoTIFF valide.",
+        "bounds": "Entrez une zone valide : ouest/est entre -180 et 180, sud/nord entre -90 et 90, avec ouest < est et sud < nord.",
+        "url": "Entrez une URL de service WCS."
+      }
+    }
   },
   "offline": {
     "title": "Télécharger une zone hors ligne",
@@ -1941,6 +1979,7 @@
     "layerCesiumOnly": "Rendu par le globe 3D uniquement",
     "layerMapboxUnsupported": "Non rendu par le moteur Mapbox",
     "layerArcgisUnsupported": "Non rendu par le moteur ArcGIS",
+    "layerArcgisViewUnsupported": "Non rendu dans cette vue ArcGIS",
     "resetView": "Réinitialiser la vue",
     "scene3D": "Globe 3D",
     "scene2D": "Carte 2D",
@@ -2561,7 +2600,8 @@
       "czml": "Scène 3D dynamique CZML",
       "gltfModel": "Modèle 3D (glTF)",
       "postgres": "Couche PostgreSQL",
-      "iceberg": "Couche Apache Iceberg"
+      "iceberg": "Couche Apache Iceberg",
+      "wcs": "Couche WCS"
     },
     "conversion": {
       "vectorToVector": "Vecteur vers vecteur",
@@ -4672,6 +4712,10 @@
                 "inside": "Intérieur (réduire)",
                 "both": "Les deux côtés"
               }
+            },
+            "dissolve": {
+              "label": "Fusionner le résultat",
+              "description": "Fusionne les zones tampons en une seule entité et supprime les chevauchements entre elles. La forme fusionnée n'appartient à aucune entité en entrée : les attributs sont donc supprimés ; pour fusionner selon un attribut, exécutez l'outil Fusionner sur le résultat."
             }
           }
         },
@@ -7246,6 +7290,7 @@
     "saveEditsSuccess": "{{count}} entité(s) enregistrée(s) dans le fichier source.",
     "saveEditsNoFeatures": "Cette couche n'a aucune entité à enregistrer.",
     "saveEditsError": "Impossible d'enregistrer les modifications dans le fichier source.",
+    "pendingTableDraftsBlocked": "La table attributaire contient des modifications non enregistrées qui ne peuvent pas être appliquées. Corrigez-les ou annulez-les, puis réessayez.",
     "saveEditsToArcgis": "Enregistrer les modifications dans le service ArcGIS",
     "saveEditsArcgisSuccess": "Enregistré dans ArcGIS : {{inserted}} inséré(s), {{updated}} mis à jour, {{deleted}} supprimé(s).",
     "saveEditsToPostgis": "Enregistrer les modifications dans la table PostGIS",
@@ -7979,5 +8024,10 @@
     "catalogHuc12pp": "Exutoires HUC12",
     "catalogNmwdiSt": "Stations hydrologiques du Nouveau-Mexique",
     "catalogFlowlines": "Tronçons hydrographiques NHDPlus"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "Utilisez une URL tileset.json de 3D Tiles dans cette vue ArcGIS. Les tuiles Google Photorealistic et I3S nécessitent un autre moteur de rendu."
+    }
   }
 }

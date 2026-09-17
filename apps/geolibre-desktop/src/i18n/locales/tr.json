@@ -22,6 +22,7 @@
     "noMatches": "Eşleşme yok.",
     "addFailed": "Bu veri kaynağı eklenemedi.",
     "builtinBadge": "yerleşik",
+    "configBadge": "konfig",
     "newConnection": "Yeni {{kind}} bağlantısı",
     "loadingTables": "Tablolar yükleniyor…",
     "files": "Dosyalar",
@@ -359,6 +360,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "KML veya KMZ dosyalarını özgün stiller, kaplamalar ve ağ bağlantılarıyla küreye yükleyin."
+      },
+      "wcs": {
+        "description": "WCS 1.0.0 servisinden sayısal bir GeoTIFF alt kümesi yükleyin.",
+        "label": "WCS Katmanı"
       }
     },
     "shared": {
@@ -398,6 +403,7 @@
       "loadAria": "Kayıtlı bir servis yükle",
       "loadPlaceholder": "Kayıtlı bir servis yükle…",
       "builtin": "{{name}} (yerleşik)",
+      "config": "{{name}} (konfig)",
       "deleteAria": "Kayıtlı servisi sil",
       "empty": "Henüz kayıtlı servis yok — formu doldurun ve “Mevcut olanı kaydet”i seçin.",
       "name": "Ad",
@@ -966,7 +972,39 @@
       "modelTooLarge": "Bu model, bir projeye gömme için {{limit}} MB sınırından büyük. Bunun yerine bir sunucuda barındırıp URL ile ekleyin.",
       "modelFileError": "Bu model okunamadı. Geçerli bir glTF 2.0 veya GLB dosyası seçin."
     },
-    "nonGeographicCoordinates": "{{names}} içindeki koordinatlar boylam/enlem değil, bu yüzden haritaya hiçbir şey çizilmeyecek. CRS bilgisi yanlış — verileri yeniden projelendirin (veya .prj dosyasını düzeltin) ve tekrar yükleyin."
+    "nonGeographicCoordinates": "{{names}} içindeki koordinatlar boylam/enlem değil, bu yüzden haritaya hiçbir şey çizilmeyecek. CRS bilgisi yanlış — verileri yeniden projelendirin (veya .prj dosyasını düzeltin) ve tekrar yükleyin.",
+    "pmtiles": {
+      "errorUrl": "Geçerli bir HTTP veya HTTPS PMTiles URL’si girin.",
+      "errorMlt": "ArcGIS, MLT değil MVT vektör karoları gerektirir."
+    },
+    "zarr": {
+      "errorUrl": "Geçerli bir HTTP veya HTTPS Zarr URL’si girin.",
+      "errorColorLimits": "En yüksek renk sınırı en düşük sınırdan büyük olmalıdır."
+    },
+    "raster": {
+      "errorSource": "Bir GeoTIFF URL’si girin veya dosya seçin."
+    },
+    "wcs": {
+      "coverage": "Kapsam",
+      "retrieve": "Kapsamları getir",
+      "select": "Bir kapsam seçin",
+      "extent": "Kapsam sınırlarını kullan",
+      "width": "Genişlik (piksel)",
+      "height": "Yükseklik (piksel)",
+      "hint": "Seçilen piksel boyutlarında EPSG:4326 GeoTIFF indirir. Değerler yeniden örneklenebilir. İndirilen verileri korumak için rasteri kaydedin.",
+      "errors": {
+        "xml": "Servis geçersiz XML döndürdü.",
+        "version": "Bu kaynak WCS 1.0.0 gerektirir. Servis desteklenmeyen bir yanıt döndürdü.",
+        "empty": "Eşleşen kapsam bulunmuyor.",
+        "format": "Kapsam GeoTIFF çıktısı bildirmiyor.",
+        "crs": "Kapsam hem istekler hem de çıktı için EPSG:4326 desteklemelidir.",
+        "size": "1 ile 4096 piksel arasında boyutlar seçin. İndirmeler 128 MB ile sınırlıdır.",
+        "metadata": "Servis GeoLibre'nin yükleyebileceğinden daha fazla meta veri döndürdü. Meta veri yanıtları 32 MB ile sınırlıdır.",
+        "response": "Servis geçerli bir GeoTIFF döndürmedi.",
+        "bounds": "Geçerli bir kutu girin: batı/doğu -180 ile 180 arasında, güney/kuzey -90 ile 90 arasında, batı < doğu ve güney < kuzey olacak şekilde.",
+        "url": "Bir WCS servis URL'si girin."
+      }
+    }
   },
   "offline": {
     "title": "Çevrimdışı Alan İndir",
@@ -1941,6 +1979,7 @@
     "layerCesiumOnly": "Yalnızca 3B küre tarafından çiziliyor",
     "layerMapboxUnsupported": "Mapbox motoru tarafından çizilmiyor",
     "layerArcgisUnsupported": "ArcGIS motoru tarafından çizilmiyor",
+    "layerArcgisViewUnsupported": "Bu ArcGIS görünümünde çizilmiyor",
     "resetView": "Görünümü Sıfırla",
     "scene3D": "3B küre",
     "scene2D": "2B harita",
@@ -2561,7 +2600,8 @@
       "czml": "CZML Dinamik 3B Sahne",
       "gltfModel": "3D Model (glTF)",
       "postgres": "PostgreSQL Katmanı",
-      "iceberg": "Apache Iceberg Katmanı"
+      "iceberg": "Apache Iceberg Katmanı",
+      "wcs": "WCS Katmanı"
     },
     "conversion": {
       "vectorToVector": "Vektörden Vektöre",
@@ -4672,6 +4712,10 @@
                 "inside": "İç (küçült)",
                 "both": "Her iki taraf"
               }
+            },
+            "dissolve": {
+              "label": "Sonucu erit",
+              "description": "Tampon bölgeleri tek bir öğede birleştirir ve aralarındaki örtüşmeleri eritir. Birleştirilen şekil hiçbir girdi öğesine ait olmadığından öznitelikler atılır; bir özniteliğe göre eritmek için sonuç üzerinde Eritme aracını çalıştırın."
             }
           }
         },
@@ -7246,6 +7290,7 @@
     "saveEditsSuccess": "{{count}} öğe kaynak dosyaya kaydedildi.",
     "saveEditsNoFeatures": "Bu katmanda kaydedilecek öğe yok.",
     "saveEditsError": "Düzenlemeler kaynak dosyaya kaydedilemedi.",
+    "pendingTableDraftsBlocked": "Öznitelik tablosunda uygulanamayan kaydedilmemiş düzenlemeler var. Bunları düzeltin veya iptal edin, ardından yeniden deneyin.",
     "saveEditsToArcgis": "Düzenlemeleri ArcGIS servisine kaydet",
     "saveEditsArcgisSuccess": "ArcGIS hizmetine kaydedildi: {{inserted}} eklendi, {{updated}} güncellendi, {{deleted}} silindi.",
     "saveEditsToPostgis": "Düzenlemeleri PostGIS tablosuna kaydet",
@@ -7979,5 +8024,10 @@
     "catalogHuc12pp": "HUC12 çıkış noktaları",
     "catalogNmwdiSt": "New Mexico su istasyonları",
     "catalogFlowlines": "NHDPlus akış hatları"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "Bu ArcGIS görünümünde bir 3D Tiles tileset.json URL’si kullanın. Google Photorealistic ve I3S karoları başka bir işleme motoru gerektirir."
+    }
   }
 }

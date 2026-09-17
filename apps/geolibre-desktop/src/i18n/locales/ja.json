@@ -22,6 +22,7 @@
     "noMatches": "一致する項目がありません。",
     "addFailed": "このデータソースを追加できませんでした。",
     "builtinBadge": "ビルトイン",
+    "configBadge": "コンフィグ",
     "newConnection": "新しい{{kind}}接続",
     "loadingTables": "テーブルを読み込んでいます…",
     "files": "ファイル",
@@ -357,6 +358,10 @@
       "kml": {
         "label": "KML / KMZ",
         "description": "元のスタイル、オーバーレイ、ネットワークリンクを保持して KML または KMZ を地球儀に読み込みます。"
+      },
+      "wcs": {
+        "description": "WCS 1.0.0サービスから数値GeoTIFFのサブセットを読み込みます。",
+        "label": "WCSレイヤー"
       }
     },
     "shared": {
@@ -396,6 +401,7 @@
       "loadAria": "保存済みサービスを読み込む",
       "loadPlaceholder": "保存済みサービスを読み込む…",
       "builtin": "{{name}} (ビルトイン)",
+      "config": "{{name}} (コンフィグ)",
       "deleteAria": "保存済みサービスを削除",
       "empty": "保存済みサービスはまだありません。フォームに入力して「現在の設定を保存」を選択してください。",
       "name": "名前",
@@ -945,7 +951,39 @@
       "modelTooLarge": "このモデルはプロジェクトに埋め込める上限の {{limit}} MB を超えています。サーバーにホストしてURLで追加してください。",
       "modelFileError": "このモデルを読み込めませんでした。有効なglTF 2.0またはGLBファイルを選択してください。"
     },
-    "nonGeographicCoordinates": "{{names}} の座標は経緯度ではないため、地図には何も描画されません。CRS が誤って記録されています — データを再投影する（または .prj を修正する）と読み込み直してください。"
+    "nonGeographicCoordinates": "{{names}} の座標は経緯度ではないため、地図には何も描画されません。CRS が誤って記録されています — データを再投影する（または .prj を修正する）と読み込み直してください。",
+    "pmtiles": {
+      "errorUrl": "有効なHTTPまたはHTTPSのPMTiles URLを入力してください。",
+      "errorMlt": "ArcGISにはMLTではなくMVTベクタータイルが必要です。"
+    },
+    "zarr": {
+      "errorUrl": "有効なHTTPまたはHTTPSのZarr URLを入力してください。",
+      "errorColorLimits": "色の上限値は下限値より大きくしてください。"
+    },
+    "raster": {
+      "errorSource": "GeoTIFF の URL を入力するか、ファイルを選択してください。"
+    },
+    "wcs": {
+      "coverage": "カバレッジ",
+      "retrieve": "カバレッジを取得",
+      "select": "カバレッジを選択",
+      "extent": "カバレッジの範囲を使用",
+      "width": "幅（ピクセル）",
+      "height": "高さ（ピクセル）",
+      "hint": "指定したピクセル数でEPSG:4326のGeoTIFFをダウンロードします。値はリサンプリングされる場合があります。ダウンロードしたデータを保持するにはラスターを保存してください。",
+      "errors": {
+        "xml": "サービスが無効なXMLを返しました。",
+        "version": "このデータソースにはWCS 1.0.0が必要です。サービスが未対応の応答を返しました。",
+        "empty": "一致するカバレッジはありません。",
+        "format": "カバレッジはGeoTIFF出力を提供していません。",
+        "crs": "カバレッジはリクエストと出力の両方でEPSG:4326をサポートする必要があります。",
+        "size": "1〜4096ピクセルの寸法を選択してください。ダウンロードは128 MBまでです。",
+        "metadata": "サービスが GeoLibre で読み込める量を超えるメタデータを返しました。メタデータの応答は 32 MB までです。",
+        "response": "サービスが有効なGeoTIFFを返しませんでした。",
+        "bounds": "有効な範囲を入力してください: 西/東は−180〜180、南/北は−90〜90で、西<東かつ南<北とします。",
+        "url": "WCSサービスのURLを入力してください。"
+      }
+    }
   },
   "offline": {
     "title": "オフラインエリアをダウンロード",
@@ -1895,6 +1933,7 @@
     "layerCesiumOnly": "3D地球儀でのみ描画されます",
     "layerMapboxUnsupported": "Mapboxエンジンでは描画されません",
     "layerArcgisUnsupported": "ArcGISエンジンでは描画されません",
+    "layerArcgisViewUnsupported": "この ArcGIS ビューでは描画されません",
     "resetView": "表示をリセット",
     "scene3D": "3D地球儀",
     "scene2D": "2D地図",
@@ -2513,7 +2552,8 @@
       "czml": "CZML動的3Dシーン",
       "gltfModel": "3Dモデル (glTF)",
       "postgres": "PostgreSQLレイヤー",
-      "iceberg": "Apache Iceberg レイヤー"
+      "iceberg": "Apache Iceberg レイヤー",
+      "wcs": "WCSレイヤー"
     },
     "conversion": {
       "vectorToVector": "ベクターからベクターへ",
@@ -4599,6 +4639,10 @@
                 "inside": "内側 (縮小)",
                 "both": "両側"
               }
+            },
+            "dissolve": {
+              "label": "結果をディゾルブ",
+              "description": "バッファを 1 つのフィーチャに統合し、重なりをディゾルブします。統合後の形状はどの入力フィーチャにも属さないため、属性は破棄されます。属性ごとにディゾルブする場合は、結果に対してディゾルブツールを実行してください。"
             }
           }
         },
@@ -7165,6 +7209,7 @@
     "saveEditsSuccess": "{{count}}件のフィーチャを元ファイルに保存しました。",
     "saveEditsNoFeatures": "このレイヤーには保存するフィーチャがありません。",
     "saveEditsError": "編集内容を元ファイルに保存できませんでした。",
+    "pendingTableDraftsBlocked": "属性テーブルに適用できない未保存の編集があります。修正またはキャンセルしてから、もう一度お試しください。",
     "saveEditsToArcgis": "編集内容をArcGISサービスに保存",
     "saveEditsArcgisSuccess": "ArcGISに保存しました: 挿入{{inserted}}件、更新{{updated}}件、削除{{deleted}}件。",
     "saveEditsToPostgis": "編集内容をPostGISテーブルに保存",
@@ -7892,5 +7937,10 @@
     "catalogHuc12pp": "HUC12流出点",
     "catalogNmwdiSt": "ニューメキシコ州の水文観測地点",
     "catalogFlowlines": "NHDPlus流路"
+  },
+  "plugin": {
+    "3d-tiles": {
+      "arcgisSourceUnsupported": "この ArcGIS ビューでは 3D Tiles の tileset.json URL を使用してください。Google Photorealistic と I3S のタイルには別のレンダラーが必要です。"
+    }
   }
 }
