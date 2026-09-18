@@ -3069,6 +3069,7 @@
       "maplibre-gl-esri-wayback": "ისტორიული სურათები",
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
+      "geolibre-osm-downloader": "OSM ჩამომტვირთველი",
       "geolibre-stac-catalogs": "STAC კატალოგები",
       "geolibre-planet-open-data": "Planet-ის ღია მონაცემები",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -8028,6 +8029,37 @@
   "plugin": {
     "3d-tiles": {
       "arcgisSourceUnsupported": "ArcGIS-ის ამ ხედში გამოიყენეთ 3D Tiles-ის tileset.json URL. Google Photorealistic და I3S ფილებისთვის საჭიროა სხვა რენდერის ძრავა."
+    },
+    "geolibre-osm-downloader": {
+      "title": "OSM ჩამოტვირთვა",
+      "hint": "OpenStreetMap ობიექტების ჩამოტვირთვა მიმდინარე რუკის არეალიდან საჯარო Overpass API-ს მეშვეობით.",
+      "attribution": "მონაცემები © OpenStreetMap მონაწილეები, ხელმისაწვდომია ODbL-ის ფარგლებში.",
+      "featureType": "ობიექტის ტიპი",
+      "presetBuildings": "შენობები",
+      "presetRoads": "გზები",
+      "presetAmenities": "სერვისები",
+      "presetWaterways": "წყლის ობიექტები",
+      "presetLanduse": "მიწის გამოყენება",
+      "presetCustom": "მორგებული ტეგი",
+      "presetAll": "ყველა მონიშნული ობიექტი",
+      "tagKey": "ტეგის გასაღები",
+      "tagValue": "ტეგის მნიშვნელობა",
+      "tagKeyPlaceholder": "მაგ. shop",
+      "tagValuePlaceholder": "არასავალდებულო, მაგ. bakery",
+      "west": "დასავლეთი",
+      "south": "სამხრეთი",
+      "east": "აღმოსავლეთი",
+      "north": "ჩრდილოეთი",
+      "useMapExtent": "რუკის არეალის გამოყენება",
+      "download": "OSM მონაცემების ჩამოტვირთვა",
+      "ready": "აირჩიეთ არეალი და ობიექტის ტიპი.",
+      "exportGeoJson": "GeoJSON-ის შენახვა",
+      "mapUnavailable": "რუკის არეალი ჯერ არ არის ხელმისაწვდომი.",
+      "extentApplied": "რუკის არეალი გამოყენებულია.",
+      "downloading": "OpenStreetMap-დან ჩამოტვირთვა…",
+      "noFeatures": "ამ არეალში შესაბამისი ობიექტები ვერ მოიძებნა.",
+      "error": "OSM მონაცემების ჩამოტვირთვა ვერ მოხერხდა: {{message}}",
+      "added": "{{count}} ობიექტი დაემატა რუკას."
     }
   }
 }

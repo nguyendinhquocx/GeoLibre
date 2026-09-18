@@ -303,8 +303,10 @@ export { colormapColors, normalizeRampColor, warmColormapColors } from "./plugin
 export { setTerrainMeasureBodyNames, setTerrainMeasureLabels } from "./plugins/terrain-measure";
 export {
   addVectorLayerFromUrl,
+  addVectorFileToMap,
   closeVectorLayerPanel,
   getVectorLayerPropertyValues,
+  getVectorLayerGeoJSON,
   materializeEmbeddableVectorLayers,
   openVectorLayerPanel,
   reloadVectorControlLayer,
@@ -512,6 +514,22 @@ export {
   type OpenAerialMapLabels,
 } from "./plugins/maplibre-openaerialmap";
 export {
+  maplibreOsmDownloaderPlugin,
+  OSM_DOWNLOADER_PLUGIN_ID,
+} from "./plugins/maplibre-osm-downloader";
+export {
+  buildOsmDownloadQuery,
+  downloadOsmGeoJson,
+  escapeOverpassString,
+  overpassJsonToGeoJson,
+  OVERPASS_DEFAULT_ENDPOINT,
+  type OsmDownloadFilter,
+  type OsmDownloadPreset,
+  type OverpassElement,
+  type OverpassFetch,
+  type OverpassResponse,
+} from "./plugins/osm-downloader-api";
+export {
   ARCGIS_HUB_PLUGIN_ID,
   DEFAULT_ARCGIS_HUB_LABELS,
   maplibreArcGisHubPlugin,
@@ -609,9 +627,13 @@ export {
   DEFAULT_GEOLENS_FEATURE_LIMIT,
   GEOLENS_FEATURES_SOURCE_KIND,
   GEOLENS_PLUGIN_ID,
+  GEOLENS_SERVER_URL_STORAGE_KEY,
   GEOLENS_SAMPLE_SERVERS,
   maplibreGeoLensPlugin,
   normalizeGeoLensFeatureLimit,
+  readSavedGeoLensServerUrl,
+  resolveGeoLensInitialServerUrl,
+  setGeoLensDefaultServerUrl,
   setGeoLensLabels,
   type GeoLensLabels,
   type GeoLensSampleServer,

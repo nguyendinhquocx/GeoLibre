@@ -6,6 +6,7 @@ import { getLayerBounds, MapCanvas, setExternalDeckLayerOrderHandler } from "@ge
 import { useTranslation } from "react-i18next";
 import {
   addRasterToMap,
+  addVectorFileToMap,
   prepareRasterControl,
   applyRasterLayerOrder,
   applyStacSearchLayerOrder,
@@ -95,8 +96,10 @@ import {
   loadDroppedVectorFiles,
   loadDroppedVectorPaths,
   readLocalFileText,
+  readLocalFileBytes,
   type DroppedRaster,
 } from "../../lib/tauri-io";
+import { importGeoPackageDrops } from "../../lib/geopackage-drop";
 import { buildKmlModelLayer } from "../../lib/kml-model-layer";
 import { PLANET_SWITCHER_LABEL_KEYS } from "../../lib/planet-labels";
 import { isPhotoDropFileName, type GeotaggedPhotoResult } from "../../lib/geotagged-photos";
@@ -1792,8 +1795,8 @@ export function DesktopShell({
   );
 
   const finishDrop = useCallback(
-    (importedLayers: ImportedVectorLayer[], rasterCount: number) => {
-      if (!importedLayers.length && !rasterCount) {
+    (importedLayers: ImportedVectorLayer[], rasterCount: number, containerCount = 0) => {
+      if (!importedLayers.length && !rasterCount && !containerCount) {
         throw new Error("Drop a supported vector or raster file.");
       }
       if (importedLayers.length) addImportedVectorLayers(importedLayers);
@@ -1801,7 +1804,7 @@ export function DesktopShell({
       // so the confirmation echoes what the user just added, instead of a bare
       // count that can read like "nothing happened" while the source panel
       // stays open (opengeos/GeoLibre#666).
-      if (importedLayers.length === 1 && !rasterCount) {
+      if (importedLayers.length === 1 && !rasterCount && !containerCount) {
         const only = importedLayers[0];
         // `||` (not `??`) so an empty-string name also falls back to the path.
         setDropMessage(
@@ -1815,19 +1818,20 @@ export function DesktopShell({
       // order and the connector inside the translation catalog. The mixed
       // case composes two independently pluralized noun phrases into its
       // sentence, since one i18next key can pluralize only a single count.
+      const vectorCount = importedLayers.length + containerCount;
       setDropMessage(
-        importedLayers.length && rasterCount
+        vectorCount && rasterCount
           ? t("toolbar.fileDrop.addedBoth", {
               vector: t("toolbar.fileDrop.bothVectorLayers", {
-                count: importedLayers.length,
+                count: vectorCount,
               }),
               raster: t("toolbar.fileDrop.bothRasterLayers", {
                 count: rasterCount,
               }),
             })
-          : importedLayers.length
+          : vectorCount
             ? t("toolbar.fileDrop.addedVectorLayers", {
-                count: importedLayers.length,
+                count: vectorCount,
               })
             : t("toolbar.fileDrop.addedRasterLayers", { count: rasterCount }),
       );
@@ -1982,7 +1986,16 @@ export function DesktopShell({
 
             if (restPaths.length > 0) {
               const rasterCount = await addDroppedRasters(await loadDroppedRasterPaths(restPaths));
-              const importedLayers = await loadDroppedVectorPaths(restPaths, {
+              const containers = await importGeoPackageDrops(restPaths, {
+                readPath: readLocalFileBytes,
+                addFile: (file, sourcePath) =>
+                  addVectorFileToMap(createAppAPI(mapControllerRef), file, { sourcePath }),
+                onError: (name, error) =>
+                  setDropError(
+                    `${name}: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+              });
+              const importedLayers = await loadDroppedVectorPaths(containers.remaining, {
                 onLargeDataset: confirmLargeVectorDataset,
               });
               // See the browser handler: skip finishDrop's empty-input error
@@ -1992,9 +2005,12 @@ export function DesktopShell({
               if (
                 importedLayers.length > 0 ||
                 rasterCount > 0 ||
-                (pbfPaths.length === 0 && photoResult === null)
+                containers.layerCount > 0 ||
+                (pbfPaths.length === 0 && photoResult === null && containers.count === 0)
               ) {
-                finishDrop(importedLayers, rasterCount);
+                finishDrop(importedLayers, rasterCount, containers.layerCount);
+              } else if (pbfPaths.length === 0 && photoResult === null) {
+                setDropMessage(null);
               }
             }
           } catch (error) {
@@ -2167,7 +2183,16 @@ export function DesktopShell({
 
         if (restFiles.length > 0) {
           const rasterCount = await addDroppedRasters(loadDroppedRasterFiles(restFiles));
-          const importedLayers = await loadDroppedVectorFiles(restFiles, {
+          // Use the Add Data control so containers share its layer picker,
+          // per-table source metadata, and grouped import behavior.
+          const containers = await importGeoPackageDrops(restFiles, {
+            readPath: readLocalFileBytes,
+            addFile: (file, sourcePath) =>
+              addVectorFileToMap(createAppAPI(mapControllerRef), file, { sourcePath }),
+            onError: (name, error) =>
+              setDropError(`${name}: ${error instanceof Error ? error.message : String(error)}`),
+          });
+          const importedLayers = await loadDroppedVectorFiles(containers.remaining, {
             onLargeDataset: confirmLargeVectorDataset,
           });
           // Call finishDrop (which reports success or throws the empty-input
@@ -2181,9 +2206,12 @@ export function DesktopShell({
           if (
             importedLayers.length > 0 ||
             rasterCount > 0 ||
-            (pbfFiles.length === 0 && photoResult === null)
+            containers.layerCount > 0 ||
+            (pbfFiles.length === 0 && photoResult === null && containers.count === 0)
           ) {
-            finishDrop(importedLayers, rasterCount);
+            finishDrop(importedLayers, rasterCount, containers.layerCount);
+          } else if (pbfFiles.length === 0 && photoResult === null) {
+            setDropMessage(null);
           }
         }
       } catch (error) {

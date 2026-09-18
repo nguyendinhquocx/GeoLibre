@@ -3069,6 +3069,7 @@
       "maplibre-gl-esri-wayback": "Imágenes históricas",
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
+      "geolibre-osm-downloader": "Descargador de OSM",
       "geolibre-stac-catalogs": "Catálogos STAC",
       "geolibre-planet-open-data": "Datos abiertos de Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -8028,6 +8029,37 @@
   "plugin": {
     "3d-tiles": {
       "arcgisSourceUnsupported": "Utilice una URL tileset.json de 3D Tiles en esta vista de ArcGIS. Las teselas Google Photorealistic e I3S requieren otro motor de renderizado."
+    },
+    "geolibre-osm-downloader": {
+      "title": "Descargador de OSM",
+      "hint": "Descargue características de OpenStreetMap desde el área actual del mapa utilizando la API pública de Overpass.",
+      "attribution": "Datos © Contribuyentes de OpenStreetMap, disponibles bajo la ODbL.",
+      "featureType": "Tipo de característica",
+      "presetBuildings": "Edificios",
+      "presetRoads": "Carreteras",
+      "presetAmenities": "Servicios",
+      "presetWaterways": "Canales",
+      "presetLanduse": "Uso del suelo",
+      "presetCustom": "Etiqueta personalizada",
+      "presetAll": "Todas las características etiquetadas",
+      "tagKey": "Clave de etiqueta",
+      "tagValue": "Valor de etiqueta",
+      "tagKeyPlaceholder": "ej. tienda",
+      "tagValuePlaceholder": "opcional, ej. panadería",
+      "west": "Oeste",
+      "south": "Sur",
+      "east": "Este",
+      "north": "Norte",
+      "useMapExtent": "Usar extensión del mapa",
+      "download": "Descargar datos OSM",
+      "ready": "Elige un área y tipo de característica.",
+      "exportGeoJson": "Guardar GeoJSON",
+      "mapUnavailable": "La extensión del mapa aún no está disponible.",
+      "extentApplied": "Extensión del mapa aplicada.",
+      "downloading": "Descargando desde OpenStreetMap…",
+      "noFeatures": "No se encontraron elementos coincidentes en esta área.",
+      "error": "No se pudo descargar los datos de OSM: {{message}}",
+      "added": "Añadidos {{count}} elementos al mapa."
     }
   }
 }

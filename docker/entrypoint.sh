@@ -353,7 +353,7 @@ def service_url(name, value, schemes, loopback_schemes, loopback_hosts):
     # ws://localhost:8080"; ... with hostname "localhost", which would match the
     # loopback allowlist while netloc still carried the rest.
     #
-    # Credentials: both values are echoed to stdout further down, so a credentialed
+    # Service URLs are echoed to stdout further down, so a credentialed
     # URL would also land in the container logs.
     if parsed.username or parsed.password:
         raise SystemExit(f"ERROR: {name} must not embed credentials.")
@@ -448,6 +448,29 @@ if collab_url:
         "GEOLIBRE_COLLAB_URL", collab_url, ("wss",), ("ws",), ("localhost", "127.0.0.1", "::1")
     )
 
+# Default GeoLens catalog. Unset lets the plugin try the browser origin, which
+# is the zero-config path when GeoLibre and GeoLens share a reverse proxy.
+geolens_url = os.environ.get("GEOLIBRE_GEOLENS_URL", "").strip()
+if geolens_url:
+    geolens_setting = geolens_url.lower()
+    if geolens_setting in ("off", "same-origin"):
+        deployment["VITE_GEOLENS_DEFAULT_URL"] = geolens_setting
+    else:
+        if re.fullmatch(r"[A-Za-z0-9.-]+(?::[0-9]+)?(?:/.*)?", geolens_url):
+            geolens_url = f"https://{geolens_url}"
+        parsed_geolens_url = urlsplit(geolens_url)
+        if parsed_geolens_url.query or parsed_geolens_url.fragment:
+            raise SystemExit(
+                "ERROR: GEOLIBRE_GEOLENS_URL must not include query parameters or a fragment."
+            )
+        deployment["VITE_GEOLENS_DEFAULT_URL"] = service_url(
+            "GEOLIBRE_GEOLENS_URL",
+            geolens_url,
+            ("https",),
+            ("http",),
+            ("localhost", "127.0.0.1", "::1"),
+        )
+
 with open("/usr/share/nginx/html/geolibre-runtime-config.js", "w") as output:
     output.write("window.__GEOLIBRE_DEPLOYMENT_ENV__ = ")
     json.dump(deployment, output, separators=(",", ":"))
@@ -477,6 +500,14 @@ fi
 
 if [ -n "$(trim "${GEOLIBRE_COLLAB_URL:-}")" ]; then
   echo "Collaboration relay: $(trim "$GEOLIBRE_COLLAB_URL")"
+fi
+
+if [ -n "$(trim "${GEOLIBRE_GEOLENS_URL:-}")" ]; then
+  GEOLENS_URL_LOG=$(trim "$GEOLIBRE_GEOLENS_URL")
+  case "$GEOLENS_URL_LOG" in
+    [oO][fF][fF]) echo "GeoLens disabled (GEOLIBRE_GEOLENS_URL=off)." ;;
+    *) echo "GeoLens server: $GEOLENS_URL_LOG" ;;
+  esac
 fi
 
 if [ -n "$(trim "${GEOLIBRE_NASA_OPERA_NEWS_PROXY_ENDPOINT:-}")" ]; then

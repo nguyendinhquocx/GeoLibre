@@ -1788,11 +1788,21 @@ function prepareLayerForSave(layer: GeoLibreLayer): GeoLibreLayer {
   const metadata = { ...layer.metadata };
   delete metadata.resolvedUrl;
 
+  // The collapse below rewinds a resolved short URL (or a desktop protocol URL)
+  // back to what the user typed, because those tile URLs are not portable. A
+  // TileJSON layer is the exception: `tiles` holds the document's own https
+  // templates, which are portable, while its `originalUrl` is the *document*
+  // URL and carries no {z}/{x}/{y}. Collapsing onto it would leave the saved
+  // layer unable to request a tile until a re-fetch succeeds — and
+  // `resolveProjectXyzLayers` keeps the on-disk layer when the document is
+  // unreachable, so an offline reopen would strand it. Rewind only `url`.
+  const tiles = typeof layer.metadata.tilejsonUrl === "string" ? {} : { tiles: [originalUrl] };
+
   return {
     ...layer,
     source: {
       ...layer.source,
-      tiles: [originalUrl],
+      ...tiles,
       url: originalUrl,
     },
     metadata,
