@@ -33,6 +33,27 @@ import {
 
 /** A minimal Cesium namespace: just what the camera path touches. */
 function makeCesium() {
+  const screenSpaceHandlers = new Set<{
+    actions: Map<unknown, (event: unknown) => void>;
+    destroyed: boolean;
+  }>();
+  class ScreenSpaceEventHandler {
+    actions = new Map<unknown, (event: unknown) => void>();
+    destroyed = false;
+    constructor(_canvas: unknown) {
+      screenSpaceHandlers.add(this);
+    }
+    setInputAction(action: (event: unknown) => void, type: unknown) {
+      this.actions.set(type, action);
+    }
+    isDestroyed() {
+      return this.destroyed;
+    }
+    destroy() {
+      this.destroyed = true;
+      screenSpaceHandlers.delete(this);
+    }
+  }
   class Cartesian2 {
     constructor(
       public x: number,
@@ -87,6 +108,11 @@ function makeCesium() {
     Cartographic,
     HeadingPitchRange,
     BoundingSphere,
+    ScreenSpaceEventHandler,
+    ScreenSpaceEventType: { LEFT_CLICK: "left-click" },
+    fireScreenSpace: (type: unknown, event: unknown) => {
+      for (const handler of screenSpaceHandlers) handler.actions.get(type)?.(event);
+    },
     Ellipsoid: { WGS84: { name: "wgs84" } },
     Matrix4: { IDENTITY: "identity" },
     Rectangle: {
@@ -158,6 +184,7 @@ function makeViewer(groundHeight = 0) {
   };
   const state = { lng: 0, lat: 0, range: 1000, heading: 0, pitch: -Math.PI / 2 };
   const lookAtCount = { n: 0 };
+  const postRender = new Set<() => void>();
   const viewer = {
     isDestroyed: () => false,
     canvas,
@@ -210,6 +237,15 @@ function makeViewer(groundHeight = 0) {
       // the scene mid-morph (or in 2D) the way the scene-mode picker does.
       mode: 3,
       morphComplete,
+      // applyView waits on the next rendered frame; Cesium's Event returns
+      // the remover from addEventListener, so the fake does too.
+      postRender: {
+        addEventListener: (fn: () => void) => {
+          postRender.add(fn);
+          return () => postRender.delete(fn);
+        },
+      },
+      requestRender: () => {},
       verticalExaggeration: 1,
       screenSpaceCameraController: {
         minimumZoomDistance: 0,
@@ -287,6 +323,24 @@ function makeViewer(groundHeight = 0) {
 const VIEW: MapViewState = { center: [0, 0], zoom: 4, bearing: 0, pitch: 0 };
 
 describe("CesiumEngine capabilities", () => {
+  it("publishes geographic globe clicks and removes the listener on cleanup", () => {
+    const C = makeCesium();
+    const fakes = makeViewer();
+    const engine = new CesiumEngine(C, fakes.viewer);
+    const clicks: [number, number][] = [];
+    const unsubscribe = engine.onMapClick((lngLat) => clicks.push(lngLat));
+    const fire = (C as unknown as { fireScreenSpace(type: unknown, event: unknown): void })
+      .fireScreenSpace;
+
+    fire(C.ScreenSpaceEventType.LEFT_CLICK, { position: { x: 10, y: 20 } });
+    assert.deepEqual(clicks, [[0, 0]]);
+
+    unsubscribe();
+    fire(C.ScreenSpaceEventType.LEFT_CLICK, { position: { x: 30, y: 40 } });
+    assert.deepEqual(clicks, [[0, 0]]);
+    engine.destroy();
+  });
+
   it("declares the globe's real surface, and freezes it", () => {
     assert.equal(CESIUM_CAPABILITIES.terrain, true);
     assert.equal(CESIUM_CAPABILITIES.styleSpec, false);

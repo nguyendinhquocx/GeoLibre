@@ -718,7 +718,7 @@ export function DesktopShell({
   const handleKnowledgeFlyTo = useCallback((lat: number, lon: number) => {
     mapControllerRef.current?.flyTo({
       center: [lon, lat],
-      zoom: Math.max(mapControllerRef.current?.getMap()?.getZoom() ?? 12, 14),
+      zoom: Math.max(mapControllerRef.current?.readView().zoom ?? 12, 14),
     });
   }, []);
   // The COG/WMS/XYZ layer whose bounding-box subset is being extracted in the
@@ -940,8 +940,12 @@ export function DesktopShell({
   // Live-collaboration session. Owned here (rather than in TopToolbar) so both
   // the Collaborate dialog and the on-canvas status badge share one socket, and
   // so the dialog stays mounted in toolbar-hidden layouts.
-  const collaboration = useCollaboration(mapControllerRef);
-  const commentTool = useCommentTool({ mapControllerRef, collaboration, mapReadyGeneration });
+  const collaboration = useCollaboration(mapControllerRef, mapReadyGeneration);
+  const commentTool = useCommentTool({
+    mapControllerRef,
+    collaboration,
+    mapReadyGeneration,
+  });
   const [showResolvedComments, setShowResolvedComments] = useState(false);
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
   const collaborateDialogOpen = useAppStore((s) => s.ui.collaborateDialogOpen);
@@ -1328,10 +1332,8 @@ export function DesktopShell({
     // has already deactivated it and this only detaches the engine.
     reattachRouteAnimation(appAPI);
     if (!engine.capabilities.nativeMapInstance) {
-      if (engine.kind === "arcgis") {
-        restoreRasterLayers(appAPI);
-        restoreArcgisZarrLayers();
-      }
+      if (engine.kind === "mapbox" || engine.kind === "arcgis") restoreRasterLayers(appAPI);
+      if (engine.kind === "arcgis") restoreArcgisZarrLayers();
       void restoreLocalFileLayers();
       return;
     }
@@ -1989,7 +1991,9 @@ export function DesktopShell({
               const containers = await importGeoPackageDrops(restPaths, {
                 readPath: readLocalFileBytes,
                 addFile: (file, sourcePath) =>
-                  addVectorFileToMap(createAppAPI(mapControllerRef), file, { sourcePath }),
+                  addVectorFileToMap(createAppAPI(mapControllerRef), file, {
+                    sourcePath,
+                  }),
                 onError: (name, error) =>
                   setDropError(
                     `${name}: ${error instanceof Error ? error.message : String(error)}`,
@@ -2188,7 +2192,9 @@ export function DesktopShell({
           const containers = await importGeoPackageDrops(restFiles, {
             readPath: readLocalFileBytes,
             addFile: (file, sourcePath) =>
-              addVectorFileToMap(createAppAPI(mapControllerRef), file, { sourcePath }),
+              addVectorFileToMap(createAppAPI(mapControllerRef), file, {
+                sourcePath,
+              }),
             onError: (name, error) =>
               setDropError(`${name}: ${error instanceof Error ? error.message : String(error)}`),
           });
@@ -2700,8 +2706,10 @@ export function DesktopShell({
                   available under either engine. */}
               {primaryRenderer === "mapbox" ? (
                 <PrimaryMapboxCanvas
+                  canUseRemoteElevation={hasElevationConsent}
                   engineRef={mapControllerRef}
                   onEngineReady={handleMapControllerReady}
+                  onMapDiagnosticEvent={handleMapDiagnosticEvent}
                 />
               ) : primaryRenderer === "arcgis" ? (
                 <PrimaryArcgisCanvas
@@ -2723,35 +2731,6 @@ export function DesktopShell({
                     onMapDiagnosticEvent={handleMapDiagnosticEvent}
                     onControllerReady={handleMapControllerReady}
                   />
-                  <RemoteCursorsOverlay mapControllerRef={mapControllerRef} />
-                  <CommentMapOverlay
-                    mapControllerRef={mapControllerRef}
-                    onSelectComment={(commentId) => {
-                      setSelectedCommentId(commentId);
-                      openRightPanel(COMMENTS_PANEL_ID);
-                    }}
-                    showResolved={showResolvedComments}
-                  />
-                  <MapContextMenu
-                    mapControllerRef={mapControllerRef}
-                    mapReadyGeneration={mapReadyGeneration}
-                    onExplorePlace={handleExplorePlace}
-                  />
-                  <KnowledgeCardPanel
-                    place={knowledgePlace}
-                    lang={wikipediaLang(i18n.language)}
-                    onClose={() => setKnowledgePlace(null)}
-                    onFlyTo={handleKnowledgeFlyTo}
-                  />
-                  {/* Isolate the collaboration badge in its own boundary: it renders
-                  over the map, so a fault here must never take down the map
-                  itself (it shares this subtree's error boundary otherwise). */}
-                  <SilentErrorBoundary label="Collaboration status">
-                    <CollaborationStatusBadge
-                      api={collaboration}
-                      mapControllerRef={mapControllerRef}
-                    />
-                  </SilentErrorBoundary>
                   <MapModeBanner mapControllerRef={mapControllerRef} />
                   <PixelTimeSeriesControl mapControllerRef={mapControllerRef} />
                   <NetcdfSampleMarkers
@@ -2766,21 +2745,53 @@ export function DesktopShell({
                     <NetcdfCubeWindow mapControllerRef={mapControllerRef} />
                   </SilentErrorBoundary>
                   <NetcdfCubeSetupDialog mapControllerRef={mapControllerRef} />
-                  <MapLegendPanel
-                    mapControllerRef={mapControllerRef}
-                    mapReadyGeneration={mapReadyGeneration}
-                  />
                   <Suspense fallback={null}>
                     <ObjectDetectionDialog mapControllerRef={mapControllerRef} />
                   </Suspense>
                   <Suspense fallback={null}>
                     <SegmentEverythingPanel mapControllerRef={mapControllerRef} />
                   </Suspense>
-                  <StoryMapComposeBar mapControllerRef={mapControllerRef} />
                 </>
               )}
-              {/* Renderer-neutral: these read the store rather than a
-                  `MapController`, so they stay available on the 3D globe. */}
+              {/* Renderer-neutral: these use the store or `MapEngine`, so they
+                  stay available on every renderer. */}
+              <RemoteCursorsOverlay
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
+              <CommentMapOverlay
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+                onSelectComment={(commentId) => {
+                  setSelectedCommentId(commentId);
+                  openRightPanel(COMMENTS_PANEL_ID);
+                }}
+                showResolved={showResolvedComments}
+              />
+              {/* Isolate the collaboration badge in its own boundary: it renders
+                  over the map, so a fault here must never take down the map. */}
+              <SilentErrorBoundary label="Collaboration status">
+                <CollaborationStatusBadge api={collaboration} mapControllerRef={mapControllerRef} />
+              </SilentErrorBoundary>
+              <MapLegendPanel
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
+              <MapContextMenu
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+                onExplorePlace={handleExplorePlace}
+              />
+              <KnowledgeCardPanel
+                place={knowledgePlace}
+                lang={wikipediaLang(i18n.language)}
+                onClose={() => setKnowledgePlace(null)}
+                onFlyTo={handleKnowledgeFlyTo}
+              />
+              <StoryMapComposeBar
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
               <TerrainSettingsDialog mapControllerRef={mapControllerRef} />
               <RasterSubsetPanel
                 layer={rasterSubsetLayer}
@@ -3129,7 +3140,10 @@ export function DesktopShell({
         <SegmentationDialog mapControllerRef={mapControllerRef} />
       </Suspense>
       <StoryMapPanel mapControllerRef={mapControllerRef} />
-      <StoryMapPresenter mapControllerRef={mapControllerRef} />
+      <StoryMapPresenter
+        mapControllerRef={mapControllerRef}
+        mapReadyGeneration={mapReadyGeneration}
+      />
       <div
         ref={verticalResizeGuideRef}
         className="pointer-events-none fixed bottom-7 top-11 z-50 hidden w-px bg-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"

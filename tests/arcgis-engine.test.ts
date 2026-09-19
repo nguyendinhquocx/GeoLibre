@@ -45,6 +45,7 @@ function makeSdk() {
   const widgets: { kind: string; props: Record<string, unknown>; destroyed: boolean }[] = [];
   const goTo: unknown[] = [];
   let watchers: (() => void)[] = [];
+  const viewHandlers = new Map<string, Set<(event: Record<string, unknown>) => void>>();
   const syncWatchers = new Set<() => void>();
   const layerClass = (kind: string) =>
     class {
@@ -215,7 +216,12 @@ function makeSdk() {
     toMap: (p: { x: number; y: number }) => ({ longitude: p.x, latitude: p.y, x: p.x, y: p.y }),
     hitTest: async () => ({ results: hitResults, screenPoint: { x: 0, y: 0 } }),
     takeScreenshot: async () => ({ dataUrl: "data:image/png;base64,", data: {} as ImageData }),
-    on: (_type: string, _handler: unknown) => ({ remove: () => {} }),
+    on: (type: string, handler: (event: Record<string, unknown>) => void) => {
+      const handlers = viewHandlers.get(type) ?? new Set();
+      handlers.add(handler);
+      viewHandlers.set(type, handlers);
+      return { remove: () => handlers.delete(handler) };
+    },
     destroy: () => {
       view.destroyed = true;
     },
@@ -347,6 +353,9 @@ function makeSdk() {
     uiAdds,
     layers,
     fireWatchers: () => watchers.forEach((w) => w()),
+    fireViewEvent: (type: string, event: Record<string, unknown>) => {
+      for (const handler of viewHandlers.get(type) ?? []) handler(event);
+    },
     setHitResults: (results: unknown[]) => {
       hitResults = results;
     },
@@ -452,6 +461,26 @@ const SQUARE = geojsonLayer({
 });
 
 describe("ArcgisEngine camera conventions", () => {
+  it("publishes geographic map clicks and removes the listener on cleanup", () => {
+    const { engine, fireViewEvent, rawView } = makeEngine();
+    // Screen and geographic coordinates differ, so forwarding event.x/y fails.
+    rawView.toMap = (p: { x: number; y: number }) => ({
+      longitude: p.x / 10,
+      latitude: p.y / 10,
+      x: p.x,
+      y: p.y,
+    });
+    const clicks: [number, number][] = [];
+    const unsubscribe = engine.onMapClick((lngLat) => clicks.push(lngLat));
+
+    fireViewEvent("click", { x: -765, y: 392.5 });
+    assert.deepEqual(clicks, [[-76.5, 39.25]]);
+
+    unsubscribe();
+    fireViewEvent("click", { x: 10, y: 20 });
+    assert.deepEqual(clicks, [[-76.5, 39.25]]);
+  });
+
   it("maps MapLibre bearings to SDK rotations and back", () => {
     assert.equal(bearingToRotation(0), 0);
     assert.equal(bearingToRotation(90), 270);
@@ -474,6 +503,11 @@ describe("ArcgisEngine camera conventions", () => {
     // An identical view is not re-applied.
     engine.applyView({ center: [1, 2], zoom: 7, bearing: 45, pitch: 0 });
     assert.equal(goTo.length, 1);
+  });
+  it("returns no coordinate for a screen point that has no map location", () => {
+    const { engine, rawView } = makeSceneEngine();
+    rawView.toMap = () => null;
+    assert.equal(engine.getRenderSurface()?.unproject([10, 20]), null);
   });
   it("clamps saved views against the project preferences before the jump", () => {
     const { engine, goTo } = makeEngine();
@@ -1350,6 +1384,9 @@ it("hosts DOM controls with instant jumps, navigation events and complete cleanu
       (uiAdds.at(-1)!.component as HTMLElement).classList.contains("maplibregl-ctrl-bottom-right"),
     );
     assert.equal(facade.hasControl(control), true);
+    assert.deepEqual(facade.unproject([3, 4]).toArray(), [3, 4]);
+    rawView.toMap = () => null;
+    assert.deepEqual(facade.unproject([3, 4]).toArray(), engine.readView().center);
     facade.jumpTo({ center: { lng: 3, lat: 4 }, zoom: 9 });
     assert.deepEqual(goTo.at(-1), {
       target: { center: [3, 4], zoom: 9, rotation: 0 },

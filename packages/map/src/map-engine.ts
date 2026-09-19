@@ -57,8 +57,8 @@ export interface MapEngine {
 
   // ------------------------------------------------------------------- camera
 
-  /** Place the camera at `view` immediately, without animation. */
-  applyView(view: MapViewState): void;
+  /** Place the camera at `view` without animation, resolving after asynchronous engines settle. */
+  applyView(view: MapViewState): void | Promise<void>;
   /** Animate the camera to `view` with a short ease. */
   easeToView(view: MapViewState): void;
   /** The camera's current position, in the store's engine-neutral shape. */
@@ -166,7 +166,17 @@ export interface MapEngine {
   getRenderSurface(): MapRenderSurface | null;
   getRenderStatus(): { pending: string[]; errors: string[] };
   captureImage(): Promise<Blob>;
-  onCameraIdle(listener: () => void): () => void;
+  /** Subscribe to primary-button map clicks in geographic coordinates. */
+  onMapClick(listener: (lngLat: [number, number]) => void): () => void;
+  /** Whether the camera is currently moving or animating. */
+  isCameraMoving(): boolean;
+  /** Subscribe to camera changes while the view is moving. */
+  onCameraMove(listener: () => void): () => void;
+  /**
+   * Subscribe to the camera settling. `storyCamera` marks a settle that ends a
+   * story chapter or chapter-preview move, which is scripted, not navigation.
+   */
+  onCameraIdle(listener: (event?: CameraIdleEvent) => void): () => void;
   stopCamera(): void;
   suspendNavigation(): () => void;
 
@@ -326,6 +336,11 @@ export interface ManualPlacementOptions {
  * reports them: `west < east` always, and a span across the antimeridian
  * carries `east > 180` instead of inverting the pair.
  */
+/** Details of a camera-idle notification; engines that can't tell omit it. */
+export interface CameraIdleEvent {
+  storyCamera: boolean;
+}
+
 export type MapExtent = [west: number, south: number, east: number, north: number];
 
 export interface MapRenderSurface {
@@ -333,7 +348,8 @@ export interface MapRenderSurface {
   getContainer(): HTMLElement;
   getBearing(): number;
   project(location: [number, number]): { x: number; y: number };
-  unproject(point: [number, number]): { lng: number; lat: number };
+  /** Convert a canvas point to degrees, or return `null` when it has no map location. */
+  unproject(point: [number, number]): { lng: number; lat: number } | null;
   redraw(): void;
 }
 

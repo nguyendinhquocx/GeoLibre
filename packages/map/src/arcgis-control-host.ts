@@ -73,9 +73,11 @@ export class ArcgisControlHost {
         return new Point(out.x, out.y);
       },
       unproject: (p: [number, number] | { x: number; y: number }) => {
-        const point = Point.convert(p),
-          out = surface().unproject([point.x, point.y]);
-        return new LngLat(out.lng, out.lat);
+        const point = Point.convert(p);
+        const out = surface().unproject([point.x, point.y]);
+        // A plugin control expects MapLibre's total `unproject` operation:
+        // missing the ArcGIS globe must not take down its pointer handler.
+        return out ? new LngLat(out.lng, out.lat) : LngLat.convert(engine.readView().center);
       },
       fitBounds: (b: Parameters<typeof LngLatBounds.convert>[0]) => {
         const bounds = LngLatBounds.convert(b);

@@ -66,7 +66,7 @@ import {
 import { globeSafeMaxZoom } from "./globe-fit-bounds";
 import { drawExtentOnCanvas } from "./extent-drawing";
 import { captureEngineImage } from "./map-capture";
-import type { ExtentDrawingOptions, MapExtent } from "./map-engine";
+import type { CameraIdleEvent, ExtentDrawingOptions, MapExtent } from "./map-engine";
 import {
   blendModeSignature,
   installLayerBlendModes,
@@ -1617,11 +1617,35 @@ export class MapController implements MapEngine {
     return captureEngineImage(this);
   }
 
-  onCameraIdle(listener: () => void): () => void {
+  onMapClick(listener: (lngLat: [number, number]) => void): () => void {
     const map = this.map;
-    map?.on("moveend", listener);
+    const onClick = (event: maplibregl.MapMouseEvent) =>
+      listener([event.lngLat.lng, event.lngLat.lat]);
+    map?.on("click", onClick);
     return () => {
-      map?.off("moveend", listener);
+      map?.off("click", onClick);
+    };
+  }
+
+  isCameraMoving(): boolean {
+    return this.map?.isMoving() ?? false;
+  }
+
+  onCameraMove(listener: () => void): () => void {
+    const map = this.map;
+    map?.on("move", listener);
+    return () => {
+      map?.off("move", listener);
+    };
+  }
+
+  onCameraIdle(listener: (event?: CameraIdleEvent) => void): () => void {
+    const map = this.map;
+    const onMoveEnd = (event: maplibregl.MapLibreEvent & { storyCameraToken?: number }) =>
+      listener({ storyCamera: event?.storyCameraToken !== undefined });
+    map?.on("moveend", onMoveEnd);
+    return () => {
+      map?.off("moveend", onMoveEnd);
     };
   }
   stopCamera(): void {

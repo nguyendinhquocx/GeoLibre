@@ -372,7 +372,7 @@ export class CesiumEngine implements MapEngine {
 
   // ------------------------------------------------------------------- camera
 
-  applyView(view: MapViewState): void {
+  applyView(view: MapViewState): void | Promise<void> {
     const viewer = this.live();
     if (!viewer || this.isMorphing()) return;
     this.lastApplied = view;
@@ -380,6 +380,13 @@ export class CesiumEngine implements MapEngine {
     this.userOwnsCamera = false;
     this.lastGroundHeight = groundHeightAt(this.Cesium, viewer, view.center[0], view.center[1]);
     applyMapViewToCamera(this.Cesium, viewer, view);
+    return new Promise((resolve) => {
+      const remove = viewer.scene.postRender.addEventListener(() => {
+        remove();
+        resolve();
+      });
+      viewer.scene.requestRender();
+    });
   }
 
   readView(): MapViewState {
@@ -800,8 +807,7 @@ export class CesiumEngine implements MapEngine {
       },
       unproject: ([x, y]) => {
         const location = pickDrawingLocation(C, viewer, { x, y });
-        if (!location) throw new Error("The requested point is outside the globe");
-        return { lng: location[0], lat: location[1] };
+        return location ? { lng: location[0], lat: location[1] } : null;
       },
     };
     return this.renderSurface;
@@ -820,6 +826,32 @@ export class CesiumEngine implements MapEngine {
 
   captureImage(): Promise<Blob> {
     return captureEngineImage(this);
+  }
+
+  onMapClick(listener: (lngLat: [number, number]) => void): () => void {
+    const viewer = this.live();
+    if (!viewer) return () => {};
+    const handler = new this.Cesium.ScreenSpaceEventHandler(viewer.canvas);
+    handler.setInputAction((event: { position: { x: number; y: number } }) => {
+      const location = pickDrawingLocation(this.Cesium, viewer, event.position);
+      if (location) listener(location);
+    }, this.Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    return () => {
+      if (!handler.isDestroyed()) handler.destroy();
+    };
+  }
+
+  isCameraMoving(): boolean {
+    return this.cameraMoving;
+  }
+
+  onCameraMove(listener: () => void): () => void {
+    const viewer = this.live();
+    if (!viewer) return () => {};
+    const onRender = () => {
+      if (this.cameraMoving) listener();
+    };
+    return viewer.scene.preRender.addEventListener(onRender);
   }
 
   onCameraIdle(listener: () => void): () => void {

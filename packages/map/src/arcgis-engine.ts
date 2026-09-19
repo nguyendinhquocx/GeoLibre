@@ -489,7 +489,7 @@ export class ArcgisEngine implements MapEngine {
       },
       unproject: (p) => {
         const point = this.view?.toMap({ x: p[0], y: p[1] });
-        return point ? { lng: point.longitude, lat: point.latitude } : { lng: 0, lat: 0 };
+        return point ? { lng: point.longitude, lat: point.latitude } : null;
       },
       redraw: () => {},
     };
@@ -646,7 +646,7 @@ export class ArcgisEngine implements MapEngine {
       ...(bounds ? { bbox: bounds } : {}),
     };
   }
-  applyView(view: MapViewState): void {
+  async applyView(view: MapViewState): Promise<void> {
     const old = this.readView();
     const target = this.constrainView(view);
     const scene = this.view?.type === "3d";
@@ -659,16 +659,18 @@ export class ArcgisEngine implements MapEngine {
       (!scene || Math.abs(old.pitch - this.clampPitch(target.pitch)) < 1e-8)
     )
       return;
-    void this.view
-      ?.goTo(
+    try {
+      await this.view?.goTo(
         {
           center: target.center,
           zoom: target.zoom,
           ...this.orientation(target.bearing, target.pitch),
         },
         { animate: false },
-      )
-      .catch(reportGoToFailure);
+      );
+    } catch (error) {
+      reportGoToFailure(error);
+    }
   }
   /**
    * Place the camera at `view` and resolve once it is there. A new view
@@ -1859,6 +1861,35 @@ export class ArcgisEngine implements MapEngine {
     const shot = await view.takeScreenshot({ format: "png", ignorePadding: true });
     const response = await fetch(shot.dataUrl);
     return response.blob();
+  }
+  onMapClick(listener: (lngLat: [number, number]) => void): () => void {
+    const view = this.view;
+    if (!view) return () => {};
+    const handle = view.on("click", (event) => {
+      const point = view.toMap({ x: event.x, y: event.y });
+      if (point) listener([point.longitude, point.latitude]);
+    });
+    this.handles.add(handle);
+    return () => {
+      handle.remove();
+      this.handles.delete(handle);
+    };
+  }
+  isCameraMoving(): boolean {
+    return this.view ? !this.view.stationary : false;
+  }
+  onCameraMove(listener: () => void): () => void {
+    const view = this.view;
+    if (!view) return () => {};
+    const handle = this.sdk.reactiveUtils.watch(
+      () => viewPlacementState(view),
+      () => listener(),
+    );
+    this.handles.add(handle);
+    return () => {
+      handle.remove();
+      this.handles.delete(handle);
+    };
   }
   onCameraIdle(listener: () => void): () => void {
     const view = this.view;
