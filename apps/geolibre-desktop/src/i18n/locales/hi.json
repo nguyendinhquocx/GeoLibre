@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "सार्वजनिक डेटा फ़ीड से लाइव, समय-संबंधी पृथ्वी घटनाएँ।",
+      "globeOnly": "लाइव ग्लोब फ़ीड Cesium ग्लोब पर दिखाई देती हैं। इन्हें देखने के लिए 3D ग्लोब पर जाएँ।",
+      "earthquakes": "भूकंप",
+      "satellites": "उपग्रह",
+      "loading": "अपडेट हो रहा है…",
+      "updateFailed": "अपडेट विफल",
+      "never": "कभी नहीं",
+      "lastUpdated": "अंतिम अपडेट: {{time}}",
+      "speed": "गति",
+      "speedRealTime": "वास्तविक समय (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "सघन उपग्रह कैटलॉग",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Starlink कैटलॉग लोड नहीं हो सका: {{error}}। फिर प्रयास करने के लिए चुनें।",
+      "denseDescription": "पूरे Starlink समूह को हल्के बिंदुओं के रूप में दिखाएँ (बिना लेबल या तालिका पंक्तियों के)।"
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "प्रोजेक्ट",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "OSM डाउनलोडर",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "STAC कैटलॉग",
       "geolibre-planet-open-data": "Planet खुला डेटा",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Carto Light बेसमैप",
       "geolibre-flight-simulator": "फ़्लाइट सिम्युलेटर",
+      "gods-eye-view": "ईश्वरीय दृष्टि",
       "geolibre-route-animation": "मार्ग एनिमेशन",
       "geolibre-sun": "सूर्य सिमुलेशन",
       "maplibre-atmosphere-effects": "वायुमंडलीय प्रभाव",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "इस ArcGIS दृश्य में 3D Tiles की tileset.json URL का उपयोग करें। Google Photorealistic और I3S टाइलों के लिए दूसरा रेंडरिंग इंजन आवश्यक है।"
+      "arcgisSourceUnsupported": "इस ArcGIS दृश्य में 3D Tiles की tileset.json URL का उपयोग करें। Google Photorealistic और I3S टाइलों के लिए दूसरा रेंडरिंग इंजन आवश्यक है।",
+      "globeGoogleKeyRequired": "ग्लोब पर Google Photorealistic 3D Tiles लोड करने के लिए सेटिंग्स में Google Maps API कुंजी आवश्यक है।"
     },
     "geolibre-osm-downloader": {
       "title": "ओएसएम डाउनलोडर",
@@ -8061,6 +8086,41 @@
       "noFeatures": "इस क्षेत्र में मेल नहीं खाते फीचर नहीं मिले।",
       "error": "ओएसएम डेटा डाउनलोड नहीं किया जा सकता: {{message}}",
       "added": "{{count}} फीचर मैप में जोड़े गए।"
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "वर्तमान मैप क्षेत्र के लिए IGN LiDAR HD टाइल कवरेज खोजें, टाइलों को पॉइंट क्लाउड के रूप में मैप में जोड़ें, या IGN के सर्वर से उनकी COPC LAZ फ़ाइलें डाउनलोड करें।",
+      "attribution": "डेटा © IGN — LiDAR HD, Licence Ouverte 2.0 के तहत प्रकाशित।",
+      "west": "पश्चिम",
+      "south": "दक्षिण",
+      "east": "पूर्व",
+      "north": "उत्तर",
+      "useMapExtent": "मैप एक्सटेंट का उपयोग करें",
+      "search": "टाइलें खोजें",
+      "addToMap": "मैप में जोड़ें",
+      "download": "डाउनलोड करें",
+      "ready": "एक क्षेत्र चुनें और LiDAR HD टाइलें खोजें।",
+      "mapUnavailable": "मैप एक्सटेंट अभी उपलब्ध नहीं है।",
+      "extentApplied": "मैप एक्सटेंट लागू किया गया।",
+      "searching": "IGN LiDAR HD टाइलें खोजी जा रही हैं…",
+      "noTiles": "इस क्षेत्र में कोई LiDAR HD टाइल नहीं मिली।",
+      "noDownload": "कोई पॉइंट क्लाउड प्रकाशित नहीं",
+      "layerName": "IGN LiDAR HD टाइलें",
+      "found": "{{count}} टाइल मिलीं।",
+      "foundTruncated": "{{matched}} में से पहली {{count}} टाइलें दिखाई जा रही हैं। शेष देखने के लिए खोज क्षेत्र सीमित करें।",
+      "addedToMap": "{{name}} मैप में जोड़ी गई।",
+      "alreadyOnMap": "{{name}} पहले से ही मैप पर है।",
+      "unsupportedRenderer": "पॉइंट क्लाउड के लिए MapLibre या Mapbox रेंडरर आवश्यक है।",
+      "addError": "{{name}} को मैप में नहीं जोड़ा जा सका: {{message}}",
+      "error": "IGN LiDAR HD टाइलें खोजी नहीं जा सकीं: {{message}}",
+      "selectAll": "सभी चुनें",
+      "selectTile": "{{name}} चुनें",
+      "addSelectedToMap": "चयनित को मैप में जोड़ें",
+      "addSelectedToMapCount": "{{count}} चयनित को मैप में जोड़ें",
+      "addingSelected": "{{count}} टाइलें मैप में जोड़ी जा रही हैं…",
+      "addedSelectedCount": "{{count}} टाइलें मैप में जोड़ी गईं।",
+      "alreadyOnMapCountPlural": "{{count}} टाइलें पहले से मैप पर थीं।",
+      "addSelectedFailedCount": "{{count}} टाइलें नहीं जोड़ी जा सकीं।"
     }
   }
 }

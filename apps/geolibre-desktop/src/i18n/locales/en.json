@@ -2392,6 +2392,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Live, time-aware Earth events from public data feeds.",
+      "globeOnly": "Live globe feeds render on the Cesium globe. Switch to the 3D globe to view them.",
+      "earthquakes": "Earthquakes",
+      "satellites": "Satellites",
+      "loading": "Updating…",
+      "updateFailed": "Update failed",
+      "never": "Never",
+      "lastUpdated": "Last updated: {{time}}",
+      "speed": "Speed",
+      "speedRealTime": "Real time (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Dense satellite catalog",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Could not load the Starlink catalog: {{error}}. Select to retry.",
+      "denseDescription": "Show the full Starlink shell as lightweight points (no labels or table rows)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Project",
@@ -3104,6 +3126,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "OSM Downloader",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "STAC Catalogs",
       "geolibre-planet-open-data": "Planet Open Data",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3115,6 +3138,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Carto Light Basemap",
       "geolibre-flight-simulator": "Flight Simulator",
+      "gods-eye-view": "God's Eye View",
       "geolibre-route-animation": "Route Animation",
       "geolibre-sun": "Sun Simulation",
       "maplibre-atmosphere-effects": "Atmospheric Effects",
@@ -8066,7 +8090,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Use a 3D Tiles tileset.json URL in this ArcGIS view. Google Photorealistic and I3S tiles require another renderer."
+      "arcgisSourceUnsupported": "Use a 3D Tiles tileset.json URL in this ArcGIS view. Google Photorealistic and I3S tiles require another renderer.",
+      "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles need a Google Maps API key in Settings to load on the globe."
     },
     "geolibre-osm-downloader": {
       "title": "OSM Downloader",
@@ -8098,6 +8123,41 @@
       "noFeatures": "No matching features were found in this area.",
       "error": "Could not download OSM data: {{message}}",
       "added": "Added {{count}} features to the map."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Search IGN LiDAR HD tile coverage for the current map area, add tiles to the map as point clouds, or download their COPC LAZ files from IGN's servers.",
+      "attribution": "Data © IGN — LiDAR HD, published under the Licence Ouverte 2.0.",
+      "west": "West",
+      "south": "South",
+      "east": "East",
+      "north": "North",
+      "useMapExtent": "Use map extent",
+      "search": "Search tiles",
+      "addToMap": "Add to map",
+      "download": "Download",
+      "ready": "Choose an area and search for LiDAR HD tiles.",
+      "mapUnavailable": "The map extent is not available yet.",
+      "extentApplied": "Map extent applied.",
+      "searching": "Searching IGN LiDAR HD tiles…",
+      "noTiles": "No LiDAR HD tiles were found in this area.",
+      "noDownload": "no point cloud published",
+      "layerName": "IGN LiDAR HD tiles",
+      "found": "Found {{count}} tile(s).",
+      "foundTruncated": "Showing the first {{count}} of {{matched}} tiles. Narrow the search area to see the rest.",
+      "addedToMap": "Added {{name}} to the map.",
+      "alreadyOnMap": "{{name}} is already on the map.",
+      "unsupportedRenderer": "Point clouds require the MapLibre or Mapbox renderer.",
+      "addError": "Could not add {{name}} to the map: {{message}}",
+      "error": "Could not search IGN LiDAR HD tiles: {{message}}",
+      "selectAll": "Select all",
+      "selectTile": "Select {{name}}",
+      "addSelectedToMap": "Add selected to map",
+      "addSelectedToMapCount": "Add {{count}} selected to map",
+      "addingSelected": "Adding {{count}} tile(s) to the map…",
+      "addedSelectedCount": "Added {{count}} tile(s) to the map.",
+      "alreadyOnMapCountPlural": "{{count}} tile(s) were already on the map.",
+      "addSelectedFailedCount": "{{count}} tile(s) could not be added."
     }
   }
 }

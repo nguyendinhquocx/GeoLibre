@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Eventos terrestres en vivo y con referencia temporal procedentes de fuentes de datos públicas.",
+      "globeOnly": "Las fuentes en vivo se muestran en el globo de Cesium. Cambia al globo 3D para verlas.",
+      "earthquakes": "Terremotos",
+      "satellites": "Satélites",
+      "loading": "Actualizando…",
+      "updateFailed": "Error de actualización",
+      "never": "Nunca",
+      "lastUpdated": "Última actualización: {{time}}",
+      "speed": "Velocidad",
+      "speedRealTime": "Tiempo real (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Catálogo denso de satélites",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "No se pudo cargar el catálogo de Starlink: {{error}}. Selecciónalo para volver a intentarlo.",
+      "denseDescription": "Muestra la constelación completa de Starlink como puntos ligeros (sin etiquetas ni filas en la tabla)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Proyecto",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "Descargador de OSM",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "Catálogos STAC",
       "geolibre-planet-open-data": "Datos abiertos de Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Mapa base Carto Light",
       "geolibre-flight-simulator": "Simulador de vuelo",
+      "gods-eye-view": "Vista de Dios",
       "geolibre-route-animation": "Animación de ruta",
       "geolibre-sun": "Simulación solar",
       "maplibre-atmosphere-effects": "Efectos atmosféricos",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Utilice una URL tileset.json de 3D Tiles en esta vista de ArcGIS. Las teselas Google Photorealistic e I3S requieren otro motor de renderizado."
+      "arcgisSourceUnsupported": "Utilice una URL tileset.json de 3D Tiles en esta vista de ArcGIS. Las teselas Google Photorealistic e I3S requieren otro motor de renderizado.",
+      "globeGoogleKeyRequired": "Las teselas Google Photorealistic 3D Tiles necesitan una clave de API de Google Maps en Ajustes para cargarse en el globo."
     },
     "geolibre-osm-downloader": {
       "title": "Descargador de OSM",
@@ -8061,6 +8086,41 @@
       "noFeatures": "No se encontraron elementos coincidentes en esta área.",
       "error": "No se pudo descargar los datos de OSM: {{message}}",
       "added": "Añadidos {{count}} elementos al mapa."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Busca la cobertura de teselas IGN LiDAR HD del área actual del mapa, añade teselas al mapa como nubes de puntos o descarga sus archivos COPC LAZ desde los servidores del IGN.",
+      "attribution": "Datos © IGN — LiDAR HD, publicados bajo la Licence Ouverte 2.0.",
+      "west": "Oeste",
+      "south": "Sur",
+      "east": "Este",
+      "north": "Norte",
+      "useMapExtent": "Usar extensión del mapa",
+      "search": "Buscar teselas",
+      "addToMap": "Añadir al mapa",
+      "download": "Descargar",
+      "ready": "Elige un área y busca teselas LiDAR HD.",
+      "mapUnavailable": "La extensión del mapa aún no está disponible.",
+      "extentApplied": "Extensión del mapa aplicada.",
+      "searching": "Buscando teselas IGN LiDAR HD…",
+      "noTiles": "No se encontraron teselas LiDAR HD en esta área.",
+      "noDownload": "sin nube de puntos publicada",
+      "layerName": "Teselas IGN LiDAR HD",
+      "found": "Se encontraron {{count}} tesela(s).",
+      "foundTruncated": "Mostrando las primeras {{count}} de {{matched}} teselas. Reduce el área de búsqueda para ver el resto.",
+      "addedToMap": "Se añadió {{name}} al mapa.",
+      "alreadyOnMap": "{{name}} ya está en el mapa.",
+      "unsupportedRenderer": "Las nubes de puntos requieren el motor de renderizado MapLibre o Mapbox.",
+      "addError": "No se pudo añadir {{name}} al mapa: {{message}}",
+      "error": "No se pudieron buscar teselas IGN LiDAR HD: {{message}}",
+      "selectAll": "Seleccionar todo",
+      "selectTile": "Seleccionar {{name}}",
+      "addSelectedToMap": "Añadir seleccionadas al mapa",
+      "addSelectedToMapCount": "Añadir {{count}} seleccionadas al mapa",
+      "addingSelected": "Añadiendo {{count}} tesela(s) al mapa…",
+      "addedSelectedCount": "Se añadieron {{count}} tesela(s) al mapa.",
+      "alreadyOnMapCountPlural": "{{count}} tesela(s) ya estaban en el mapa.",
+      "addSelectedFailedCount": "No se pudieron añadir {{count}} tesela(s)."
     }
   }
 }

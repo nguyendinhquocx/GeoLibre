@@ -2312,6 +2312,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Peristiwa Bumi langsung berbasis waktu dari umpan data publik.",
+      "globeOnly": "Umpan globe langsung dirender pada globe Cesium. Beralihlah ke globe 3D untuk melihatnya.",
+      "earthquakes": "Gempa bumi",
+      "satellites": "Satelit",
+      "loading": "Memperbarui…",
+      "updateFailed": "Pembaruan gagal",
+      "never": "Belum pernah",
+      "lastUpdated": "Terakhir diperbarui: {{time}}",
+      "speed": "Kecepatan",
+      "speedRealTime": "Waktu nyata (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Katalog satelit padat",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Katalog Starlink tidak dapat dimuat: {{error}}. Pilih untuk mencoba lagi.",
+      "denseDescription": "Tampilkan seluruh konstelasi Starlink sebagai titik ringan (tanpa label atau baris tabel)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Proyek",
@@ -3020,6 +3042,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "Pengunduh OSM",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "Katalog STAC",
       "geolibre-planet-open-data": "Data Terbuka Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3031,6 +3054,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Peta Dasar Carto Light",
       "geolibre-flight-simulator": "Simulator Penerbangan",
+      "gods-eye-view": "Pandangan Mahatahu",
       "geolibre-route-animation": "Animasi Rute",
       "geolibre-sun": "Simulasi Matahari",
       "maplibre-atmosphere-effects": "Efek Atmosfer",
@@ -7942,7 +7966,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Gunakan URL tileset.json 3D Tiles pada tampilan ArcGIS ini. Ubin Google Photorealistic dan I3S memerlukan mesin perender lain."
+      "arcgisSourceUnsupported": "Gunakan URL tileset.json 3D Tiles pada tampilan ArcGIS ini. Ubin Google Photorealistic dan I3S memerlukan mesin perender lain.",
+      "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles memerlukan kunci API Google Maps di Pengaturan agar dapat dimuat di globe."
     },
     "geolibre-osm-downloader": {
       "title": "OSM Downloader",
@@ -7974,6 +7999,41 @@
       "noFeatures": "Tidak ada fitur yang cocok ditemukan di area ini.",
       "error": "Tidak dapat mengunduh data OSM: {{message}}",
       "added": "Ditambahkan {{count}} fitur ke peta."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Cari cakupan tile IGN LiDAR HD untuk area peta saat ini, tambahkan tile ke peta sebagai point cloud, atau unduh file COPC LAZ-nya dari server IGN.",
+      "attribution": "Data © IGN — LiDAR HD, dipublikasikan di bawah Licence Ouverte 2.0.",
+      "west": "Barat",
+      "south": "Selatan",
+      "east": "Timur",
+      "north": "Utara",
+      "useMapExtent": "Gunakan batas peta",
+      "search": "Cari tile",
+      "addToMap": "Tambahkan ke peta",
+      "download": "Unduh",
+      "ready": "Pilih area dan cari tile LiDAR HD.",
+      "mapUnavailable": "Batas peta tidak tersedia saat ini.",
+      "extentApplied": "Batas peta diterapkan.",
+      "searching": "Mencari tile IGN LiDAR HD…",
+      "noTiles": "Tidak ada tile LiDAR HD yang ditemukan di area ini.",
+      "noDownload": "tidak ada point cloud yang dipublikasikan",
+      "layerName": "Tile IGN LiDAR HD",
+      "found": "Ditemukan {{count}} tile.",
+      "foundTruncated": "Menampilkan {{count}} tile pertama dari {{matched}}. Persempit area pencarian untuk melihat sisanya.",
+      "addedToMap": "{{name}} ditambahkan ke peta.",
+      "alreadyOnMap": "{{name}} sudah ada di peta.",
+      "unsupportedRenderer": "Point cloud memerlukan renderer MapLibre atau Mapbox.",
+      "addError": "Tidak dapat menambahkan {{name}} ke peta: {{message}}",
+      "error": "Tidak dapat mencari tile IGN LiDAR HD: {{message}}",
+      "selectAll": "Pilih semua",
+      "selectTile": "Pilih {{name}}",
+      "addSelectedToMap": "Tambahkan yang dipilih ke peta",
+      "addSelectedToMapCount": "Tambahkan {{count}} yang dipilih ke peta",
+      "addingSelected": "Menambahkan {{count}} tile ke peta…",
+      "addedSelectedCount": "{{count}} tile ditambahkan ke peta.",
+      "alreadyOnMapCountPlural": "{{count}} tile sudah ada di peta.",
+      "addSelectedFailedCount": "{{count}} tile tidak dapat ditambahkan."
     }
   }
 }

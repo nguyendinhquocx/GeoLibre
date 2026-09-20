@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Live-Ereignisse auf der Erde mit Zeitbezug aus öffentlichen Datenfeeds.",
+      "globeOnly": "Live-Globusfeeds werden auf dem Cesium-Globus dargestellt. Wechseln Sie zum 3D-Globus, um sie anzuzeigen.",
+      "earthquakes": "Erdbeben",
+      "satellites": "Satelliten",
+      "loading": "Wird aktualisiert…",
+      "updateFailed": "Aktualisierung fehlgeschlagen",
+      "never": "Nie",
+      "lastUpdated": "Zuletzt aktualisiert: {{time}}",
+      "speed": "Geschwindigkeit",
+      "speedRealTime": "Echtzeit (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Dichter Satellitenkatalog",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Der Starlink-Katalog konnte nicht geladen werden: {{error}}. Zum erneuten Versuch auswählen.",
+      "denseDescription": "Die vollständige Starlink-Konstellation als ressourcenschonende Punkte anzeigen (ohne Beschriftungen oder Tabellenzeilen)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Projekt",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "OSM-Downloader",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "STAC-Kataloge",
       "geolibre-planet-open-data": "Offene Daten von Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Carto Light Basiskarte",
       "geolibre-flight-simulator": "Flugsimulator",
+      "gods-eye-view": "Gottesansicht",
       "geolibre-route-animation": "Routenanimation",
       "geolibre-sun": "Sonnensimulation",
       "maplibre-atmosphere-effects": "Atmosphärische Effekte",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Verwenden Sie in dieser ArcGIS-Ansicht eine 3D-Tiles-URL für tileset.json. Google Photorealistic- und I3S-Kacheln benötigen eine andere Render-Engine."
+      "arcgisSourceUnsupported": "Verwenden Sie in dieser ArcGIS-Ansicht eine 3D-Tiles-URL für tileset.json. Google Photorealistic- und I3S-Kacheln benötigen eine andere Render-Engine.",
+      "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles benötigen einen Google-Maps-API-Schlüssel in den Einstellungen, um auf dem Globus zu laden."
     },
     "geolibre-osm-downloader": {
       "title": "OSM Downloader",
@@ -8061,6 +8086,41 @@
       "noFeatures": "In diesem Bereich wurden keine passenden Features gefunden.",
       "error": "OSM-Daten konnten nicht heruntergeladen werden: {{message}}",
       "added": "{{count}} Features zur Karte hinzugefügt."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Durchsuchen Sie die IGN LiDAR HD-Kachelabdeckung für den aktuellen Kartenbereich, fügen Sie Kacheln als Punktwolken zur Karte hinzu oder laden Sie ihre COPC-LAZ-Dateien von den Servern des IGN herunter.",
+      "attribution": "Daten © IGN — LiDAR HD, veröffentlicht unter der Licence Ouverte 2.0.",
+      "west": "Westen",
+      "south": "Süden",
+      "east": "Osten",
+      "north": "Norden",
+      "useMapExtent": "Kartenbereich verwenden",
+      "search": "Kacheln suchen",
+      "addToMap": "Zur Karte hinzufügen",
+      "download": "Herunterladen",
+      "ready": "Wählen Sie einen Bereich aus und suchen Sie nach LiDAR HD-Kacheln.",
+      "mapUnavailable": "Der Kartenbereich ist noch nicht verfügbar.",
+      "extentApplied": "Kartenbereich angewendet.",
+      "searching": "IGN LiDAR HD-Kacheln werden gesucht…",
+      "noTiles": "In diesem Bereich wurden keine LiDAR HD-Kacheln gefunden.",
+      "noDownload": "keine Punktwolke veröffentlicht",
+      "layerName": "IGN LiDAR HD-Kacheln",
+      "found": "{{count}} Kachel(n) gefunden.",
+      "foundTruncated": "Die ersten {{count}} von {{matched}} Kacheln werden angezeigt. Grenzen Sie den Suchbereich ein, um den Rest zu sehen.",
+      "addedToMap": "{{name}} zur Karte hinzugefügt.",
+      "alreadyOnMap": "{{name}} befindet sich bereits auf der Karte.",
+      "unsupportedRenderer": "Punktwolken erfordern den MapLibre- oder Mapbox-Renderer.",
+      "addError": "{{name}} konnte nicht zur Karte hinzugefügt werden: {{message}}",
+      "error": "IGN LiDAR HD-Kacheln konnten nicht durchsucht werden: {{message}}",
+      "selectAll": "Alle auswählen",
+      "selectTile": "{{name}} auswählen",
+      "addSelectedToMap": "Auswahl zur Karte hinzufügen",
+      "addSelectedToMapCount": "{{count}} ausgewählte zur Karte hinzufügen",
+      "addingSelected": "{{count}} Kachel(n) werden zur Karte hinzugefügt…",
+      "addedSelectedCount": "{{count}} Kachel(n) zur Karte hinzugefügt.",
+      "alreadyOnMapCountPlural": "{{count}} Kachel(n) befanden sich bereits auf der Karte.",
+      "addSelectedFailedCount": "{{count}} Kachel(n) konnten nicht hinzugefügt werden."
     }
   }
 }

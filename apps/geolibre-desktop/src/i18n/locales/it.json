@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Eventi terrestri in tempo reale e temporali da feed di dati pubblici.",
+      "globeOnly": "I feed in tempo reale vengono visualizzati sul globo Cesium. Passa al globo 3D per vederli.",
+      "earthquakes": "Terremoti",
+      "satellites": "Satelliti",
+      "loading": "Aggiornamento…",
+      "updateFailed": "Aggiornamento non riuscito",
+      "never": "Mai",
+      "lastUpdated": "Ultimo aggiornamento: {{time}}",
+      "speed": "Velocità",
+      "speedRealTime": "Tempo reale (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Catalogo satellitare denso",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Impossibile caricare il catalogo Starlink: {{error}}. Seleziona per riprovare.",
+      "denseDescription": "Mostra l'intera costellazione Starlink come punti leggeri (senza etichette o righe della tabella)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Progetto",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "Downloader OSM",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "Cataloghi STAC",
       "geolibre-planet-open-data": "Dati aperti Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Mappa di base Carto Light",
       "geolibre-flight-simulator": "Simulatore di volo",
+      "gods-eye-view": "Vista divina",
       "geolibre-route-animation": "Animazione percorso",
       "geolibre-sun": "Simulazione solare",
       "maplibre-atmosphere-effects": "Effetti atmosferici",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Usa un URL tileset.json di 3D Tiles in questa vista ArcGIS. I tasselli Google Photorealistic e I3S richiedono un altro motore di rendering."
+      "arcgisSourceUnsupported": "Usa un URL tileset.json di 3D Tiles in questa vista ArcGIS. I tasselli Google Photorealistic e I3S richiedono un altro motore di rendering.",
+      "globeGoogleKeyRequired": "I tasselli Google Photorealistic 3D Tiles richiedono una chiave API di Google Maps nelle Impostazioni per caricarsi sul globo."
     },
     "geolibre-osm-downloader": {
       "title": "OSM Downloader",
@@ -8061,6 +8086,41 @@
       "noFeatures": "Non sono state trovate caratteristiche corrispondenti in questa area.",
       "error": "Impossibile scaricare i dati OSM: {{message}}",
       "added": "Aggiunti {{count}} elementi alla mappa."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Cerca la copertura delle tile IGN LiDAR HD per l'area della mappa corrente, aggiungi tile alla mappa come point cloud oppure scarica i relativi file COPC LAZ dai server dell'IGN.",
+      "attribution": "Dati © IGN — LiDAR HD, pubblicati sotto la Licence Ouverte 2.0.",
+      "west": "Ovest",
+      "south": "Sud",
+      "east": "Est",
+      "north": "Nord",
+      "useMapExtent": "Usa l'estensione della mappa",
+      "search": "Cerca tile",
+      "addToMap": "Aggiungi alla mappa",
+      "download": "Scarica",
+      "ready": "Scegli un'area e cerca le tile LiDAR HD.",
+      "mapUnavailable": "L'estensione della mappa non è ancora disponibile.",
+      "extentApplied": "Estensione della mappa applicata.",
+      "searching": "Ricerca delle tile IGN LiDAR HD…",
+      "noTiles": "Nessuna tile LiDAR HD trovata in quest'area.",
+      "noDownload": "nessuna point cloud pubblicata",
+      "layerName": "Tile IGN LiDAR HD",
+      "found": "Trovate {{count}} tile.",
+      "foundTruncated": "Vengono mostrate le prime {{count}} tile su {{matched}}. Restringi l'area di ricerca per vedere le altre.",
+      "addedToMap": "{{name}} aggiunta alla mappa.",
+      "alreadyOnMap": "{{name}} è già sulla mappa.",
+      "unsupportedRenderer": "Le point cloud richiedono il motore di rendering MapLibre o Mapbox.",
+      "addError": "Impossibile aggiungere {{name}} alla mappa: {{message}}",
+      "error": "Impossibile cercare le tile IGN LiDAR HD: {{message}}",
+      "selectAll": "Seleziona tutto",
+      "selectTile": "Seleziona {{name}}",
+      "addSelectedToMap": "Aggiungi selezionate alla mappa",
+      "addSelectedToMapCount": "Aggiungi {{count}} selezionate alla mappa",
+      "addingSelected": "Aggiunta di {{count}} tile alla mappa…",
+      "addedSelectedCount": "{{count}} tile aggiunte alla mappa.",
+      "alreadyOnMapCountPlural": "{{count}} tile erano già sulla mappa.",
+      "addSelectedFailedCount": "Impossibile aggiungere {{count}} tile."
     }
   }
 }

@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Live, tijdgebonden gebeurtenissen op aarde uit openbare datafeeds.",
+      "globeOnly": "Live wereldbolfeeds worden op de Cesium-wereldbol weergegeven. Schakel over naar de 3D-wereldbol om ze te bekijken.",
+      "earthquakes": "Aardbevingen",
+      "satellites": "Satellieten",
+      "loading": "Bijwerken…",
+      "updateFailed": "Bijwerken mislukt",
+      "never": "Nooit",
+      "lastUpdated": "Laatst bijgewerkt: {{time}}",
+      "speed": "Snelheid",
+      "speedRealTime": "Realtime (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Dichte satellietcatalogus",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "De Starlink-catalogus kon niet worden geladen: {{error}}. Selecteer om opnieuw te proberen.",
+      "denseDescription": "Toon de volledige Starlink-constellatie als lichte punten (zonder labels of tabelrijen)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Project",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "OSM-downloader",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "STAC-catalogi",
       "geolibre-planet-open-data": "Open data van Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Carto Light-basiskaart",
       "geolibre-flight-simulator": "Vluchtsimulator",
+      "gods-eye-view": "Alziend overzicht",
       "geolibre-route-animation": "Route-animatie",
       "geolibre-sun": "Zonsimulatie",
       "maplibre-atmosphere-effects": "Atmosferische effecten",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Gebruik een 3D Tiles-URL voor tileset.json in deze ArcGIS-weergave. Google Photorealistic- en I3S-tegels vereisen een andere renderer."
+      "arcgisSourceUnsupported": "Gebruik een 3D Tiles-URL voor tileset.json in deze ArcGIS-weergave. Google Photorealistic- en I3S-tegels vereisen een andere renderer.",
+      "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles hebben een Google Maps API-sleutel in Instellingen nodig om op de globe te laden."
     },
     "geolibre-osm-downloader": {
       "title": "OSM-downloader",
@@ -8061,6 +8086,41 @@
       "noFeatures": "Geen overeenkomende objecten gevonden in dit gebied.",
       "error": "OSM-data kon niet worden gedownload: {{message}}",
       "added": "{{count}} objecten toegevoegd aan de kaart."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Doorzoek de IGN LiDAR HD-tegeldekking voor het huidige kaartgebied, voeg tegels als puntenwolken aan de kaart toe, of download hun COPC LAZ-bestanden van de servers van IGN.",
+      "attribution": "Data © IGN — LiDAR HD, gepubliceerd onder de Licence Ouverte 2.0.",
+      "west": "West",
+      "south": "Zuid",
+      "east": "Oost",
+      "north": "Noord",
+      "useMapExtent": "Gebruik kaartbereik",
+      "search": "Tegels zoeken",
+      "addToMap": "Toevoegen aan kaart",
+      "download": "Downloaden",
+      "ready": "Kies een gebied en zoek naar LiDAR HD-tegels.",
+      "mapUnavailable": "Het kaartbereik is nog niet beschikbaar.",
+      "extentApplied": "Kaartbereik toegepast.",
+      "searching": "IGN LiDAR HD-tegels worden gezocht…",
+      "noTiles": "Er zijn geen LiDAR HD-tegels gevonden in dit gebied.",
+      "noDownload": "geen puntenwolk gepubliceerd",
+      "layerName": "IGN LiDAR HD-tegels",
+      "found": "{{count}} tegel(s) gevonden.",
+      "foundTruncated": "De eerste {{count}} van {{matched}} tegels worden getoond. Verklein het zoekgebied om de rest te zien.",
+      "addedToMap": "{{name}} toegevoegd aan de kaart.",
+      "alreadyOnMap": "{{name}} staat al op de kaart.",
+      "unsupportedRenderer": "Puntenwolken vereisen de MapLibre- of Mapbox-renderer.",
+      "addError": "Kon {{name}} niet aan de kaart toevoegen: {{message}}",
+      "error": "Kon niet zoeken naar IGN LiDAR HD-tegels: {{message}}",
+      "selectAll": "Alles selecteren",
+      "selectTile": "{{name}} selecteren",
+      "addSelectedToMap": "Selectie toevoegen aan kaart",
+      "addSelectedToMapCount": "{{count}} geselecteerde toevoegen aan kaart",
+      "addingSelected": "{{count}} tegel(s) worden aan de kaart toegevoegd…",
+      "addedSelectedCount": "{{count}} tegel(s) toegevoegd aan de kaart.",
+      "alreadyOnMapCountPlural": "{{count}} tegel(s) stonden al op de kaart.",
+      "addSelectedFailedCount": "{{count}} tegel(s) konden niet worden toegevoegd."
     }
   }
 }

@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "დროის მქონე ცოცხალი დედამიწის მოვლენები საჯარო მონაცემთა არხებიდან.",
+      "globeOnly": "ცოცხალი მონაცემები Cesium-ის გლობუსზე გამოისახება. სანახავად გადადით 3D გლობუსზე.",
+      "earthquakes": "მიწისძვრები",
+      "satellites": "თანამგზავრები",
+      "loading": "ახლდება…",
+      "updateFailed": "განახლება ვერ მოხერხდა",
+      "never": "არასდროს",
+      "lastUpdated": "ბოლო განახლება: {{time}}",
+      "speed": "სიჩქარე",
+      "speedRealTime": "რეალური დრო (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "თანამგზავრების მკვრივი კატალოგი",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Starlink-ის კატალოგი ვერ ჩაიტვირთა: {{error}}. ხელახლა საცდელად აირჩიეთ.",
+      "denseDescription": "აჩვენეთ Starlink-ის სრული თანავარსკვლავედი მსუბუქი წერტილების სახით (წარწერებისა და ცხრილის მწკრივების გარეშე)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "პროექტი",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "OSM ჩამომტვირთველი",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "STAC კატალოგები",
       "geolibre-planet-open-data": "Planet-ის ღია მონაცემები",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Carto Light ბაზური რუკა",
       "geolibre-flight-simulator": "ფრენის სიმულატორი",
+      "gods-eye-view": "ღვთის ხედვა",
       "geolibre-route-animation": "მარშრუტის ანიმაცია",
       "geolibre-sun": "მზის სიმულაცია",
       "maplibre-atmosphere-effects": "ატმოსფერული ეფექტები",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "ArcGIS-ის ამ ხედში გამოიყენეთ 3D Tiles-ის tileset.json URL. Google Photorealistic და I3S ფილებისთვის საჭიროა სხვა რენდერის ძრავა."
+      "arcgisSourceUnsupported": "ArcGIS-ის ამ ხედში გამოიყენეთ 3D Tiles-ის tileset.json URL. Google Photorealistic და I3S ფილებისთვის საჭიროა სხვა რენდერის ძრავა.",
+      "globeGoogleKeyRequired": "გლობუსზე Google Photorealistic 3D Tiles-ის ჩასატვირთად საჭიროა Google Maps API-ის გასაღები პარამეტრებში."
     },
     "geolibre-osm-downloader": {
       "title": "OSM ჩამოტვირთვა",
@@ -8061,6 +8086,41 @@
       "noFeatures": "ამ არეალში შესაბამისი ობიექტები ვერ მოიძებნა.",
       "error": "OSM მონაცემების ჩამოტვირთვა ვერ მოხერხდა: {{message}}",
       "added": "{{count}} ობიექტი დაემატა რუკას."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "მოძებნეთ IGN LiDAR HD ფილების დაფარვა მიმდინარე რუკის არეალისთვის, დაამატეთ ფილები რუკას წერტილოვანი ღრუბლების სახით, ან ჩამოტვირთეთ მათი COPC LAZ ფაილები IGN-ის სერვერებიდან.",
+      "attribution": "მონაცემები © IGN — LiDAR HD, გამოქვეყნებულია Licence Ouverte 2.0-ის ფარგლებში.",
+      "west": "დასავლეთი",
+      "south": "სამხრეთი",
+      "east": "აღმოსავლეთი",
+      "north": "ჩრდილოეთი",
+      "useMapExtent": "რუკის არეალის გამოყენება",
+      "search": "ფილების ძებნა",
+      "addToMap": "რუკაზე დამატება",
+      "download": "ჩამოტვირთვა",
+      "ready": "აირჩიეთ არეალი და მოძებნეთ LiDAR HD ფილები.",
+      "mapUnavailable": "რუკის არეალი ჯერ არ არის ხელმისაწვდომი.",
+      "extentApplied": "რუკის არეალი გამოყენებულია.",
+      "searching": "მიმდინარეობს IGN LiDAR HD ფილების ძებნა…",
+      "noTiles": "ამ არეალში LiDAR HD ფილები ვერ მოიძებნა.",
+      "noDownload": "წერტილოვანი ღრუბელი გამოქვეყნებული არ არის",
+      "layerName": "IGN LiDAR HD ფილები",
+      "found": "მოიძებნა {{count}} ფილი.",
+      "foundTruncated": "ნაჩვენებია პირველი {{count}} ფილი {{matched}}-დან. დანარჩენის სანახავად შეავიწროვეთ საძიებო არეალი.",
+      "addedToMap": "{{name}} დაემატა რუკას.",
+      "alreadyOnMap": "{{name}} უკვე არის რუკაზე.",
+      "unsupportedRenderer": "წერტილოვან ღრუბლებს სჭირდება MapLibre ან Mapbox რენდერერი.",
+      "addError": "{{name}}-ის რუკაზე დამატება ვერ მოხერხდა: {{message}}",
+      "error": "IGN LiDAR HD ფილების ძებნა ვერ მოხერხდა: {{message}}",
+      "selectAll": "ყველას მონიშვნა",
+      "selectTile": "{{name}}-ის მონიშვნა",
+      "addSelectedToMap": "მონიშნულის რუკაზე დამატება",
+      "addSelectedToMapCount": "მონიშნული {{count}}-ის რუკაზე დამატება",
+      "addingSelected": "მიმდინარეობს {{count}} ფილის რუკაზე დამატება…",
+      "addedSelectedCount": "{{count}} ფილი დაემატა რუკას.",
+      "alreadyOnMapCountPlural": "{{count}} ფილი უკვე იყო რუკაზე.",
+      "addSelectedFailedCount": "{{count}} ფილის დამატება ვერ მოხერხდა."
     }
   }
 }

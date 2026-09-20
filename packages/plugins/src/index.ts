@@ -529,6 +529,19 @@ export {
   type OverpassFetch,
   type OverpassResponse,
 } from "./plugins/osm-downloader-api";
+export { maplibreIgnLidarHdPlugin, IGN_LIDAR_HD_PLUGIN_ID } from "./plugins/maplibre-ign-lidar-hd";
+export {
+  buildIgnLidarHdWfsUrl,
+  fetchIgnLidarHdTiles,
+  parseIgnLidarHdFeatureCollection,
+  IGN_LIDAR_HD_WFS_ENDPOINT,
+  IGN_LIDAR_HD_TYPENAME,
+  IGN_LIDAR_HD_MAX_QUERY_AREA_SQUARE_DEGREES,
+  IGN_LIDAR_HD_MAX_RESULT_COUNT,
+  type IgnLidarHdTile,
+  type IgnLidarHdSearchResult,
+  type IgnLidarHdFetch,
+} from "./plugins/ign-lidar-hd-api";
 export {
   ARCGIS_HUB_PLUGIN_ID,
   DEFAULT_ARCGIS_HUB_LABELS,
@@ -897,6 +910,32 @@ export {
   togglePrecipitationPlaying,
   subscribePrecipitation,
 } from "./plugins/maplibre-precipitation";
+export {
+  godsEyeViewPlugin,
+  reattachGodsEyeView,
+  GODS_EYE_VIEW_PLUGIN_ID,
+  GODS_EYE_VIEW_EARTHQUAKES_FLAG,
+  GODS_EYE_VIEW_SATELLITES_FLAG,
+} from "./plugins/gods-eye-view";
+export {
+  buildCelestrakTleUrl,
+  buildUsgsFeedUrl,
+  czmlPacketsToAttributeGeoJson,
+  CELESTRAK_CORE_GROUPS,
+  fetchCelestrakSatelliteCatalogCzml,
+  fetchCelestrakSatelliteCzml,
+  fetchUsgsEarthquakeCzml,
+  orbitalPeriodSeconds,
+  parseTle,
+  sampleSatellitePosition,
+  tleRecordsToCzml,
+  usgsGeoJsonToCzml,
+  type CzmlTimeWindow,
+  type SatelliteSampleOptions,
+  type SatelliteClassification,
+  type TleRecord,
+  type UsgsFeatureCollection,
+} from "./plugins/gods-eye-view-feeds";
 export {
   maplibreTimeSliderPlugin,
   TIME_SLIDER_PLUGIN_ID,

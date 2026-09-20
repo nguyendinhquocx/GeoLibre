@@ -1,4 +1,4 @@
-import { getRuntimeEnvironment, type CesiumBasemapImagery } from "@geolibre/core";
+import { CESIUM_BING_AERIAL_ASSET_ID, type CesiumBasemapImagery } from "@geolibre/core";
 import type { CesiumWidget, ImageryLayer, ImageryProvider } from "@cesium/engine";
 
 // Draws the project basemap on the Cesium globe. `@geolibre/core`'s
@@ -14,13 +14,17 @@ import type { CesiumWidget, ImageryLayer, ImageryProvider } from "@cesium/engine
 
 type CesiumNs = typeof import("@cesium/engine");
 
-/** Keyless imagery for a basemap with no raster form when no Ion token is set. */
-const KEYLESS_FALLBACK_URL = "https://tile.openstreetmap.org/";
+/**
+ * Keyless satellite imagery for a basemap with no raster form when no Ion token
+ * is set. Esri World Imagery needs no key and shows the Earth, where street
+ * tiles under a 3D globe mostly show an empty ocean; it is what the God's Eye
+ * View reference app defaults to without a key, for the same reason.
+ */
+const ESRI_WORLD_IMAGERY_URL =
+  "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
 
-/** Read the live key so Settings changes do not require a new project. */
-export function getStadiaApiKey(env = getRuntimeEnvironment()): string | undefined {
-  return env.VITE_STADIA_API_KEY?.trim() || env.STADIA_API_KEY?.trim() || undefined;
-}
+/** Last resort when even Esri cannot be reached. */
+const KEYLESS_FALLBACK_URL = "https://tile.openstreetmap.org/";
 
 /**
  * An imagery provider for one tile template. TMS row ordering is expressed by
@@ -35,12 +39,9 @@ function templateProvider(
     attribution?: string;
     maximumLevel?: number;
     scheme?: "tms";
-    apiKeyProvider?: "stadia";
   },
 ): ImageryProvider {
-  let url = options.scheme === "tms" ? template.replace("{y}", "{reverseY}") : template;
-  const key = options.apiKeyProvider === "stadia" ? getStadiaApiKey() : undefined;
-  if (key) url += `?api_key=${encodeURIComponent(key)}`;
+  const url = options.scheme === "tms" ? template.replace("{y}", "{reverseY}") : template;
   return new Cesium.UrlTemplateImageryProvider({
     url,
     maximumLevel: options.maximumLevel,
@@ -129,23 +130,33 @@ export function applyBasemapImagery(
 
   if (imagery.kind === "default") {
     // No raster equivalent for this basemap (a provider style, a custom URL).
-    // Ion World Imagery when a token is configured — the globe's historical
-    // default, kept so a project that relies on it is unchanged — and keyless
-    // OpenStreetMap otherwise.
-    const layer = ionToken
-      ? Cesium.ImageryLayer.fromWorldImagery({})
-      : Cesium.ImageryLayer.fromProviderAsync(
-          Promise.resolve(new Cesium.OpenStreetMapImageryProvider({ url: KEYLESS_FALLBACK_URL })),
-          {},
-        );
+    // Bing Maps Aerial through Ion when a token is configured, and keyless Esri
+    // World Imagery otherwise. Use the named asset instead of Cesium's implicit
+    // World Imagery default so an upstream default change cannot change ours.
+    // A service that cannot be reached would otherwise leave the globe bare, so
+    // each option falls through to the next: Ion imagery, then keyless Esri,
+    // then street tiles. An expired or revoked token degrades to a drawn globe
+    // rather than an empty one.
+    const keyless = () =>
+      Cesium.ArcGisMapServerImageryProvider.fromUrl(ESRI_WORLD_IMAGERY_URL, {
+        enablePickFeatures: false,
+      }).catch(() => new Cesium.OpenStreetMapImageryProvider({ url: KEYLESS_FALLBACK_URL }));
+    const layer = Cesium.ImageryLayer.fromProviderAsync(
+      ionToken
+        ? Cesium.IonImageryProvider.fromAssetId(CESIUM_BING_AERIAL_ASSET_ID, {
+            accessToken: ionToken,
+          }).catch(keyless)
+        : keyless(),
+      {},
+    );
     viewer.imageryLayers.add(layer, 0);
     return [layer];
   }
 
-  const { template, attribution, maximumLevel, scheme, overlayTemplate, apiKeyProvider } = imagery;
+  const { template, attribution, maximumLevel, scheme, overlayTemplate } = imagery;
   const added = [
     viewer.imageryLayers.addImageryProvider(
-      templateProvider(Cesium, template, { attribution, maximumLevel, scheme, apiKeyProvider }),
+      templateProvider(Cesium, template, { attribution, maximumLevel, scheme }),
       0,
     ),
   ];

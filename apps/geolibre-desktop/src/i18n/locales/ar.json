@@ -2551,6 +2551,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "أحداث أرضية مباشرة ومراعية للوقت من خلاصات بيانات عامة.",
+      "globeOnly": "تُعرض خلاصات الكرة الأرضية المباشرة على كرة Cesium. انتقل إلى الكرة الأرضية ثلاثية الأبعاد لعرضها.",
+      "earthquakes": "الزلازل",
+      "satellites": "الأقمار الصناعية",
+      "loading": "جارٍ التحديث…",
+      "updateFailed": "فشل التحديث",
+      "never": "أبدًا",
+      "lastUpdated": "آخر تحديث: {{time}}",
+      "speed": "السرعة",
+      "speedRealTime": "الزمن الحقيقي (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "كتالوج الأقمار الصناعية الكثيف",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "تعذر تحميل كتالوج Starlink: {{error}}. حدده لإعادة المحاولة.",
+      "denseDescription": "اعرض مجموعة Starlink الكاملة كنقاط خفيفة (من دون تسميات أو صفوف في جدول السمات)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "مشروع",
@@ -3274,6 +3296,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "مُنزِّل OSM",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "كتالوجات STAC",
       "geolibre-planet-open-data": "بيانات Planet المفتوحة",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3285,6 +3308,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "خريطة أساس Carto Light",
       "geolibre-flight-simulator": "محاكي الطيران",
+      "gods-eye-view": "منظور عين الإله",
       "geolibre-route-animation": "تحريك المسار",
       "geolibre-sun": "محاكاة الشمس",
       "maplibre-atmosphere-effects": "التأثيرات الجوية",
@@ -8376,7 +8400,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "استخدم رابط tileset.json لبيانات 3D Tiles في عرض ArcGIS هذا. تتطلب بلاطات Google Photorealistic وI3S محرك عرض آخر."
+      "arcgisSourceUnsupported": "استخدم رابط tileset.json لبيانات 3D Tiles في عرض ArcGIS هذا. تتطلب بلاطات Google Photorealistic وI3S محرك عرض آخر.",
+      "globeGoogleKeyRequired": "تحتاج بلاطات Google Photorealistic 3D Tiles إلى مفتاح Google Maps API في الإعدادات كي تُحمَّل على الكرة الأرضية."
     },
     "geolibre-osm-downloader": {
       "title": "مُنزِّل OSM",
@@ -8408,6 +8433,41 @@
       "noFeatures": "لم تُعثر على أي ميزات تطابق في هذه المنطقة.",
       "error": "لم يتم تنزيل بيانات OSM: {{message}}",
       "added": "تم إضافة {{count}} ميزات إلى الخريطة."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "البحث في تغطية بلاطات IGN LiDAR HD لمنطقة الخريطة الحالية، وإضافة البلاطات إلى الخريطة كسحابات نقاط، أو تنزيل ملفات COPC LAZ الخاصة بها من خوادم IGN.",
+      "attribution": "البيانات © IGN — LiDAR HD، منشورة بموجب Licence Ouverte 2.0.",
+      "west": "الغرب",
+      "south": "الجنوب",
+      "east": "الشرق",
+      "north": "الشمال",
+      "useMapExtent": "استخدام مدى الخريطة",
+      "search": "البحث عن البلاطات",
+      "addToMap": "إضافة إلى الخريطة",
+      "download": "تنزيل",
+      "ready": "اختر منطقة وابحث عن بلاطات LiDAR HD.",
+      "mapUnavailable": "مدى الخريطة غير متوفر بعد.",
+      "extentApplied": "تم تطبيق مدى الخريطة.",
+      "searching": "جارٍ البحث عن بلاطات IGN LiDAR HD…",
+      "noTiles": "لم يتم العثور على أي بلاطات LiDAR HD في هذه المنطقة.",
+      "noDownload": "لا توجد سحابة نقاط منشورة",
+      "layerName": "بلاطات IGN LiDAR HD",
+      "found": "تم العثور على {{count}} بلاطة (بلاطات).",
+      "foundTruncated": "عرض أول {{count}} من أصل {{matched}} بلاطة. ضيّق منطقة البحث لرؤية الباقي.",
+      "addedToMap": "تمت إضافة {{name}} إلى الخريطة.",
+      "alreadyOnMap": "{{name}} موجودة بالفعل على الخريطة.",
+      "unsupportedRenderer": "تتطلب سحابات النقاط محرك العرض MapLibre أو Mapbox.",
+      "addError": "تعذّرت إضافة {{name}} إلى الخريطة: {{message}}",
+      "error": "تعذّر البحث عن بلاطات IGN LiDAR HD: {{message}}",
+      "selectAll": "تحديد الكل",
+      "selectTile": "تحديد {{name}}",
+      "addSelectedToMap": "إضافة المحدد إلى الخريطة",
+      "addSelectedToMapCount": "إضافة {{count}} محدد إلى الخريطة",
+      "addingSelected": "جارٍ إضافة {{count}} بلاطة (بلاطات) إلى الخريطة…",
+      "addedSelectedCount": "تمت إضافة {{count}} بلاطة (بلاطات) إلى الخريطة.",
+      "alreadyOnMapCountPlural": "كانت {{count}} بلاطة (بلاطات) موجودة بالفعل على الخريطة.",
+      "addSelectedFailedCount": "تعذّرت إضافة {{count}} بلاطة (بلاطات)."
     }
   }
 }

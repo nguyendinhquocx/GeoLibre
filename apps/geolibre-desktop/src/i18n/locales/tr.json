@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Herkese açık veri akışlarından canlı, zamana bağlı Dünya olayları.",
+      "globeOnly": "Canlı küre akışları Cesium küresinde görüntülenir. Görmek için 3B küreye geçin.",
+      "earthquakes": "Depremler",
+      "satellites": "Uydular",
+      "loading": "Güncelleniyor…",
+      "updateFailed": "Güncelleme başarısız",
+      "never": "Hiçbir zaman",
+      "lastUpdated": "Son güncelleme: {{time}}",
+      "speed": "Hız",
+      "speedRealTime": "Gerçek zamanlı (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Yoğun uydu kataloğu",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Starlink kataloğu yüklenemedi: {{error}}. Yeniden denemek için seçin.",
+      "denseDescription": "Starlink uydu ağının tamamını hafif noktalar olarak gösterin (etiket veya tablo satırı olmadan)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Proje",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "OSM İndirici",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "STAC Katalogları",
       "geolibre-planet-open-data": "Planet Açık Verileri",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Carto Light Temel Harita",
       "geolibre-flight-simulator": "Uçuş Simülatörü",
+      "gods-eye-view": "Tanrısal Bakış",
       "geolibre-route-animation": "Rota Animasyonu",
       "geolibre-sun": "Güneş Simülasyonu",
       "maplibre-atmosphere-effects": "Atmosfer Efektleri",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Bu ArcGIS görünümünde bir 3D Tiles tileset.json URL’si kullanın. Google Photorealistic ve I3S karoları başka bir işleme motoru gerektirir."
+      "arcgisSourceUnsupported": "Bu ArcGIS görünümünde bir 3D Tiles tileset.json URL’si kullanın. Google Photorealistic ve I3S karoları başka bir işleme motoru gerektirir.",
+      "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles’in küre üzerinde yüklenmesi için Ayarlar’da bir Google Maps API anahtarı gerekir."
     },
     "geolibre-osm-downloader": {
       "title": "OSM İndirici",
@@ -8061,6 +8086,41 @@
       "noFeatures": "Bu alanda eşleşen özellik bulunamadı.",
       "error": "OSM verileri indirilemedi: {{message}}",
       "added": "{{count}} özellik haritaya eklendi."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Geçerli harita alanı için IGN LiDAR HD karo kapsamını arayın, karoları nokta bulutu olarak haritaya ekleyin veya COPC LAZ dosyalarını IGN sunucularından indirin.",
+      "attribution": "Veri © IGN — LiDAR HD, Licence Ouverte 2.0 kapsamında yayımlanmıştır.",
+      "west": "Batı",
+      "south": "Güney",
+      "east": "Doğu",
+      "north": "Kuzey",
+      "useMapExtent": "Harita kapsamını kullan",
+      "search": "Karoları ara",
+      "addToMap": "Haritaya ekle",
+      "download": "İndir",
+      "ready": "Bir alan seçin ve LiDAR HD karolarını arayın.",
+      "mapUnavailable": "Harita kapsamı henüz kullanılamıyor.",
+      "extentApplied": "Harita kapsamı uygulandı.",
+      "searching": "IGN LiDAR HD karoları aranıyor…",
+      "noTiles": "Bu alanda LiDAR HD karosu bulunamadı.",
+      "noDownload": "yayımlanmış nokta bulutu yok",
+      "layerName": "IGN LiDAR HD karoları",
+      "found": "{{count}} karo bulundu.",
+      "foundTruncated": "{{matched}} karodan ilk {{count}} tanesi gösteriliyor. Kalanını görmek için arama alanını daraltın.",
+      "addedToMap": "{{name}} haritaya eklendi.",
+      "alreadyOnMap": "{{name}} zaten haritada.",
+      "unsupportedRenderer": "Nokta bulutları MapLibre veya Mapbox render motorunu gerektirir.",
+      "addError": "{{name}} haritaya eklenemedi: {{message}}",
+      "error": "IGN LiDAR HD karoları aranamadı: {{message}}",
+      "selectAll": "Tümünü seç",
+      "selectTile": "{{name}} öğesini seç",
+      "addSelectedToMap": "Seçilenleri haritaya ekle",
+      "addSelectedToMapCount": "Seçilen {{count}} öğeyi haritaya ekle",
+      "addingSelected": "{{count}} karo haritaya ekleniyor…",
+      "addedSelectedCount": "{{count}} karo haritaya eklendi.",
+      "alreadyOnMapCountPlural": "{{count}} karo zaten haritadaydı.",
+      "addSelectedFailedCount": "{{count}} karo eklenemedi."
     }
   }
 }

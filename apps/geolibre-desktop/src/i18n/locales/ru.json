@@ -2456,6 +2456,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Привязанные ко времени события на Земле в реальном времени из общедоступных источников данных.",
+      "globeOnly": "Данные в реальном времени отображаются на глобусе Cesium. Переключитесь на 3D-глобус, чтобы увидеть их.",
+      "earthquakes": "Землетрясения",
+      "satellites": "Спутники",
+      "loading": "Обновление…",
+      "updateFailed": "Не удалось обновить",
+      "never": "Никогда",
+      "lastUpdated": "Последнее обновление: {{time}}",
+      "speed": "Скорость",
+      "speedRealTime": "Реальное время (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Плотный каталог спутников",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Не удалось загрузить каталог Starlink: {{error}}. Выберите, чтобы повторить попытку.",
+      "denseDescription": "Показать всю группировку Starlink в виде легковесных точек (без подписей и строк таблицы)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Проект",
@@ -3173,6 +3195,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "Загрузчик OSM",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "Каталоги STAC",
       "geolibre-planet-open-data": "Открытые данные Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3184,6 +3207,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Базовая карта Carto Light",
       "geolibre-flight-simulator": "Авиасимулятор",
+      "gods-eye-view": "Взгляд свыше",
       "geolibre-route-animation": "Анимация маршрута",
       "geolibre-sun": "Симуляция Солнца",
       "maplibre-atmosphere-effects": "Эффекты атмосферы",
@@ -8203,7 +8227,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "В этом виде ArcGIS используйте URL tileset.json для 3D Tiles. Для тайлов Google Photorealistic и I3S нужен другой движок отрисовки."
+      "arcgisSourceUnsupported": "В этом виде ArcGIS используйте URL tileset.json для 3D Tiles. Для тайлов Google Photorealistic и I3S нужен другой движок отрисовки.",
+      "globeGoogleKeyRequired": "Для загрузки Google Photorealistic 3D Tiles на глобусе нужен ключ API Google Maps в настройках."
     },
     "geolibre-osm-downloader": {
       "title": "Загрузчик OSM",
@@ -8235,6 +8260,41 @@
       "noFeatures": "В этой области не найдено подходящих объектов.",
       "error": "Не удалось загрузить данные OSM: {{message}}",
       "added": "Добавлено объектов на карту: {{count}}."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Найдите покрытие плитками IGN LiDAR HD для текущей области карты, добавьте плитки на карту в виде облаков точек или скачайте их файлы COPC LAZ с серверов IGN.",
+      "attribution": "Данные © IGN — LiDAR HD, опубликованы по лицензии Licence Ouverte 2.0.",
+      "west": "Запад",
+      "south": "Юг",
+      "east": "Восток",
+      "north": "Север",
+      "useMapExtent": "Использовать границы карты",
+      "search": "Искать плитки",
+      "addToMap": "Добавить на карту",
+      "download": "Скачать",
+      "ready": "Выберите область и выполните поиск плиток LiDAR HD.",
+      "mapUnavailable": "Границы карты пока недоступны.",
+      "extentApplied": "Границы карты применены.",
+      "searching": "Поиск плиток IGN LiDAR HD…",
+      "noTiles": "В этой области плитки LiDAR HD не найдены.",
+      "noDownload": "облако точек не опубликовано",
+      "layerName": "Плитки IGN LiDAR HD",
+      "found": "Найдено плиток: {{count}}.",
+      "foundTruncated": "Показаны первые {{count}} из {{matched}} плиток. Сузьте область поиска, чтобы увидеть остальные.",
+      "addedToMap": "{{name}} добавлен(а) на карту.",
+      "alreadyOnMap": "{{name}} уже на карте.",
+      "unsupportedRenderer": "Облакам точек требуется движок рендеринга MapLibre или Mapbox.",
+      "addError": "Не удалось добавить {{name}} на карту: {{message}}",
+      "error": "Не удалось выполнить поиск плиток IGN LiDAR HD: {{message}}",
+      "selectAll": "Выбрать все",
+      "selectTile": "Выбрать {{name}}",
+      "addSelectedToMap": "Добавить выбранные на карту",
+      "addSelectedToMapCount": "Добавить выбранные ({{count}}) на карту",
+      "addingSelected": "Добавление {{count}} плиток на карту…",
+      "addedSelectedCount": "Добавлено плиток на карту: {{count}}.",
+      "alreadyOnMapCountPlural": "Плиток уже было на карте: {{count}}.",
+      "addSelectedFailedCount": "Не удалось добавить плиток: {{count}}."
     }
   }
 }

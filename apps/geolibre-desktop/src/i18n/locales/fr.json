@@ -2360,6 +2360,28 @@
       }
     }
   },
+  "panel": {
+    "godsEyeView": {
+      "description": "Événements terrestres en direct et temporels issus de flux de données publics.",
+      "globeOnly": "Les flux en direct s’affichent sur le globe Cesium. Passez au globe 3D pour les voir.",
+      "earthquakes": "Séismes",
+      "satellites": "Satellites",
+      "loading": "Mise à jour…",
+      "updateFailed": "Échec de la mise à jour",
+      "never": "Jamais",
+      "lastUpdated": "Dernière mise à jour : {{time}}",
+      "speed": "Vitesse",
+      "speedRealTime": "Temps réel (1×)",
+      "speedMultiple": "{{factor}}×",
+      "denseSatellites": "Catalogue dense de satellites",
+      "denseLoading": "DENSE ···",
+      "denseFailed": "DENSE !",
+      "denseCount": "DENSE · {{count}}",
+      "dense": "DENSE",
+      "denseError": "Impossible de charger le catalogue Starlink : {{error}}. Sélectionnez-le pour réessayer.",
+      "denseDescription": "Afficher la constellation Starlink complète sous forme de points légers (sans étiquettes ni lignes de tableau)."
+    }
+  },
   "toolbar": {
     "menu": {
       "project": "Projet",
@@ -3071,6 +3093,7 @@
       "maplibre-gl-openaerialmap": "OpenAerialMap",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-osm-downloader": "Téléchargeur OSM",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
       "geolibre-stac-catalogs": "Catalogues STAC",
       "geolibre-planet-open-data": "Données ouvertes Planet",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -3082,6 +3105,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "carto-light": "Fond de carte Carto Light",
       "geolibre-flight-simulator": "Simulateur de vol",
+      "gods-eye-view": "Vue omnisciente",
       "geolibre-route-animation": "Animation d'itinéraire",
       "geolibre-sun": "Simulation solaire",
       "maplibre-atmosphere-effects": "Effets atmosphériques",
@@ -8029,7 +8053,8 @@
   },
   "plugin": {
     "3d-tiles": {
-      "arcgisSourceUnsupported": "Utilisez une URL tileset.json de 3D Tiles dans cette vue ArcGIS. Les tuiles Google Photorealistic et I3S nécessitent un autre moteur de rendu."
+      "arcgisSourceUnsupported": "Utilisez une URL tileset.json de 3D Tiles dans cette vue ArcGIS. Les tuiles Google Photorealistic et I3S nécessitent un autre moteur de rendu.",
+      "globeGoogleKeyRequired": "Les tuiles Google Photorealistic 3D Tiles nécessitent une clé API Google Maps dans les Paramètres pour se charger sur le globe."
     },
     "geolibre-osm-downloader": {
       "title": "Téléchargeur OSM",
@@ -8061,6 +8086,41 @@
       "noFeatures": "Aucune caractéristique correspondante n'a été trouvée dans cette zone.",
       "error": "Impossible de télécharger les données OSM : {{message}}",
       "added": "Ajouté {{count}} caractéristiques à la carte."
+    },
+    "geolibre-ign-lidar-hd": {
+      "title": "IGN LiDAR HD",
+      "hint": "Recherchez la couverture des dalles IGN LiDAR HD pour la zone de la carte actuelle, ajoutez des dalles à la carte sous forme de nuages de points, ou téléchargez leurs fichiers COPC LAZ depuis les serveurs de l'IGN.",
+      "attribution": "Données © IGN — LiDAR HD, publiées sous la Licence Ouverte 2.0.",
+      "west": "Ouest",
+      "south": "Sud",
+      "east": "Est",
+      "north": "Nord",
+      "useMapExtent": "Utiliser l'étendue de la carte",
+      "search": "Rechercher des dalles",
+      "addToMap": "Ajouter à la carte",
+      "download": "Télécharger",
+      "ready": "Choisissez une zone et recherchez des dalles LiDAR HD.",
+      "mapUnavailable": "L'étendue de la carte n'est pas disponible pour le moment.",
+      "extentApplied": "L'étendue de la carte a été appliquée.",
+      "searching": "Recherche des dalles IGN LiDAR HD…",
+      "noTiles": "Aucune dalle LiDAR HD n'a été trouvée dans cette zone.",
+      "noDownload": "aucun nuage de points publié",
+      "layerName": "Dalles IGN LiDAR HD",
+      "found": "{{count}} dalle(s) trouvée(s).",
+      "foundTruncated": "Affichage des {{count}} premières dalles sur {{matched}}. Réduisez la zone de recherche pour voir le reste.",
+      "addedToMap": "{{name}} a été ajoutée à la carte.",
+      "alreadyOnMap": "{{name}} est déjà sur la carte.",
+      "unsupportedRenderer": "Les nuages de points nécessitent le moteur de rendu MapLibre ou Mapbox.",
+      "addError": "Impossible d'ajouter {{name}} à la carte : {{message}}",
+      "error": "Impossible de rechercher les dalles IGN LiDAR HD : {{message}}",
+      "selectAll": "Tout sélectionner",
+      "selectTile": "Sélectionner {{name}}",
+      "addSelectedToMap": "Ajouter la sélection à la carte",
+      "addSelectedToMapCount": "Ajouter {{count}} dalle(s) sélectionnée(s) à la carte",
+      "addingSelected": "Ajout de {{count}} dalle(s) à la carte…",
+      "addedSelectedCount": "{{count}} dalle(s) ajoutée(s) à la carte.",
+      "alreadyOnMapCountPlural": "{{count}} dalle(s) étaient déjà sur la carte.",
+      "addSelectedFailedCount": "Impossible d'ajouter {{count}} dalle(s)."
     }
   }
 }

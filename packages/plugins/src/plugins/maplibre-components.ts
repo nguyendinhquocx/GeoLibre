@@ -830,7 +830,10 @@ interface PendingLidarRestore {
   beforeLayerId: string | null;
 }
 const pendingLidarRestores = new Map<string, PendingLidarRestore[]>();
-let lidarRestoreInFlight = false;
+// The currently-running restoreLidarLayers() call, if any — a promise rather
+// than a boolean so a concurrent caller can wait for it and retry instead of
+// bailing out and silently dropping its own layer. See restoreLidarLayers.
+let lidarRestoreInFlightPromise: Promise<void> | null = null;
 
 let pluginActive = false;
 let componentsControlRevision = 0;
@@ -3079,6 +3082,97 @@ export function openLidarLayerPanel(app: GeoLibreAppAPI): void {
   void openStandaloneLidarControl(app);
 }
 
+/** Safety net for {@link waitForPendingLidarRestores}: how long to wait for
+ * queued restores to settle before giving up regardless. */
+const PENDING_LIDAR_RESTORE_TIMEOUT_MS = 60_000;
+
+/** Resolves once every currently-queued {@link pendingLidarRestores} entry has
+ * been consumed by a `load` (or dropped by a `loaderror`) — i.e. once every
+ * `restoreLidarLayers` call in flight has actually finished loading its point
+ * cloud, not just issued the request. Falls back to a fixed timeout so a
+ * leaked entry (a load that never fires either event) cannot wedge a caller
+ * forever. */
+function waitForPendingLidarRestores(): Promise<void> {
+  if (pendingLidarRestores.size === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (
+        pendingLidarRestores.size === 0 ||
+        Date.now() - start > PENDING_LIDAR_RESTORE_TIMEOUT_MS
+      ) {
+        resolve();
+        return;
+      }
+      setTimeout(check, 250);
+    };
+    check();
+  });
+}
+
+// Nesting guard for withLidarAutoZoomSuppressed: two overlapping callers (e.g.
+// clicking "Add to map" on two different tiles before the first one settles)
+// must not stomp on each other's snapshot of the pre-suppression value. Only
+// the first caller in (depth 0 -> 1) records what autoZoom was, and only the
+// last caller out (depth 1 -> 0) restores it — see that function for the bug
+// this fixes.
+let lidarAutoZoomSuppressionDepth = 0;
+let lidarAutoZoomOriginalValue = true;
+
+/**
+ * Runs `fn` with the shared LiDAR control's `autoZoom` temporarily disabled,
+ * so a point cloud loaded through `fn` does not fly the camera to it.
+ * `autoZoom` is a constructor-only option with no public runtime setter, so
+ * this reaches into the control's private `_options` the same way
+ * maplibre-gl-lidar's own `restoreFromUrl` does internally when it needs to
+ * load several point clouds without flying to each one in turn. If a future
+ * upgrade removes that private field, the cast below quietly no-ops (runs
+ * `fn` unsuppressed) instead of throwing — see docs/maintenance.md for the
+ * other upstream internals this app already mirrors by hand.
+ *
+ * `fn` (via `restoreLidarLayers`) only awaits the request being *issued*, not
+ * the point cloud finishing loading, so this also waits for every restore
+ * queued during `fn` to actually finish before re-enabling autoZoom —
+ * otherwise a still-loading point cloud (typical for a bulk "add several
+ * tiles" action, where the earliest ones load before the loop even finishes
+ * issuing the rest) fires its `load` event, and hence its fly-to, after
+ * autoZoom was already switched back on.
+ *
+ * Calls can overlap (two "Add to map" clicks in quick succession each run
+ * this independently), so a plain snapshot/restore of `options.autoZoom`
+ * would corrupt the shared value: whichever call happened to finish last
+ * would stomp the flag with *its own* snapshot, which — if that snapshot was
+ * taken while another call had already forced it to `false` — could leave
+ * autoZoom stuck disabled for the rest of the session (or, in the opposite
+ * ordering, re-enable it while a sibling call's point cloud is still
+ * loading). The depth counter above fixes this: only the outermost call
+ * captures and restores the real original value.
+ */
+export async function withLidarAutoZoomSuppressed<T>(
+  app: GeoLibreAppAPI,
+  fn: () => Promise<T>,
+): Promise<T> {
+  await openStandaloneLidarControl(app, { reveal: false });
+  const options = (lidarControl as unknown as { _options?: { autoZoom?: boolean } } | null)
+    ?._options;
+  if (!options || !("autoZoom" in options)) return fn();
+  if (lidarAutoZoomSuppressionDepth === 0) {
+    lidarAutoZoomOriginalValue = options.autoZoom ?? true;
+  }
+  lidarAutoZoomSuppressionDepth++;
+  options.autoZoom = false;
+  try {
+    const result = await fn();
+    await waitForPendingLidarRestores();
+    return result;
+  } finally {
+    lidarAutoZoomSuppressionDepth = Math.max(0, lidarAutoZoomSuppressionDepth - 1);
+    if (lidarAutoZoomSuppressionDepth === 0) {
+      options.autoZoom = lidarAutoZoomOriginalValue;
+    }
+  }
+}
+
 export function openSplattingLayerPanel(app: GeoLibreAppAPI): void {
   void openStandaloneSplattingControl(app);
 }
@@ -3590,9 +3684,19 @@ function isLidarRestorePending(layer: GeoLibreLayer): boolean {
  * Layers panel but renders nothing. The loaded cloud is reattached to the saved
  * layer in {@link createLidarLoadHandler}, preserving its visibility, opacity,
  * style, name, and position.
+ *
+ * Concurrent callers (e.g. two "Add to map" clicks in quick succession) must
+ * not silently drop each other's layer: if a restore is already running, this
+ * waits for it to finish and then re-runs itself, so a layer added to the
+ * store after the first run's `pending` snapshot was taken still gets picked
+ * up on the retry instead of `addTileToMap` reporting it as added while it
+ * never actually streams.
  */
 export async function restoreLidarLayers(app: GeoLibreAppAPI): Promise<void> {
-  if (lidarRestoreInFlight) return;
+  if (lidarRestoreInFlightPromise) {
+    await lidarRestoreInFlightPromise.catch(() => {});
+    return restoreLidarLayers(app);
+  }
 
   const pending = useAppStore
     .getState()
@@ -3604,8 +3708,7 @@ export async function restoreLidarLayers(app: GeoLibreAppAPI): Promise<void> {
     );
   if (pending.length === 0) return;
 
-  lidarRestoreInFlight = true;
-  try {
+  const run = (async () => {
     const opened = await openStandaloneLidarControl(app, { reveal: false });
     if (!opened || !lidarControl) return;
     // The deck.gl point-cloud overlay only renders under the Mercator
@@ -3647,8 +3750,13 @@ export async function restoreLidarLayers(app: GeoLibreAppAPI): Promise<void> {
         console.warn("[lidar] failed to restore point cloud", url, error);
       });
     }
+  })();
+
+  lidarRestoreInFlightPromise = run;
+  try {
+    await run;
   } finally {
-    lidarRestoreInFlight = false;
+    if (lidarRestoreInFlightPromise === run) lidarRestoreInFlightPromise = null;
   }
 }
 
@@ -4112,7 +4220,7 @@ function createLidarControl(
     lidarStoreUnsubscribe = null;
     stopLidarThemeSync();
     pendingLidarRestores.clear();
-    lidarRestoreInFlight = false;
+    lidarRestoreInFlightPromise = null;
     // Stopping a renderer emits unload for every streamed cloud. Preserve
     // project records during teardown so the next engine can restore them.
     control.off("unload", onUnload);
@@ -4887,7 +4995,7 @@ function teardownLidarControl(app: GeoLibreAppAPI): void {
   // Clear restore bookkeeping so a teardown mid-restore (project reload, map
   // re-init) cannot strand the in-flight guard and block later restores.
   pendingLidarRestores.clear();
-  lidarRestoreInFlight = false;
+  lidarRestoreInFlightPromise = null;
   lidarStoreUnsubscribe?.();
   lidarStoreUnsubscribe = null;
   lidarLayerAdapter?.destroy();
