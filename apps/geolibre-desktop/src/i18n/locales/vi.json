@@ -1924,7 +1924,7 @@
     "only3d": "chỉ 3D",
     "noMapbox": "không Mapbox",
     "noArcgis": "không ArcGIS",
-    "cesiumTokenHint": "Thêm mã thông báo Cesium Ion trong Cài đặt để dùng địa hình và ảnh vệ tinh Ion"
+    "cesiumTokenHint": "Thêm mã thông báo Cesium Ion trong <settingsLink>Cài đặt → Biến môi trường</settingsLink> để dùng địa hình và ảnh vệ tinh Ion"
   },
   "renderer": {
     "basemap": "Sơ đồ cơ sở",
@@ -2316,10 +2316,37 @@
     "godsEyeView": {
       "description": "Các sự kiện Trái Đất trực tiếp, có yếu tố thời gian từ nguồn dữ liệu công khai.",
       "globeOnly": "Nguồn dữ liệu trực tiếp được hiển thị trên địa cầu Cesium. Hãy chuyển sang địa cầu 3D để xem.",
+      "groups": {
+        "movement": "Di chuyển",
+        "cameras": "Camera",
+        "infrastructure": "Cơ sở hạ tầng",
+        "events": "Sự kiện",
+        "utilities": "Tiện ích"
+      },
       "earthquakes": "Động đất",
+      "spaceMissions": "Sứ mệnh không gian (30 ngày)",
       "satellites": "Vệ tinh",
+      "flights": "Chuyến bay trực tiếp",
+      "militaryFlights": "Chuyến bay quân sự",
+      "bikeShare": "Chia sẻ xe đạp",
+      "transit": "Giao thông công cộng trực tiếp",
+      "streetTraffic": "Giao thông đường phố mô phỏng",
+      "mappedAlpr": "Camera nhận dạng biển số đã lập bản đồ",
+      "cctv": "Camera CCTV công cộng",
+      "cctvPopup": {
+        "liveSnapshot": "Hình ảnh trực tiếp",
+        "provider": "Nhà cung cấp",
+        "attribution": "Ghi công",
+        "privacy": "Quyền riêng tư"
+      },
+      "radio": "Đài phát thanh",
+      "datacenters": "Trung tâm dữ liệu",
+      "dams": "Đập",
+      "cables": "Cáp ngầm biển",
+      "osmInfrastructure": "Hạ tầng OSM",
       "loading": "Đang cập nhật…",
       "updateFailed": "Cập nhật thất bại",
+      "noneInView": "Không tìm thấy tính năng nào trong chế độ xem hiện tại cho lớp này.",
       "never": "Chưa bao giờ",
       "lastUpdated": "Cập nhật lần cuối: {{time}}",
       "speed": "Tốc độ",
@@ -7400,6 +7427,7 @@
     "viewportStretchNoRange": "Các giá trị trong khung nhìn không xác định được một khoảng.",
     "viewportStretchMoved": "Bản đồ đã di chuyển trước khi đọc xong. Hãy áp dụng lại.",
     "index": "chỉ mục",
+    "opacityClasses": "Các lớp độ mờ",
     "classifyToggle": "Phân loại thành các lớp riêng biệt",
     "method": "Phương pháp",
     "methodEqualInterval": "Khoảng bằng nhau",

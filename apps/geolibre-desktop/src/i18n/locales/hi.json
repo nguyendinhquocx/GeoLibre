@@ -1970,7 +1970,7 @@
     "only3d": "केवल 3D",
     "noMapbox": "Mapbox नहीं",
     "noArcgis": "ArcGIS नहीं",
-    "cesiumTokenHint": "टेरेन और Ion इमेजरी के लिए सेटिंग्स में Cesium Ion टोकन जोड़ें"
+    "cesiumTokenHint": "टेरेन और Ion इमेजरी के लिए <settingsLink>सेटिंग्स → एनवायरनमेंट वेरिएबल</settingsLink> में Cesium Ion टोकन जोड़ें"
   },
   "renderer": {
     "basemap": "बेसमैप",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "सार्वजनिक डेटा फ़ीड से लाइव, समय-संबंधी पृथ्वी घटनाएँ।",
       "globeOnly": "लाइव ग्लोब फ़ीड Cesium ग्लोब पर दिखाई देती हैं। इन्हें देखने के लिए 3D ग्लोब पर जाएँ।",
+      "groups": {
+        "movement": "आवागमन",
+        "cameras": "कैमरे",
+        "infrastructure": "बुनियादी ढाँचा",
+        "events": "घटनाएँ",
+        "utilities": "उपयोगिताएँ"
+      },
       "earthquakes": "भूकंप",
+      "spaceMissions": "अंतरिक्ष मिशन (30 दिन)",
       "satellites": "उपग्रह",
+      "flights": "लाइव उड़ानें",
+      "militaryFlights": "सैन्य उड़ानें",
+      "bikeShare": "बाइक शेयर",
+      "transit": "लाइव सार्वजनिक परिवहन",
+      "streetTraffic": "सिम्युलेटेड सड़क यातायात",
+      "mappedAlpr": "मानचित्रित नंबर प्लेट कैमरे",
+      "cctv": "सार्वजनिक सीसीटीवी कैमरे",
+      "cctvPopup": {
+        "liveSnapshot": "लाइव छवि",
+        "provider": "प्रदाता",
+        "attribution": "श्रेय",
+        "privacy": "गोपनीयता"
+      },
+      "radio": "रेडियो स्टेशन",
+      "datacenters": "डेटा केंद्र",
+      "dams": "बाँध",
+      "cables": "समुद्री केबल",
+      "osmInfrastructure": "OSM अवसंरचना",
       "loading": "अपडेट हो रहा है…",
       "updateFailed": "अपडेट विफल",
+      "noneInView": "इस लेयर के लिए वर्तमान दृश्य में कोई फ़ीचर नहीं मिला।",
       "never": "कभी नहीं",
       "lastUpdated": "अंतिम अपडेट: {{time}}",
       "speed": "गति",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "व्यूपोर्ट के मान कोई रेंज परिभाषित नहीं करते।",
     "viewportStretchMoved": "पढ़ना पूरा होने से पहले मानचित्र हिल गया। फिर से लागू करें।",
     "index": "सूचकांक",
+    "opacityClasses": "अपारदर्शिता वर्ग",
     "classifyToggle": "असतत वर्गों में वर्गीकृत करें",
     "method": "विधि",
     "methodEqualInterval": "समान अंतराल",

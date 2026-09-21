@@ -3,7 +3,20 @@ import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { useAppStore } from "@geolibre/core";
 import {
+  GODS_EYE_VIEW_CABLES_FLAG,
+  GODS_EYE_VIEW_BIKE_SHARE_FLAG,
+  GODS_EYE_VIEW_DAMS_FLAG,
+  GODS_EYE_VIEW_DATACENTERS_FLAG,
   GODS_EYE_VIEW_DENSE_SATELLITES_FLAG,
+  GODS_EYE_VIEW_OSM_INFRASTRUCTURE_FLAG,
+  GODS_EYE_VIEW_RADIO_FLAG,
+  GODS_EYE_VIEW_SPACE_MISSIONS_FLAG,
+  GODS_EYE_VIEW_STREET_TRAFFIC_FLAG,
+  GODS_EYE_VIEW_MAPPED_ALPR_FLAG,
+  GODS_EYE_VIEW_FLIGHTS_FLAG,
+  GODS_EYE_VIEW_MILITARY_FLIGHTS_FLAG,
+  GODS_EYE_VIEW_CCTV_FLAG,
+  GODS_EYE_VIEW_TRANSIT_FLAG,
   godsEyeViewPlugin,
   reattachGodsEyeView,
 } from "../packages/plugins/src/plugins/gods-eye-view";
@@ -55,8 +68,20 @@ function makeGlobe(startingMultiplier = 0) {
       public farValue: number,
     ) {}
   }
+  let moveEndListener: (() => void) | null = null;
+  let viewBounds: [number, number, number, number] = [-122.5, 37.7, -122.4, 37.8];
   const viewer = {
     id: "viewer",
+    camera: {
+      moveEnd: {
+        addEventListener(callback: () => void) {
+          moveEndListener = callback;
+          return () => {
+            if (moveEndListener === callback) moveEndListener = null;
+          };
+        },
+      },
+    },
     clock: {
       shouldAnimate: false,
       multiplier: startingMultiplier,
@@ -90,6 +115,7 @@ function makeGlobe(startingMultiplier = 0) {
   const panel = document.getElementById("panel") as unknown as HTMLElement;
   const app = {
     getMap: () => null,
+    getViewBounds: () => viewBounds,
     getCesiumScene: () => {
       handles += 1;
       return {
@@ -103,6 +129,19 @@ function makeGlobe(startingMultiplier = 0) {
         },
         requestRender: () => {},
         registerMovingPointLayer: () => () => {},
+        // The viewport feeds read the camera through the scene handle, and the
+        // CCTV feed keys its request on whether previews are visible at this
+        // zoom, so derive a plausible zoom from the span the test set rather
+        // than pinning a constant that ignores `setViewBounds`.
+        readView: () => {
+          const [west, south, east, north] = viewBounds;
+          return {
+            center: [(west + east) / 2, (south + north) / 2] as [number, number],
+            zoom: Math.log2(360 / Math.max(east - west, 1e-6)),
+            bearing: 0,
+            pitch: 0,
+          };
+        },
       };
     },
     registerRightPanel: (options: { render: (container: HTMLElement) => () => void }) => {
@@ -113,7 +152,17 @@ function makeGlobe(startingMultiplier = 0) {
     openRightPanel: () => {},
     onLocaleChange: () => () => {},
   } as unknown as GeoLibreAppAPI;
-  return { app, viewer, panel, points, handleCount: () => handles };
+  return {
+    app,
+    viewer,
+    panel,
+    points,
+    handleCount: () => handles,
+    setViewBounds: (bounds: [number, number, number, number]) => {
+      viewBounds = bounds;
+    },
+    fireMoveEnd: () => moveEndListener?.(),
+  };
 }
 
 /** Count feed requests without touching the network; failures are expected. */
@@ -168,7 +217,174 @@ function stubFeeds(): { calls: () => string[]; restore: () => void } {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
-    return new Response(TLE_TEXT, { status: 200, headers: { "content-type": "text/plain" } });
+    if (url.includes("radio-browser.info")) {
+      return new Response(
+        JSON.stringify([{ stationuuid: "radio-1", name: "Radio", geo_long: 10, geo_lat: 20 }]),
+        { status: 200 },
+      );
+    }
+    if (url.includes("datacenters.geojsonl")) {
+      return new Response(
+        JSON.stringify({
+          type: "Feature",
+          id: "dc-1",
+          geometry: { type: "Point", coordinates: [10, 20] },
+          properties: { name: "Datacenter" },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("/dams/")) {
+      return new Response(
+        JSON.stringify({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              id: "dam-1",
+              geometry: { type: "Point", coordinates: [10, 20] },
+              properties: { name: "Dam" },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("telegeography_submarine_cables")) {
+      return new Response(
+        JSON.stringify({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              id: "cable-1",
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [10, 20],
+                  [11, 21],
+                ],
+              },
+              properties: { name: "Cable" },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("tiles.geolibre.app/overpass")) {
+      return new Response(
+        JSON.stringify({
+          elements: [
+            {
+              type: "node",
+              id: 1,
+              lon: 10,
+              lat: 20,
+              tags: { man_made: "tower" },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("launch-library/recent")) {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "launch-1",
+              name: "Launch",
+              pad: { longitude: 10, latitude: 20 },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("station_information.json")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            stations: [{ station_id: "station-1", name: "Station", lon: 10, lat: 20 }],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("station_status.json")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            stations: [{ station_id: "station-1", num_bikes_available: 2 }],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("opensky/states")) {
+      return new Response(
+        JSON.stringify({
+          time: Date.now() / 1000,
+          states: [
+            [
+              "abc123",
+              "TEST",
+              "US",
+              null,
+              Date.now() / 1000,
+              10,
+              20,
+              1000,
+              false,
+              100,
+              90,
+              0,
+              null,
+              1100,
+            ],
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("adsb-lol/military")) {
+      return new Response(
+        JSON.stringify({
+          now: Date.now(),
+          ac: [
+            {
+              hex: "ae1234",
+              flight: "RCH1",
+              lon: 10,
+              lat: 20,
+              alt_baro: 10000,
+              gs: 200,
+              track: 90,
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("adsbdb/aircraft")) {
+      return new Response(JSON.stringify({ response: { aircraft: {} } }), {
+        status: 200,
+      });
+    }
+    if (url.includes("api.tfl.gov.uk") || url.includes("data.calgary.ca")) {
+      return new Response("[]", { status: 200 });
+    }
+    if (url.includes("tie.digitraffic.fi")) {
+      return new Response(JSON.stringify({ features: [] }), { status: 200 });
+    }
+    if (url.includes("api.entur.io")) {
+      return new Response(new Uint8Array(), { status: 200 });
+    }
+    return new Response(TLE_TEXT, {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+    });
   }) as typeof fetch;
   return {
     calls: () => calls,
@@ -187,9 +403,141 @@ describe("God's Eye View availability", () => {
       assert.equal(isPluginEngineSupported(godsEyeViewPlugin, engine), true, engine);
     }
   });
+
+  it("groups registered feeds in upstream panel order", () => {
+    const net = stubFetch();
+    const globe = makeGlobe();
+    try {
+      godsEyeViewPlugin.activate?.(globe.app);
+      const sections = [
+        ...globe.panel.querySelectorAll<HTMLElement>(".geolibre-gods-eye-view-feed-group"),
+      ];
+      assert.deepEqual(
+        sections.map((section) => section.dataset.feedGroup),
+        ["movement", "cameras", "infrastructure", "events", "utilities"],
+      );
+      assert.deepEqual(
+        sections.map((section) => [
+          section.querySelector("h3")?.textContent,
+          [...section.querySelectorAll<HTMLElement>("[data-feed-id]")].map(
+            (row) => row.dataset.feedId,
+          ),
+        ]),
+        [
+          [
+            "Movement",
+            ["flights", "militaryFlights", "satellites", "bikeShare", "transit", "streetTraffic"],
+          ],
+          ["Cameras", ["mappedAlpr", "cctv"]],
+          ["Infrastructure", ["osmInfrastructure", "datacenters", "cables", "dams"]],
+          ["Events", ["earthquakes", "spaceMissions"]],
+          ["Utilities", ["radio"]],
+        ],
+      );
+    } finally {
+      godsEyeViewPlugin.deactivate?.(globe.app);
+      net.restore();
+    }
+  });
 });
 
 describe("God's Eye View feed refresh", () => {
+  it("dispatches every registered feed with identity and attribution", async () => {
+    const net = stubFeeds();
+    const globe = makeGlobe();
+    try {
+      useAppStore.setState({ layers: [] });
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {
+        earthquakes: true,
+        satellites: true,
+        radio: true,
+        datacenters: true,
+        dams: true,
+        cables: true,
+        osmInfrastructure: true,
+        bikeShare: true,
+        spaceMissions: true,
+        streetTraffic: true,
+        mappedAlpr: true,
+        flights: true,
+        militaryFlights: true,
+        cctv: true,
+        transit: true,
+      });
+      godsEyeViewPlugin.activate?.(globe.app);
+      for (let i = 0; i < 20; i++) await flush();
+
+      const layers = useAppStore.getState().layers;
+      assert.deepEqual(
+        layers.map((layer) => layer.metadata.godsEyeViewFeed).sort(),
+        [
+          "bikeShare",
+          "cables",
+          "dams",
+          "datacenters",
+          "earthquakes",
+          "osmInfrastructure",
+          "radio",
+          "satellites",
+          "spaceMissions",
+          "streetTraffic",
+          "mappedAlpr",
+          "flights",
+          "militaryFlights",
+          "cctv",
+          "transit",
+        ].sort(),
+      );
+      for (const layer of layers) assert.ok(layer.source.attribution, layer.name);
+      const flags = [
+        GODS_EYE_VIEW_RADIO_FLAG,
+        GODS_EYE_VIEW_DATACENTERS_FLAG,
+        GODS_EYE_VIEW_DAMS_FLAG,
+        GODS_EYE_VIEW_CABLES_FLAG,
+        GODS_EYE_VIEW_OSM_INFRASTRUCTURE_FLAG,
+        GODS_EYE_VIEW_BIKE_SHARE_FLAG,
+        GODS_EYE_VIEW_SPACE_MISSIONS_FLAG,
+        GODS_EYE_VIEW_STREET_TRAFFIC_FLAG,
+        GODS_EYE_VIEW_MAPPED_ALPR_FLAG,
+        GODS_EYE_VIEW_FLIGHTS_FLAG,
+        GODS_EYE_VIEW_MILITARY_FLIGHTS_FLAG,
+        GODS_EYE_VIEW_CCTV_FLAG,
+        GODS_EYE_VIEW_TRANSIT_FLAG,
+      ];
+      for (const flag of flags) {
+        assert.ok(
+          layers.some((layer) => layer.metadata[flag] === true),
+          flag,
+        );
+      }
+      const calls = net.calls().join("\n");
+      for (const source of [
+        "radio-browser.info",
+        "datacenters.geojsonl",
+        "/dams/",
+        "telegeography_submarine_cables",
+        "tiles.geolibre.app/overpass",
+        "launch-library/recent",
+        "station_information.json",
+        "opensky/states",
+        "adsb-lol/military",
+        "api.tfl.gov.uk",
+        "data.calgary.ca",
+        "tie.digitraffic.fi",
+        "api.entur.io",
+      ]) {
+        assert.ok(calls.includes(source), source);
+      }
+      const cctv = layers.find((layer) => layer.metadata.godsEyeViewFeed === "cctv");
+      assert.equal(cctv?.popup?.fields?.[0]?.kind, "image");
+    } finally {
+      godsEyeViewPlugin.deactivate?.(globe.app);
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {});
+      useAppStore.setState({ layers: [] });
+      net.restore();
+    }
+  });
+
   it("publishes the dense shell as a separate queryable layer", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -259,9 +607,15 @@ describe("God's Eye View feed refresh", () => {
 
       // A project switch replaces the store's layers wholesale while the plugin
       // stays active, so the remembered layer ids now point at nothing.
-      const carried = first.map((layer) => ({ ...layer, id: `${layer.id}-from-project-b` }));
+      const carried = first.map((layer) => ({
+        ...layer,
+        id: `${layer.id}-from-project-b`,
+      }));
       useAppStore.setState({ layers: carried });
-      godsEyeViewPlugin.applyProjectState?.(globe.app, { earthquakes: true, satellites: true });
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {
+        earthquakes: true,
+        satellites: true,
+      });
       for (let i = 0; i < 8; i++) await flush();
 
       const after = useAppStore.getState().layers;
@@ -320,10 +674,14 @@ describe("God's Eye View feed refresh", () => {
 
       // An instant that ran off the end of the old window is reclaimed.
       globe.viewer.clock.currentTime = (stopTime as number) + 60_000;
-      const checkbox = globe.panel.querySelector("input[type=checkbox]") as HTMLInputElement;
+      const checkbox = globe.panel.querySelector(
+        '[data-feed-id="satellites"] input[type=checkbox]',
+      ) as HTMLInputElement;
       checkbox.checked = false;
       checkbox.dispatchEvent(new (globe.panel.ownerDocument.defaultView as Window).Event("change"));
-      const back = globe.panel.querySelector("input[type=checkbox]") as HTMLInputElement;
+      const back = globe.panel.querySelector(
+        '[data-feed-id="satellites"] input[type=checkbox]',
+      ) as HTMLInputElement;
       back.checked = true;
       back.dispatchEvent(new (globe.panel.ownerDocument.defaultView as Window).Event("change"));
       for (let i = 0; i < 8; i++) await flush();
@@ -371,6 +729,7 @@ describe("God's Eye View feed refresh", () => {
       // positions and push the snapshot toward its ceiling.
       for (const layer of useAppStore.getState().layers) {
         assert.equal(layer.metadata.transientGeojson, true, layer.name);
+        assert.equal(layer.metadata.transientCzml, true, layer.name);
         assert.ok(layer.geojson, "the live layer still carries its table");
       }
 
@@ -380,7 +739,10 @@ describe("God's Eye View feed refresh", () => {
       useAppStore.setState({
         layers: useAppStore.getState().layers.map(({ geojson: _dropped, ...rest }) => rest),
       });
-      godsEyeViewPlugin.applyProjectState?.(globe.app, { earthquakes: true, satellites: true });
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {
+        earthquakes: true,
+        satellites: true,
+      });
       for (let i = 0; i < 8; i++) await flush();
       assert.ok(net.calls().length > calls, "a stripped layer refetches");
       for (const layer of useAppStore.getState().layers) assert.ok(layer.geojson);
@@ -403,13 +765,99 @@ describe("God's Eye View feed refresh", () => {
 
       // Every project load re-applies plugin state; CelesTrak asks not to be
       // re-read every few minutes, so a re-entry inside the interval is spared.
-      godsEyeViewPlugin.applyProjectState?.(globe.app, { earthquakes: true, satellites: true });
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {
+        earthquakes: true,
+        satellites: true,
+      });
       for (let i = 0; i < 8; i++) await flush();
       assert.equal(net.calls().length, afterActivate);
     } finally {
       godsEyeViewPlugin.deactivate?.(globe.app);
       useAppStore.setState({ layers: [] });
       net.restore();
+    }
+  });
+
+  it("refreshes viewport feeds only after the camera enters a new snapped query cell", async () => {
+    const originalFetch = globalThis.fetch;
+    let overpassCalls = 0;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      if (String(input).includes("tiles.geolibre.app/overpass")) overpassCalls += 1;
+      return new Response(JSON.stringify({ elements: [] }), { status: 200 });
+    }) as typeof fetch;
+    const globe = makeGlobe();
+    try {
+      useAppStore.setState({ layers: [] });
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {
+        earthquakes: false,
+        satellites: false,
+        mappedAlpr: true,
+      });
+      godsEyeViewPlugin.activate?.(globe.app);
+      for (let index = 0; index < 6; index += 1) await flush();
+      assert.equal(overpassCalls, 1);
+
+      globe.setViewBounds([-122.49, 37.71, -122.41, 37.79]);
+      globe.fireMoveEnd();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      assert.equal(overpassCalls, 1, "a move inside the snapped query cell reuses its result");
+
+      globe.setViewBounds([-122.3, 37.7, -122.2, 37.8]);
+      globe.fireMoveEnd();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      assert.equal(overpassCalls, 2);
+    } finally {
+      godsEyeViewPlugin.deactivate?.(globe.app);
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {});
+      useAppStore.setState({ layers: [] });
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("restores the current viewport when an intervening request is still in flight", async () => {
+    const originalFetch = globalThis.fetch;
+    let overpassCalls = 0;
+    let resolveSecond: ((response: Response) => void) | null = null;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      if (!String(input).includes("tiles.geolibre.app/overpass")) {
+        return new Response(JSON.stringify({ elements: [] }), { status: 200 });
+      }
+      overpassCalls += 1;
+      if (overpassCalls === 2) {
+        return new Promise<Response>((resolve) => {
+          resolveSecond = resolve;
+        });
+      }
+      return new Response(JSON.stringify({ elements: [] }), { status: 200 });
+    }) as typeof fetch;
+    const globe = makeGlobe();
+    try {
+      useAppStore.setState({ layers: [] });
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {
+        earthquakes: false,
+        satellites: false,
+        mappedAlpr: true,
+      });
+      godsEyeViewPlugin.activate?.(globe.app);
+      for (let index = 0; index < 6; index += 1) await flush();
+      assert.equal(overpassCalls, 1);
+
+      globe.setViewBounds([-122.3, 37.7, -122.2, 37.8]);
+      globe.fireMoveEnd();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      assert.equal(overpassCalls, 2);
+
+      globe.setViewBounds([-122.5, 37.7, -122.4, 37.8]);
+      globe.fireMoveEnd();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      assert.equal(overpassCalls, 3, "returning to A supersedes the pending B request");
+      resolveSecond?.(new Response(JSON.stringify({ elements: [] }), { status: 200 }));
+      await flush();
+    } finally {
+      godsEyeViewPlugin.deactivate?.(globe.app);
+      godsEyeViewPlugin.applyProjectState?.(globe.app, {});
+      useAppStore.setState({ layers: [] });
+      globalThis.fetch = originalFetch;
     }
   });
 });
@@ -421,8 +869,21 @@ describe("God's Eye View clock speed", () => {
     try {
       godsEyeViewPlugin.applyProjectState?.(globe.app, {});
       assert.deepEqual(godsEyeViewPlugin.getProjectState?.(), {
+        flights: false,
+        militaryFlights: false,
         earthquakes: true,
+        spaceMissions: false,
         satellites: true,
+        bikeShare: false,
+        transit: false,
+        streetTraffic: false,
+        mappedAlpr: false,
+        cctv: false,
+        radio: false,
+        datacenters: false,
+        dams: false,
+        cables: false,
+        osmInfrastructure: false,
         dense: false,
         // Real time, not the 60x the feeds used to hard-code: at 60x the ISS
         // laps the planet in ninety seconds, which reads as an animation

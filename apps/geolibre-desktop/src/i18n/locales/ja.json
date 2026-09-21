@@ -1924,7 +1924,7 @@
     "only3d": "3Dのみ",
     "noMapbox": "Mapbox非対応",
     "noArcgis": "ArcGIS非対応",
-    "cesiumTokenHint": "地形とIon衛星画像を使うには、設定でCesium Ionトークンを追加してください"
+    "cesiumTokenHint": "地形とIon衛星画像を使うには、<settingsLink>設定 → 環境変数</settingsLink>でCesium Ionトークンを追加してください"
   },
   "renderer": {
     "basemap": "ベースマップ",
@@ -2316,10 +2316,37 @@
     "godsEyeView": {
       "description": "公開データフィードから、時間情報を持つ地球上の事象をライブ表示します。",
       "globeOnly": "ライブ地球フィードは Cesium 地球儀に描画されます。表示するには 3D 地球儀に切り替えてください。",
+      "groups": {
+        "movement": "移動",
+        "cameras": "カメラ",
+        "infrastructure": "インフラ",
+        "events": "イベント",
+        "utilities": "ユーティリティ"
+      },
       "earthquakes": "地震",
+      "spaceMissions": "宇宙ミッション（30日）",
       "satellites": "衛星",
+      "flights": "ライブフライト",
+      "militaryFlights": "軍用機",
+      "bikeShare": "シェアサイクル",
+      "transit": "リアルタイム公共交通",
+      "streetTraffic": "シミュレーション道路交通",
+      "mappedAlpr": "マッピング済みナンバープレート認識カメラ",
+      "cctv": "公共CCTVカメラ",
+      "cctvPopup": {
+        "liveSnapshot": "ライブ画像",
+        "provider": "提供元",
+        "attribution": "帰属表示",
+        "privacy": "プライバシー"
+      },
+      "radio": "ラジオ局",
+      "datacenters": "データセンター",
+      "dams": "ダム",
+      "cables": "海底ケーブル",
+      "osmInfrastructure": "OSM インフラ",
       "loading": "更新中…",
       "updateFailed": "更新に失敗しました",
+      "noneInView": "このレイヤーには現在のビューにフィーチャが見つかりません。",
       "never": "未更新",
       "lastUpdated": "最終更新: {{time}}",
       "speed": "速度",
@@ -7408,6 +7435,7 @@
     "viewportStretchNoRange": "表示範囲の値から範囲を決定できません。",
     "viewportStretchMoved": "読み込みが完了する前に地図が移動しました。もう一度適用してください。",
     "index": "指数",
+    "opacityClasses": "不透明度クラス",
     "classifyToggle": "離散的なクラスに分類する",
     "method": "方法",
     "methodEqualInterval": "等間隔",

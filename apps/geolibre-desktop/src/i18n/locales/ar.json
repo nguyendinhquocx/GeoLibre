@@ -2153,7 +2153,7 @@
     "only3d": "ثلاثي الأبعاد فقط",
     "noMapbox": "بدون Mapbox",
     "noArcgis": "بدون ArcGIS",
-    "cesiumTokenHint": "أضف رمز Cesium Ion من الإعدادات للحصول على التضاريس وصور Ion"
+    "cesiumTokenHint": "أضف رمز Cesium Ion في <settingsLink>الإعدادات ← متغيرات البيئة</settingsLink> للحصول على التضاريس وصور Ion"
   },
   "renderer": {
     "basemap": "خريطة الأساس",
@@ -2555,10 +2555,37 @@
     "godsEyeView": {
       "description": "أحداث أرضية مباشرة ومراعية للوقت من خلاصات بيانات عامة.",
       "globeOnly": "تُعرض خلاصات الكرة الأرضية المباشرة على كرة Cesium. انتقل إلى الكرة الأرضية ثلاثية الأبعاد لعرضها.",
+      "groups": {
+        "movement": "الحركة",
+        "cameras": "الكاميرات",
+        "infrastructure": "البنية التحتية",
+        "events": "الأحداث",
+        "utilities": "الأدوات"
+      },
       "earthquakes": "الزلازل",
+      "spaceMissions": "المهام الفضائية (30 يومًا)",
       "satellites": "الأقمار الصناعية",
+      "flights": "الرحلات المباشرة",
+      "militaryFlights": "الرحلات العسكرية",
+      "bikeShare": "مشاركة الدراجات",
+      "transit": "النقل العام المباشر",
+      "streetTraffic": "حركة مرور الشوارع المحاكاة",
+      "mappedAlpr": "كاميرات قراءة لوحات المركبات المرسومة على الخريطة",
+      "cctv": "كاميرات المراقبة العامة",
+      "cctvPopup": {
+        "liveSnapshot": "لقطة مباشرة",
+        "provider": "المزوّد",
+        "attribution": "نَسب المصدر",
+        "privacy": "الخصوصية"
+      },
+      "radio": "محطات الراديو",
+      "datacenters": "مراكز البيانات",
+      "dams": "السدود",
+      "cables": "كابلات الاتصالات البحرية",
+      "osmInfrastructure": "البنية التحتية من OpenStreetMap",
       "loading": "جارٍ التحديث…",
       "updateFailed": "فشل التحديث",
+      "noneInView": "لم يُعثر على معالم في العرض الحالي لهذه الطبقة.",
       "never": "أبدًا",
       "lastUpdated": "آخر تحديث: {{time}}",
       "speed": "السرعة",
@@ -7812,6 +7839,7 @@
     "viewportStretchNoRange": "قيم نطاق العرض لا تحدد مدى.",
     "viewportStretchMoved": "تحركت الخريطة قبل اكتمال القراءة. طبّق مرة أخرى.",
     "index": "المؤشر",
+    "opacityClasses": "فئات العتامة",
     "classifyToggle": "التصنيف إلى فئات منفصلة",
     "method": "الطريقة",
     "methodEqualInterval": "فترات متساوية",

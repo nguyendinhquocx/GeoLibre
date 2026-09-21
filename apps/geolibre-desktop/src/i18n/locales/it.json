@@ -1970,7 +1970,7 @@
     "only3d": "Solo 3D",
     "noMapbox": "No Mapbox",
     "noArcgis": "No ArcGIS",
-    "cesiumTokenHint": "Aggiungi un token Cesium Ion nelle Impostazioni per il terreno e le immagini Ion"
+    "cesiumTokenHint": "Aggiungi un token Cesium Ion in <settingsLink>Impostazioni → Variabili d’ambiente</settingsLink> per il terreno e le immagini Ion"
   },
   "renderer": {
     "basemap": "Mappa di base",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "Eventi terrestri in tempo reale e temporali da feed di dati pubblici.",
       "globeOnly": "I feed in tempo reale vengono visualizzati sul globo Cesium. Passa al globo 3D per vederli.",
+      "groups": {
+        "movement": "Movimento",
+        "cameras": "Telecamere",
+        "infrastructure": "Infrastrutture",
+        "events": "Eventi",
+        "utilities": "Utilità"
+      },
       "earthquakes": "Terremoti",
+      "spaceMissions": "Missioni spaziali (30 giorni)",
       "satellites": "Satelliti",
+      "flights": "Voli in tempo reale",
+      "militaryFlights": "Voli militari",
+      "bikeShare": "Bike sharing",
+      "transit": "Trasporto pubblico in tempo reale",
+      "streetTraffic": "Traffico stradale simulato",
+      "mappedAlpr": "Telecamere ALPR mappate",
+      "cctv": "Telecamere CCTV pubbliche",
+      "cctvPopup": {
+        "liveSnapshot": "Immagine in diretta",
+        "provider": "Fornitore",
+        "attribution": "Attribuzione",
+        "privacy": "Privacy"
+      },
+      "radio": "Stazioni radio",
+      "datacenters": "Centri dati",
+      "dams": "Dighe",
+      "cables": "Cavi sottomarini",
+      "osmInfrastructure": "Infrastrutture OSM",
       "loading": "Aggiornamento…",
       "updateFailed": "Aggiornamento non riuscito",
+      "noneInView": "Nessun elemento trovato nella vista attuale per questo layer.",
       "never": "Mai",
       "lastUpdated": "Ultimo aggiornamento: {{time}}",
       "speed": "Velocità",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "I valori della vista non definiscono un intervallo.",
     "viewportStretchMoved": "La mappa si è spostata prima del termine della lettura. Applica di nuovo.",
     "index": "Indice",
+    "opacityClasses": "Classi di opacità",
     "classifyToggle": "Classifica in classi discrete",
     "method": "Metodo",
     "methodEqualInterval": "Intervallo uguale",

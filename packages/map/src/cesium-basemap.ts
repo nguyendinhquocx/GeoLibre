@@ -27,6 +27,28 @@ const ESRI_WORLD_IMAGERY_URL =
 const KEYLESS_FALLBACK_URL = "https://tile.openstreetmap.org/";
 
 /**
+ * Keyless imagery to draw when the chosen basemap cannot be reached.
+ *
+ * Every provider handed to `ImageryLayer.fromProviderAsync` must end in a
+ * provider, never a rejection: Cesium's surface tile provider reports itself
+ * unready while any imagery layer in the stack is still without one, and an
+ * unready stack stops the globe drawing *any* tile — not just that basemap.
+ * A revoked, expired or URL-restricted Ion token would otherwise leave the
+ * viewer showing bare space. The OpenStreetMap provider constructs
+ * synchronously, so this promise cannot reject.
+ */
+function keylessImagery(Cesium: CesiumNs): Promise<ImageryProvider> {
+  return Cesium.ArcGisMapServerImageryProvider.fromUrl(ESRI_WORLD_IMAGERY_URL, {
+    enablePickFeatures: false,
+  }).catch(() => lastResortImagery(Cesium));
+}
+
+/** The end of every fallback chain: constructed, not fetched, so it cannot reject. */
+function lastResortImagery(Cesium: CesiumNs): ImageryProvider {
+  return new Cesium.OpenStreetMapImageryProvider({ url: KEYLESS_FALLBACK_URL });
+}
+
+/**
  * An imagery provider for one tile template. TMS row ordering is expressed by
  * swapping `{y}` for Cesium's `{reverseY}` placeholder: Cesium has no `scheme`
  * option the way MapLibre's raster source does, so the planetary mosaics (which
@@ -110,7 +132,14 @@ export function applyBasemapImagery(
     // Public ArcGIS services supply their own attribution and tile-level limits.
     // Avoid Cesium's bundled evaluation token for the authenticated basemap API.
     const layer = Cesium.ImageryLayer.fromProviderAsync(
-      Cesium.ArcGisMapServerImageryProvider.fromUrl(imagery.url, { enablePickFeatures: false }),
+      Cesium.ArcGisMapServerImageryProvider.fromUrl(imagery.url, {
+        enablePickFeatures: false,
+      }).catch(() =>
+        // World Imagery *is* the keyless fallback, and it is the default
+        // without an Ion token, so retrying it here would only double the wait
+        // before the globe draws anything on the most common failing path.
+        imagery.url === ESRI_WORLD_IMAGERY_URL ? lastResortImagery(Cesium) : keylessImagery(Cesium),
+      ),
     );
     viewer.imageryLayers.add(layer, 0);
     return [layer];
@@ -123,7 +152,12 @@ export function applyBasemapImagery(
         : Cesium.TileMapServiceImageryProvider.fromUrl(
             Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII"),
           );
-    const layer = Cesium.ImageryLayer.fromProviderAsync(provider);
+    // An Ion asset the token cannot reach — revoked, expired, or restricted to
+    // other origins than this deployment's — degrades to keyless imagery
+    // rather than taking the whole globe down with it.
+    const layer = Cesium.ImageryLayer.fromProviderAsync(
+      provider.catch(() => keylessImagery(Cesium)),
+    );
     viewer.imageryLayers.add(layer, 0);
     return [layer];
   }
@@ -137,16 +171,12 @@ export function applyBasemapImagery(
     // each option falls through to the next: Ion imagery, then keyless Esri,
     // then street tiles. An expired or revoked token degrades to a drawn globe
     // rather than an empty one.
-    const keyless = () =>
-      Cesium.ArcGisMapServerImageryProvider.fromUrl(ESRI_WORLD_IMAGERY_URL, {
-        enablePickFeatures: false,
-      }).catch(() => new Cesium.OpenStreetMapImageryProvider({ url: KEYLESS_FALLBACK_URL }));
     const layer = Cesium.ImageryLayer.fromProviderAsync(
       ionToken
         ? Cesium.IonImageryProvider.fromAssetId(CESIUM_BING_AERIAL_ASSET_ID, {
             accessToken: ionToken,
-          }).catch(keyless)
-        : keyless(),
+          }).catch(() => keylessImagery(Cesium))
+        : keylessImagery(Cesium),
       {},
     );
     viewer.imageryLayers.add(layer, 0);

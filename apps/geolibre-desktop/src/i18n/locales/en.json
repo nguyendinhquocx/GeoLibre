@@ -2002,7 +2002,7 @@
     "only3d": "3D only",
     "noMapbox": "No Mapbox",
     "noArcgis": "No ArcGIS",
-    "cesiumTokenHint": "Add a Cesium Ion token in Settings for terrain and Ion imagery"
+    "cesiumTokenHint": "Add a Cesium Ion token in <settingsLink>Settings → Environment variables</settingsLink> for terrain and Ion imagery"
   },
   "renderer": {
     "basemap": "Basemap",
@@ -2396,10 +2396,37 @@
     "godsEyeView": {
       "description": "Live, time-aware Earth events from public data feeds.",
       "globeOnly": "Live globe feeds render on the Cesium globe. Switch to the 3D globe to view them.",
+      "groups": {
+        "movement": "Movement",
+        "cameras": "Cameras",
+        "infrastructure": "Infrastructure",
+        "events": "Events",
+        "utilities": "Utilities"
+      },
       "earthquakes": "Earthquakes",
+      "spaceMissions": "Space Missions (30d)",
       "satellites": "Satellites",
+      "flights": "Live Flights",
+      "militaryFlights": "Military Flights",
+      "bikeShare": "Bike Share",
+      "transit": "Live Transit",
+      "streetTraffic": "Simulated Street Traffic",
+      "mappedAlpr": "Mapped ALPR Cameras",
+      "cctv": "Public CCTV Cameras",
+      "cctvPopup": {
+        "liveSnapshot": "Live snapshot",
+        "provider": "Provider",
+        "attribution": "Attribution",
+        "privacy": "Privacy"
+      },
+      "radio": "Radio Stations",
+      "datacenters": "Datacenters",
+      "dams": "Dams",
+      "cables": "Submarine Cables",
+      "osmInfrastructure": "OSM Infrastructure",
       "loading": "Updating…",
       "updateFailed": "Update failed",
+      "noneInView": "No features found in the current view for this layer.",
       "never": "Never",
       "lastUpdated": "Last updated: {{time}}",
       "speed": "Speed",
@@ -7590,6 +7617,7 @@
     "viewportStretchNoRange": "The viewport values do not define a range.",
     "viewportStretchMoved": "The map moved before the read finished. Apply again.",
     "index": "Index",
+    "opacityClasses": "Opacity classes",
     "classifyToggle": "Classify into discrete classes",
     "method": "Method",
     "methodEqualInterval": "Equal interval",

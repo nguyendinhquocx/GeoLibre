@@ -1924,7 +1924,7 @@
     "only3d": "3 มิติเท่านั้น",
     "noMapbox": "ไม่รองรับ Mapbox",
     "noArcgis": "ไม่รองรับ ArcGIS",
-    "cesiumTokenHint": "เพิ่มโทเค็น Cesium Ion ในการตั้งค่าเพื่อใช้ข้อมูลภูมิประเทศและภาพถ่ายจาก Ion"
+    "cesiumTokenHint": "เพิ่มโทเค็น Cesium Ion ใน<settingsLink>การตั้งค่า → ตัวแปรสภาพแวดล้อม</settingsLink> เพื่อใช้ข้อมูลภูมิประเทศและภาพถ่ายจาก Ion"
   },
   "renderer": {
     "basemap": "แผนที่ฐาน",
@@ -2316,10 +2316,37 @@
     "godsEyeView": {
       "description": "เหตุการณ์บนโลกแบบสดและอิงเวลาจากฟีดข้อมูลสาธารณะ",
       "globeOnly": "ฟีดโลกแบบสดจะแสดงบนลูกโลก Cesium โปรดสลับไปยังลูกโลก 3 มิติเพื่อดูข้อมูล",
+      "groups": {
+        "movement": "การเคลื่อนไหว",
+        "cameras": "กล้อง",
+        "infrastructure": "โครงสร้างพื้นฐาน",
+        "events": "เหตุการณ์",
+        "utilities": "เครื่องมือ"
+      },
       "earthquakes": "แผ่นดินไหว",
+      "spaceMissions": "ภารกิจอวกาศ (30 วัน)",
       "satellites": "ดาวเทียม",
+      "flights": "เที่ยวบินสด",
+      "militaryFlights": "เที่ยวบินทหาร",
+      "bikeShare": "จักรยานสาธารณะ",
+      "transit": "ระบบขนส่งสาธารณะแบบเรียลไทม์",
+      "streetTraffic": "การจราจรบนถนนจำลอง",
+      "mappedAlpr": "กล้องอ่านป้ายทะเบียนที่ทำแผนที่ไว้",
+      "cctv": "กล้องวงจรปิดสาธารณะ",
+      "cctvPopup": {
+        "liveSnapshot": "ภาพสด",
+        "provider": "ผู้ให้บริการ",
+        "attribution": "การระบุแหล่งที่มา",
+        "privacy": "ความเป็นส่วนตัว"
+      },
+      "radio": "สถานีวิทยุ",
+      "datacenters": "ศูนย์ข้อมูล",
+      "dams": "เขื่อน",
+      "cables": "สายเคเบิลใต้น้ำ",
+      "osmInfrastructure": "โครงสร้างพื้นฐาน OSM",
       "loading": "กำลังอัปเดต…",
       "updateFailed": "อัปเดตไม่สำเร็จ",
+      "noneInView": "ไม่พบฟีเจอร์ของเลเยอร์นี้ในมุมมองปัจจุบัน",
       "never": "ไม่เคย",
       "lastUpdated": "อัปเดตล่าสุด: {{time}}",
       "speed": "ความเร็ว",
@@ -7408,6 +7435,7 @@
     "viewportStretchNoRange": "ค่าในมุมมองไม่สามารถกำหนดช่วงได้",
     "viewportStretchMoved": "แผนที่เลื่อนก่อนที่การอ่านจะเสร็จ โปรดใช้อีกครั้ง",
     "index": "ดัชนี",
+    "opacityClasses": "ชั้นความทึบแสง",
     "classifyToggle": "จัดเป็นชั้นข้อมูลแบบไม่ต่อเนื่อง",
     "method": "วิธีการ",
     "methodEqualInterval": "ช่วงเท่ากัน",

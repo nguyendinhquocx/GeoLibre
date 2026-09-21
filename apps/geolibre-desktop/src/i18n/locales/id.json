@@ -1924,7 +1924,7 @@
     "only3d": "Hanya 3D",
     "noMapbox": "Tanpa Mapbox",
     "noArcgis": "Tanpa ArcGIS",
-    "cesiumTokenHint": "Tambahkan token Cesium Ion di Pengaturan untuk medan dan citra Ion"
+    "cesiumTokenHint": "Tambahkan token Cesium Ion di <settingsLink>Pengaturan → Variabel lingkungan</settingsLink> untuk medan dan citra Ion"
   },
   "renderer": {
     "basemap": "Peta dasar",
@@ -2316,10 +2316,37 @@
     "godsEyeView": {
       "description": "Peristiwa Bumi langsung berbasis waktu dari umpan data publik.",
       "globeOnly": "Umpan globe langsung dirender pada globe Cesium. Beralihlah ke globe 3D untuk melihatnya.",
+      "groups": {
+        "movement": "Pergerakan",
+        "cameras": "Kamera",
+        "infrastructure": "Infrastruktur",
+        "events": "Peristiwa",
+        "utilities": "Utilitas"
+      },
       "earthquakes": "Gempa bumi",
+      "spaceMissions": "Misi Antariksa (30 hari)",
       "satellites": "Satelit",
+      "flights": "Penerbangan Langsung",
+      "militaryFlights": "Penerbangan Militer",
+      "bikeShare": "Berbagi Sepeda",
+      "transit": "Transportasi Umum Langsung",
+      "streetTraffic": "Lalu Lintas Jalan Simulasi",
+      "mappedAlpr": "Kamera ALPR Terpetakan",
+      "cctv": "Kamera CCTV Publik",
+      "cctvPopup": {
+        "liveSnapshot": "Gambar langsung",
+        "provider": "Penyedia",
+        "attribution": "Atribusi",
+        "privacy": "Privasi"
+      },
+      "radio": "Stasiun Radio",
+      "datacenters": "Pusat Data",
+      "dams": "Bendungan",
+      "cables": "Kabel Bawah Laut",
+      "osmInfrastructure": "Infrastruktur OSM",
       "loading": "Memperbarui…",
       "updateFailed": "Pembaruan gagal",
+      "noneInView": "Tidak ditemukan fitur dalam tampilan saat ini untuk layer ini.",
       "never": "Belum pernah",
       "lastUpdated": "Terakhir diperbarui: {{time}}",
       "speed": "Kecepatan",
@@ -7408,6 +7435,7 @@
     "viewportStretchNoRange": "Nilai viewport tidak membentuk rentang.",
     "viewportStretchMoved": "Peta bergerak sebelum pembacaan selesai. Terapkan lagi.",
     "index": "Indeks",
+    "opacityClasses": "Kelas opasitas",
     "classifyToggle": "Klasifikasikan ke kelas diskret",
     "method": "Metode",
     "methodEqualInterval": "Interval sama",

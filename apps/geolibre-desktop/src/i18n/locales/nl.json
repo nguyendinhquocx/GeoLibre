@@ -1970,7 +1970,7 @@
     "only3d": "Alleen 3D",
     "noMapbox": "Geen Mapbox",
     "noArcgis": "Geen ArcGIS",
-    "cesiumTokenHint": "Voeg in Instellingen een Cesium Ion-token toe voor terrein en Ion-beelden"
+    "cesiumTokenHint": "Voeg via <settingsLink>Instellingen → Omgevingsvariabelen</settingsLink> een Cesium Ion-token toe voor terrein en Ion-beelden"
   },
   "renderer": {
     "basemap": "Achtergrondkaart",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "Live, tijdgebonden gebeurtenissen op aarde uit openbare datafeeds.",
       "globeOnly": "Live wereldbolfeeds worden op de Cesium-wereldbol weergegeven. Schakel over naar de 3D-wereldbol om ze te bekijken.",
+      "groups": {
+        "movement": "Beweging",
+        "cameras": "Camera's",
+        "infrastructure": "Infrastructuur",
+        "events": "Gebeurtenissen",
+        "utilities": "Hulpmiddelen"
+      },
       "earthquakes": "Aardbevingen",
+      "spaceMissions": "Ruimtemissies (30 dagen)",
       "satellites": "Satellieten",
+      "flights": "Livevluchten",
+      "militaryFlights": "Militaire vluchten",
+      "bikeShare": "Deelfietsen",
+      "transit": "Live openbaar vervoer",
+      "streetTraffic": "Gesimuleerd wegverkeer",
+      "mappedAlpr": "Gekarteerde kentekencamera's",
+      "cctv": "Openbare CCTV-camera's",
+      "cctvPopup": {
+        "liveSnapshot": "Livebeeld",
+        "provider": "Provider",
+        "attribution": "Naamsvermelding",
+        "privacy": "Privacy"
+      },
+      "radio": "Radiozenders",
+      "datacenters": "Datacenters",
+      "dams": "Dammen",
+      "cables": "Onderzeese kabels",
+      "osmInfrastructure": "OSM-infrastructuur",
       "loading": "Bijwerken…",
       "updateFailed": "Bijwerken mislukt",
+      "noneInView": "Geen features gevonden in de huidige weergave voor deze laag.",
       "never": "Nooit",
       "lastUpdated": "Laatst bijgewerkt: {{time}}",
       "speed": "Snelheid",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "De waarden in de weergave vormen geen bereik.",
     "viewportStretchMoved": "De kaart is verplaatst voordat het lezen klaar was. Pas opnieuw toe.",
     "index": "Index",
+    "opacityClasses": "Dekkingsklassen",
     "classifyToggle": "Indelen in discrete klassen",
     "method": "Methode",
     "methodEqualInterval": "Gelijk interval",

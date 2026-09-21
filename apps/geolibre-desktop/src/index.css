@@ -2390,9 +2390,85 @@ body,
   flex: 1 1 auto;
   min-height: 0;
   max-height: min(560px, calc(100vh - 184px));
-  overflow-y: scroll;
+  overflow-y: auto;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
+}
+
+/* Image fields need the popup width, not the narrow value column used by text
+   attributes. The popup can be resized and the image opens at its native size
+   in a new tab, while ordinary identify popups retain their compact layout. */
+.geolibre-identify-popup-root:has(.geolibre-popup-image) {
+  width: min(420px, calc(100vw - 48px));
+  max-width: min(85vw, 900px);
+  resize: both;
+}
+
+/* Cesium supplies its own absolutely positioned popup shell. Make that the
+   sole resize surface and let its contents track both dimensions, avoiding a
+   second nested handle that only resizes the child. */
+.geolibre-identify-image-popup > div,
+.geolibre-identify-image-popup .geolibre-identify-popup-root {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.geolibre-identify-image-popup .geolibre-identify-popup-root {
+  resize: none;
+}
+
+.geolibre-identify-image-popup .geolibre-identify-popup-rows {
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+}
+
+.geolibre-identify-popup-image-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.geolibre-identify-image-popup .geolibre-identify-popup-image-row {
+  flex: 1 1 auto;
+  min-height: 180px;
+}
+
+.geolibre-identify-image-popup .geolibre-popup-image-cell,
+.geolibre-identify-image-popup .geolibre-popup-image-link {
+  height: 100%;
+}
+
+.geolibre-popup-image-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.geolibre-popup-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: min(50vh, 420px);
+  object-fit: contain;
+  background: hsl(var(--muted));
+}
+
+.geolibre-identify-image-popup .geolibre-popup-image {
+  max-height: none;
+}
+
+/* Fill the backdrop for a photo big enough to stand it, but stop at twice the
+   source's own resolution: the pinned traffic cameras only serve 320x260
+   stills, and blowing one up to the viewport is just a bigger blur. The caps
+   come from the viewer, which sets them once the image reports a natural size. */
+.geolibre-popup-image-viewer-img {
+  max-width: min(calc(100vw - 4rem), var(--geolibre-popup-image-max-w, 100vw));
+  max-height: min(calc(100vh - 4rem), var(--geolibre-popup-image-max-h, 100vh));
+  object-fit: contain;
 }
 
 /* The attribute-table toolbar wraps into several rows on portrait phones. Its

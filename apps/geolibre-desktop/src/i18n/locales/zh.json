@@ -1924,7 +1924,7 @@
     "only3d": "仅 3D",
     "noMapbox": "不支持 Mapbox",
     "noArcgis": "不支持 ArcGIS",
-    "cesiumTokenHint": "在设置中添加 Cesium Ion 令牌即可使用地形和 Ion 影像"
+    "cesiumTokenHint": "在<settingsLink>设置 → 环境变量</settingsLink>中添加 Cesium Ion 令牌即可使用地形和 Ion 影像"
   },
   "renderer": {
     "basemap": "底图",
@@ -2316,10 +2316,37 @@
     "godsEyeView": {
       "description": "来自公共数据源、具有时间信息的实时地球事件。",
       "globeOnly": "实时地球数据会渲染在 Cesium 地球仪上。请切换到 3D 地球仪查看。",
+      "groups": {
+        "movement": "动态目标",
+        "cameras": "摄像头",
+        "infrastructure": "基础设施",
+        "events": "事件",
+        "utilities": "实用工具"
+      },
       "earthquakes": "地震",
+      "spaceMissions": "太空任务（30 天）",
       "satellites": "卫星",
+      "flights": "实时航班",
+      "militaryFlights": "军用航班",
+      "bikeShare": "共享单车",
+      "transit": "实时公共交通",
+      "streetTraffic": "模拟道路交通",
+      "mappedAlpr": "已标绘车牌识别摄像头",
+      "cctv": "公共闭路电视摄像头",
+      "cctvPopup": {
+        "liveSnapshot": "实时图像",
+        "provider": "提供商",
+        "attribution": "署名",
+        "privacy": "隐私"
+      },
+      "radio": "广播电台",
+      "datacenters": "数据中心",
+      "dams": "水坝",
+      "cables": "海底电缆",
+      "osmInfrastructure": "OSM 基础设施",
       "loading": "正在更新…",
       "updateFailed": "更新失败",
+      "noneInView": "当前视图中未找到该图层的任何要素。",
       "never": "从未",
       "lastUpdated": "最后更新：{{time}}",
       "speed": "速度",
@@ -7408,6 +7435,7 @@
     "viewportStretchNoRange": "视口内的值无法确定范围。",
     "viewportStretchMoved": "读取完成前地图已移动。请再次应用。",
     "index": "指数",
+    "opacityClasses": "不透明度分级",
     "classifyToggle": "分为离散类别",
     "method": "方法",
     "methodEqualInterval": "等间隔",

@@ -221,6 +221,53 @@ format/reader/size rules those panels share — a per-panel copy would miss this
 check, so add new browse panels against that module rather than duplicating it
 (`source-coop-api.ts` re-exports it under its own names for compatibility).
 
+### `maplibre-gl-lidar` (`packages/plugins/package.json`) — half checked by the compiler
+
+The space-effects engine raises the MapLibre canvas to `z-index: 4` so its
+starfield canvases can sit underneath. That package renders point clouds into an
+**overlaid** deck.gl canvas which it parks in the canvas container, directly
+after the map canvas, tagged `DECK_CANVAS_CLASS`
+(`maplibre-gl-lidar-canvas`). `effectsOverlayCss()`
+(`packages/plugins/src/plugins/maplibre-effects.ts`) hands that wrapper the
+canvas's own z-index. Drop the rule and the wrapper falls below the raised
+canvas, hiding the point cloud outright; drop the re-parenting upstream and the
+wrapper goes back to covering the Measure/Colorbar/Legend/HTML/Bookmark panels
+(#2530).
+
+The **class** is imported from the package rather than copied, so a rename
+fails `npm run typecheck`. Keep it that way: the package is side-effect-free, so
+the import tree-shakes to the string and does not pull deck.gl into this
+eagerly loaded plugin. The **placement** is not visible to the compiler, so
+`e2e/lidar-canvas-stacking.spec.ts` mounts the real control and asserts the
+resulting DOM order and z-indices — run it on a bump
+(`npx playwright test e2e/lidar-canvas-stacking.spec.ts --project=features`).
+
+### `maplibre-gl-raster` — stretch and gamma curves
+
+`buildContinuousColormapRgba`
+(`packages/plugins/src/plugins/raster-symbology.ts`) mirrors the render
+pipeline's value adjustments **by hand**, inverted. Value-range opacity paints
+its alpha into the injected 256-wide colormap texture, so it has to map a
+texture column back to a data value — and the renderer samples that texture
+*after* rescale, the stretch curve and gamma. The mirror therefore applies each
+curve's **inverse**, in the reverse of the renderer's order — gamma first, then
+the stretch:
+
+- gamma — renderer `pow(x, 1 / max(gamma, 0.0001))`, mirror
+  `pow(t, max(gamma, 0.0001))`
+- `sqrt` stretch — renderer `sqrt(x)`, mirror `t * t`
+- `log` stretch — renderer `log(1 + 99x) / log(1 + 99)`, mirror
+  `(100^t - 1) / 99`
+
+None of it is exported: the curves live in the package's `pushAdjustments` /
+shader modules, and the strength constant (99) is a hard-coded prop. If
+upstream reorders the pipeline, changes a curve, or retunes the log strength,
+nothing fails to build — opacity thresholds just drift off the values the user
+typed, and only under a non-default stretch or gamma. On a bump, re-read that
+package's `pushAdjustments` for the forward curves and their order (its own
+`inverseStretch` helper, used for the histogram ticks, is a second copy of the
+two stretch inverses above) and run `tests/raster-symbology.test.ts`.
+
 ### `maplibre-gl-raster` — checked by the compiler
 
 `GeoLibreCogRenderEngine` (`packages/plugins/src/types.ts`) mirrors the

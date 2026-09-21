@@ -1970,7 +1970,7 @@
     "only3d": "Somente 3D",
     "noMapbox": "Sem Mapbox",
     "noArcgis": "Sem ArcGIS",
-    "cesiumTokenHint": "Adicione um token do Cesium Ion em Configurações para terreno e imagens do Ion"
+    "cesiumTokenHint": "Adicione um token do Cesium Ion em <settingsLink>Configurações → Variáveis de ambiente</settingsLink> para terreno e imagens do Ion"
   },
   "renderer": {
     "basemap": "Mapa base",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "Eventos terrestres ao vivo e temporais de feeds de dados públicos.",
       "globeOnly": "Os feeds ao vivo são renderizados no globo Cesium. Mude para o globo 3D para visualizá-los.",
+      "groups": {
+        "movement": "Movimento",
+        "cameras": "Câmeras",
+        "infrastructure": "Infraestrutura",
+        "events": "Eventos",
+        "utilities": "Utilitários"
+      },
       "earthquakes": "Terremotos",
+      "spaceMissions": "Missões espaciais (30 dias)",
       "satellites": "Satélites",
+      "flights": "Voos em tempo real",
+      "militaryFlights": "Voos militares",
+      "bikeShare": "Bicicletas compartilhadas",
+      "transit": "Transporte público em tempo real",
+      "streetTraffic": "Tráfego viário simulado",
+      "mappedAlpr": "Câmeras ALPR mapeadas",
+      "cctv": "Câmeras CCTV públicas",
+      "cctvPopup": {
+        "liveSnapshot": "Imagem ao vivo",
+        "provider": "Provedor",
+        "attribution": "Atribuição",
+        "privacy": "Privacidade"
+      },
+      "radio": "Estações de rádio",
+      "datacenters": "Centros de dados",
+      "dams": "Barragens",
+      "cables": "Cabos submarinos",
+      "osmInfrastructure": "Infraestrutura do OSM",
       "loading": "Atualizando…",
       "updateFailed": "Falha na atualização",
+      "noneInView": "Nenhuma feição foi encontrada na visualização atual para esta camada.",
       "never": "Nunca",
       "lastUpdated": "Última atualização: {{time}}",
       "speed": "Velocidade",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "Os valores da vista não definem um intervalo.",
     "viewportStretchMoved": "O mapa se moveu antes de a leitura terminar. Aplique novamente.",
     "index": "Índice",
+    "opacityClasses": "Classes de opacidade",
     "classifyToggle": "Classificar em classes discretas",
     "method": "Método",
     "methodEqualInterval": "Intervalo igual",

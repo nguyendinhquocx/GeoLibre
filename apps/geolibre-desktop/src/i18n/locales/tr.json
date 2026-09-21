@@ -1970,7 +1970,7 @@
     "only3d": "Yalnızca 3B",
     "noMapbox": "Mapbox yok",
     "noArcgis": "ArcGIS yok",
-    "cesiumTokenHint": "Arazi ve Ion görüntüleri için Ayarlar'dan bir Cesium Ion belirteci ekleyin"
+    "cesiumTokenHint": "Arazi ve Ion görüntüleri için <settingsLink>Ayarlar → Ortam değişkenleri</settingsLink> bölümünden bir Cesium Ion belirteci ekleyin"
   },
   "renderer": {
     "basemap": "Altlık harita",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "Herkese açık veri akışlarından canlı, zamana bağlı Dünya olayları.",
       "globeOnly": "Canlı küre akışları Cesium küresinde görüntülenir. Görmek için 3B küreye geçin.",
+      "groups": {
+        "movement": "Hareket",
+        "cameras": "Kameralar",
+        "infrastructure": "Altyapı",
+        "events": "Olaylar",
+        "utilities": "Yardımcı Araçlar"
+      },
       "earthquakes": "Depremler",
+      "spaceMissions": "Uzay Görevleri (30 gün)",
       "satellites": "Uydular",
+      "flights": "Canlı Uçuşlar",
+      "militaryFlights": "Askerî Uçuşlar",
+      "bikeShare": "Bisiklet Paylaşımı",
+      "transit": "Canlı toplu taşıma",
+      "streetTraffic": "Simüle Edilmiş Sokak Trafiği",
+      "mappedAlpr": "Haritalanmış Plaka Okuma Kameraları",
+      "cctv": "Halka Açık CCTV Kameraları",
+      "cctvPopup": {
+        "liveSnapshot": "Canlı görüntü",
+        "provider": "Sağlayıcı",
+        "attribution": "Atıf",
+        "privacy": "Gizlilik"
+      },
+      "radio": "Radyo İstasyonları",
+      "datacenters": "Veri Merkezleri",
+      "dams": "Barajlar",
+      "cables": "Denizaltı Kabloları",
+      "osmInfrastructure": "OSM Altyapısı",
       "loading": "Güncelleniyor…",
       "updateFailed": "Güncelleme başarısız",
+      "noneInView": "Bu katman için mevcut görünümde öğe bulunamadı.",
       "never": "Hiçbir zaman",
       "lastUpdated": "Son güncelleme: {{time}}",
       "speed": "Hız",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "Görünümdeki değerler bir aralık tanımlamıyor.",
     "viewportStretchMoved": "Okuma bitmeden harita hareket etti. Yeniden uygulayın.",
     "index": "İndeks",
+    "opacityClasses": "Opaklık sınıfları",
     "classifyToggle": "Ayrık sınıflara ayır",
     "method": "Yöntem",
     "methodEqualInterval": "Eşit aralık",

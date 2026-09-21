@@ -1970,7 +1970,7 @@
     "only3d": "تنها سه‌بعدی",
     "noMapbox": "بدون Mapbox",
     "noArcgis": "بدون ArcGIS",
-    "cesiumTokenHint": "برای زمین و تصاویر Ion، یک توکن Cesium Ion در تنظیمات بیفزایید"
+    "cesiumTokenHint": "برای زمین و تصاویر Ion، یک توکن Cesium Ion در <settingsLink>تنظیمات ← متغیرهای محیطی</settingsLink> بیفزایید"
   },
   "renderer": {
     "basemap": "نقشهٔ پایه",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "رویدادهای زنده و زمان‌مند زمین از خوراک‌های داده عمومی.",
       "globeOnly": "خوراک‌های زنده کره زمین روی کره Cesium نمایش داده می‌شوند. برای دیدن آن‌ها به کره سه‌بعدی بروید.",
+      "groups": {
+        "movement": "حرکت",
+        "cameras": "دوربین‌ها",
+        "infrastructure": "زیرساخت",
+        "events": "رویدادها",
+        "utilities": "ابزارها"
+      },
       "earthquakes": "زمین‌لرزه‌ها",
+      "spaceMissions": "مأموریت‌های فضایی (۳۰ روز)",
       "satellites": "ماهواره‌ها",
+      "flights": "پروازهای زنده",
+      "militaryFlights": "پروازهای نظامی",
+      "bikeShare": "اشتراک دوچرخه",
+      "transit": "حمل‌ونقل عمومی زنده",
+      "streetTraffic": "ترافیک خیابانی شبیه‌سازی‌شده",
+      "mappedAlpr": "دوربین‌های پلاک‌خوان نقشه‌برداری‌شده",
+      "cctv": "دوربین‌های مداربسته عمومی",
+      "cctvPopup": {
+        "liveSnapshot": "تصویر زنده",
+        "provider": "ارائه‌دهنده",
+        "attribution": "انتساب",
+        "privacy": "حریم خصوصی"
+      },
+      "radio": "ایستگاه‌های رادیویی",
+      "datacenters": "مراکز داده",
+      "dams": "سدها",
+      "cables": "کابل‌های زیردریایی",
+      "osmInfrastructure": "زیرساخت‌های OSM",
       "loading": "در حال به‌روزرسانی…",
       "updateFailed": "به‌روزرسانی ناموفق بود",
+      "noneInView": "برای این لایه هیچ عارضه‌ای در نمای کنونی یافت نشد.",
       "never": "هرگز",
       "lastUpdated": "آخرین به‌روزرسانی: {{time}}",
       "speed": "سرعت",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "مقادیر نمای فعلی بازه‌ای تعریف نمی‌کنند.",
     "viewportStretchMoved": "نقشه پیش از پایان خواندن جابه‌جا شد. دوباره اعمال کنید.",
     "index": "شاخص",
+    "opacityClasses": "کلاس‌های کدری",
     "classifyToggle": "طبقه‌بندی به کلاس‌های گسسته",
     "method": "روش",
     "methodEqualInterval": "بازهٔ برابر",

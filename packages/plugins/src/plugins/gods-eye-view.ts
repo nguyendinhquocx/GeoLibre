@@ -1,4 +1,4 @@
-import { createCzmlLayer, useAppStore, type CzmlPacket } from "@geolibre/core";
+import { createCzmlLayer, useAppStore } from "@geolibre/core";
 import type { CesiumSceneHandle } from "@geolibre/map";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
 import {
@@ -8,26 +8,284 @@ import {
   fetchUsgsEarthquakeCzml,
   type CzmlTimeWindow,
 } from "./gods-eye-view-feeds";
+import {
+  fetchDamsCzml,
+  fetchDatacentersCzml,
+  fetchOsmInfrastructureCzml,
+  fetchRadioBrowserCzml,
+  fetchSubmarineCablesCzml,
+  type GodsEyeViewFeedPayload,
+} from "./gods-eye-view-catalog-feeds";
 import { GodsEyeViewDenseCatalog } from "./gods-eye-view-dense";
+import { fetchBikeShareCzml, fetchSpaceMissionsCzml } from "./gods-eye-view-global-feeds";
+import {
+  ALPR_MAX_VIEW_SPAN_DEGREES,
+  ALPR_QUERY_SNAP_DEGREES,
+  fetchMappedAlprCzml,
+  fetchStreetTrafficCzml,
+  TRAFFIC_MAX_VIEW_SPAN_DEGREES,
+  TRAFFIC_QUERY_SNAP_DEGREES,
+  viewportBoundsKey,
+  viewportQueryBounds,
+} from "./gods-eye-view-viewport-feeds";
+import { OVERPASS_REQUEST_TIMEOUT_MS } from "./osm-downloader-api";
+import { fetchMilitaryFlightsCzml, fetchOpenSkyCzml } from "./gods-eye-view-aircraft-feeds";
+import {
+  CCTV_MAX_VIEW_SPAN_DEGREES,
+  CCTV_QUERY_SNAP_DEGREES,
+  cctvPreviewsVisibleAtZoom,
+  fetchCctvCzml,
+} from "./gods-eye-view-cctv-feeds";
+import { fetchTransitCzml } from "./gods-eye-view-transit-feeds";
 
 export const GODS_EYE_VIEW_PLUGIN_ID = "gods-eye-view";
 export const GODS_EYE_VIEW_EARTHQUAKES_FLAG = "godsEyeViewEarthquakes";
 export const GODS_EYE_VIEW_SATELLITES_FLAG = "godsEyeViewSatellites";
 export const GODS_EYE_VIEW_DENSE_SATELLITES_FLAG = "godsEyeViewDenseSatellites";
+export const GODS_EYE_VIEW_RADIO_FLAG = "godsEyeViewRadio";
+export const GODS_EYE_VIEW_DATACENTERS_FLAG = "godsEyeViewDatacenters";
+export const GODS_EYE_VIEW_DAMS_FLAG = "godsEyeViewDams";
+export const GODS_EYE_VIEW_CABLES_FLAG = "godsEyeViewCables";
+export const GODS_EYE_VIEW_OSM_INFRASTRUCTURE_FLAG = "godsEyeViewOsmInfrastructure";
+export const GODS_EYE_VIEW_BIKE_SHARE_FLAG = "godsEyeViewBikeShare";
+export const GODS_EYE_VIEW_SPACE_MISSIONS_FLAG = "godsEyeViewSpaceMissions";
+export const GODS_EYE_VIEW_STREET_TRAFFIC_FLAG = "godsEyeViewStreetTraffic";
+export const GODS_EYE_VIEW_MAPPED_ALPR_FLAG = "godsEyeViewMappedAlpr";
+export const GODS_EYE_VIEW_FLIGHTS_FLAG = "godsEyeViewFlights";
+export const GODS_EYE_VIEW_MILITARY_FLIGHTS_FLAG = "godsEyeViewMilitaryFlights";
+export const GODS_EYE_VIEW_CCTV_FLAG = "godsEyeViewCctv";
+export const GODS_EYE_VIEW_TRANSIT_FLAG = "godsEyeViewTransit";
 
-const REFRESH_TICK_MS = 10 * 60_000;
-const FEED_REFRESH_INTERVAL_MS: Record<FeedId, number> = {
-  earthquakes: 10 * 60_000,
-  // CelesTrak asks clients not to retrieve the same data more often than every
-  // two hours. Six catalog requests every ten minutes would be needlessly rude.
-  satellites: 2 * 60 * 60_000,
-};
-const FEED_TIMEOUT_MS = 20_000;
+// The aircraft feeds refresh every 15–30 seconds. Individual descriptors still
+// decide whether they are due, so this inexpensive scheduler does not increase
+// the cadence of the slower catalogs.
+const REFRESH_TICK_MS = 5_000;
+const FAILURE_RETRY_COOLDOWN_MS = 60_000;
+const VIEWPORT_REFRESH_DEBOUNCE_MS = 400;
 const ARC_DURATION_MS = 3 * 60 * 60_000;
 
-const FEED_IDS = ["earthquakes", "satellites"] as const;
+const FEED_GROUPS = ["movement", "cameras", "infrastructure", "events", "utilities"] as const;
+type FeedGroup = (typeof FEED_GROUPS)[number];
 
-type FeedId = (typeof FEED_IDS)[number];
+interface FeedFetchContext {
+  signal: AbortSignal;
+  window: CzmlTimeWindow;
+  bounds: [number, number, number, number] | null;
+  zoom: number | null;
+}
+
+interface FeedDescriptor {
+  group: FeedGroup;
+  label: readonly [key: string, fallback: string];
+  attribution: string;
+  refreshIntervalMs: number;
+  timeoutMs: number;
+  flag: string;
+  defaultEnabled: boolean;
+  ownsClockWindow?: boolean;
+  viewportKey?: (bounds: FeedFetchContext["bounds"], zoom: number | null) => string;
+  hasQueryableViewport?: (bounds: FeedFetchContext["bounds"]) => boolean;
+  fetch: (context: FeedFetchContext) => Promise<GodsEyeViewFeedPayload>;
+}
+
+/**
+ * The complete contract for every feed.
+ *
+ * Keeping registration, presentation, persistence and dispatch together makes
+ * adding a feed one typed object instead of edits to parallel records. In
+ * particular, there is no catch-all branch that can silently send a new feed
+ * through the OSM infrastructure loader.
+ */
+const FEED_DESCRIPTORS = {
+  flights: {
+    group: "movement",
+    label: ["panel.godsEyeView.flights", "Live Flights"],
+    attribution: "Live flights: © OpenSky Network; aircraft details: ADSBDB",
+    refreshIntervalMs: 30_000,
+    timeoutMs: 20_000,
+    flag: GODS_EYE_VIEW_FLIGHTS_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal, window, bounds }) => fetchOpenSkyCzml(window, { signal, bounds }),
+  },
+  militaryFlights: {
+    group: "movement",
+    label: ["panel.godsEyeView.militaryFlights", "Military Flights"],
+    attribution: "Military flights: adsb.lol, ODbL; aircraft details: ADSBDB",
+    refreshIntervalMs: 15_000,
+    timeoutMs: 20_000,
+    flag: GODS_EYE_VIEW_MILITARY_FLIGHTS_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal, window, bounds }) => fetchMilitaryFlightsCzml(window, { signal, bounds }),
+  },
+  satellites: {
+    group: "movement",
+    label: ["panel.godsEyeView.satellites", "Satellites"],
+    attribution: "Satellites: CelesTrak (celestrak.org), Dr. T.S. Kelso",
+    // CelesTrak asks clients not to retrieve the same data more often than every
+    // two hours. Six catalog requests every ten minutes would be needlessly rude.
+    refreshIntervalMs: 2 * 60 * 60_000,
+    timeoutMs: 20_000,
+    flag: GODS_EYE_VIEW_SATELLITES_FLAG,
+    defaultEnabled: true,
+    ownsClockWindow: true,
+    async fetch({ signal, window }) {
+      const packets = await fetchCelestrakSatelliteCatalogCzml({
+        ...window,
+        signal,
+        // Five-minute samples interpolate smoothly while keeping the core
+        // CZML layer below autosave's 10 MiB snapshot limit. A selected orbit
+        // still uses the full TLE with SGP4, independent of this.
+        stepSeconds: CELESTRAK_CORE_SAMPLE_STEP_SECONDS,
+        maxSatellites: 2_000,
+      });
+      return { packets, attributes: czmlPacketsToAttributeGeoJson(packets) };
+    },
+  },
+  bikeShare: {
+    group: "movement",
+    label: ["panel.godsEyeView.bikeShare", "Bike Share"],
+    attribution: "Bike share: GBFS feeds from participating public systems",
+    refreshIntervalMs: 5 * 60_000,
+    timeoutMs: 60_000,
+    flag: GODS_EYE_VIEW_BIKE_SHARE_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchBikeShareCzml({ signal }),
+  },
+  transit: {
+    group: "movement",
+    label: ["panel.godsEyeView.transit", "Live Transit"],
+    attribution:
+      "Live transit: MBTA/MassDOT; CapMetro; Metro Transit; HSL; OVapi; Entur; TransLink Queensland",
+    refreshIntervalMs: 15_000,
+    timeoutMs: 20_000,
+    flag: GODS_EYE_VIEW_TRANSIT_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchTransitCzml({ signal }),
+  },
+  streetTraffic: {
+    group: "movement",
+    label: ["panel.godsEyeView.streetTraffic", "Simulated Street Traffic"],
+    attribution: "Simulated vehicle positions on © OpenStreetMap contributors, ODbL 1.0",
+    refreshIntervalMs: 2 * 60 * 60_000,
+    timeoutMs: OVERPASS_REQUEST_TIMEOUT_MS,
+    flag: GODS_EYE_VIEW_STREET_TRAFFIC_FLAG,
+    defaultEnabled: false,
+    viewportKey: (bounds) =>
+      viewportBoundsKey(bounds, TRAFFIC_MAX_VIEW_SPAN_DEGREES, TRAFFIC_QUERY_SNAP_DEGREES),
+    hasQueryableViewport: (bounds) =>
+      viewportQueryBounds(bounds, TRAFFIC_MAX_VIEW_SPAN_DEGREES, TRAFFIC_QUERY_SNAP_DEGREES) !==
+      null,
+    fetch: ({ bounds, signal, window }) => fetchStreetTrafficCzml(bounds, window, { signal }),
+  },
+  osmInfrastructure: {
+    group: "infrastructure",
+    label: ["panel.godsEyeView.osmInfrastructure", "OSM Infrastructure"],
+    attribution: "OSM infrastructure: © OpenStreetMap contributors, ODbL 1.0",
+    refreshIntervalMs: 60 * 60_000,
+    // Overpass gets the same longer budget as the shared OSM downloader.
+    timeoutMs: OVERPASS_REQUEST_TIMEOUT_MS,
+    flag: GODS_EYE_VIEW_OSM_INFRASTRUCTURE_FLAG,
+    defaultEnabled: false,
+    fetch: ({ bounds, signal }) => fetchOsmInfrastructureCzml(bounds, { signal }),
+  },
+  datacenters: {
+    group: "infrastructure",
+    label: ["panel.godsEyeView.datacenters", "Datacenters"],
+    attribution: "Datacenters: © OpenStreetMap contributors, ODbL 1.0",
+    refreshIntervalMs: 24 * 60 * 60_000,
+    timeoutMs: 60_000,
+    flag: GODS_EYE_VIEW_DATACENTERS_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchDatacentersCzml({ signal }),
+  },
+  cables: {
+    group: "infrastructure",
+    label: ["panel.godsEyeView.cables", "Submarine Cables"],
+    attribution: "Submarine cables: © TeleGeography, submarinecablemap.com, CC BY-NC-SA 3.0",
+    refreshIntervalMs: 24 * 60 * 60_000,
+    timeoutMs: 60_000,
+    flag: GODS_EYE_VIEW_CABLES_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchSubmarineCablesCzml({ signal }),
+  },
+  dams: {
+    group: "infrastructure",
+    label: ["panel.godsEyeView.dams", "Dams"],
+    attribution: "Dams: © OpenStreetMap contributors, ODbL 1.0; Open Infrastructure Map",
+    refreshIntervalMs: 24 * 60 * 60_000,
+    timeoutMs: 60_000,
+    flag: GODS_EYE_VIEW_DAMS_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchDamsCzml({ signal }),
+  },
+  earthquakes: {
+    group: "events",
+    label: ["panel.godsEyeView.earthquakes", "Earthquakes"],
+    attribution: "Earthquakes: Data courtesy of the U.S. Geological Survey",
+    refreshIntervalMs: 10 * 60_000,
+    timeoutMs: 20_000,
+    flag: GODS_EYE_VIEW_EARTHQUAKES_FLAG,
+    defaultEnabled: true,
+    ownsClockWindow: true,
+    async fetch({ signal, window }) {
+      const packets = await fetchUsgsEarthquakeCzml(window, { signal });
+      return { packets, attributes: czmlPacketsToAttributeGeoJson(packets) };
+    },
+  },
+  spaceMissions: {
+    group: "events",
+    label: ["panel.godsEyeView.spaceMissions", "Space Missions (30d)"],
+    attribution: "Space missions: Launch Library 2, The Space Devs",
+    refreshIntervalMs: 15 * 60_000,
+    timeoutMs: 30_000,
+    flag: GODS_EYE_VIEW_SPACE_MISSIONS_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchSpaceMissionsCzml({ signal }),
+  },
+  mappedAlpr: {
+    group: "cameras",
+    label: ["panel.godsEyeView.mappedAlpr", "Mapped ALPR Cameras"],
+    attribution: "Mapped ALPR cameras: © OpenStreetMap contributors, ODbL 1.0",
+    refreshIntervalMs: 60 * 60_000,
+    timeoutMs: OVERPASS_REQUEST_TIMEOUT_MS,
+    flag: GODS_EYE_VIEW_MAPPED_ALPR_FLAG,
+    defaultEnabled: false,
+    viewportKey: (bounds) =>
+      viewportBoundsKey(bounds, ALPR_MAX_VIEW_SPAN_DEGREES, ALPR_QUERY_SNAP_DEGREES),
+    hasQueryableViewport: (bounds) =>
+      viewportQueryBounds(bounds, ALPR_MAX_VIEW_SPAN_DEGREES, ALPR_QUERY_SNAP_DEGREES) !== null,
+    fetch: ({ bounds, signal }) => fetchMappedAlprCzml(bounds, { signal }),
+  },
+  cctv: {
+    group: "cameras",
+    label: ["panel.godsEyeView.cctv", "Public CCTV Cameras"],
+    attribution:
+      "Public camera imagery: TfL Open Data; City of Austin; City of Calgary; Fintraffic; Ontario 511; DriveBC; Live Traffic NSW; Caltrans",
+    refreshIntervalMs: 60_000,
+    timeoutMs: 30_000,
+    flag: GODS_EYE_VIEW_CCTV_FLAG,
+    defaultEnabled: false,
+    viewportKey: (bounds, zoom) =>
+      `${viewportBoundsKey(bounds, CCTV_MAX_VIEW_SPAN_DEGREES, CCTV_QUERY_SNAP_DEGREES)}|preview:${cctvPreviewsVisibleAtZoom(zoom)}`,
+    hasQueryableViewport: (bounds) =>
+      viewportQueryBounds(bounds, CCTV_MAX_VIEW_SPAN_DEGREES, CCTV_QUERY_SNAP_DEGREES) !== null,
+    fetch: ({ bounds, signal, zoom }) =>
+      fetchCctvCzml(bounds, { signal, showPreviews: cctvPreviewsVisibleAtZoom(zoom) }),
+  },
+  radio: {
+    group: "utilities",
+    label: ["panel.godsEyeView.radio", "Radio Stations"],
+    attribution: "Radio stations: Radio Browser (radio-browser.info), public domain",
+    refreshIntervalMs: 60 * 60_000,
+    timeoutMs: 20_000,
+    flag: GODS_EYE_VIEW_RADIO_FLAG,
+    defaultEnabled: false,
+    fetch: ({ signal }) => fetchRadioBrowserCzml({ signal }),
+  },
+} as const satisfies Record<string, FeedDescriptor>;
+
+type FeedId = keyof typeof FEED_DESCRIPTORS;
+const FEED_IDS = Object.keys(FEED_DESCRIPTORS) as FeedId[];
 
 /**
  * Simulated seconds per real second, offered in the panel.
@@ -41,45 +299,43 @@ const SPEED_OPTIONS = [1, 10, 60, 600] as const;
 const DEFAULT_SPEED = 1;
 
 /** What a project persists: the feed toggles and the clock speed. */
-interface GodsEyeViewProjectState {
-  earthquakes: boolean;
-  satellites: boolean;
+type GodsEyeViewProjectState = Record<FeedId, boolean> & {
   /** Add the current Starlink shell as lightweight points. */
   dense: boolean;
   /** One of {@link SPEED_OPTIONS}. */
   speed: number;
-}
+};
 
 interface FeedState {
   enabled: boolean;
   loading: boolean;
   lastUpdated: Date | null;
   failed: boolean;
+  retryAfter: number;
   layerId: string | null;
   request: AbortController | null;
   generation: number;
+  lastViewportKey: string | null;
+  requestedViewportKey: string | null;
 }
 
-const feeds: Record<FeedId, FeedState> = {
-  earthquakes: {
-    enabled: true,
-    loading: false,
-    lastUpdated: null,
-    failed: false,
-    layerId: null,
-    request: null,
-    generation: 0,
-  },
-  satellites: {
-    enabled: true,
-    loading: false,
-    lastUpdated: null,
-    failed: false,
-    layerId: null,
-    request: null,
-    generation: 0,
-  },
-};
+const feeds = Object.fromEntries(
+  FEED_IDS.map((feed) => [
+    feed,
+    {
+      enabled: FEED_DESCRIPTORS[feed].defaultEnabled,
+      loading: false,
+      lastUpdated: null,
+      failed: false,
+      retryAfter: 0,
+      layerId: null,
+      request: null,
+      generation: 0,
+      lastViewportKey: null,
+      requestedViewportKey: null,
+    },
+  ]),
+) as Record<FeedId, FeedState>;
 
 /**
  * The feed toggles as the project holds them, kept separately from
@@ -87,17 +343,18 @@ const feeds: Record<FeedId, FeedState> = {
  * refresh) cannot overwrite what a later save should persist.
  */
 let savedState: GodsEyeViewProjectState = {
-  earthquakes: true,
-  satellites: true,
+  ...Object.fromEntries(FEED_IDS.map((feed) => [feed, FEED_DESCRIPTORS[feed].defaultEnabled])),
   dense: false,
   speed: DEFAULT_SPEED,
-};
+} as GodsEyeViewProjectState;
 
 let appRef: GeoLibreAppAPI | null = null;
 let cesiumRef: CesiumSceneHandle | null = null;
 let unregisterPanel: (() => void) | null = null;
 let unsubscribeLocale: (() => void) | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let viewportRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let removeViewportListener: (() => void) | null = null;
 let panelContainer: HTMLElement | null = null;
 let savedClockAnimating: boolean | null = null;
 let savedClockMultiplier: number | null = null;
@@ -122,13 +379,12 @@ function translate(
 }
 
 function feedFlag(feed: FeedId): string {
-  return feed === "earthquakes" ? GODS_EYE_VIEW_EARTHQUAKES_FLAG : GODS_EYE_VIEW_SATELLITES_FLAG;
+  return FEED_DESCRIPTORS[feed].flag;
 }
 
 function feedName(feed: FeedId): string {
-  return feed === "earthquakes"
-    ? translate("panel.godsEyeView.earthquakes", "Earthquakes")
-    : translate("panel.godsEyeView.satellites", "Satellites");
+  const [key, fallback] = FEED_DESCRIPTORS[feed].label;
+  return translate(key, fallback);
 }
 
 function timeWindow(): CzmlTimeWindow {
@@ -215,7 +471,10 @@ function syncDenseLayerRows(): void {
   const layer = ownedDenseLayer();
   if (!layer) return;
   useAppStore.getState().updateLayer(layer.id, {
-    geojson: { type: "FeatureCollection", features: denseCatalog.attributeFeatures() },
+    geojson: {
+      type: "FeatureCollection",
+      features: denseCatalog.attributeFeatures(),
+    },
   });
 }
 
@@ -241,7 +500,7 @@ function syncDenseCatalog(): void {
   void denseCatalog.enable(cesiumRef, coreSatelliteCatalogNumbers(), layer.id);
 }
 
-function upsertLayer(feed: FeedId, packets: CzmlPacket[], updatedAt: Date): void {
+function upsertLayer(feed: FeedId, payload: GodsEyeViewFeedPayload, updatedAt: Date): void {
   const store = useAppStore.getState();
   // Fall through to the flag search when the remembered id misses: a project
   // switch replaces `store.layers` wholesale while the plugin stays active, and
@@ -253,15 +512,42 @@ function upsertLayer(feed: FeedId, packets: CzmlPacket[], updatedAt: Date): void
   const layer = createCzmlLayer({
     id: existing?.id,
     name: feedName(feed),
-    data: packets,
+    data: payload.packets,
+    attribution: FEED_DESCRIPTORS[feed].attribution,
   });
   // The renderer consumes CZML, while the existing Attribute Table consumes a
   // complete GeoJSON row model. Moving entities have no single geometry, but
   // their packet ids and properties still form a useful, queryable table.
-  layer.geojson = czmlPacketsToAttributeGeoJson(packets);
+  layer.geojson = payload.attributes;
   // Only the ISS carries a standing label, so hovering is how every other
   // satellite (and every quake) says what it is without a click.
-  layer.popup = { ...layer.popup, hover: true };
+  layer.popup =
+    feed === "cctv"
+      ? {
+          hover: true,
+          titleField: "name",
+          showFeatureId: false,
+          fields: [
+            {
+              field: "snapshot",
+              label: translate("panel.godsEyeView.cctvPopup.liveSnapshot", "Live snapshot"),
+              kind: "image",
+            },
+            {
+              field: "provider",
+              label: translate("panel.godsEyeView.cctvPopup.provider", "Provider"),
+            },
+            {
+              field: "attribution",
+              label: translate("panel.godsEyeView.cctvPopup.attribution", "Attribution"),
+            },
+            {
+              field: "privacy",
+              label: translate("panel.godsEyeView.cctvPopup.privacy", "Privacy"),
+            },
+          ],
+        }
+      : { ...layer.popup, hover: true };
   layer.metadata = {
     ...layer.metadata,
     [feedFlag(feed)]: true,
@@ -272,6 +558,7 @@ function upsertLayer(feed: FeedId, packets: CzmlPacket[], updatedAt: Date): void
     // positions that are stale by the next refresh and push the snapshot
     // towards its size ceiling.
     transientGeojson: true,
+    transientCzml: true,
   };
   if (existing) {
     // Patch only what the feed owns. `visible`, `opacity` and `style` belong to
@@ -283,6 +570,9 @@ function upsertLayer(feed: FeedId, packets: CzmlPacket[], updatedAt: Date): void
       source: layer.source,
       metadata: layer.metadata,
       geojson: layer.geojson,
+      // A loaded legacy layer may lack the image field, but once a popup exists
+      // it belongs to the user just like every other feed's popup.
+      ...(feed === "cctv" && !existing.popup ? { popup: layer.popup } : {}),
     });
     feeds[feed].layerId = existing.id;
   } else {
@@ -295,10 +585,19 @@ function upsertLayer(feed: FeedId, packets: CzmlPacket[], updatedAt: Date): void
 async function refreshFeed(feed: FeedId, force = true): Promise<void> {
   const state = feeds[feed];
   if (!state.enabled || !cesiumRef) return;
+  // A scheduler tick must not abort and restart a slow in-flight request. User
+  // actions still call with `force=true`, so explicit refresh/toggle behavior
+  // retains the existing supersession semantics.
+  if (!force && state.loading) return;
+  if (!force && state.retryAfter > Date.now()) return;
+  const descriptor: FeedDescriptor = FEED_DESCRIPTORS[feed];
+  const bounds = appRef?.getViewBounds?.() ?? null;
+  const zoom = cesiumRef?.readView().zoom ?? null;
+  const viewportKey = descriptor.viewportKey?.(bounds, zoom) ?? null;
   if (
     !force &&
     state.lastUpdated &&
-    Date.now() - state.lastUpdated.getTime() < FEED_REFRESH_INTERVAL_MS[feed] &&
+    Date.now() - state.lastUpdated.getTime() < descriptor.refreshIntervalMs &&
     // Recent data the user can no longer see is no reason to skip: a feed
     // toggled off and on has had its layer removed and must rebuild it, and a
     // project load brings the layer back without the rows, which are stripped
@@ -310,30 +609,27 @@ async function refreshFeed(feed: FeedId, force = true): Promise<void> {
   state.request?.abort();
   const controller = new AbortController();
   state.request = controller;
+  state.requestedViewportKey = viewportKey;
   const generation = (state.generation += 1);
   state.loading = true;
   state.failed = false;
   renderPanel();
-  const timeout = setTimeout(() => controller.abort(), FEED_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), descriptor.timeoutMs);
   try {
     const window = timeWindow();
-    const packets =
-      feed === "earthquakes"
-        ? await fetchUsgsEarthquakeCzml(window, { signal: controller.signal })
-        : await fetchCelestrakSatelliteCatalogCzml({
-            ...window,
-            signal: controller.signal,
-            // Five-minute samples interpolate smoothly while keeping the core
-            // CZML layer below autosave's 10 MiB snapshot limit. A selected
-            // orbit still uses the full TLE with SGP4, independent of this.
-            stepSeconds: CELESTRAK_CORE_SAMPLE_STEP_SECONDS,
-            maxSatellites: 2_000,
-          });
+    const payload = await descriptor.fetch({
+      signal: controller.signal,
+      window,
+      bounds,
+      zoom,
+    });
     if (generation !== state.generation || !state.enabled) return;
     const updatedAt = new Date();
-    upsertLayer(feed, packets, updatedAt);
-    applyFeedClockWindow(window);
+    upsertLayer(feed, payload, updatedAt);
+    if (descriptor.ownsClockWindow) applyFeedClockWindow(window);
     state.lastUpdated = updatedAt;
+    state.retryAfter = 0;
+    state.lastViewportKey = viewportKey;
     if (feed === "satellites") syncDenseCatalog();
   } catch (error) {
     // No `signal.aborted` check: the timeout watchdog aborts this very request,
@@ -342,6 +638,7 @@ async function refreshFeed(feed: FeedId, force = true): Promise<void> {
     // `deactivate` — bumps the generation instead, which this already excludes.
     if (generation === state.generation) {
       state.failed = true;
+      state.retryAfter = Date.now() + FAILURE_RETRY_COOLDOWN_MS;
       console.warn(`[God's Eye View] ${feed} refresh failed`, error);
     }
   } finally {
@@ -349,6 +646,7 @@ async function refreshFeed(feed: FeedId, force = true): Promise<void> {
     if (generation === state.generation) {
       state.loading = false;
       state.request = null;
+      state.requestedViewportKey = null;
       renderPanel();
     }
   }
@@ -359,7 +657,10 @@ function removeFeedLayer(feed: FeedId): void {
   state.generation += 1;
   state.request?.abort();
   state.request = null;
+  state.requestedViewportKey = null;
+  state.lastViewportKey = null;
   state.loading = false;
+  state.retryAfter = 0;
   const layer = state.layerId
     ? useAppStore.getState().layers.find((candidate) => candidate.id === state.layerId)
     : ownedLayer(feed);
@@ -371,6 +672,7 @@ function removeFeedLayer(feed: FeedId): void {
 function setFeedEnabled(feed: FeedId, enabled: boolean): void {
   feeds[feed].enabled = enabled;
   feeds[feed].failed = false;
+  feeds[feed].retryAfter = 0;
   savedState = { ...savedState, [feed]: enabled };
   if (enabled) void refreshFeed(feed);
   else {
@@ -378,6 +680,39 @@ function setFeedEnabled(feed: FeedId, enabled: boolean): void {
     if (feed === "satellites") disableDenseCatalog();
   }
   renderPanel();
+}
+
+function refreshViewportFeeds(): void {
+  const bounds = appRef?.getViewBounds?.() ?? null;
+  const zoom = cesiumRef?.readView().zoom ?? null;
+  for (const feed of FEED_IDS) {
+    const descriptor: FeedDescriptor = FEED_DESCRIPTORS[feed];
+    if (!feeds[feed].enabled || !descriptor.viewportKey) continue;
+    const key = descriptor.viewportKey(bounds, zoom);
+    const { lastViewportKey, requestedViewportKey } = feeds[feed];
+    // A completed result is reusable only when no request for another viewport
+    // is in flight. This makes a quick A → B → A move abort B and restore A.
+    if (key === requestedViewportKey || (!requestedViewportKey && key === lastViewportKey))
+      continue;
+    void refreshFeed(feed);
+  }
+}
+
+function bindViewportRefresh(): void {
+  removeViewportListener?.();
+  removeViewportListener = null;
+  if (viewportRefreshTimer) clearTimeout(viewportRefreshTimer);
+  viewportRefreshTimer = null;
+  const moveEnd = cesiumRef?.viewer.camera?.moveEnd;
+  if (!moveEnd?.addEventListener) return;
+  const onMoveEnd = () => {
+    if (viewportRefreshTimer) clearTimeout(viewportRefreshTimer);
+    viewportRefreshTimer = setTimeout(() => {
+      viewportRefreshTimer = null;
+      refreshViewportFeeds();
+    }, VIEWPORT_REFRESH_DEBOUNCE_MS);
+  };
+  removeViewportListener = moveEnd.addEventListener(onMoveEnd);
 }
 
 function setDenseEnabled(enabled: boolean): void {
@@ -408,9 +743,14 @@ function setSpeed(speed: number): void {
 /** Coerce an untrusted project settings blob into a full toggle record. */
 function normalizeProjectState(value: unknown): GodsEyeViewProjectState {
   const record = (value ?? {}) as Record<string, unknown>;
+  const toggles = Object.fromEntries(
+    FEED_IDS.map((feed) => [
+      feed,
+      typeof record[feed] === "boolean" ? record[feed] : FEED_DESCRIPTORS[feed].defaultEnabled,
+    ]),
+  ) as Record<FeedId, boolean>;
   return {
-    earthquakes: typeof record.earthquakes === "boolean" ? record.earthquakes : true,
-    satellites: typeof record.satellites === "boolean" ? record.satellites : true,
+    ...toggles,
     dense: typeof record.dense === "boolean" ? record.dense : false,
     // A hand-edited project can carry anything; only an offered step is honoured.
     speed: SPEED_OPTIONS.find((option) => option === record.speed) ?? DEFAULT_SPEED,
@@ -419,15 +759,31 @@ function normalizeProjectState(value: unknown): GodsEyeViewProjectState {
 
 function statusText(feed: FeedId): string {
   const state = feeds[feed];
+  const descriptor: FeedDescriptor = FEED_DESCRIPTORS[feed];
   if (state.loading) return translate("panel.godsEyeView.loading", "Updating…");
   if (state.failed) return translate("panel.godsEyeView.updateFailed", "Update failed");
+  if (state.lastUpdated && descriptor.viewportKey && state.layerId) {
+    const layer = useAppStore.getState().layers.find((candidate) => candidate.id === state.layerId);
+    const bounds = appRef?.getViewBounds?.() ?? null;
+    if (
+      layer?.geojson?.features.length === 0 &&
+      (descriptor.hasQueryableViewport?.(bounds) ?? true)
+    ) {
+      return translate(
+        "panel.godsEyeView.noneInView",
+        "No features found in the current view for this layer.",
+      );
+    }
+  }
   const time = state.lastUpdated
     ? new Intl.DateTimeFormat(appRef?.getLocale?.(), {
         dateStyle: "short",
         timeStyle: "medium",
       }).format(state.lastUpdated)
     : translate("panel.godsEyeView.never", "Never");
-  return translate("panel.godsEyeView.lastUpdated", "Last updated: {{time}}", { time });
+  return translate("panel.godsEyeView.lastUpdated", "Last updated: {{time}}", {
+    time,
+  });
 }
 
 /** The clock-speed row: how fast the globe replays the feeds' time window. */
@@ -448,7 +804,9 @@ function speedRow(): HTMLElement {
     item.textContent =
       option === 1
         ? translate("panel.godsEyeView.speedRealTime", "Real time (1×)")
-        : translate("panel.godsEyeView.speedMultiple", "{{factor}}×", { factor: option });
+        : translate("panel.godsEyeView.speedMultiple", "{{factor}}×", {
+            factor: option,
+          });
     item.selected = option === savedState.speed;
     select.append(item);
   }
@@ -486,67 +844,88 @@ function renderPanel(): void {
     panel.append(note);
   }
 
-  for (const feed of FEED_IDS) {
-    const row = document.createElement("div");
-    row.style.cssText =
-      "display:flex;flex-direction:column;gap:4px;padding:10px;border:1px solid hsl(var(--border));border-radius:6px";
-    const label = document.createElement("label");
-    label.style.cssText = "display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = feeds[feed].enabled;
-    checkbox.disabled = !cesiumRef;
-    checkbox.addEventListener("change", () => setFeedEnabled(feed, checkbox.checked));
-    const name = document.createElement("span");
-    name.textContent = feedName(feed);
-    label.append(checkbox, name);
-    const status = document.createElement("div");
-    status.textContent = statusText(feed);
-    status.style.cssText = "font-size:11px;color:hsl(var(--muted-foreground))";
-    row.append(label, status);
-    if (feed === "satellites") {
-      const dense = denseCatalog.snapshot();
-      const button = document.createElement("button");
-      button.type = "button";
-      button.setAttribute("aria-pressed", String(savedState.dense));
-      button.setAttribute(
-        "aria-label",
-        translate("panel.godsEyeView.denseSatellites", "Dense satellite catalog"),
-      );
-      button.disabled = !cesiumRef || !feeds.satellites.enabled;
-      button.textContent =
-        dense.status === "loading"
-          ? translate("panel.godsEyeView.denseLoading", "DENSE ···")
-          : dense.status === "failed"
-            ? translate("panel.godsEyeView.denseFailed", "DENSE !")
-            : dense.status === "ready"
-              ? translate("panel.godsEyeView.denseCount", "DENSE · {{count}}", {
-                  count: (coreSatelliteCatalogNumbers().size + dense.count).toLocaleString(
-                    appRef?.getLocale?.(),
-                  ),
-                })
-              : translate("panel.godsEyeView.dense", "DENSE");
-      button.title =
-        dense.status === "failed"
-          ? translate(
-              "panel.godsEyeView.denseError",
-              "Could not load the Starlink catalog: {{error}}. Select to retry.",
-              { error: dense.error ?? "unknown error" },
-            )
-          : translate(
-              "panel.godsEyeView.denseDescription",
-              "Show the full Starlink shell as lightweight points (no labels or table rows).",
-            );
-      button.style.cssText =
-        "align-self:flex-start;margin-top:4px;padding:3px 8px;border:1px solid hsl(var(--border));border-radius:999px;background:" +
-        (savedState.dense
-          ? "hsl(var(--primary));color:hsl(var(--primary-foreground))"
-          : "transparent") +
-        ";font-size:10px;font-weight:700;letter-spacing:.08em;cursor:pointer";
-      button.addEventListener("click", () => setDenseEnabled(!savedState.dense));
-      row.append(button);
+  for (const group of FEED_GROUPS) {
+    const groupFeeds = FEED_IDS.filter((feed) => FEED_DESCRIPTORS[feed].group === group);
+    if (groupFeeds.length === 0) continue;
+    const section = document.createElement("section");
+    section.className = "geolibre-gods-eye-view-feed-group";
+    section.dataset.feedGroup = group;
+    section.style.cssText = "display:flex;flex-direction:column;gap:8px";
+    const heading = document.createElement("h3");
+    heading.textContent = translate(
+      `panel.godsEyeView.groups.${group}`,
+      group[0].toUpperCase() + group.slice(1),
+    );
+    heading.style.cssText =
+      "margin:2px 0 0;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:hsl(var(--muted-foreground))";
+    section.append(heading);
+
+    for (const feed of groupFeeds) {
+      const descriptor: FeedDescriptor = FEED_DESCRIPTORS[feed];
+      const row = document.createElement("div");
+      row.dataset.feedId = feed;
+      row.style.cssText =
+        "display:flex;flex-direction:column;gap:4px;padding:10px;border:1px solid hsl(var(--border));border-radius:6px";
+      const label = document.createElement("label");
+      label.style.cssText =
+        "display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = feeds[feed].enabled;
+      checkbox.disabled = !cesiumRef;
+      checkbox.addEventListener("change", () => setFeedEnabled(feed, checkbox.checked));
+      const name = document.createElement("span");
+      name.textContent = feedName(feed);
+      label.append(checkbox, name);
+      const status = document.createElement("div");
+      status.textContent = statusText(feed);
+      status.style.cssText = "font-size:11px;color:hsl(var(--muted-foreground))";
+      row.append(label, status);
+      if (feed === "satellites") {
+        const dense = denseCatalog.snapshot();
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(savedState.dense));
+        button.setAttribute(
+          "aria-label",
+          translate("panel.godsEyeView.denseSatellites", "Dense satellite catalog"),
+        );
+        button.disabled = !cesiumRef || !feeds.satellites.enabled;
+        button.textContent =
+          dense.status === "loading"
+            ? translate("panel.godsEyeView.denseLoading", "DENSE ···")
+            : dense.status === "failed"
+              ? translate("panel.godsEyeView.denseFailed", "DENSE !")
+              : dense.status === "ready"
+                ? translate("panel.godsEyeView.denseCount", "DENSE · {{count}}", {
+                    count: (coreSatelliteCatalogNumbers().size + dense.count).toLocaleString(
+                      appRef?.getLocale?.(),
+                    ),
+                  })
+                : translate("panel.godsEyeView.dense", "DENSE");
+        button.title =
+          dense.status === "failed"
+            ? translate(
+                "panel.godsEyeView.denseError",
+                "Could not load the Starlink catalog: {{error}}. Select to retry.",
+                { error: dense.error ?? "unknown error" },
+              )
+            : translate(
+                "panel.godsEyeView.denseDescription",
+                "Show the full Starlink shell as lightweight points (no labels or table rows).",
+              );
+        button.style.cssText =
+          "align-self:flex-start;margin-top:4px;padding:3px 8px;border:1px solid hsl(var(--border));border-radius:999px;background:" +
+          (savedState.dense
+            ? "hsl(var(--primary));color:hsl(var(--primary-foreground))"
+            : "transparent") +
+          ";font-size:10px;font-weight:700;letter-spacing:.08em;cursor:pointer";
+        button.addEventListener("click", () => setDenseEnabled(!savedState.dense));
+        row.append(button);
+      }
+      section.append(row);
     }
-    panel.append(row);
+    panel.append(section);
   }
   panel.append(speedRow());
   container.append(panel);
@@ -555,6 +934,11 @@ function renderPanel(): void {
 function resetRuntime(): void {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = null;
+  if (viewportRefreshTimer) clearTimeout(viewportRefreshTimer);
+  viewportRefreshTimer = null;
+  removeViewportListener?.();
+  removeViewportListener = null;
+  for (const feed of FEED_IDS) feeds[feed].retryAfter = 0;
   unsubscribeLocale?.();
   unsubscribeLocale = null;
   unregisterPanel?.();
@@ -623,6 +1007,7 @@ function startRefreshing(): void {
   refreshTimer = setInterval(() => {
     for (const feed of FEED_IDS) void refreshFeed(feed, false);
   }, REFRESH_TICK_MS);
+  bindViewportRefresh();
   syncDenseCatalog();
 }
 
@@ -650,6 +1035,11 @@ export function reattachGodsEyeView(app: GeoLibreAppAPI): void {
   cesiumRef = next;
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = null;
+  if (viewportRefreshTimer) clearTimeout(viewportRefreshTimer);
+  viewportRefreshTimer = null;
+  removeViewportListener?.();
+  removeViewportListener = null;
+  for (const feed of FEED_IDS) feeds[feed].retryAfter = 0;
   if (cesiumRef) {
     savedClockAnimating = cesiumRef.clock.shouldAnimate;
     savedClockMultiplier = cesiumRef.clock.multiplier;
@@ -668,6 +1058,7 @@ function deactivate(): void {
     removeFeedLayer(feed);
     feeds[feed].lastUpdated = null;
     feeds[feed].failed = false;
+    feeds[feed].retryAfter = 0;
   }
   if (cesiumRef && savedClockAnimating !== null) {
     cesiumRef.clock.shouldAnimate = savedClockAnimating;
@@ -687,7 +1078,7 @@ function deactivate(): void {
 export const godsEyeViewPlugin: GeoLibrePlugin = {
   id: GODS_EYE_VIEW_PLUGIN_ID,
   name: "God's Eye View",
-  version: "0.1.0",
+  version: "0.2.0",
   activeByDefault: false,
   // Every 2D engine, not just MapLibre: `engines` decides whether the Plugins
   // menu entry can be toggled at all, so leaving Mapbox and ArcGIS out greyed

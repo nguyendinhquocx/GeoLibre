@@ -1924,7 +1924,7 @@
     "only3d": "3D만",
     "noMapbox": "Mapbox 미지원",
     "noArcgis": "ArcGIS 미지원",
-    "cesiumTokenHint": "지형과 Ion 영상을 사용하려면 설정에서 Cesium Ion 토큰을 추가하세요"
+    "cesiumTokenHint": "지형과 Ion 영상을 사용하려면 <settingsLink>설정 → 환경 변수</settingsLink>에서 Cesium Ion 토큰을 추가하세요"
   },
   "renderer": {
     "basemap": "배경지도",
@@ -2316,10 +2316,37 @@
     "godsEyeView": {
       "description": "공개 데이터 피드에서 시간 정보가 포함된 실시간 지구 이벤트를 표시합니다.",
       "globeOnly": "실시간 지구 피드는 Cesium 지구본에 렌더링됩니다. 보려면 3D 지구본으로 전환하세요.",
+      "groups": {
+        "movement": "이동",
+        "cameras": "카메라",
+        "infrastructure": "인프라",
+        "events": "이벤트",
+        "utilities": "유틸리티"
+      },
       "earthquakes": "지진",
+      "spaceMissions": "우주 임무(30일)",
       "satellites": "위성",
+      "flights": "실시간 항공편",
+      "militaryFlights": "군용기",
+      "bikeShare": "자전거 공유",
+      "transit": "실시간 대중교통",
+      "streetTraffic": "시뮬레이션 도로 교통",
+      "mappedAlpr": "지도화된 번호판 인식 카메라",
+      "cctv": "공공 CCTV 카메라",
+      "cctvPopup": {
+        "liveSnapshot": "실시간 이미지",
+        "provider": "제공자",
+        "attribution": "저작자 표시",
+        "privacy": "개인정보"
+      },
+      "radio": "라디오 방송국",
+      "datacenters": "데이터 센터",
+      "dams": "댐",
+      "cables": "해저 케이블",
+      "osmInfrastructure": "OSM 인프라",
       "loading": "업데이트 중…",
       "updateFailed": "업데이트 실패",
+      "noneInView": "이 레이어의 현재 화면에서 피처를 찾을 수 없습니다.",
       "never": "없음",
       "lastUpdated": "마지막 업데이트: {{time}}",
       "speed": "속도",
@@ -7408,6 +7435,7 @@
     "viewportStretchNoRange": "뷰포트 값으로 범위를 정할 수 없습니다.",
     "viewportStretchMoved": "읽기가 끝나기 전에 지도가 이동했습니다. 다시 적용하세요.",
     "index": "지수",
+    "opacityClasses": "불투명도 클래스",
     "classifyToggle": "이산 클래스로 분류",
     "method": "방법",
     "methodEqualInterval": "등간격",

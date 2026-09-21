@@ -1970,7 +1970,7 @@
     "only3d": "Nur 3D",
     "noMapbox": "Kein Mapbox",
     "noArcgis": "Kein ArcGIS",
-    "cesiumTokenHint": "Fügen Sie in den Einstellungen ein Cesium-Ion-Token für Gelände und Ion-Bilder hinzu"
+    "cesiumTokenHint": "Fügen Sie unter <settingsLink>Einstellungen → Umgebungsvariablen</settingsLink> ein Cesium-Ion-Token für Gelände und Ion-Bilder hinzu"
   },
   "renderer": {
     "basemap": "Hintergrundkarte",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "Live-Ereignisse auf der Erde mit Zeitbezug aus öffentlichen Datenfeeds.",
       "globeOnly": "Live-Globusfeeds werden auf dem Cesium-Globus dargestellt. Wechseln Sie zum 3D-Globus, um sie anzuzeigen.",
+      "groups": {
+        "movement": "Bewegung",
+        "cameras": "Kameras",
+        "infrastructure": "Infrastruktur",
+        "events": "Ereignisse",
+        "utilities": "Dienstprogramme"
+      },
       "earthquakes": "Erdbeben",
+      "spaceMissions": "Weltraummissionen (30 Tage)",
       "satellites": "Satelliten",
+      "flights": "Live-Flüge",
+      "militaryFlights": "Militärflüge",
+      "bikeShare": "Bikesharing",
+      "transit": "Live-Nahverkehr",
+      "streetTraffic": "Simulierter Straßenverkehr",
+      "mappedAlpr": "Kartierte Kennzeichenkameras",
+      "cctv": "Öffentliche CCTV-Kameras",
+      "cctvPopup": {
+        "liveSnapshot": "Livebild",
+        "provider": "Anbieter",
+        "attribution": "Quellenangabe",
+        "privacy": "Datenschutz"
+      },
+      "radio": "Radiosender",
+      "datacenters": "Rechenzentren",
+      "dams": "Staudämme",
+      "cables": "Seekabel",
+      "osmInfrastructure": "OSM-Infrastruktur",
       "loading": "Wird aktualisiert…",
       "updateFailed": "Aktualisierung fehlgeschlagen",
+      "noneInView": "Für diese Ebene wurden im aktuellen Kartenausschnitt keine Objekte gefunden.",
       "never": "Nie",
       "lastUpdated": "Zuletzt aktualisiert: {{time}}",
       "speed": "Geschwindigkeit",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "Die Werte der Ansicht ergeben keinen Wertebereich.",
     "viewportStretchMoved": "Die Karte wurde bewegt, bevor das Lesen abgeschlossen war. Wenden Sie sie erneut an.",
     "index": "Index",
+    "opacityClasses": "Deckkraftklassen",
     "classifyToggle": "In diskrete Klassen einteilen",
     "method": "Methode",
     "methodEqualInterval": "Gleiches Intervall",

@@ -1970,7 +1970,7 @@
     "only3d": "Solo 3D",
     "noMapbox": "Sin Mapbox",
     "noArcgis": "Sin ArcGIS",
-    "cesiumTokenHint": "Añada un token de Cesium Ion en Configuración para el terreno y las imágenes de Ion"
+    "cesiumTokenHint": "Añada un token de Cesium Ion en <settingsLink>Configuración → Variables de entorno</settingsLink> para el terreno y las imágenes de Ion"
   },
   "renderer": {
     "basemap": "Mapa base",
@@ -2364,10 +2364,37 @@
     "godsEyeView": {
       "description": "Eventos terrestres en vivo y con referencia temporal procedentes de fuentes de datos públicas.",
       "globeOnly": "Las fuentes en vivo se muestran en el globo de Cesium. Cambia al globo 3D para verlas.",
+      "groups": {
+        "movement": "Movimiento",
+        "cameras": "Cámaras",
+        "infrastructure": "Infraestructura",
+        "events": "Eventos",
+        "utilities": "Utilidades"
+      },
       "earthquakes": "Terremotos",
+      "spaceMissions": "Misiones espaciales (30 días)",
       "satellites": "Satélites",
+      "flights": "Vuelos en vivo",
+      "militaryFlights": "Vuelos militares",
+      "bikeShare": "Bicicletas compartidas",
+      "transit": "Transporte público en vivo",
+      "streetTraffic": "Tráfico urbano simulado",
+      "mappedAlpr": "Cámaras ALPR cartografiadas",
+      "cctv": "Cámaras CCTV públicas",
+      "cctvPopup": {
+        "liveSnapshot": "Imagen en directo",
+        "provider": "Proveedor",
+        "attribution": "Atribución",
+        "privacy": "Privacidad"
+      },
+      "radio": "Emisoras de radio",
+      "datacenters": "Centros de datos",
+      "dams": "Presas",
+      "cables": "Cables submarinos",
+      "osmInfrastructure": "Infraestructura de OSM",
       "loading": "Actualizando…",
       "updateFailed": "Error de actualización",
+      "noneInView": "No se encontraron entidades en la vista actual para esta capa.",
       "never": "Nunca",
       "lastUpdated": "Última actualización: {{time}}",
       "speed": "Velocidad",
@@ -7489,6 +7516,7 @@
     "viewportStretchNoRange": "Los valores de la vista no definen un rango.",
     "viewportStretchMoved": "El mapa se movió antes de terminar la lectura. Aplique de nuevo.",
     "index": "Índice",
+    "opacityClasses": "Clases de opacidad",
     "classifyToggle": "Clasificar en clases discretas",
     "method": "Método",
     "methodEqualInterval": "Intervalo igual",
