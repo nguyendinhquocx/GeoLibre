@@ -28,6 +28,7 @@ import { getPrimaryCesiumControlHost } from "./cesium-control-host";
 import { pickDrawingLocation, placeCesiumPin, suspendCesiumNavigation } from "./cesium-drawing";
 import { drawExtentOnCanvas } from "./extent-drawing";
 import { captureEngineImage } from "./map-capture";
+import type { MapDiagnosticEvent } from "./map-diagnostic";
 import { TerrariumTerrainProvider } from "./cesium-terrarium";
 import { registerCogDemSource, type CogDemSourceRegistration } from "./cog-dem-source";
 import type { MapRenderSurface } from "./map-engine";
@@ -72,6 +73,11 @@ export const CESIUM_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   picking: true,
   onMapDrawing: true,
   domControls: true,
+  // A globe: screen-space boxes break past the limb, and the 2D projection
+  // preference has no flat mode here to map onto.
+  screenOverlays: false,
+  flatProjection: false,
+  terrainSource: true,
 });
 
 /**
@@ -204,6 +210,13 @@ export interface CesiumEngineOptions {
    * and whether per-pane visibility overrides apply — see `CesiumCanvas`.
    */
   viewId?: string;
+  /**
+   * Forwards a renderer failure to the app's Diagnostics panel, the way
+   * `MapCanvas` and `MapboxCanvas` forward theirs. The globe's own failures are
+   * layer loads: an Ion asset the account cannot stream, a tileset URL that
+   * 404s, a KML that will not parse.
+   */
+  onDiagnostic?: (event: MapDiagnosticEvent) => void;
 }
 
 /**
@@ -351,8 +364,11 @@ export class CesiumEngine implements MapEngine {
     this.worldTerrainAvailable = options.worldTerrainAvailable ?? true;
     this.capabilities =
       options.viewId === undefined ? CESIUM_CAPABILITIES : CESIUM_PANE_CAPABILITIES;
+    const onDiagnostic = options.onDiagnostic;
     this.layerSync = new CesiumLayerSync(Cesium, viewer, undefined, {
       onTilesetFields: publishTilesetFields,
+      onLayerError: ({ layerName, message }) =>
+        onDiagnostic?.({ message: `${layerName}: ${message}`, source: "cesium" }),
     });
     this.terrainExaggeration = viewer.scene.verticalExaggeration ?? 1;
     this.installInputTracking();
@@ -544,7 +560,15 @@ export class CesiumEngine implements MapEngine {
 
   fitLayer(layer: GeoLibreLayer): void {
     const bounds = getLayerBounds(layer);
-    if (bounds) this.fitBounds(bounds);
+    if (bounds) {
+      this.fitBounds(bounds);
+      return;
+    }
+    // An Ion asset, a tileset by URL, CZML and KML keep no bounds in the store:
+    // their extent belongs to the Cesium object the sync loads. Hand the fit
+    // over, including for a layer added a moment ago whose object is still
+    // loading — the sync flies as soon as it has one.
+    this.layerSync.zoomToLayer(layer.id);
   }
 
   readCameraAltitude(): number | null {

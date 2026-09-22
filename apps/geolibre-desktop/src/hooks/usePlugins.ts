@@ -155,6 +155,7 @@ import { createPluginLocaleApi } from "../lib/plugin-locale";
 import { setTimeSliderOpenedByBinding, shouldCloseTimeSliderDock } from "../lib/time-slider-dock";
 import { createWmsTileUrl, normalizeWmsVersion } from "../components/layout/add-data/helpers";
 import { createExternalNativeStoreLayer } from "../lib/external-native-layer";
+import { createPluginLayerGroupActions } from "../lib/plugin-layer-groups";
 import { createPluginLayerQueries } from "../lib/plugin-layer-queries";
 import { mergeStringLists } from "../lib/string-lists";
 import {
@@ -1101,11 +1102,7 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
       return !manager.isActive(pluginId);
     },
     queryOvertureFeatures,
-    addLayerGroup: (name?: string, layerIds?: string[]) =>
-      useAppStore.getState().addLayerGroup(name, layerIds),
-    moveLayersToGroup: (layerIds: string[], groupId: string | null) =>
-      useAppStore.getState().moveLayersToGroup(layerIds, groupId),
-    removeLayerGroup: (id: string) => useAppStore.getState().removeLayerGroup(id),
+    ...createPluginLayerGroupActions(),
     fitBounds: (bounds: [number, number, number, number]) =>
       mapControllerRef?.current?.fitBounds(bounds),
     getViewBounds: () => mapControllerRef?.current?.getViewBounds() ?? null,

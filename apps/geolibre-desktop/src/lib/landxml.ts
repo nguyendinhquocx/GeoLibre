@@ -2,9 +2,11 @@ import type {
   Feature,
   FeatureCollection,
   GeoJsonProperties,
+  Geometry,
+  GeometryCollection,
   LineString,
+  MultiPolygon,
   Point,
-  Polygon,
   Position,
 } from "geojson";
 
@@ -48,9 +50,10 @@ interface VerticalProfile {
  *
  * LandXML coordinates are northing, easting, and optional elevation. GeoJSON
  * uses easting (X), northing (Y), and optional elevation, so every position is
- * reordered while retaining its Z value. TIN faces become triangular polygons,
- * horizontal alignment lines and curves become LineStrings, and CgPoints become
- * points. Spiral segments use their tangent intersection as a quadratic control
+ * reordered while retaining its Z value. Each TIN surface becomes one
+ * MultiPolygon whose parts are its triangular faces, horizontal alignment lines
+ * and curves become LineStrings, and CgPoints become points. Spiral segments
+ * use their tangent intersection as a quadratic control
  * point to produce a smooth approximation. Vertical profile PVIs are preserved
  * on alignment properties.
  *
@@ -133,6 +136,172 @@ export function parseLandXml(text: string): LandXmlParseResult {
   };
 }
 
+/** A GeoJSON coordinate array at any nesting depth. */
+type NestedPositions = Position | NestedPositions[];
+
+function isPosition(node: NestedPositions): node is Position {
+  return typeof node[0] === "number";
+}
+
+/** Key a position by its full tuple so points that differ only in Z stay distinct. */
+function positionKey(position: Position): string {
+  return position.join(",");
+}
+
+function visitPositions(node: NestedPositions, visit: (position: Position) => void): void {
+  if (isPosition(node)) {
+    visit(node);
+    return;
+  }
+  for (const child of node) visitPositions(child, visit);
+}
+
+function rebuildPositions(
+  node: NestedPositions,
+  replace: (position: Position) => Position,
+): NestedPositions {
+  if (isPosition(node)) return replace(node);
+  return node.map((child) => rebuildPositions(child, replace));
+}
+
+/** Visit every geometry that carries coordinates, flattening any collection. */
+function eachGeometry(
+  geometry: Geometry,
+  visit: (geometry: Exclude<Geometry, GeometryCollection>) => void,
+): void {
+  if (geometry.type === "GeometryCollection") {
+    for (const child of geometry.geometries) eachGeometry(child, visit);
+    return;
+  }
+  visit(geometry);
+}
+
+/**
+ * Reproject a parsed LandXML collection by transforming each distinct vertex
+ * once rather than every occurrence of it.
+ *
+ * A TIN stores its faces as indices into a shared point table, so the same
+ * vertex reappears in roughly six triangles. Handing the assembled geometry to
+ * the reprojection engine therefore transforms every corner separately — for
+ * the 27,310-face sample in discussion #2489 that is 81,930 coordinates instead
+ * of the 13,708 the surface actually has, and the engine round-trips the whole
+ * collection through DuckDB's GDAL reader to do it. Deduplicating first keeps
+ * the transform proportional to the surface's real vertex count.
+ *
+ * @param collection The parsed layer geometry, in the document's source CRS.
+ * @param reprojectPositions Transforms a position list to WGS84, preserving
+ *   order and length. Injected so this stays independent of the map engine.
+ * @returns A collection with the same shape and properties, in WGS84.
+ */
+export async function reprojectLandXmlCollection(
+  collection: FeatureCollection,
+  reprojectPositions: (positions: Position[]) => Promise<Position[]>,
+): Promise<FeatureCollection> {
+  const distinct: Position[] = [];
+  const indexByKey = new Map<string, number>();
+  for (const feature of collection.features) {
+    if (!feature.geometry) continue;
+    eachGeometry(feature.geometry, (geometry) => {
+      visitPositions(geometry.coordinates, (position) => {
+        const key = positionKey(position);
+        if (indexByKey.has(key)) return;
+        indexByKey.set(key, distinct.length);
+        distinct.push(position);
+      });
+    });
+  }
+  if (distinct.length === 0) return collection;
+
+  const reprojected = await reprojectByDimension(distinct, reprojectPositions);
+  // Hand every occurrence its own array. Deduplicating means one transformed
+  // position stands in for the ~6 faces that share the vertex, and returning
+  // that single instance would leave the output geometry aliasing itself, so
+  // anything that later edited a coordinate in place would silently move every
+  // face sharing it.
+  const replace = (position: Position): Position => {
+    const index = indexByKey.get(positionKey(position));
+    // Unreachable while both passes walk the same coordinates with the same
+    // test for a position. Stated as an error rather than falling back to the
+    // input, which would splice source-CRS coordinates into otherwise-WGS84
+    // geometry and land the layer somewhere far away instead of failing.
+    if (index === undefined) {
+      throw new Error("Reprojection could not match a coordinate to a transformed vertex.");
+    }
+    return [...reprojected[index]];
+  };
+
+  return {
+    ...collection,
+    features: collection.features.map((feature) => {
+      if (!feature.geometry) return feature;
+      return { ...feature, geometry: replaceGeometryPositions(feature.geometry, replace) };
+    }),
+  };
+}
+
+/**
+ * Reproject positions in one batch per coordinate dimension.
+ *
+ * LandXML elevations are optional, so a single layer can hold both `[x, y]` and
+ * `[x, y, z]` positions — a CgPoint with no elevation beside one that has it, or
+ * a curve sampled between two endpoints that carry no Z. Engines that transform
+ * a batch as one multi-part geometry require a consistent dimension across the
+ * parts and pad the short ones, which would turn "no elevation" into a real
+ * elevation of zero. Grouping first keeps each batch homogeneous, so a 2D
+ * position stays 2D.
+ */
+async function reprojectByDimension(
+  positions: Position[],
+  reprojectPositions: (positions: Position[]) => Promise<Position[]>,
+): Promise<Position[]> {
+  const indicesByDimension = new Map<number, number[]>();
+  for (const [index, position] of positions.entries()) {
+    const existing = indicesByDimension.get(position.length);
+    if (existing) existing.push(index);
+    else indicesByDimension.set(position.length, [index]);
+  }
+
+  const reprojected: Position[] = new Array(positions.length);
+  for (const indices of indicesByDimension.values()) {
+    const batch = await reprojectPositions(indices.map((index) => positions[index]));
+    if (batch.length !== indices.length) {
+      throw new Error("Reprojection returned a different number of coordinates than it was given.");
+    }
+    for (const [batchIndex, sourceIndex] of indices.entries()) {
+      const projected = batch[batchIndex];
+      // Assert the dimension survived rather than trusting it. An engine that
+      // quietly drops or pads Z is the failure this grouping exists to prevent,
+      // and a fabricated elevation is far harder to notice downstream than a
+      // failed import.
+      if (
+        !Array.isArray(projected) ||
+        projected.length !== positions[sourceIndex].length ||
+        !projected.every((ordinate) => Number.isFinite(ordinate))
+      ) {
+        throw new Error("Reprojection returned an invalid coordinate.");
+      }
+      reprojected[sourceIndex] = projected;
+    }
+  }
+  return reprojected;
+}
+
+function replaceGeometryPositions(
+  geometry: Geometry,
+  replace: (position: Position) => Position,
+): Geometry {
+  if (geometry.type === "GeometryCollection") {
+    return {
+      ...geometry,
+      geometries: geometry.geometries.map((child) => replaceGeometryPositions(child, replace)),
+    };
+  }
+  return {
+    ...geometry,
+    coordinates: rebuildPositions(geometry.coordinates, replace),
+  } as Geometry;
+}
+
 function parseSurface(
   surface: Element,
   surfaceIndex: number,
@@ -155,9 +324,16 @@ function parseSurface(
     allCoordinates.push(coordinate);
   }
 
-  const features: Feature<Polygon, GeoJsonProperties>[] = [];
+  // Every triangle becomes one part of a single MultiPolygon rather than its
+  // own Feature. A real TIN runs to tens of thousands of faces, and a feature
+  // per face made the import cost scale with face count: each one carried a
+  // duplicate property bag, and the WGS84 reprojection pays a per-row cost
+  // because it round-trips the collection through DuckDB's GDAL reader.
+  // The per-face identity was not useful on the map either — identifying a
+  // surface reported "face 17312" instead of the surface itself.
+  const triangles: Position[][][] = [];
   let skippedFaceCount = 0;
-  for (const [faceIndex, face] of descendants(definition, "F").entries()) {
+  for (const face of descendants(definition, "F")) {
     const ids = tokens(face.textContent).slice(0, 3);
     if (ids.length !== 3) {
       skippedFaceCount += 1;
@@ -170,21 +346,11 @@ function parseSurface(
       skippedFaceCount += 1;
       continue;
     }
+    // Copy each vertex: the point table hands back one array per TIN point, so
+    // pushing it directly would make every face that shares the point alias the
+    // same coordinate array.
     const coordinates = triangle as Position[];
-    features.push({
-      type: "Feature",
-      geometry: {
-        type: "Polygon",
-        coordinates: [[...coordinates, coordinates[0]]],
-      },
-      properties: {
-        landxml_kind: "surface_face",
-        surface_name: name,
-        surface_index: surfaceIndex + 1,
-        face_index: faceIndex + 1,
-        point_ids: ids.join(","),
-      },
-    });
+    triangles.push([[...coordinates, coordinates[0]].map((position) => [...position])]);
   }
 
   if (skippedPointCount > 0 || skippedFaceCount > 0) {
@@ -192,11 +358,27 @@ function parseSurface(
       `${name}: skipped ${skippedPointCount} invalid surface point(s) and ${skippedFaceCount} invalid TIN face(s).`,
     );
   }
-  if (features.length === 0 && skippedFaceCount === 0) {
+  if (triangles.length === 0 && skippedFaceCount === 0) {
     warnings.push(`${name}: no usable TIN faces were found.`);
   }
 
-  if (features.length === 0) return null;
+  if (triangles.length === 0) return null;
+  const properties: NonNullable<GeoJsonProperties> = {
+    landxml_kind: "surface",
+    surface_name: name,
+    surface_index: surfaceIndex + 1,
+    face_count: triangles.length,
+    point_count: pointById.size,
+  };
+  const description = surface.getAttribute("desc")?.trim();
+  if (description) properties.description = description;
+  const features: Feature<MultiPolygon, GeoJsonProperties>[] = [
+    {
+      type: "Feature",
+      geometry: { type: "MultiPolygon", coordinates: triangles },
+      properties,
+    },
+  ];
   return {
     name,
     kind: "surface",
@@ -516,7 +698,7 @@ function copyNumericAttribute(
   if (Number.isFinite(value)) properties[property] = value;
 }
 
-function featureCollection<G extends Point | LineString | Polygon>(
+function featureCollection<G extends Point | LineString | MultiPolygon>(
   features: Feature<G, GeoJsonProperties>[],
 ): FeatureCollection<G, GeoJsonProperties> {
   return { type: "FeatureCollection", features };

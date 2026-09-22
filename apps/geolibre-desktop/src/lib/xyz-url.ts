@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { addProtocol, type RequestParameters } from "maplibre-gl";
 import { fetchUrlBytes, resolveUrlRedirect } from "./native-http";
 import { isHttpWmsUrl, nativeWmsTileUrl, WMS_TILE_PROTOCOL } from "./native-wms-url";
+import { geographicTileToMercator, geographicWmsRequest } from "./wms-geographic";
 import { sanitizeAttributionHtml } from "./sanitize-html";
 import { isTauri } from "./tauri-io";
 
@@ -80,8 +81,22 @@ export function registerXyzTileProtocol(): void {
   if (protocolRegistered || !isTauri()) return;
 
   addProtocol(XYZ_TILE_PROTOCOL, async (request) => fetchNativeTile(parseXyzTileRequest(request)));
-  addProtocol(WMS_TILE_PROTOCOL, async (request) => fetchNativeTile(parseWmsTileRequest(request)));
+  addProtocol(WMS_TILE_PROTOCOL, async (request) =>
+    fetchNativeWmsTile(parseWmsTileRequest(request)),
+  );
   protocolRegistered = true;
+}
+
+async function fetchNativeWmsTile(url: string): Promise<{ data: ArrayBuffer }> {
+  // A WMS without EPSG:3857 is stored with a geographic SRS/CRS: fetch the
+  // tile's lon/lat extent in that CRS and redraw it into Web Mercator.
+  const geographic = geographicWmsRequest(url);
+  // Every EPSG:3857 tile takes this path. A geographic one that cannot be
+  // converted (e.g. a degenerate BBOX) is sent as is, so the server's own
+  // exception reaches the diagnostics panel instead of a client-side guess.
+  if (!geographic) return fetchNativeTile(url);
+  const { data } = await fetchNativeTile(geographic.url);
+  return { data: await geographicTileToMercator(data, geographic) };
 }
 
 async function fetchNativeTile(url: string): Promise<{ data: ArrayBuffer }> {

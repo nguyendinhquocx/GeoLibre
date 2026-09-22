@@ -94,6 +94,12 @@ import {
 } from "./map-projection-utils";
 import { ensureSharedDeckOverlay, setSharedDeckLayers } from "./shared-deck-overlay";
 import { attachTerrainMeasure, measurePanelElement, type TerrainMapLike } from "./terrain-measure";
+import {
+  MEASURE_FILL_COLOR,
+  MEASURE_LINE_COLOR,
+  MEASURE_LINE_WIDTH,
+  syncLidarMeasureMirror,
+} from "./lidar-measure-mirror";
 import { INTERNAL_HELPER_LAYER_PATTERNS } from "./internal-layers";
 import { savedRasterState } from "./raster-layer-sync";
 import type { SwipeRasterSnapshot } from "./swipe-raster-mirror";
@@ -200,8 +206,11 @@ const splattingControlPosition: GeoLibreMapControlPosition = "top-left";
 const FLATGEOBUF_SAMPLE_URL = "https://flatgeobuf.org/test/data/UScounties.fgb";
 const BUILDING_COUNT_H3_PMTILES_SAMPLE_URL =
   "https://data.source.coop/giswqs/opengeos/building_count_h3.pmtiles";
+// Overture keeps only the newest release in this bucket, so a pinned sample
+// URL goes 404 on the release after the one it names. Refresh it along with
+// the `maplibre-gl-overture-maps` bump that follows a new Overture release.
 const PMTILES_SAMPLE_URL =
-  "https://overturemaps-extras-us-west-2.s3.us-west-2.amazonaws.com/tiles/2026-07-22.0/buildings.pmtiles";
+  "https://overturemaps-extras-us-west-2.s3.us-west-2.amazonaws.com/tiles/2026-08-19.0/buildings.pmtiles";
 const TILEZEN_PMTILES_SAMPLE_URL =
   "https://r2-public.protomaps.com/protomaps-sample-datasets/tilezen.pmtiles";
 const ZARR_SAMPLE_URL =
@@ -337,6 +346,12 @@ const MEASURE_OPTIONS = {
   className: "geolibre-measure-control",
   collapsed: false,
   fontColor: "hsl(var(--popover-foreground))",
+  // Spelled out (they match the control's own defaults) because the LiDAR
+  // measure mirror has to redraw this geometry in deck.gl with the same paint
+  // — see lidar-measure-mirror.ts.
+  lineColor: MEASURE_LINE_COLOR,
+  lineWidth: MEASURE_LINE_WIDTH,
+  fillColor: MEASURE_FILL_COLOR,
   maxHeight: 520,
   panelWidth: 260,
   position: measureControlPosition,
@@ -3297,6 +3312,22 @@ async function openStandaloneSearchControl(app: GeoLibreAppAPI): Promise<boolean
   return true;
 }
 
+/**
+ * Re-point the LiDAR measure mirror at whatever the two singletons currently
+ * are. Called from every path that mounts or tears down either control, so the
+ * mirror follows the Measure panel and the LiDAR panel being opened, closed, or
+ * rebuilt for another renderer (see `lidar-measure-mirror.ts`).
+ */
+function refreshLidarMeasureMirror(app: GeoLibreAppAPI): void {
+  syncLidarMeasureMirror({
+    // The LiDAR panel runs on both 2D engines, and the mirror only needs the
+    // source and event surface both maps share.
+    map: app.getMap?.() ?? app.getMapboxMap?.() ?? null,
+    overlay: lidarControl?.getDeckOverlay() ?? null,
+    control: measureControl,
+  });
+}
+
 async function openStandaloneMeasureControl(app: GeoLibreAppAPI): Promise<boolean> {
   const { MeasureControl: MeasureControlClass } = await getComponentsConstructors();
 
@@ -3321,6 +3352,7 @@ async function openStandaloneMeasureControl(app: GeoLibreAppAPI): Promise<boolea
     );
     makeMeasurePanelResizable(measureControl);
   }
+  refreshLidarMeasureMirror(app);
 
   setTimeout(() => {
     // Guard against a teardown that nulled measureControl between addMapControl
@@ -3644,6 +3676,7 @@ async function openStandaloneLidarControl(
 
   ensureMercatorProjection(app.getMap?.() ?? app.getMapboxMap?.());
   startLidarThemeSync();
+  refreshLidarMeasureMirror(app);
 
   setTimeout(() => {
     if (reveal) {
@@ -4235,6 +4268,8 @@ function createLidarControl(
       lidarControlMounted = false;
       lidarLayerAdapter = null;
     }
+    // The overlay the measure mirror was drawing into is gone with the control.
+    refreshLidarMeasureMirror(app);
   };
   control.on("collapse", () => hideLidarControl(control));
   control.on("load", handleLoad);
@@ -4865,6 +4900,7 @@ function teardownMeasureControl(app: GeoLibreAppAPI): void {
   }
   measureControl = null;
   measureControlMounted = false;
+  refreshLidarMeasureMirror(app);
   setMeasurePanelVisible(false);
 }
 

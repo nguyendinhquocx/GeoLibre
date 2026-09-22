@@ -62,6 +62,7 @@ import {
   subsetUrlToolKind,
 } from "../../lib/subset-tool-url";
 import { buildWhiteboxToolShareUrl, whiteboxToolShareBase } from "../../lib/whitebox-tool-url";
+import { searchWhiteboxTools } from "../../lib/whitebox-tool-search";
 import { fieldSourceInputName, isFieldParameterName } from "../../lib/whitebox-field-params";
 import {
   DISTANCE_UNITS,
@@ -917,23 +918,18 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
 
   const filteredTools = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return tools.filter((tool) => {
-      if (category !== "All" && (tool.category ?? "") !== category) {
-        return false;
-      }
-      if (!matchesSource(tool)) return false;
-      if (!normalizedQuery) return true;
-      return [
+    const inScope = tools.filter(
+      (tool) => (category === "All" || (tool.category ?? "") === category) && matchesSource(tool),
+    );
+    return searchWhiteboxTools(inScope, normalizedQuery, (tool) => ({
+      name: [
         tool.id,
         toolLabel(t, tool),
         tool.category ?? "",
         translateWhiteboxCategory(t, tool.category),
-        tool.summary || "",
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery);
-    });
+      ].join(" "),
+      summary: tool.summary || "",
+    }));
   }, [category, matchesSource, query, t, tools]);
 
   const loadWhitebox = useCallback(async () => {
@@ -2216,7 +2212,14 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
               </Button>
             </div>
             {selectedTool?.summary && (
-              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              // Height-bounded and scrollable, not clamped. Catalog summaries
+              // run from one line to ~2,400 characters (`lee_filter`), and the
+              // long ones rendered 340px tall in a 624px dialog — pushing the
+              // parameter form and the Run button below the fold on the tools
+              // whose parameters most need explaining. Scrolling keeps the full
+              // text, which is the useful half of it, without letting it take
+              // the dialog over.
+              <p className="mt-2 max-h-24 max-w-3xl overflow-y-auto text-sm text-muted-foreground">
                 {translateToolDescription(t, "whitebox", {
                   id: selectedTool.id,
                   name: toolLabel(t, selectedTool),
