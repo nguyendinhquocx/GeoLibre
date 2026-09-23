@@ -1,5 +1,6 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
+import { rowsFromResult } from "./arrow-decimal";
 import { isGeographicCrs } from "./crs-utils";
 import {
   detectGeometryColumn,
@@ -51,11 +52,6 @@ const EXPORT_GEOPARQUET_EXTENSION = "parquet";
 const FEATURE_COUNT_COLUMN = "__geolibre_feature_count";
 
 let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
-
-interface DuckDbRow {
-  toJSON?: () => Record<string, unknown>;
-  [key: string]: unknown;
-}
 
 export interface DuckDbVectorFile {
   name: string;
@@ -352,11 +348,12 @@ function exportBaseName(): string {
   return `__geolibre_export_${Date.now()}_${suffix}`;
 }
 
-export function rowsFromResult(result: { toArray: () => DuckDbRow[] }) {
-  return result
-    .toArray()
-    .map((row) => (typeof row.toJSON === "function" ? row.toJSON() : { ...row }));
-}
+/**
+ * Read a DuckDB-WASM Arrow result into plain row objects keyed by column name.
+ * Lives in `arrow-decimal.ts` (re-exported here) so it can be tested without
+ * loading DuckDB-WASM.
+ */
+export { rowsFromResult };
 
 function isParquetExtension(extension: string): boolean {
   return extension === "parquet" || extension === "geoparquet";

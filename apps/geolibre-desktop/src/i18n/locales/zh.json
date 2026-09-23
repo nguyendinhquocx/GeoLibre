@@ -961,6 +961,9 @@
       "errorUrl": "请输入有效的 HTTP 或 HTTPS PMTiles 地址。",
       "errorMlt": "ArcGIS 需要 MVT 矢量瓦片，不支持 MLT。"
     },
+    "lidar": {
+      "errorUrl": "请输入有效的 HTTP 或 HTTPS LiDAR 地址。"
+    },
     "zarr": {
       "errorUrl": "请输入有效的 HTTP 或 HTTPS Zarr 地址。",
       "errorColorLimits": "颜色上限必须大于下限。"
@@ -2329,6 +2332,7 @@
       },
       "earthquakes": "地震",
       "spaceMissions": "太空任务（30 天）",
+      "activeFires": "活跃火点（24 小时）",
       "satellites": "卫星",
       "flights": "实时航班",
       "militaryFlights": "军用航班",
@@ -4622,6 +4626,10 @@
       "errorStartSidecar": "无法启动 GeoLibre sidecar。",
       "errorStopSidecar": "无法停止 GeoLibre sidecar。",
       "noToolsFound": "未找到工具。",
+      "searchToolsByMeaning": "搜索工具或描述任务",
+      "searchingByMeaning": "正在按语义搜索工具目录",
+      "bestMatches": "最佳匹配",
+      "otherMatches": "其他匹配",
       "noParameters": "此工具没有参数。",
       "noOutput": "暂无输出。",
       "enabled": "启用",
@@ -7316,6 +7324,8 @@
     "renameGroup": "重命名分组",
     "moveGroupUp": "上移分组",
     "moveGroupDown": "下移分组",
+    "sortGroupAscending": "按 A 到 Z 排序",
+    "sortGroupDescending": "按 Z 到 A 排序",
     "ungroupKeepLayers": "取消分组（保留图层）",
     "deleteGroupAndLayers": "删除分组及图层",
     "groupActions": "分组操作",

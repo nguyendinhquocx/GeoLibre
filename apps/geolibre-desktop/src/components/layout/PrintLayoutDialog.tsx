@@ -119,6 +119,8 @@ import {
   type AtlasTokenContext,
 } from "../../lib/print-atlas";
 import { clearAtlasFeatureMask, showAtlasFeatureMask } from "../../lib/print-atlas-mask";
+import { engineStyleMap } from "../../lib/engine-style-map";
+import { useMapCapabilities } from "../../hooks/useMapCapabilities";
 import { clamp } from "../../lib/clamp";
 
 interface PrintLayoutDialogProps {
@@ -357,7 +359,10 @@ export function PrintLayoutDialog({
   // Atlas / map series: one page per coverage-layer feature (GH #1291).
   const renderer = useAppStore((state) => state.primaryRenderer);
   const [atlasEnabledSetting, setAtlasEnabled] = useState(initialLayout.atlasEnabled);
-  const atlasEnabled = atlasEnabledSetting && renderer === "maplibre";
+  // Atlas drives the live 2D camera (fitBounds with padding, idle, the
+  // coverage mask), which every Style Spec engine shares; the globes have none.
+  const atlasRendererSupported = useMapCapabilities(mapControllerRef).styleSpec;
+  const atlasEnabled = atlasEnabledSetting && atlasRendererSupported;
   const [atlasLayerId, setAtlasLayerId] = useState(initialLayout.atlasLayerId);
   // Coverage strategy: one page per feature, or pages tiling the layer's line
   // features in fixed-length stretches (GH #1291 follow-up).
@@ -721,10 +726,10 @@ export function PrintLayoutDialog({
       captureRequest.current++;
       // Closing for good (not to draw): take the extent box off the map.
       showEnginePreview(null);
-      if (map) {
-        clearPrintExtent(map);
-        clearAtlasFeatureMask(map);
-      }
+      if (map) clearPrintExtent(map);
+      // The atlas mask is drawn on either 2D engine; see captureAtlasPage.
+      const styleMap = engineStyleMap(mapControllerRef.current);
+      if (styleMap) clearAtlasFeatureMask(styleMap);
     }
     wasOpenRef.current = open;
   }, [open, recapture, mapControllerRef, extentBbox, showEnginePreview]);
@@ -747,6 +752,8 @@ export function PrintLayoutDialog({
       }
       enginePreviewRef.current?.();
       enginePreviewRef.current = null;
+      // An atlas capture still in flight must not bring the preview back.
+      wasOpenRef.current = false;
       const map = mapControllerRef.current?.getMap();
       if (map) {
         if (idleRecaptureRef.current) {
@@ -754,8 +761,9 @@ export function PrintLayoutDialog({
           idleRecaptureRef.current = null;
         }
         clearPrintExtent(map);
-        clearAtlasFeatureMask(map);
       }
+      const styleMap = engineStyleMap(mapControllerRef.current);
+      if (styleMap) clearAtlasFeatureMask(styleMap);
     },
     [mapControllerRef],
   );
@@ -1177,7 +1185,7 @@ export function PrintLayoutDialog({
   // camera drive that may never happen.
   useEffect(() => {
     if (open && atlasActive && atlasMaskEnabled && atlasMaskAvailable) return;
-    const map = mapControllerRef.current?.getMap();
+    const map = engineStyleMap(mapControllerRef.current);
     if (map) clearAtlasFeatureMask(map);
   }, [open, atlasActive, atlasMaskEnabled, atlasMaskAvailable, mapControllerRef]);
   const atlasFilterValid = atlasFilterPredicate !== null;
@@ -1489,8 +1497,11 @@ export function PrintLayoutDialog({
       viewBounds: AtlasBounds;
       mapFit: "cover" | "contain";
     }> => {
-      const map = mapControllerRef.current?.getMap();
-      if (!map) throw new Error("Map is not ready");
+      // Atlas drives the live camera, so it runs on either 2D engine through
+      // the surface MapLibre and mapbox-gl share (see engineStyleMap).
+      const engine = mapControllerRef.current;
+      const map = engineStyleMap(engine);
+      if (!engine || !map) throw new Error("Map is not ready");
       const ctx: AtlasTokenContext = {
         name: page.name,
         pageNumber: page.index + 1,
@@ -1505,7 +1516,15 @@ export function PrintLayoutDialog({
       };
       const containMap = Boolean(map.getLayer(GRATICULE_LABEL_LAYER_ID));
       const canvas = map.getCanvas();
-      const mapPixelRatio = map.getPixelRatio();
+      // mapbox-gl has no getPixelRatio; the canvas carries the same ratio.
+      // An unlaid-out canvas (clientWidth 0) has no ratio to read, so fall
+      // back to the device's.
+      const mapPixelRatio =
+        typeof map.getPixelRatio === "function"
+          ? map.getPixelRatio()
+          : canvas.clientWidth > 0
+            ? canvas.width / canvas.clientWidth
+            : window.devicePixelRatio || 1;
       const cssPixelRatio = Number.isFinite(mapPixelRatio) && mapPixelRatio > 0 ? mapPixelRatio : 1;
       const viewportWidth = canvas.clientWidth || canvas.width / cssPixelRatio;
       const viewportHeight = canvas.clientHeight || canvas.height / cssPixelRatio;
@@ -1519,6 +1538,7 @@ export function PrintLayoutDialog({
           map,
           coverageFeature,
           containMap ? GRATICULE_LABEL_LAYER_ID : undefined,
+          { mapbox: engine.kind === "mapbox" },
         );
       } else {
         clearAtlasFeatureMask(map);
@@ -1539,15 +1559,31 @@ export function PrintLayoutDialog({
       setMapFit(atlasMapFit);
       // Hide the drawn print-extent box while reading the buffer, as recapture
       // does, so its outline is never baked into a page.
-      const capture = () => {
-        setPrintExtentVisible(map, false);
+      const nativeMap = engine.getMap();
+      const capture = async () => {
+        if (!nativeMap) {
+          // Another engine draws the box as its own preview; capture through
+          // the engine, as recapture does there.
+          showEnginePreview(null);
+          try {
+            return await captureEngineMapImage(engine, null);
+          } finally {
+            // The drawn box stays on the map as a reference in either capture
+            // mode, as the MapLibre branch and recapture restore it, but only
+            // on this dialog's engine: a capture that outlived a close or a
+            // renderer change must not draw on whatever replaced it.
+            if (wasOpenRef.current && mapControllerRef.current === engine)
+              showEnginePreview(extentBbox);
+          }
+        }
+        setPrintExtentVisible(nativeMap, false);
         try {
-          return captureMapImage(map, null);
+          return captureMapImage(nativeMap, null);
         } finally {
-          setPrintExtentVisible(map, true);
+          setPrintExtentVisible(nativeMap, true);
         }
       };
-      let cap = capture();
+      let cap = await capture();
       if (atlasExtentMode === "scale") {
         const target = Number(atlasScale);
         // Measure against the page's substituted text, not the raw templates:
@@ -1575,7 +1611,7 @@ export function PrintLayoutDialog({
           if (Math.abs(clamped - map.getZoom()) > 1e-3) {
             map.setZoom(clamped);
             await waitForAtlasSettle(map);
-            cap = capture();
+            cap = await capture();
           }
         }
       } else {
@@ -1604,6 +1640,8 @@ export function PrintLayoutDialog({
     },
     [
       mapControllerRef,
+      extentBbox,
+      showEnginePreview,
       atlasExtentMode,
       atlasFitMarginPct,
       atlasScale,
@@ -2451,7 +2489,7 @@ export function PrintLayoutDialog({
                 id="atlas-enabled"
                 label={t("printLayout.atlas.enable")}
                 checked={atlasEnabled}
-                disabled={atlasBusy || renderer !== "maplibre"}
+                disabled={atlasBusy || !atlasRendererSupported}
                 onChange={(next) => {
                   setAtlasEnabled(next);
                   // Start the series from its first page on (re-)enable.

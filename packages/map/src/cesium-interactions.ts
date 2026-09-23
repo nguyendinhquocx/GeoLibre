@@ -1,4 +1,5 @@
 import {
+  effectiveLayerRenderState,
   IDENTIFY_ALL_LAYERS_ID,
   isPopupClickEnabled,
   isPopupHoverEnabled,
@@ -19,8 +20,12 @@ export function installCesiumInteractions(
   const handler = new C.ScreenSpaceEventHandler(viewer.canvas);
   const host = viewer.canvas.parentElement!;
   let popup: HTMLElement | null = null;
+  // Layers whose features the open click popup shows, so hiding one closes it.
+  let popupLayerIds: string[] = [];
   let popupResizeObserver: ResizeObserver | null = null;
   let hover: HTMLElement | null = null;
+  // Layer the hover tooltip shows, so hiding it clears the tooltip too.
+  let hoverLayerId: string | null = null;
   let pending: Cartesian2 | null = null;
   // Where the cursor last rested over the canvas. Outlives `pending`, which a
   // camera move clears, so the readout can be restored once the move settles.
@@ -45,12 +50,14 @@ export function installCesiumInteractions(
     pending = null;
     hover?.remove();
     hover = null;
+    hoverLayerId = null;
   };
   const clearPopup = () => {
     popupResizeObserver?.disconnect();
     popupResizeObserver = null;
     popup?.remove();
     popup = null;
+    popupLayerIds = [];
   };
   const place = (
     content: HTMLElement,
@@ -149,7 +156,9 @@ export function installCesiumInteractions(
       const state = publishPointer(point);
       hover?.remove();
       hover = null;
+      hoverLayerId = null;
       if (!point || moving || state.identifyLayerId) return;
+      if (!state.layers.some((layer) => isPopupHoverEnabled(layer.popup))) return;
       for (const hit of engine.identifyAtScreen(point)) {
         const layer = state.layers.find((item) => item.id === hit.layerId);
         if (!layer || !isPopupHoverEnabled(layer.popup)) continue;
@@ -161,7 +170,10 @@ export function installCesiumInteractions(
             : null,
           zoom: engine.readView().zoom,
         });
-        if (content) hover = place(content, point, true);
+        if (content) {
+          hover = place(content, point, true);
+          hoverLayerId = layer.id;
+        }
         break;
       }
     });
@@ -186,6 +198,7 @@ export function installCesiumInteractions(
       if (!layer || !isPopupClickEnabled(layer.popup)) continue;
       const configured = resolvePopupMaxWidth(layer.popup);
       if (configured !== undefined) widest = Math.max(widest ?? configured, configured);
+      popupLayerIds.push(layer.id);
       content.append(
         createIdentifyPopupElement(layer.name, hit.properties, hit.featureId ?? undefined, {
           popup: layer.popup,
@@ -206,6 +219,8 @@ export function installCesiumInteractions(
     if (content.childElementCount) popup = place(content, event.position, false, widest);
     else state.selectFeature(null);
   }, C.ScreenSpaceEventType.LEFT_CLICK);
+  // Highlight only: CesiumCanvas owns the zoom-to-selection fit, including
+  // suppressing it when an Identify restore reselects a feature.
   const selection = () => {
     const state = useAppStore.getState();
     engine.highlightFeature(
@@ -213,6 +228,12 @@ export function installCesiumInteractions(
       state.selectedFeatureIds.length ? state.selectedFeatureIds : state.selectedFeatureId,
     );
   };
+  const layerHidden = (state: ReturnType<typeof useAppStore.getState>, id: string) => {
+    const layer = state.layers.find((item) => item.id === id);
+    return !layer || !effectiveLayerRenderState(layer, state.layerGroups).visible;
+  };
+  const popupLayerHidden = (state: ReturnType<typeof useAppStore.getState>) =>
+    popupLayerIds.some((id) => layerHidden(state, id));
   const unsubscribe = useAppStore.subscribe((state, prev) => {
     if (state.preferences.map.showPointerElevation !== prev.preferences.map.showPointerElevation) {
       state.setPointerElevation(
@@ -229,11 +250,21 @@ export function installCesiumInteractions(
       selection();
     if (
       state.identifyLayerId !== prev.identifyLayerId ||
-      state.layers !== prev.layers ||
-      state.layerGroups !== prev.layerGroups
+      ((state.layers !== prev.layers || state.layerGroups !== prev.layerGroups) &&
+        popupLayerHidden(state)) ||
+      (state.layers !== prev.layers &&
+        state.identifyLayerId &&
+        state.identifyLayerId !== IDENTIFY_ALL_LAYERS_ID &&
+        !state.layers.some((layer) => layer.id === state.identifyLayerId))
     ) {
       clearHover();
       clearPopup();
+    } else if (
+      hoverLayerId &&
+      (state.layers !== prev.layers || state.layerGroups !== prev.layerGroups) &&
+      layerHidden(state, hoverLayerId)
+    ) {
+      clearHover();
     }
     if (state.identifyLayerId !== prev.identifyLayerId) {
       setIdentifyCursor(Boolean(state.identifyLayerId));

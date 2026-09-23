@@ -961,6 +961,9 @@
       "errorUrl": "โปรดป้อน URL ของ PMTiles แบบ HTTP หรือ HTTPS ที่ถูกต้อง",
       "errorMlt": "ArcGIS ต้องใช้ไทล์เวกเตอร์ MVT ไม่ใช่ MLT"
     },
+    "lidar": {
+      "errorUrl": "โปรดป้อน URL ของ LiDAR แบบ HTTP หรือ HTTPS ที่ถูกต้อง"
+    },
     "zarr": {
       "errorUrl": "โปรดป้อน URL ของ Zarr แบบ HTTP หรือ HTTPS ที่ถูกต้อง",
       "errorColorLimits": "ค่าสีสูงสุดต้องมากกว่าค่าสีต่ำสุด"
@@ -2329,6 +2332,7 @@
       },
       "earthquakes": "แผ่นดินไหว",
       "spaceMissions": "ภารกิจอวกาศ (30 วัน)",
+      "activeFires": "ไฟป่าที่กำลังลุกไหม้ (24 ชม.)",
       "satellites": "ดาวเทียม",
       "flights": "เที่ยวบินสด",
       "militaryFlights": "เที่ยวบินทหาร",
@@ -4622,6 +4626,10 @@
       "errorStartSidecar": "ไม่สามารถเริ่ม GeoLibre sidecar ได้",
       "errorStopSidecar": "ไม่สามารถหยุด GeoLibre sidecar ได้",
       "noToolsFound": "ไม่พบเครื่องมือ",
+      "searchToolsByMeaning": "ค้นหาเครื่องมือหรืออธิบายงาน",
+      "searchingByMeaning": "กำลังค้นหาแค็ตตาล็อกตามความหมาย",
+      "bestMatches": "ผลลัพธ์ที่ตรงที่สุด",
+      "otherMatches": "ผลลัพธ์อื่น ๆ",
       "noParameters": "เครื่องมือนี้ไม่มีพารามิเตอร์",
       "noOutput": "ยังไม่มีผลลัพธ์",
       "enabled": "เปิดใช้งาน",
@@ -7316,6 +7324,8 @@
     "renameGroup": "เปลี่ยนชื่อกลุ่ม",
     "moveGroupUp": "เลื่อนกลุ่มขึ้น",
     "moveGroupDown": "เลื่อนกลุ่มลง",
+    "sortGroupAscending": "เรียงจาก A ถึง Z",
+    "sortGroupDescending": "เรียงจาก Z ถึง A",
     "ungroupKeepLayers": "ยกเลิกการจัดกลุ่ม (คงเลเยอร์ไว้)",
     "deleteGroupAndLayers": "ลบกลุ่มและเลเยอร์",
     "groupActions": "การดำเนินการกับกลุ่ม",

@@ -1066,6 +1066,9 @@
       "errorUrl": "أدخل عنوان URL صالحًا لـ PMTiles عبر HTTP أو HTTPS.",
       "errorMlt": "يتطلب ArcGIS بلاطات متجهة بتنسيق MVT وليس MLT."
     },
+    "lidar": {
+      "errorUrl": "أدخل عنوان URL صالحًا لـ LiDAR عبر HTTP أو HTTPS."
+    },
     "zarr": {
       "errorUrl": "أدخل عنوان URL صالحًا لـ Zarr عبر HTTP أو HTTPS.",
       "errorColorLimits": "يجب أن يكون الحد الأقصى للألوان أكبر من الحد الأدنى."
@@ -2568,6 +2571,7 @@
       },
       "earthquakes": "الزلازل",
       "spaceMissions": "المهام الفضائية (30 يومًا)",
+      "activeFires": "الحرائق النشطة (24 ساعة)",
       "satellites": "الأقمار الصناعية",
       "flights": "الرحلات المباشرة",
       "militaryFlights": "الرحلات العسكرية",
@@ -4986,6 +4990,10 @@
       "errorStartSidecar": "تعذّر تشغيل الخدمة المساعدة لـ GeoLibre.",
       "errorStopSidecar": "تعذّر إيقاف الخدمة المساعدة لـ GeoLibre.",
       "noToolsFound": "لم يُعثر على أدوات.",
+      "searchToolsByMeaning": "البحث في الأدوات أو وصف مهمة",
+      "searchingByMeaning": "جارٍ البحث في الفهرس حسب المعنى",
+      "bestMatches": "أفضل النتائج",
+      "otherMatches": "نتائج أخرى",
       "noParameters": "لا تحتوي هذه الأداة على معاملات.",
       "noOutput": "لا يوجد ناتج بعد.",
       "enabled": "مُفعّل",
@@ -7720,6 +7728,8 @@
     "renameGroup": "إعادة تسمية المجموعة",
     "moveGroupUp": "نقل المجموعة لأعلى",
     "moveGroupDown": "نقل المجموعة لأسفل",
+    "sortGroupAscending": "فرز من أ إلى ي",
+    "sortGroupDescending": "فرز من ي إلى أ",
     "ungroupKeepLayers": "فك التجميع (الاحتفاظ بالطبقات)",
     "deleteGroupAndLayers": "حذف المجموعة والطبقات",
     "groupActions": "إجراءات المجموعة",

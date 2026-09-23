@@ -11,7 +11,7 @@ implementation or storage engine. The reference implementation lives in
   (or `VITE_GEOLIBRE_SHARE_URL` at build time).
 - JSON request and response bodies use `application/json` and camel-case keys.
 - Dates are UTC ISO 8601 strings.
-- Authenticated endpoints accept a personal API token in
+- Authenticated endpoints accept a personal API token or OAuth access token in
   `Authorization: Bearer <token>`.
 - Error responses are JSON objects with an `error` string. `401` means a
   missing, invalid, or expired token; `403` means the authenticated principal
@@ -26,25 +26,52 @@ implementation or storage engine. The reference implementation lives in
 
 ## What the reference server leaves to the operator
 
-Three parts of the contract above are deliberately not implemented in
-`backend/geolibre_server_api`, and an operator exposing it publicly has to
-supply them:
+Deployment protections remain the operator's responsibility:
 
-- **Rate limiting.** `429` is in the error vocabulary, but no route returns it.
-  `POST /api/auth/token` and `POST /api/accounts` are unauthenticated and run
-  scrypt on every call, so without a limiter in front they allow password
-  brute-forcing, username enumeration through the `409`/`401` distinction, and
-  a cheap CPU-burn. Put a reverse proxy or WAF limit on both, keyed by client IP
-  and by username.
-- **Token expiry.** `401` covers an expired token, but tokens issued here do not
-  carry an expiry and stay valid until `DELETE /api/auth/token` revokes them.
+- **Personal-token lifecycle.** Omitting `expiresInDays` preserves the v1
+  delete-only lifecycle and creates a non-expiring token. Require an explicit
+  1–365 day lifetime where bounded credentials are needed, and revoke or rotate
+  delete-only and legacy tokens operationally.
+- **Rate limiting.** The OAuth consent flow caps pending interactions per
+  browser binding, but a fresh cookie bypasses that cap; the reference server
+  has no general request limiter. Before enabling OAuth publicly, enforce
+  per-client-IP limits at the ingress on **GET and POST** `/oauth/authorize`,
+  `POST /oauth/token`, `POST /api/auth/token`, and `POST /api/accounts`.
+  The last three POSTs include password or token operations; consent login
+  and the PAT/account routes run scrypt. Add per-username limits where the
+  ingress can safely parse credentials. Every public path to the API must go
+  through this limiter: Compose binds the API host port to loopback by default.
+  A root-issuer nginx deployment can put this zone in its `http` context and
+  the location in its TLS issuer `server` context:
+
+  ```nginx
+  # http context
+  limit_req_zone $binary_remote_addr zone=geolibre_auth:10m rate=12r/m;
+
+  # TLS issuer server context; proxy other API routes separately.
+  location ~ ^/(oauth/(authorize|token)|api/(auth/token|accounts))$ {
+      limit_req zone=geolibre_auth burst=6 nodelay;
+      limit_req_status 429;
+      client_max_body_size 16k;
+      access_log off;
+      proxy_pass http://127.0.0.1:8000;
+      proxy_set_header Host $http_host;
+  }
+  ```
+
+  Preserve the original Host authority, including any port, or OAuth host
+  binding rejects the request. Route the issuer's exact discovery URL and
+  other API paths to the same backend; for a path-prefixed issuer, apply the
+  limit to its externally visible prefix and strip that prefix when proxying.
+  Suppress authorization request query strings, callback `Location` headers,
+  and callback request query strings at the web ingress in proxy, WAF, and
+  load-balancer logs.
 - **A request-size limit.** The server rejects an oversized *declared*
   `Content-Length` before reading the body, but a chunked or HTTP/2 request
   declares no length and is parsed in full before the per-route limit applies.
   Cap request size at the proxy as well.
 
-All three are contract-level capabilities a compatible server may implement;
-the reference implementation is a correctness baseline, not a hardened
+The reference implementation is a correctness baseline, not a hardened
 deployment.
 
 ## Limits
@@ -78,13 +105,22 @@ not a capability URL for a private project.
 
 ### `POST /api/accounts`
 
-Creates an account and returns a token once. This endpoint may be disabled when
-an installation delegates identity to an external provider.
+Creates an account and returns a personal API token once. This endpoint may be
+disabled when an installation delegates identity to an external provider.
+`name`, `scopes`, and `expiresInDays` are optional. New tokens default to all
+three project scopes. Omitting `expiresInDays` preserves the v1 delete-only
+token lifecycle (the token does not expire); the accepted explicit lifetime is
+1–365 days. An unknown or empty `scopes` list returns `400`
+`{"error": "invalid_scope"}`; an `expiresInDays` outside 1–365 returns `400`
+`{"error": "invalid_request"}`.
 
 ```json
 {
   "username": "ada",
-  "password": "correct horse battery staple"
+  "password": "correct horse battery staple",
+  "name": "GeoLibre desktop",
+  "scopes": ["read:projects", "write:projects"],
+  "expiresInDays": 30
 }
 ```
 
@@ -93,20 +129,18 @@ Response `201`:
 ```json
 {
   "account": {"id": "uuid", "username": "ada", "createdAt": "2026-08-03T12:00:00Z"},
-  "token": "secret-token"
+  "token": "secret-token",
+  "tokenId": "uuid",
+  "scopes": ["read:projects", "write:projects"],
+  "expiresAt": "2026-09-02T12:00:00Z"
 }
 ```
 
 ### `POST /api/auth/token`
 
-Exchanges account credentials for a personal API token.
-
-```json
-{"username": "ada", "password": "correct horse battery staple"}
-```
-
-Response `200` has the same shape as account creation. Tokens are opaque and
-must be stored hashed by the server.
+Exchanges account credentials for a personal API token. It accepts the same
+optional policy fields and returns the same shape as account creation. Tokens
+are opaque and stored only as SHA-256 digests.
 
 ### `DELETE /api/auth/token`
 
@@ -114,10 +148,15 @@ Revokes the presented Bearer token. Response: `204`.
 
 ### `GET /api/users/me`
 
-Returns the account associated with the token:
+Returns the account, effective project scopes, and OAuth session ID. `sessionId`
+is `null` for personal tokens.
 
 ```json
-{"user": {"id": "uuid", "username": "ada", "createdAt": "2026-08-03T12:00:00Z"}}
+{
+  "user": {"id": "uuid", "username": "ada", "createdAt": "2026-08-03T12:00:00Z"},
+  "sessionId": "oauth-session-uuid",
+  "scopes": ["read:projects", "write:projects", "share:public"]
+}
 ```
 
 An identity provider may create accounts without a username. Project creation
@@ -291,6 +330,118 @@ must not count failed or unauthorized reads.
 `PUT /api/projects/{id}/thumbnail` requires ownership and accepts the image
 bytes with their image content type. `GET /api/projects/{id}/thumbnail` follows
 project visibility. `DELETE` removes it. Upload and delete responses are `204`.
+
+## Personal token scopes
+
+| Scope | Grants |
+| --- | --- |
+| `read:projects` | List and open the caller's own projects, including unlisted/private projects |
+| `write:projects` | Create, update, delete, and fork projects owned by the caller |
+| `share:public` | Create a public project or raise a project's visibility to public |
+
+New personal tokens require a nonempty subset of these scopes. Omitting
+`scopes` preserves the historical project permissions for existing clients.
+Omitting `expiresInDays` keeps the token valid until revoked (the v1
+delete-only lifecycle); set `expiresInDays` to 1–365 to mint an expiring token.
+Tokens that predate the policy table are upgraded on first use with all three
+project scopes, no expiry, and a legacy marker.
+
+A valid credential missing a required scope receives `403` with
+`{"error": "insufficient_scope", "requiredScope": "<scope>"}` and
+`WWW-Authenticate: Bearer error="insufficient_scope"`. Missing credentials use
+the `Bearer` challenge; malformed, unknown, revoked, and expired credentials use
+`Bearer error="invalid_token"`.
+
+## OAuth 2.0 sign-in (Authorization Code + S256 PKCE)
+
+The reference server implements Authorization Code with PKCE (`S256` only) for
+public clients; no client secret is accepted. Registrations are exact and
+startup-validated through `GEOLIBRE_OAUTH_CLIENTS`. The only supported client
+IDs are `geolibre-web` and `geolibre-desktop`. Empty or unset configuration
+disables every OAuth route without changing personal-token startup behavior.
+
+The issuer is `GEOLIBRE_PUBLIC_URL`. When OAuth is enabled it must be an
+absolute HTTPS URL. Loopback HTTP is allowed only for `localhost` or
+`127.0.0.1` with an explicit port. The request `Host` header, including its
+port, must match the issuer authority.
+
+### Discovery
+
+`GET /.well-known/oauth-authorization-server` returns RFC 8414 metadata. For an
+issuer with path `/services/projects`, the route is
+`/.well-known/oauth-authorization-server/services/projects`. The document
+advertises the authorization, token, and revocation endpoints; authorization
+code and refresh grants; `S256`; and the three project scopes.
+
+### Authorization and consent
+
+`GET /oauth/authorize` accepts one value each for `response_type=code`,
+`client_id`, exact `redirect_uri`, nonempty `scope`, `state`, `code_challenge`,
+and `code_challenge_method=S256`; `device_label` is optional. State is 16–512
+URL-safe characters. The S256 challenge is the 43-character unpadded base64url
+SHA-256 value.
+
+Duplicate authorization parameters, unknown clients, unregistered redirects,
+and state values longer than 512 characters return a local error page without
+a `Location` header. Other authorization errors redirect to the already
+validated callback with `error`, `iss`, and the exact `state` value when supplied.
+
+`POST /oauth/authorize` submits the server-owned consent form. It requires the
+browser-binding cookie, CSRF value, same-origin `Origin` or `Referer`, and
+account credentials. Approval returns `303` to the exact callback with a
+single-use code, `state`, and `iss`; cancellation returns `access_denied`.
+Authorization codes expire after 60 seconds by default.
+
+Web redirects must be absolute HTTPS URLs ending in `/oauth-callback.html`.
+Explicit-port loopback HTTP is allowed for development. Desktop redirects must
+be exactly `org.geolibre.desktop:/oauth/callback`.
+
+### Token exchange and rotation
+
+`POST /oauth/token` accepts form-urlencoded bodies up to 16 KiB:
+
+- `grant_type=authorization_code` requires `client_id`, `code`,
+  `redirect_uri`, and a 43–128 character `code_verifier`.
+- `grant_type=refresh_token` requires `client_id` and `refresh_token`.
+  Optional `scope` must be the same scope set as the original grant; ordering
+  does not matter.
+
+Success returns:
+
+```json
+{
+  "access_token": "opaque",
+  "token_type": "Bearer",
+  "expires_in": 600,
+  "refresh_token": "opaque",
+  "scope": "read:projects write:projects"
+}
+```
+
+Access tokens expire after 600 seconds by default and never outlive their
+family. Refresh tokens are single-use and rotate on every use. Reusing a
+consumed refresh token revokes the entire family, including tokens minted by
+the successful rotation. A family expires at issuance plus the configured
+refresh TTL (30 days by default); rotation never extends it.
+
+An enabled server deletes bounded batches of expired interactions, access
+tokens, and families at startup, during OAuth requests, and every five minutes
+while running. Consumed refresh generations stay until the family expires so
+replay detection remains effective.
+
+`POST /oauth/revoke` accepts `client_id`, `token`, and optional advisory
+`token_type_hint`. A matching access or refresh token revokes its entire
+family. Unknown, already-revoked, and wrong-client tokens all return the same
+empty `200`.
+
+OAuth failures use `invalid_request`, `invalid_client`, `invalid_grant`,
+`invalid_scope`, `unsupported_grant_type`, or `unsupported_token_type`. Token
+and revocation responses are `no-store`. Raw codes and tokens are returned once;
+the database stores only SHA-256 digests.
+
+OAuth access tokens use the same project scope matrix as personal tokens.
+`admin:org` and `manage:sessions` are reserved for later stacks and are rejected
+by this server.
 
 ## Compatibility
 

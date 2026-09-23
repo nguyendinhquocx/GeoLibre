@@ -961,6 +961,9 @@
       "errorUrl": "Masukkan URL PMTiles HTTP atau HTTPS yang valid.",
       "errorMlt": "ArcGIS memerlukan ubin vektor MVT, bukan MLT."
     },
+    "lidar": {
+      "errorUrl": "Masukkan URL LiDAR HTTP atau HTTPS yang valid."
+    },
     "zarr": {
       "errorUrl": "Masukkan URL Zarr HTTP atau HTTPS yang valid.",
       "errorColorLimits": "Batas warna maksimum harus lebih besar dari minimum."
@@ -2329,6 +2332,7 @@
       },
       "earthquakes": "Gempa bumi",
       "spaceMissions": "Misi Antariksa (30 hari)",
+      "activeFires": "Kebakaran Aktif (24 jam)",
       "satellites": "Satelit",
       "flights": "Penerbangan Langsung",
       "militaryFlights": "Penerbangan Militer",
@@ -4622,6 +4626,10 @@
       "errorStartSidecar": "Tidak dapat menjalankan sidecar GeoLibre.",
       "errorStopSidecar": "Tidak dapat menghentikan sidecar GeoLibre.",
       "noToolsFound": "Tidak ada alat yang ditemukan.",
+      "searchToolsByMeaning": "Cari alat atau jelaskan tugas",
+      "searchingByMeaning": "Mencari katalog berdasarkan makna",
+      "bestMatches": "Kecocokan terbaik",
+      "otherMatches": "Kecocokan lainnya",
       "noParameters": "Alat ini tidak memiliki parameter.",
       "noOutput": "Belum ada keluaran.",
       "enabled": "Aktif",
@@ -7316,6 +7324,8 @@
     "renameGroup": "Ganti nama grup",
     "moveGroupUp": "Pindahkan grup ke atas",
     "moveGroupDown": "Pindahkan grup ke bawah",
+    "sortGroupAscending": "Urutkan A ke Z",
+    "sortGroupDescending": "Urutkan Z ke A",
     "ungroupKeepLayers": "Bubarkan grup (pertahankan layer)",
     "deleteGroupAndLayers": "Hapus grup dan layer",
     "groupActions": "Aksi grup",

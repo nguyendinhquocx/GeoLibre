@@ -139,6 +139,7 @@ import { useRasterIdentify } from "../../hooks/useRasterIdentify";
 import { useGlobalRasterIdentify } from "../../hooks/useGlobalRasterIdentify";
 import { useNetcdfIdentify } from "../../hooks/useNetcdfIdentify";
 import { useTerrainRestore } from "../../hooks/useTerrainRestore";
+import { useScriptControlRestore } from "../../hooks/useScriptControlRestore";
 import { useCogSpectralIdentify } from "../../hooks/useCogSpectralIdentify";
 import { useRasterViewportStretch } from "../../hooks/useRasterViewportStretch";
 import {
@@ -594,6 +595,16 @@ export function DesktopShell({
       loading: t("map.identifyAll.loading"),
       errorLabel: t("map.identifyAll.errorLabel"),
       error: t("map.identifyAll.error"),
+      noData: t("map.identifyAll.noData"),
+      pixelReadFailed: t("map.identifyAll.pixelReadFailed"),
+      wmsFailed: t("map.identifyAll.wmsFailed"),
+      photo: {
+        photo: t("map.identifyAll.photo"),
+        noPreview: t("map.identifyAll.photoNoPreview"),
+        viewFullResolution: t("map.identifyAll.photoViewFullResolution"),
+        viewFullscreen: t("map.identifyAll.photoViewFullscreen"),
+        close: t("map.identifyAll.photoClose"),
+      },
     }),
     [t],
   );
@@ -981,6 +992,7 @@ export function DesktopShell({
   useCogSpectralIdentify(mapControllerRef, mapReadyGeneration);
   useRasterViewportStretch(mapControllerRef, mapReadyGeneration);
   useTerrainRestore(mapControllerRef, mapReadyGeneration, projectGeneration);
+  useScriptControlRestore(mapControllerRef, mapReadyGeneration, projectGeneration);
   const [layerPanelWidth, setLayerPanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelWidth, setStylePanelWidth] = useState(initialSidePanelWidth);
   const [stylePanelOpenRequest, setStylePanelOpenRequest] = useState(0);
@@ -1264,6 +1276,68 @@ export function DesktopShell({
     return () => setNonTiledRasterHandler(null);
   }, [t]);
 
+  // A renderer swap restores the plugins from the store's projectPlugins, which
+  // is only refreshed when a plugin is toggled or moved, so it would roll every
+  // plugin back to how it was then (a Time Slider stack added since came back
+  // empty). Refresh it the moment the renderer changes: this store subscriber
+  // runs synchronously inside setPrimaryRenderer, before React unmounts the old
+  // map, so every plugin still reports its live state from a live control.
+  // The project generation whose plugin state has been restored onto a map. A
+  // swap before that restore must not snapshot the manager, which still holds
+  // the previous project's plugins. Likewise the renderer they were restored
+  // onto: a second swap before the new map's restore would read plugins whose
+  // controls are already gone.
+  const restoredPluginGeneration = useRef<number | null>(null);
+  const restoredPluginRenderer = useRef<string | null>(null);
+  // The map engine the plugins were last restored onto.
+  const restoredPluginEngine = useRef<MapEngine | null>(null);
+  useEffect(
+    () =>
+      useAppStore.subscribe((state, previous) => {
+        if (
+          state.primaryRenderer === previous.primaryRenderer ||
+          // A project load brings its own plugin state; never overwrite it.
+          state.projectGeneration !== previous.projectGeneration ||
+          state.projectPlugins !== previous.projectPlugins ||
+          restoredPluginGeneration.current !== state.projectGeneration ||
+          restoredPluginRenderer.current !== previous.primaryRenderer
+        )
+          return;
+        try {
+          const manager = getPluginManager();
+          const stored = state.projectPlugins;
+          const live = manager.getProjectState(stored);
+          // A plugin still registering (an external one loading) is not in
+          // the live snapshot yet; keep what the project stored for it.
+          const registered = new Set(manager.list().map((plugin) => plugin.id));
+          const unregistered = (id: string) => !registered.has(id);
+          const keep = <T,>(record: Record<string, T> | undefined) =>
+            Object.fromEntries(Object.entries(record ?? {}).filter(([id]) => unregistered(id)));
+          const next = {
+            ...live,
+            // Keep every stored activation: a toggle already writes a
+            // deliberate deactivation to the store, so an id still stored but
+            // not live is one that failed to mount (or has not registered)
+            // and should be retried on the new map.
+            activePluginIds: [
+              ...new Set([...live.activePluginIds, ...(stored?.activePluginIds ?? [])]),
+            ],
+            mapControlPositions: {
+              ...keep(stored?.mapControlPositions),
+              ...live.mapControlPositions,
+            },
+            settings: { ...keep(stored?.settings), ...live.settings },
+            manifestUrls: stored?.manifestUrls ?? [],
+          };
+          if (JSON.stringify(next) === JSON.stringify(stored)) return;
+          state.setProjectPlugins(next, false);
+        } catch (error) {
+          console.warn("[GeoLibre] Could not snapshot plugin state for the renderer swap", error);
+        }
+      }),
+    [],
+  );
+
   useEffect(() => {
     // Restoration should run only when a project is loaded (projectGeneration)
     // or the map is reinitialised (mapReadyGeneration), not on every
@@ -1275,7 +1349,12 @@ export function DesktopShell({
     if (!externalPluginsReady || !mapReadyGeneration || !engine) return;
     const appAPI = createAppAPI(mapControllerRef);
     const pluginManager = getPluginManager();
-    pluginManager.restoreProjectState(useAppStore.getState().projectPlugins, appAPI);
+    pluginManager.restoreProjectState(useAppStore.getState().projectPlugins, appAPI, {
+      mapReplaced: restoredPluginEngine.current !== null && restoredPluginEngine.current !== engine,
+    });
+    restoredPluginEngine.current = engine;
+    restoredPluginGeneration.current = projectGeneration;
+    restoredPluginRenderer.current = useAppStore.getState().primaryRenderer;
     // Immediately after the restore, so a project that persisted the geo-editor
     // as active cannot re-arm editing inside a read-only viewer embed.
     enforceViewerPlugins();
@@ -2714,6 +2793,8 @@ export function DesktopShell({
                 <PrimaryMapboxCanvas
                   canUseRemoteElevation={hasElevationConsent}
                   engineRef={mapControllerRef}
+                  identifyAllLabels={identifyAllLabels}
+                  identifyRasterLayerAt={identifyRasterLayerAt}
                   onEngineReady={handleMapControllerReady}
                   onMapDiagnosticEvent={handleMapDiagnosticEvent}
                 />
@@ -2738,20 +2819,6 @@ export function DesktopShell({
                     onMapDiagnosticEvent={handleMapDiagnosticEvent}
                     onControllerReady={handleMapControllerReady}
                   />
-                  <MapModeBanner mapControllerRef={mapControllerRef} />
-                  <PixelTimeSeriesControl mapControllerRef={mapControllerRef} />
-                  <NetcdfSampleMarkers
-                    mapControllerRef={mapControllerRef}
-                    mapReadyGeneration={mapReadyGeneration}
-                  />
-                  {/* Its own boundary: the cube window builds a `WebGLRenderer`,
-                  whose constructor throws outright when the browser or driver
-                  gives it no context. Sharing the map's boundary would turn a
-                  failure to draw one panel into the loss of the whole map. */}
-                  <SilentErrorBoundary label="NetCDF 3D cube">
-                    <NetcdfCubeWindow mapControllerRef={mapControllerRef} />
-                  </SilentErrorBoundary>
-                  <NetcdfCubeSetupDialog mapControllerRef={mapControllerRef} />
                   <Suspense fallback={null}>
                     <ObjectDetectionDialog mapControllerRef={mapControllerRef} />
                   </Suspense>
@@ -2762,6 +2829,23 @@ export function DesktopShell({
               )}
               {/* Renderer-neutral: these use the store or `MapEngine`, so they
                   stay available on every renderer. */}
+              <MapModeBanner mapControllerRef={mapControllerRef} />
+              <PixelTimeSeriesControl
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
+              <NetcdfSampleMarkers
+                mapControllerRef={mapControllerRef}
+                mapReadyGeneration={mapReadyGeneration}
+              />
+              {/* Its own boundary: the cube window builds a `WebGLRenderer`,
+                  whose constructor throws outright when the browser or driver
+                  gives it no context. Sharing the map's boundary would turn a
+                  failure to draw one panel into the loss of the whole map. */}
+              <SilentErrorBoundary label="NetCDF 3D cube">
+                <NetcdfCubeWindow mapControllerRef={mapControllerRef} />
+              </SilentErrorBoundary>
+              <NetcdfCubeSetupDialog mapControllerRef={mapControllerRef} />
               <RemoteCursorsOverlay
                 mapControllerRef={mapControllerRef}
                 mapReadyGeneration={mapReadyGeneration}

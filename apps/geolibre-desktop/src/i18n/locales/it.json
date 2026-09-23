@@ -982,6 +982,9 @@
       "errorUrl": "Inserisci un URL HTTP o HTTPS valido di PMTiles.",
       "errorMlt": "ArcGIS richiede tile vettoriali MVT, non MLT."
     },
+    "lidar": {
+      "errorUrl": "Inserisci un URL HTTP o HTTPS valido di LiDAR."
+    },
     "zarr": {
       "errorUrl": "Inserisci un URL HTTP o HTTPS valido di Zarr.",
       "errorColorLimits": "Il limite massimo del colore deve essere maggiore del minimo."
@@ -2377,6 +2380,7 @@
       },
       "earthquakes": "Terremoti",
       "spaceMissions": "Missioni spaziali (30 giorni)",
+      "activeFires": "Incendi attivi (24 ore)",
       "satellites": "Satelliti",
       "flights": "Voli in tempo reale",
       "militaryFlights": "Voli militari",
@@ -4695,6 +4699,10 @@
       "errorStartSidecar": "Impossibile avviare il sidecar di GeoLibre.",
       "errorStopSidecar": "Impossibile arrestare il sidecar di GeoLibre.",
       "noToolsFound": "Nessuno strumento trovato.",
+      "searchToolsByMeaning": "Cerca strumenti o descrivi un'attività",
+      "searchingByMeaning": "Ricerca nel catalogo per significato",
+      "bestMatches": "Risultati migliori",
+      "otherMatches": "Altri risultati",
       "noParameters": "Questo strumento non ha parametri.",
       "noOutput": "Nessun output ancora.",
       "enabled": "Attivato",
@@ -7397,6 +7405,8 @@
     "renameGroup": "Rinomina gruppo",
     "moveGroupUp": "Sposta gruppo su",
     "moveGroupDown": "Sposta gruppo giù",
+    "sortGroupAscending": "Ordina dalla A alla Z",
+    "sortGroupDescending": "Ordina dalla Z alla A",
     "ungroupKeepLayers": "Separa gruppo (mantieni layer)",
     "deleteGroupAndLayers": "Elimina gruppo e layer",
     "groupActions": "Azioni gruppo",

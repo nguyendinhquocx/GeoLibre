@@ -34,6 +34,7 @@ They are grouped together because they behave the same way, not because they sha
 | [Source Cooperative](#source-cooperative) | Source.coop | Cloud-native products (PMTiles, GeoParquet, COG) |
 | [Natural Earth](#natural-earth) | Natural Earth | The Natural Earth vector and raster themes |
 | [Hugging Face](#hugging-face) | Hugging Face | Geospatial files in dataset repos — and uploads |
+| [Satellite Embeddings](#satellite-embeddings) | Source.coop, Tessera | Pre-computed foundation-model embeddings (AlphaEarth, Tessera, Earth Index, …) |
 | [GeoLens](#geolens) | your server | A self-hosted spatial catalog |
 
 ---
@@ -188,6 +189,26 @@ Browses geospatial data in [Hugging Face](https://huggingface.co/datasets) datas
 - **Upload** — with a user access token, create a dataset repo and push files into it.
 
 The access token is stored in `localStorage` under your control, sent only as a bearer header to the Hugging Face API, and never written into a layer URL or a saved project.
+
+## Satellite Embeddings
+
+A catalog of popular pre-computed **satellite embedding** datasets — per-pixel or per-patch vectors produced by geospatial foundation models — with search, on-map visualization, and download.
+
+| Dataset | Layout | Resolution | Search | Visualize | Download |
+| --- | --- | --- | --- | --- | --- |
+| [AlphaEarth Foundations](https://source.coop/tge-labs/aef) (Google Satellite Embedding V1), 2017–2025 | 64-band raster | 10 m | ✓ | RGB composite of any three bands | Clipped GeoTIFF, source COG, VRT |
+| [Tessera](https://github.com/ucam-eo/geotessera), 2017–2025 | 128-band raster | 10 m | ✓ | — | Embeddings and scales (`.npy`) |
+| [Earth Index](https://source.coop/earthgenome/earthindexembeddings), 2024 | Points (GeoParquet) | ~320 m | ✓ | Points colored by principal components | Source GeoParquet |
+| Clay, Major TOM, Copernicus-Embed | — | — | Links to the data source only | | |
+
+- Pick a dataset to see its provider, model, resolution, dimensions, years, coverage, and license, with links to the data and the paper.
+- Search by the **current map view** or a **box drawn on the map**, and (for annual datasets) a year. Result footprints are drawn as one entry in the Layers panel; hovering a result outlines it, and clicking a footprint scrolls to its result.
+- **AlphaEarth → Visualize** adds the chosen bands (Earth Engine's `A01`, `A16`, `A09` by default) as an RGB layer, stretching de-quantized values across ±0.3 by default. When the raster rendering engine is **cog-tiler-wasm (WASM)** (the default) the whole tile becomes a regular COG layer, zoomable to full 10 m detail, with its bands and range adjustable in the Style panel; the stretch is applied to the raw int8 values, so colors differ slightly from the de-quantized stretch. The GPU and TiTiler engines cannot read these files, so on those the panel instead renders a snapshot image of the search area (from an overview when the area is large; the status line says so) rather than switching the engine for every raster on the map.
+- **AlphaEarth → GeoTIFF** saves all 64 bands over the search area as a north-up GeoTIFF in the tile's UTM zone, either de-quantized to float32 (unit-length vectors, NoData as NaN) or as the raw int8 values (NoData −128). The clip is built in memory and capped at 256 MB: about 100 km² of float32 values, or 400 km² of int8.
+- **Earth Index → Load points** adds the embeddings inside the search area as a point layer. Each point is colored by the top three principal components of the loaded vectors, so similar places get similar colors.
+
+!!! note "AlphaEarth files are stored bottom-up"
+    The AlphaEarth COGs on Source Cooperative put their southern row first, which many GDAL workflows do not expect. The WASM engine (cog-tiler-wasm 0.3.8 and later) and the panel's own reader flip them; the GPU engine does not yet. The panel also offers each tile's companion `.vrt`, which GDAL reads north-up. The data is licensed CC-BY 4.0: *The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind.*
 
 ## GeoLens
 

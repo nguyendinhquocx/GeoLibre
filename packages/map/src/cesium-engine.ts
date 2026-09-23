@@ -341,6 +341,12 @@ export class CesiumEngine implements MapEngine {
    */
   private minZoom = 0;
   private maxZoom = 24;
+  /**
+   * A projection preference that arrived mid-morph. It is applied once that
+   * morph lands; only a deferred change is replayed, so a scene-mode picker
+   * morph is never undone by the (unchanged) stored preference.
+   */
+  private pendingProjection: MapProjection | null = null;
 
   private readonly worldTerrainAvailable: boolean;
   private terrainEnabled = false;
@@ -437,6 +443,9 @@ export class CesiumEngine implements MapEngine {
     return new Promise((resolve) => {
       const remove = viewer.scene.postRender.addEventListener(() => {
         remove();
+        if (this.isPrimary && !useAppStore.getState().ui.storymapPresenting) {
+          useAppStore.getState().setCameraAltitude(this.readCameraAltitude());
+        }
         resolve();
       });
       viewer.scene.requestRender();
@@ -588,6 +597,37 @@ export class CesiumEngine implements MapEngine {
     return carto.height - ground;
   }
 
+  /**
+   * Morph the scene to a projection preference, deferring it while another
+   * morph is running (Cesium would otherwise cut that one short).
+   *
+   * Args:
+   *   projection: The preferred projection, if any.
+   */
+  private applyProjection(projection: MapProjection | undefined): void {
+    const viewer = this.live();
+    if (!viewer || !projection) return;
+    if (this.isMorphing()) {
+      this.pendingProjection = projection;
+      return;
+    }
+    this.pendingProjection = null;
+    const scene = viewer.scene as {
+      morphTo2D?: (duration: number) => void;
+      morphTo3D?: (duration: number) => void;
+    };
+    if (projection === "mercator") {
+      // Any settled non-2D mode (3D or Columbus view) morphs to 2D.
+      if (viewer.scene.mode === this.Cesium.SceneMode.SCENE2D) return;
+      if (typeof scene.morphTo2D === "function") scene.morphTo2D(0);
+      else viewer.scene.mode = this.Cesium.SceneMode.SCENE2D;
+    } else if (projection === "globe") {
+      if (viewer.scene.mode === this.Cesium.SceneMode.SCENE3D) return;
+      if (typeof scene.morphTo3D === "function") scene.morphTo3D(0);
+      else viewer.scene.mode = this.Cesium.SceneMode.SCENE3D;
+    }
+  }
+
   /** Both flat scene modes use the projected map instead of the 3D ellipsoid. */
   readProjection(): MapProjection {
     const mode = this.live()?.scene.mode;
@@ -599,6 +639,9 @@ export class CesiumEngine implements MapEngine {
   applyMapPreferences(preferences: MapPreferences): void {
     const viewer = this.live();
     if (!viewer) return;
+
+    this.applyProjection(preferences.projection);
+
     // MapLibre's min/max zoom become camera distance limits, which is the
     // closest Cesium analogue. The latitude the conversion needs is the camera's
     // own, so the limits track the scale the user actually sees. Bounds and
@@ -629,6 +672,19 @@ export class CesiumEngine implements MapEngine {
         1,
       );
     }
+    // A projection morph is still running; `installMorphHandling` clamps once
+    // it lands.
+    if (!this.isMorphing()) this.clampCameraToZoomRange();
+  }
+
+  /**
+   * The controller limits only bound user input, so pull a camera already
+   * outside the zoom range (a saved view, or a lowered maxZoom) back inside.
+   */
+  private clampCameraToZoomRange(): void {
+    const view = this.readView();
+    const zoom = Math.min(this.maxZoom, Math.max(this.minZoom, view.zoom));
+    if (zoom !== view.zoom) void this.applyView({ ...view, zoom });
   }
 
   // ------------------------------------------------------------------- layers
@@ -1477,7 +1533,10 @@ export class CesiumEngine implements MapEngine {
     const onMorphComplete = () => {
       // The native animation owns this camera, including any terrain settling.
       this.userOwnsCamera = true;
+      this.clampCameraToZoomRange();
       this.publishCameraView();
+      // A projection preference that landed mid-morph is applied now.
+      if (this.pendingProjection) this.applyProjection(this.pendingProjection);
     };
     viewer.scene.morphComplete.addEventListener(onMorphComplete);
     this.disposers.push(() => {
@@ -1530,6 +1589,7 @@ export class CesiumEngine implements MapEngine {
     const userDriven = this.userMoved;
     this.userMoved = false;
     const store = useAppStore.getState();
+    if (store.ui.storymapPresenting) return;
     // Write only when the view actually differs from the stored camera:
     // `setMapView` has no same-camera guard in the store, and
     // `setSecondaryMapView`'s guard uses exact equality (which Cesium's lossy
@@ -1540,6 +1600,7 @@ export class CesiumEngine implements MapEngine {
       // toggle governs the secondary panes, and the primary map is the camera
       // they follow.
       if (!isSameView(view, store.mapView)) store.setMapView(view, userDriven);
+      store.setCameraAltitude(this.readCameraAltitude());
       return;
     }
     if (store.mapLayout.syncView && !isSameView(view, store.mapView)) {

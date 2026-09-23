@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
+import asyncio
 import json
 import logging
 import os
 import re
-import secrets
 import shutil
 import uuid
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Literal
-from urllib.parse import quote
+from typing import Annotated, Callable, Literal
+from urllib.parse import quote, urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -34,49 +33,30 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    Session,
-    mapped_column,
-    relationship,
-    selectinload,
-    sessionmaker,
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship, selectinload, sessionmaker
+
+from geolibre_server_api.auth import (
+    AuthPrincipal,
+    InsufficientScopeError,
+    bearer_challenge,
+    build_identity_router,
+    build_oauth_router,
+    cleanup_expired_security_rows,
+    ensure_scope,
+    get_session,
+    make_oauth_config,
+    now,
+    optional_principal,
+    require_scope,
 )
+from geolibre_server_api.auth_models import OAUTH_INDEXES, Account, Base
 
 Visibility = Literal["public", "unlisted", "private"]
-# 3-39 chars, starting and ending alphanumeric. The middle group is *not*
-# optional: making it so would let a single character through, which contradicts
-# both the error text and the limits table in docs/server-api.md.
-USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,37}[a-z0-9]$")
 SLUG_RE = re.compile(r"[^a-z0-9]+")
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
+OAUTH_CLEANUP_INTERVAL_SECONDS = 300
 logger = logging.getLogger(__name__)
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class Account(Base):
-    __tablename__ = "accounts"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    username: Mapped[str | None] = mapped_column(String(39), unique=True, nullable=True)
-    password_hash: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[str] = mapped_column(String(32))
-    projects: Mapped[list[Project]] = relationship(
-        back_populates="owner", cascade="all, delete-orphan"
-    )
-
-
-class Token(Base):
-    __tablename__ = "tokens"
-    digest: Mapped[str] = mapped_column(String(64), primary_key=True)
-    account_id: Mapped[str] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True
-    )
-    created_at: Mapped[str] = mapped_column(String(32))
 
 
 class Project(Base):
@@ -138,14 +118,6 @@ class ProjectActivity(Base):
 LISTING_EAGER_LOADS = (selectinload(Project.owner), selectinload(Project.versions))
 
 
-class Credentials(BaseModel):
-    # Both endpoints taking this model are unauthenticated, and password_hash
-    # feeds the value straight to scrypt (n=2**14, ~16 MiB per call). Without an
-    # upper bound a caller can drive that cost with an arbitrarily large body.
-    username: str = Field(max_length=39)
-    password: str = Field(max_length=1024)
-
-
 class ProjectCreate(BaseModel):
     filename: str = Field(max_length=255)
     content: str
@@ -165,10 +137,6 @@ class ContentUpdate(BaseModel):
 
 class ForkRequest(BaseModel):
     visibility: Visibility = "private"
-
-
-def now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 # Activity rows older than this are pruned the next time the project logs an
@@ -266,28 +234,6 @@ def activity_json(act: ProjectActivity) -> dict:
     }
 
 
-def password_hash(password: str, salt: bytes | None = None) -> str:
-    if not password:
-        raise ValueError("password is required")
-    salt = salt or secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
-    return f"scrypt${salt.hex()}${digest.hex()}"
-
-
-def password_matches(password: str, encoded: str) -> bool:
-    try:
-        _, salt, expected = encoded.split("$")
-        return hmac.compare_digest(
-            password_hash(password, bytes.fromhex(salt)).split("$")[2], expected
-        )
-    except (ValueError, TypeError):
-        return False
-
-
-def token_digest(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
 class FileStorage:
     def __init__(self, root: str):
         self.root = Path(root).resolve()
@@ -377,11 +323,55 @@ def title_from(document: dict, filename: str) -> str:
     return candidate or "Untitled"
 
 
+class PathCORSMiddleware:
+    """Route CORS by request path.
+
+    API routes keep the deployment's configured CORS (including its wildcard
+    default). OAuth endpoints use only explicitly registered browser origins:
+    registered web callbacks plus, from ``GEOLIBRE_CORS_ORIGINS``, the packaged
+    Tauri origins and desktop development origins. CORS is never authorization:
+    it only decides which origins may *read* cross-origin responses, and a
+    wildcard API policy must not overwrite the narrow OAuth choice.
+
+    The two CORSMiddleware instances are built from the incoming ``app`` (the
+    chain this middleware wraps) rather than captured around an outer object:
+    wrapping the FastAPI app itself would regenerate the full middleware stack
+    -- including this dispatcher -- on every request, recursing forever.
+    """
+
+    def __init__(self, app, api_origins, api_credentials, oauth_origins):
+        self.api = CORSMiddleware(
+            app,
+            allow_origins=api_origins,
+            allow_credentials=api_credentials,
+            allow_methods=["*"],
+            allow_headers=["Authorization", "Content-Type"],
+            expose_headers=["WWW-Authenticate"],
+        )
+        self.oauth = CORSMiddleware(
+            app,
+            allow_origins=oauth_origins,
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["Authorization", "Content-Type"],
+            expose_headers=["WWW-Authenticate"],
+        )
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if path.startswith("/oauth/") or path.startswith("/.well-known/oauth-authorization-server"):
+            await self.oauth(scope, receive, send)
+        else:
+            await self.api(scope, receive, send)
+
+
 def create_app(
     database_url: str | None = None,
     storage=None,
     public_url: str | None = None,
+    clock: Callable[[], int] | None = None,
 ) -> FastAPI:
+    """Build the FastAPI app, wiring the engine, sessions, storage, and routes."""
     database_url = database_url or os.getenv(
         "GEOLIBRE_DATABASE_URL", "sqlite:///./geolibre-server-api.db"
     )
@@ -397,16 +387,56 @@ def create_app(
             dbapi_connection.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine)
+    # create_all leaves pre-existing tables untouched, including their indexes.
+    # Add the OAuth indexes idempotently when upgrading a persisted database.
+    for index in OAUTH_INDEXES:
+        index.create(engine, checkfirst=True)
     sessions = sessionmaker(engine, expire_on_commit=False)
+    oauth_config = make_oauth_config(public_url)
+    clock_fn = clock or (lambda: int(datetime.now(UTC).timestamp()))
+
+    def cleanup_oauth_state() -> None:
+        with sessions() as cleanup_session:
+            cleanup_expired_security_rows(cleanup_session, clock_fn())
+
+    if oauth_config is not None:
+        # Bound each sweep so accumulated state cannot stall startup or serving.
+        cleanup_oauth_state()
+
+    @asynccontextmanager
+    async def oauth_lifespan(_app: FastAPI):
+        async def sweep() -> None:
+            while True:
+                await asyncio.sleep(OAUTH_CLEANUP_INTERVAL_SECONDS)
+                try:
+                    await asyncio.to_thread(cleanup_oauth_state)
+                except Exception:
+                    logger.exception("periodic OAuth security-state cleanup failed")
+
+        task = asyncio.create_task(sweep())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
     object_storage = storage or make_storage()
     base_url = (public_url or os.getenv("GEOLIBRE_PUBLIC_URL", "http://localhost:8000")).rstrip("/")
     viewer_url = os.getenv("GEOLIBRE_VIEWER_URL", "https://app.geolibre.org/").rstrip("/") + "/"
     max_project_bytes = int(os.getenv("GEOLIBRE_MAX_PROJECT_BYTES", str(50 * 1024 * 1024)))
     max_thumbnail_bytes = int(os.getenv("GEOLIBRE_MAX_THUMBNAIL_BYTES", str(5 * 1024 * 1024)))
 
-    app = FastAPI(title="GeoLibre projects and identity API", version="1.0")
+    app = FastAPI(
+        title="GeoLibre projects and identity API",
+        version="1.0",
+        lifespan=oauth_lifespan if oauth_config is not None else None,
+    )
     app.state.engine = engine
     app.state.storage = object_storage
+    app.state.session_factory = sessions
+    app.state.clock = clock_fn
+    app.state.oauth_config = oauth_config
     # A declared Content-Length past the largest thing any route accepts is
     # rejected before the body is read at all. Without this, the JSON `content`
     # routes let Pydantic materialize the whole payload in memory *before*
@@ -438,17 +468,42 @@ def create_app(
     # credentialed requests from any origin. Wildcard wins, and drops credentials
     # with it.
     wildcard = "*" in origins
+
+    oauth_origins: set[str] = set()
+    if oauth_config is not None:
+        for client in oauth_config.clients.values():
+            for uri in client.redirect_uris:
+                if uri.startswith(("http://", "https://")):
+                    parsed = urlparse(uri)
+                    oauth_origins.add(f"{parsed.scheme}://{parsed.netloc}")
+        for origin in origins:
+            if origin in (
+                "tauri://localhost",
+                "http://tauri.localhost",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ):
+                oauth_origins.add(origin)
     # Registered last so it is the outermost layer: Starlette wraps in reverse
     # order of registration, and with limit_body outermost its 413 returned
     # without CORS headers, leaving a browser unable to read the documented
     # error body.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"] if wildcard else origins,
-        allow_credentials=not wildcard,
-        allow_methods=["*"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
+    if oauth_config is not None:
+        app.add_middleware(
+            PathCORSMiddleware,
+            api_origins=["*"] if wildcard else origins,
+            api_credentials=not wildcard,
+            oauth_origins=sorted(oauth_origins),
+        )
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"] if wildcard else origins,
+            allow_credentials=not wildcard,
+            allow_methods=["*"],
+            allow_headers=["Authorization", "Content-Type"],
+            expose_headers=["WWW-Authenticate"],
+        )
 
     @app.get("/health")
     def health():
@@ -458,6 +513,15 @@ def create_app(
     async def http_error(_request: Request, exc: HTTPException):
         detail = exc.detail if isinstance(exc.detail, str) else "request failed"
         return JSONResponse({"error": detail}, status_code=exc.status_code, headers=exc.headers)
+
+    @app.exception_handler(InsufficientScopeError)
+    async def insufficient_scope_handler(_request: Request, exc: InsufficientScopeError):
+        """Serialize an insufficient-scope failure as a documented 403."""
+        return JSONResponse(
+            {"error": "insufficient_scope", "requiredScope": exc.required_scope},
+            status_code=403,
+            headers=exc.headers,
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, exc: RequestValidationError):
@@ -472,36 +536,10 @@ def create_app(
         logger.exception("unhandled error", exc_info=exc)
         return JSONResponse({"error": "internal server error"}, status_code=500)
 
-    def db():
-        with sessions() as session:
-            yield session
-
-    def optional_account(
-        authorization: Annotated[str | None, Header()] = None,
-        session: Session = Depends(db),
-    ) -> Account | None:
-        if not authorization:
-            return None
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(401, "invalid authorization")
-        row = session.get(Token, token_digest(authorization[7:]))
-        if row is None:
-            raise HTTPException(401, "invalid or expired token")
-        return session.get(Account, row.account_id)
-
-    def required_account(account: Account | None = Depends(optional_account)) -> Account:
-        if account is None:
-            raise HTTPException(401, "authentication required")
-        return account
-
-    def account_json(account: Account) -> dict:
-        return {"id": account.id, "username": account.username, "createdAt": account.created_at}
-
-    def issue_token(session: Session, account: Account) -> str:
-        value = secrets.token_urlsafe(32)
-        session.add(Token(digest=token_digest(value), account_id=account.id, created_at=now()))
-        session.commit()
-        return value
+    # Identity routes must precede the username/slug catch-alls below.
+    app.include_router(build_identity_router())
+    if oauth_config is not None:
+        app.include_router(build_oauth_router(oauth_config))
 
     def unique_slug(session: Session, owner_id: str, desired: str) -> str:
         base = slugify(desired)
@@ -541,17 +579,30 @@ def create_app(
             "viewerUrl": viewer_url + "?project=" + quote(raw, safe=""),
         }
 
-    def visible(project: Project | None, account: Account | None) -> Project:
+    def visible(project: Project | None, principal: AuthPrincipal | None) -> Project:
+        """Return the project or 404 when it is private to another caller."""
         if project is None or (
-            project.visibility == "private" and (account is None or project.owner_id != account.id)
+            project.visibility == "private"
+            and (principal is None or project.owner_id != principal.account.id)
         ):
             raise HTTPException(404, "project not found")
         return project
 
-    def owned(project: Project | None, account: Account) -> Project:
+    def visible_private_read(project: Project | None, principal: AuthPrincipal | None) -> Project:
+        """visible() plus the read:projects scope for the owner's private data."""
+        project = visible(project, principal)
+        if project.visibility == "private":
+            # visible() 404s anonymous/non-owner callers, so a private project
+            # reaching here implies the owner is authenticated.
+            assert principal is not None
+            ensure_scope(principal, "read:projects")
+        return project
+
+    def owned(project: Project | None, principal: AuthPrincipal) -> Project:
+        """Return the project or 403/404 when the caller does not own it."""
         if project is None:
             raise HTTPException(404, "project not found")
-        if project.owner_id != account.id:
+        if project.owner_id != principal.account.id:
             raise HTTPException(403, "project ownership required")
         return project
 
@@ -607,80 +658,24 @@ def create_app(
             session.refresh(project)
         return project
 
-    @app.post("/api/accounts", status_code=201)
-    def create_account(body: Credentials, session: Session = Depends(db)):
-        username = body.username.strip()
-        if not USERNAME_RE.fullmatch(username):
-            raise HTTPException(422, "username must be 3-39 lowercase letters, digits, or hyphens")
-        if len(body.password) < 8:
-            raise HTTPException(422, "password must be at least 8 characters")
-        if session.scalar(select(Account.id).where(Account.username == username)):
-            raise HTTPException(409, "username already exists")
-        account = Account(
-            id=str(uuid.uuid4()),
-            username=username,
-            password_hash=password_hash(body.password),
-            created_at=now(),
-        )
-        session.add(account)
-        try:
-            session.commit()
-        except IntegrityError:
-            # The check above and this commit are not atomic, so two requests
-            # racing for one username can both pass it. Without this the loser
-            # escapes as a raw 500 (no IntegrityError exception handler is
-            # registered), contradicting the documented 409 for a uniqueness
-            # conflict.
-            session.rollback()
-            raise HTTPException(409, "username already exists") from None
-        return {"account": account_json(account), "token": issue_token(session, account)}
-
-    @app.post("/api/auth/token")
-    def login(body: Credentials, session: Session = Depends(db)):
-        account = session.scalar(select(Account).where(Account.username == body.username))
-        if account is None:
-            # Hash anyway before failing. Short-circuiting here would skip the
-            # scrypt call that a real username always pays for, and the timing
-            # difference enumerates accounts one request at a time, which a
-            # request-count rate limiter does not address.
-            password_hash(body.password or "unused")
-            raise HTTPException(401, "invalid username or password")
-        if not password_matches(body.password, account.password_hash):
-            raise HTTPException(401, "invalid username or password")
-        return {"account": account_json(account), "token": issue_token(session, account)}
-
-    @app.delete("/api/auth/token", status_code=204)
-    def revoke(
-        authorization: Annotated[str | None, Header()] = None,
-        _account: Account = Depends(required_account),
-        session: Session = Depends(db),
-    ):
-        assert authorization is not None
-        session.execute(delete(Token).where(Token.digest == token_digest(authorization[7:])))
-        session.commit()
-
-    @app.get("/api/account")
-    def get_account(account: Account = Depends(required_account)):
-        return {"account": account_json(account)}
-
-    @app.get("/api/users/me")
-    def get_current_user(account: Account = Depends(required_account)):
-        # The full account shape, matching what docs/server-api.md publishes and
-        # what /api/account returns. The gallery client reads only `username`.
-        return {"user": account_json(account)}
-
     @app.get("/api/users/{username}/projects")
     def get_user_projects(
         username: str,
         limit: Annotated[int, Query(ge=1, le=100)] = 24,
         offset: Annotated[int, Query(ge=0)] = 0,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
+        """List a user's projects; the owner's own listing needs read:projects."""
         owner = session.scalar(select(Account).where(Account.username == username))
         if owner is None:
             raise HTTPException(404, "user not found")
-        own = account is not None and account.id == owner.id
+        own = principal is not None and principal.account.id == owner.id
+        if own:
+            # The owner's listing includes unlisted and private records; that
+            # breadth requires the read scope. A valid owner credential missing
+            # it gets a 403 rather than a silently narrowed listing.
+            ensure_scope(principal, "read:projects")
         query = select(Project).where(Project.owner_id == owner.id)
         if not own:
             query = query.where(Project.visibility == "public")
@@ -695,12 +690,17 @@ def create_app(
     @app.post("/api/projects", status_code=201)
     def post_project(
         body: ProjectCreate,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
+        """Create a project; publishing to public additionally needs share:public."""
+        if body.visibility == "public":
+            ensure_scope(principal, "share:public")
         return {
             "project": project_json(
-                create_project(session, account, body.content, body.filename, body.visibility)
+                create_project(
+                    session, principal.account, body.content, body.filename, body.visibility
+                )
             )
         }
 
@@ -710,19 +710,22 @@ def create_app(
         offset: Annotated[int, Query(ge=0)] = 0,
         featured: bool = False,
         mine: bool = False,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
+        """List public projects, or the caller's own when ``mine`` and read:projects."""
         query = select(Project)
         count = select(func.count()).select_from(Project)
         if mine:
-            if account is None:
-                raise HTTPException(401, "authentication required")
+            if principal is None:
+                raise HTTPException(401, "authentication required", headers=bearer_challenge())
+            ensure_scope(principal, "read:projects")
             query, count = (
-                query.where(Project.owner_id == account.id),
-                count.where(Project.owner_id == account.id),
+                query.where(Project.owner_id == principal.account.id),
+                count.where(Project.owner_id == principal.account.id),
             )
         else:
+            # Possession of a token must not broaden the public listing by itself.
             query, count = (
                 query.where(Project.visibility == "public"),
                 count.where(Project.visibility == "public"),
@@ -748,18 +751,24 @@ def create_app(
     @app.get("/api/projects/{project_id}")
     def get_project(
         project_id: str,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
-        return {"project": project_json(visible(session.get(Project, project_id), account))}
+        """Return one project; private reads by the owner need read:projects."""
+        return {
+            "project": project_json(
+                visible_private_read(session.get(Project, project_id), principal)
+            )
+        }
 
     @app.get("/api/projects/{project_id}/activity")
     def get_project_activity(
         project_id: str,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("read:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Return the activity log for one of the caller's own projects."""
+        project = owned(session.get(Project, project_id), principal)
         activities = session.scalars(
             select(ProjectActivity)
             .where(ProjectActivity.project_id == project.id)
@@ -771,10 +780,11 @@ def create_app(
     @app.delete("/api/projects/{project_id}/activity", status_code=204)
     def delete_project_activity(
         project_id: str,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Clear the activity log of one of the caller's own projects."""
+        project = owned(session.get(Project, project_id), principal)
         session.execute(delete(ProjectActivity).where(ProjectActivity.project_id == project.id))
         session.commit()
         return Response(status_code=204)
@@ -783,10 +793,11 @@ def create_app(
     def patch_project(
         project_id: str,
         body: ProjectPatch,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Patch one of the caller's projects; raising to public needs share:public."""
+        project = owned(session.get(Project, project_id), principal)
         old_visibility = project.visibility
         updates = body.model_dump(exclude_unset=True)
         if "title" in updates:
@@ -802,6 +813,9 @@ def create_app(
             # Both surfaced as an unhandled 500 rather than a 422.
             if updates["visibility"] is None:
                 raise HTTPException(422, "visibility must not be null")
+            if updates["visibility"] == "public" and old_visibility != "public":
+                # Raising to public is a publication; reducing exposure is not.
+                ensure_scope(principal, "share:public")
             project.visibility = updates["visibility"]
         if "tags" in updates:
             tags = updates["tags"] or []
@@ -813,7 +827,7 @@ def create_app(
             log_project_activity(
                 session,
                 project.id,
-                account.id,
+                principal.account.id,
                 "visibility_change",
                 {"before": old_visibility, "after": project.visibility},
             )
@@ -824,10 +838,11 @@ def create_app(
     def update_content(
         project_id: str,
         body: ContentUpdate,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Write a new version of one of the caller's projects."""
+        project = owned(session.get(Project, project_id), principal)
         parse_content(body.content, max_project_bytes)
         # Allocated from max(number) and committed *before* the object is
         # written. Deriving it from len(project.versions) let two concurrent
@@ -852,12 +867,14 @@ def create_app(
             except (IntegrityError, OperationalError):
                 # See create_project: a SQLite lock is transient and retryable.
                 session.rollback()
-                project = owned(session.get(Project, project_id), account)
+                project = owned(session.get(Project, project_id), principal)
         else:
             raise HTTPException(409, "could not allocate a version number; retry")
         object_storage.put(key, body.content.encode(), "application/json")
         project.updated_at = now()
-        log_project_activity(session, project.id, account.id, "version_save", {"version": number})
+        log_project_activity(
+            session, project.id, principal.account.id, "version_save", {"version": number}
+        )
         session.commit()
         session.refresh(project)
         return {"project": project_json(project), "version": number}
@@ -865,10 +882,11 @@ def create_app(
     @app.delete("/api/projects/{project_id}", status_code=204)
     def delete_project_route(
         project_id: str,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Delete one of the caller's projects and its stored objects."""
+        project = owned(session.get(Project, project_id), principal)
         session.delete(project)
         session.commit()
         object_storage.delete_project(project_id)
@@ -882,17 +900,23 @@ def create_app(
         # default is None rather than ForkRequest() so the model is not
         # constructed at import time (ruff B008).
         body: ForkRequest | None = None,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        source = visible(session.get(Project, project_id), account)
+        """Fork a project; forking a private source or publishing needs extra scopes."""
+        source = visible(session.get(Project, project_id), principal)
+        if source.visibility == "private":
+            ensure_scope(principal, "read:projects")
         content = object_storage.get(source.versions[-1].object_key).decode()
+        fork_visibility = (body or ForkRequest()).visibility
+        if fork_visibility == "public":
+            ensure_scope(principal, "share:public")
         fork = create_project(
             session,
-            account,
+            principal.account,
             content,
             source.title + ".geolibre.json",
-            (body or ForkRequest()).visibility,
+            fork_visibility,
             commit=False,
         )
         # Incremented in SQL rather than read-modify-write in Python, so
@@ -901,7 +925,9 @@ def create_app(
         session.execute(
             update(Project).where(Project.id == source.id).values(fork_count=Project.fork_count + 1)
         )
-        log_project_activity(session, source.id, account.id, "fork", {"forked_project_id": fork.id})
+        log_project_activity(
+            session, source.id, principal.account.id, "fork", {"forked_project_id": fork.id}
+        )
         session.commit()
         session.refresh(fork)
         return {"project": project_json(fork)}
@@ -924,15 +950,20 @@ def create_app(
     def get_version(
         project_id: str,
         number: int,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
-        project = visible(session.get(Project, project_id), account)
+        """Fetch one project version; private fetches by the owner need read:projects."""
+        project = visible_private_read(session.get(Project, project_id), principal)
         version = session.get(Version, (project_id, number))
         if version is None:
             raise HTTPException(404, "project version not found")
         log_project_activity(
-            session, project.id, account.id if account else None, "fetch", {"version": number}
+            session,
+            project.id,
+            principal.account.id if principal else None,
+            "fetch",
+            {"version": number},
         )
         session.commit()
         return raw_response(project, version, True)
@@ -941,10 +972,11 @@ def create_app(
     async def put_thumbnail(
         project_id: str,
         request: Request,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Upload a thumbnail image for one of the caller's projects."""
+        project = owned(session.get(Project, project_id), principal)
         content_type = request.headers.get("content-type", "").split(";")[0]
         if content_type not in IMAGE_TYPES:
             raise HTTPException(422, "thumbnail must be PNG, JPEG, or WebP")
@@ -968,10 +1000,11 @@ def create_app(
     @app.get("/api/projects/{project_id}/thumbnail")
     def get_thumbnail(
         project_id: str,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
-        project = visible(session.get(Project, project_id), account)
+        """Fetch a project thumbnail; private reads by the owner need read:projects."""
+        project = visible_private_read(session.get(Project, project_id), principal)
         if not project.thumbnail_type:
             raise HTTPException(404, "thumbnail not found")
         try:
@@ -984,10 +1017,11 @@ def create_app(
     @app.delete("/api/projects/{project_id}/thumbnail", status_code=204)
     def delete_thumbnail(
         project_id: str,
-        account: Account = Depends(required_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal = Depends(require_scope("write:projects")),
+        session: Session = Depends(get_session),
     ):
-        project = owned(session.get(Project, project_id), account)
+        """Remove a project's thumbnail."""
+        project = owned(session.get(Project, project_id), principal)
         object_storage.delete(f"projects/{project.id}/thumbnail")
         project.thumbnail_type = None
         project.updated_at = now()
@@ -997,13 +1031,14 @@ def create_app(
     def latest_raw(
         username: str,
         slug: str,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
+        """Serve the latest raw project JSON, counting a view for anonymous fetches."""
         project = session.scalar(
             select(Project).join(Account).where(Account.username == username, Project.slug == slug)
         )
-        project = visible(project, account)
+        project = visible_private_read(project, principal)
         # Read the object first: a missing object is a 404 that should not count
         # as a view. Incremented in SQL so concurrent reads do not lose counts.
         body = raw_response(project, project.versions[-1], False)
@@ -1013,7 +1048,7 @@ def create_app(
         log_project_activity(
             session,
             project.id,
-            account.id if account else None,
+            principal.account.id if principal else None,
             "fetch",
             {"version": project.versions[-1].number},
         )
@@ -1024,14 +1059,17 @@ def create_app(
     def project_page(
         username: str,
         slug: str,
-        account: Account | None = Depends(optional_account),
-        session: Session = Depends(db),
+        principal: AuthPrincipal | None = Depends(optional_principal),
+        session: Session = Depends(get_session),
     ):
+        """Redirect to the viewer for a project, counting an anonymous open."""
         project = session.scalar(
             select(Project).join(Account).where(Account.username == username, Project.slug == slug)
         )
-        project = visible(project, account)
-        log_project_activity(session, project.id, account.id if account else None, "open")
+        project = visible_private_read(project, principal)
+        log_project_activity(
+            session, project.id, principal.account.id if principal else None, "open"
+        )
         session.commit()
         raw = f"{base_url}/{quote(username)}/{quote(slug)}.geolibre.json"
         return RedirectResponse(viewer_url + "?project=" + quote(raw, safe=""), status_code=302)

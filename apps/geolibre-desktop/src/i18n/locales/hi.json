@@ -982,6 +982,9 @@
       "errorUrl": "एक मान्य HTTP या HTTPS PMTiles URL दर्ज करें।",
       "errorMlt": "ArcGIS को MVT वेक्टर टाइलों की आवश्यकता है, MLT की नहीं।"
     },
+    "lidar": {
+      "errorUrl": "एक मान्य HTTP या HTTPS LiDAR URL दर्ज करें।"
+    },
     "zarr": {
       "errorUrl": "एक मान्य HTTP या HTTPS Zarr URL दर्ज करें।",
       "errorColorLimits": "रंग की अधिकतम सीमा न्यूनतम सीमा से अधिक होनी चाहिए।"
@@ -2377,6 +2380,7 @@
       },
       "earthquakes": "भूकंप",
       "spaceMissions": "अंतरिक्ष मिशन (30 दिन)",
+      "activeFires": "सक्रिय आग (24 घंटे)",
       "satellites": "उपग्रह",
       "flights": "लाइव उड़ानें",
       "militaryFlights": "सैन्य उड़ानें",
@@ -4695,6 +4699,10 @@
       "errorStartSidecar": "GeoLibre साइडकार शुरू नहीं हो सका।",
       "errorStopSidecar": "GeoLibre साइडकार रोका नहीं जा सका।",
       "noToolsFound": "कोई टूल नहीं मिला।",
+      "searchToolsByMeaning": "टूल खोजें या कोई कार्य बताएं",
+      "searchingByMeaning": "अर्थ के आधार पर कैटलॉग खोजा जा रहा है",
+      "bestMatches": "सर्वोत्तम मिलान",
+      "otherMatches": "अन्य मिलान",
       "noParameters": "इस टूल में कोई पैरामीटर नहीं है।",
       "noOutput": "अभी कोई आउटपुट नहीं।",
       "enabled": "सक्षम",
@@ -7397,6 +7405,8 @@
     "renameGroup": "समूह का नाम बदलें",
     "moveGroupUp": "समूह ऊपर ले जाएं",
     "moveGroupDown": "समूह नीचे ले जाएं",
+    "sortGroupAscending": "A से Z क्रमबद्ध करें",
+    "sortGroupDescending": "Z से A क्रमबद्ध करें",
     "ungroupKeepLayers": "समूह हटाएं (लेयर बनाए रखें)",
     "deleteGroupAndLayers": "समूह और लेयर हटाएं",
     "groupActions": "समूह क्रियाएं",

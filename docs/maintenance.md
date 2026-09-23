@@ -95,6 +95,18 @@ The cast hides upstream changes from TypeScript. After either deck.gl package is
 bumped, run `tests/arcgis-control-adapters.test.ts` and confirm the overlay still
 exposes `_props` with the initial `DeckProps` object.
 
+### `@loaders.gl/tiles` (via `@deck.gl/geo-layers`) — tile cache cap
+
+`applyThreeDTilesTilesetMemoryLimit` (`packages/plugins/src/plugins/arcgis-i3s-tiles.ts`)
+works around `Tileset3D` trimming its tile cache against a `maximumMemoryUsage`
+field it never copies from the load options, so the cap stays at 32 MB and
+every camera move evicts the tiles just drawn (issue #2560). The same PR turned
+`memoryAdjustedScreenSpaceError` off because it ratchets the level of detail
+down once that cache fills. After bumping deck.gl or loaders.gl, run
+`tests/arcgis-i3s-tiles.test.ts`: its real-`Tileset3D` case fails if the field
+is renamed or no longer starts at 32 MB. If upstream starts honouring the
+option, the helper can go.
+
 ### `@maplibre/maplibre-gl-style-spec`
 
 `propertySpecFor` (`packages/core/src/expressions.ts`) fabricates the
@@ -268,6 +280,17 @@ eagerly loaded plugin. The **placement** is not visible to the compiler, so
 `e2e/lidar-canvas-stacking.spec.ts` mounts the real control and asserts the
 resulting DOM order and z-indices — run it on a bump
 (`npx playwright test e2e/lidar-canvas-stacking.spec.ts --project=features`).
+
+The `?data=` LiDAR deep link leans on two more things the compiler cannot see.
+`isStreamedLidarUrl` (`apps/geolibre-desktop/src/lib/data-url.ts`) copies the
+routing at the top of `LidarControl.loadPointCloud` (an `/ept.json` suffix or a
+`.copc.` anywhere in the URL streams; anything else downloads whole) so that only
+whole downloads get the size check. If upstream changes that routing, update the
+copy, or a streamed file gets a needless size check and a downloaded one skips
+it. `addLidarLayerFromUrl` also relies on `load` firing, and adding the store
+layer, before `loadPointCloud` resolves; it throws if not.
+`tests/lidar-url-layer.test.ts` pins the GeoLibre side of both. Re-read
+`loadPointCloud` on a bump.
 
 ### `maplibre-gl-raster` — stretch and gamma curves
 

@@ -3097,6 +3097,51 @@ export function openLidarLayerPanel(app: GeoLibreAppAPI): void {
   void openStandaloneLidarControl(app);
 }
 
+/**
+ * Stream a remote LAS/LAZ/COPC file (or an EPT `ept.json`) into the shared
+ * LiDAR control without revealing its panel, as the `?data=` deep link does.
+ * The control's `load` handler adds the store layer, so this resolves once the
+ * layer exists.
+ *
+ * @param app - The GeoLibre app API.
+ * @param url - The point cloud URL.
+ * @param options - `fit: false` keeps the camera still, for a batch the caller frames.
+ * @returns The store layer id of the loaded point cloud, or null when the LiDAR
+ *   control could not be mounted.
+ * @throws When `url` is not an HTTP(S) URL, or the point cloud fails to load.
+ */
+export async function addLidarLayerFromUrl(
+  app: GeoLibreAppAPI,
+  url: string,
+  options: { fit?: boolean } = {},
+): Promise<string | null> {
+  let protocol: string | null = null;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    // Reported below with the same message as a non-web scheme.
+  }
+  if (protocol !== "https:" && protocol !== "http:") {
+    throw new Error(
+      app.translate?.("addData.lidar.errorUrl", "Enter a valid HTTP or HTTPS LiDAR URL.") ??
+        "Enter a valid HTTP or HTTPS LiDAR URL.",
+    );
+  }
+  const load = async () => {
+    const opened = await openStandaloneLidarControl(app, { reveal: false });
+    if (!opened || !lidarControl) return null;
+    const info = await lidarControl.loadPointCloud(url);
+    // maplibre-gl-lidar emits `load` synchronously before loadPointCloud
+    // resolves, so the load handler has already added the store layer. Fail
+    // loudly if an upgrade breaks that, rather than hand back a dangling id.
+    if (!useAppStore.getState().layers.some((layer) => layer.id === info.id)) {
+      throw new Error(`The LiDAR control did not create a layer for ${url}.`);
+    }
+    return info.id;
+  };
+  return (options.fit ?? true) ? load() : withLidarAutoZoomSuppressed(app, load);
+}
+
 /** Safety net for {@link waitForPendingLidarRestores}: how long to wait for
  * queued restores to settle before giving up regardless. */
 const PENDING_LIDAR_RESTORE_TIMEOUT_MS = 60_000;

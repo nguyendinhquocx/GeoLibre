@@ -1100,6 +1100,210 @@ describe("MapboxEngine.identifyFeatures", () => {
   });
 });
 
+describe("MapboxEngine point renderers", () => {
+  const points = () =>
+    geojsonLayer({
+      geojson: {
+        type: "FeatureCollection",
+        features: ["a", "b", "a"].map((kind, index) => ({
+          type: "Feature" as const,
+          id: `p${index}`,
+          properties: { kind },
+          geometry: { type: "Point" as const, coordinates: [index, index] },
+        })),
+      },
+    });
+
+  it("rebuilds the source when clustering is switched on or off", () => {
+    const { engine, map } = makeEngine();
+    const single = points();
+    engine.syncLayers([single]);
+    assert.equal(map.sources.get(SOURCE)?.cluster, undefined);
+    map.calls.length = 0;
+    const clustered = { ...single, style: { ...single.style, pointRenderer: "cluster" as const } };
+    engine.syncLayers([clustered]);
+    assert.ok(map.calls.includes(`removeSource:${SOURCE}`));
+    assert.equal(map.sources.get(SOURCE)?.cluster, true);
+    assert.ok(map.getLayer(`${SOURCE}-geojson-cluster`));
+    map.calls.length = 0;
+    // A new cluster radius is a source option too.
+    engine.syncLayers([{ ...clustered, style: { ...clustered.style, clusterRadius: 80 } }]);
+    assert.ok(map.calls.includes(`removeSource:${SOURCE}`));
+    assert.equal(map.sources.get(SOURCE)?.clusterRadius, 80);
+    map.calls.length = 0;
+    engine.syncLayers([single]);
+    assert.equal(map.sources.get(SOURCE)?.cluster, undefined);
+    assert.equal(map.getLayer(`${SOURCE}-geojson-cluster`), undefined);
+  });
+
+  it("pushes the re-filtered data when a clustered layer's filter changes", () => {
+    const { engine, map } = makeEngine();
+    const layer = points();
+    const clustered = { ...layer, style: { ...layer.style, pointRenderer: "cluster" as const } };
+    engine.syncLayers([clustered]);
+    map.calls.length = 0;
+    engine.syncLayers([{ ...clustered, filterExpression: ["==", ["get", "kind"], "a"] }]);
+    assert.ok(map.calls.includes(`setData:${SOURCE}`));
+    assert.ok(!map.calls.includes(`removeSource:${SOURCE}`));
+    const data = map.sources.get(SOURCE)?.data as { features: unknown[] };
+    assert.equal(data.features.length, 2);
+  });
+
+  it("maps a clustered point's index through the filtered data and skips bubbles", () => {
+    const { engine, map } = makeEngine();
+    const layer = points();
+    engine.syncLayers([
+      {
+        ...layer,
+        style: { ...layer.style, pointRenderer: "cluster" as const },
+        filterExpression: ["==", ["get", "kind"], "a"],
+      },
+    ]);
+    // The clustered source only holds p0 and p2, so Supercluster numbers p2 as 1.
+    map.setQueried([
+      { id: 1, layer: { id: CIRCLE }, properties: { kind: "a" }, geometry: null },
+      {
+        id: 99,
+        layer: { id: `${SOURCE}-geojson-cluster` },
+        properties: { cluster: true, point_count: 2 },
+        geometry: null,
+      },
+    ]);
+    assert.deepEqual(
+      engine.identifyFeatures([0, 0]).map((f) => f.featureId),
+      ["p2", null],
+    );
+    map.setQueried([
+      {
+        id: 99,
+        layer: { id: `${SOURCE}-geojson-cluster` },
+        properties: { cluster: true },
+        geometry: null,
+      },
+    ]);
+    assert.equal(engine.featureIdAtPoint("layer-a", { x: 0, y: 0 }), null);
+  });
+
+  it("resyncs on zoom only while a clustered layer has a zoom-dependent filter", () => {
+    const { engine, map } = makeEngine();
+    const layer = points();
+    const clustered = { ...layer, style: { ...layer.style, pointRenderer: "cluster" as const } };
+    engine.syncLayers([clustered]);
+    map.calls.length = 0;
+    map.fire("zoomend");
+    assert.ok(!map.calls.some((call) => call.startsWith("setData")));
+    // Above zoom 5 only the "a" points are kept; the fake map starts at zoom 2.
+    const byZoom = ["case", [">=", ["zoom"], 5], ["==", ["get", "kind"], "a"], true];
+    engine.syncLayers([{ ...clustered, filterExpression: byZoom }]);
+    assert.equal((map.sources.get(SOURCE)?.data as { features: unknown[] }).features.length, 3);
+    map.jumpTo({ center: [0, 0], zoom: 6, bearing: 0, pitch: 0 });
+    map.calls.length = 0;
+    map.fire("zoomend");
+    assert.ok(map.calls.includes(`setData:${SOURCE}`));
+    assert.equal((map.sources.get(SOURCE)?.data as { features: unknown[] }).features.length, 2);
+  });
+});
+
+describe("MapboxEngine labels", () => {
+  const labelled = (labels: Record<string, unknown>) =>
+    geojsonLayer({
+      geojson: {
+        type: "FeatureCollection",
+        features: ["a", "a"].map((name) => ({
+          type: "Feature" as const,
+          properties: { name, pop: 1 },
+          geometry: { type: "Point" as const, coordinates: [0, 0] },
+        })),
+      },
+      style: {
+        ...geojsonLayer().style,
+        labels: { ...geojsonLayer().style.labels, enabled: true, field: "name", ...labels },
+      },
+    });
+
+  it("resets a layout property the new plan drops", () => {
+    const { engine, map } = makeEngine();
+    engine.syncLayers([labelled({ priorityExpression: '["get", "pop"]' })]);
+    const id = `${SOURCE}-geojson-labels`;
+    assert.deepEqual(map.getLayoutProperty(id, "symbol-sort-key"), ["get", "pop"]);
+    engine.syncLayers([labelled({ priorityExpression: "" })]);
+    assert.equal(map.getLayoutProperty(id, "symbol-sort-key"), undefined);
+    assert.ok(map.calls.includes(`setLayoutProperty:${id}:symbol-sort-key`));
+  });
+
+  it("updates the dedup label source in place when the data changes", () => {
+    const { engine, map } = makeEngine();
+    const layer = labelled({ dedupe: "unique" });
+    engine.syncLayers([layer]);
+    const dedup = `${SOURCE}-labels-dedup`;
+    assert.ok(map.sources.has(dedup));
+    map.calls.length = 0;
+    const moved = {
+      ...layer,
+      geojson: {
+        ...layer.geojson!,
+        features: [
+          ...layer.geojson!.features,
+          {
+            type: "Feature" as const,
+            properties: { name: "b", pop: 2 },
+            geometry: { type: "Point" as const, coordinates: [5, 5] },
+          },
+        ],
+      },
+    };
+    engine.syncLayers([moved]);
+    assert.ok(map.calls.includes(`setData:${dedup}`));
+    assert.ok(!map.calls.includes(`removeSource:${dedup}`));
+    // A filter turns dedupe off: only the label layer and its companion
+    // source are swapped; the circles stay as they are.
+    map.calls.length = 0;
+    engine.syncLayers([{ ...moved, filterExpression: ["==", ["get", "pop"], 1] }]);
+    assert.ok(map.calls.includes(`removeSource:${dedup}`));
+    assert.ok(!map.calls.includes(`removeLayer:${CIRCLE}`));
+    assert.ok(!map.calls.includes(`removeSource:${SOURCE}`));
+    assert.equal((map.getLayer(`${SOURCE}-geojson-labels`) as { source?: string }).source, SOURCE);
+    // Turning dedupe off drops the companion source with the rebuilt plan.
+    engine.syncLayers([labelled({ dedupe: "off" })]);
+    assert.ok(!map.sources.has(dedup));
+  });
+});
+
+describe("MapboxEngine companion symbology", () => {
+  it("does not identify the inverted-fill mask as a feature of the layer", () => {
+    const { engine, map } = makeEngine();
+    const layer = geojsonLayer({
+      geojson: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            id: "sq",
+            properties: { name: "square" },
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        ],
+      },
+    });
+    engine.syncLayers([{ ...layer, style: { ...layer.style, invertedFillEnabled: true } }]);
+    const mask = `${FILL}-inverted`;
+    assert.ok(map.getLayer(mask));
+    map.setQueried([{ id: 0, layer: { id: mask }, properties: {}, geometry: null }]);
+    assert.deepEqual(engine.identifyFeatures([5, 5]), []);
+    assert.equal(engine.featureIdAtPoint("layer-a", { x: 0, y: 0 }), null);
+  });
+});
+
 describe("MapboxEngine camera and preferences", () => {
   it("publishes geographic map clicks and removes the listener on cleanup", () => {
     const { engine, map } = makeEngine();

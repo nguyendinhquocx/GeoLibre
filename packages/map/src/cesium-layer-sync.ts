@@ -6,6 +6,7 @@ import {
   compileLayerFilters,
   czmlSource,
   DEFAULT_LAYER_STYLE,
+  extrusionColorValue,
   geojsonHasZCoordinates,
   getCesiumIonToken,
   isCzmlLayer,
@@ -50,8 +51,10 @@ import {
 } from "./cesium-points";
 import {
   hasRegisteredProtocol,
+  mercatorBbox,
   ProtocolImageryProvider,
   protocolScheme,
+  quadkey,
   webMercatorRectangle,
 } from "./cesium-protocol-imagery";
 import {
@@ -381,6 +384,12 @@ export function extractTimeFilterDate(filter: unknown): Date | null {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+/** A layer's attribution, escaped for a provider's `credit` option. */
+function layerCredit(layer: GeoLibreLayer): string | undefined {
+  const attribution = str(layer.source.attribution);
+  return attribution ? escapeCreditHtml(attribution) : undefined;
 }
 
 /** Treat project attribution as text before handing it to Cesium's HTML credit sink. */
@@ -844,6 +853,8 @@ function needsRebuild(prev: GeoLibreLayer, next: GeoLibreLayer): boolean {
         prev.source.maxzoom !== next.source.maxzoom ||
         prev.source.minzoom !== next.source.minzoom ||
         str(prev.source.url) !== str(next.source.url) ||
+        // Provider credits are fixed at construction.
+        str(prev.source.attribution) !== str(next.source.attribution) ||
         str(prev.metadata?.sourceKind) !== str(next.metadata?.sourceKind) ||
         str(prev.sourcePath) !== str(next.sourcePath) ||
         str(prev.metadata?.arcgisSublayers) !== str(next.metadata?.arcgisSublayers) ||
@@ -2384,6 +2395,7 @@ export class CesiumLayerSync {
             styles: str(layer.source.styles) ?? "",
             version: str(layer.source.version) ?? "1.1.1",
           },
+          credit: layerCredit(layer),
         });
       } else if (wmtsCaps) {
         const url = wmtsCaps.url;
@@ -2428,6 +2440,7 @@ export class CesiumLayerSync {
           minimumLevel: Number.isFinite(minLevel) ? minLevel : undefined,
           tilingScheme,
           tileMatrixLabels,
+          credit: layerCredit(layer),
         });
       } else if (isCogLayer(layer)) {
         // The WASM tiler renders the tiles itself (issue #2283), so neither
@@ -2459,7 +2472,7 @@ export class CesiumLayerSync {
           rectangle,
           minimumLevel: Number.isFinite(header?.minZoom) ? header?.minZoom : undefined,
           maximumLevel: Number.isFinite(header?.maxZoom) ? header?.maxZoom : undefined,
-          credit: str(layer.source.attribution),
+          credit: layerCredit(layer),
         });
       } else {
         const url = firstTile(layer);
@@ -2467,6 +2480,17 @@ export class CesiumLayerSync {
         const maxLevel = Number(layer.source.maxzoom);
         const minLevel = Number(layer.source.minzoom);
         const scheme = protocolScheme(url);
+        const bounds = layer.source.bounds;
+        const rectangle =
+          Array.isArray(bounds) &&
+          bounds.length === 4 &&
+          bounds.every((v) => typeof v === "number" && Number.isFinite(v))
+            ? webMercatorRectangle(Cesium, bounds as [number, number, number, number])
+            : undefined;
+        // The tile size drives Cesium's level selection the way it drives
+        // MapLibre's, so a 512 px source fetches the same zoom on both.
+        const tileSize = Number(layer.source.tileSize);
+        const tileWidth = Number.isFinite(tileSize) && tileSize > 0 ? tileSize : undefined;
         if (scheme) {
           // A custom-protocol template (local MBTiles, the desktop's native
           // XYZ/WMS fetcher, a KML super-overlay, the COG DEM): the tiles come
@@ -2476,17 +2500,6 @@ export class CesiumLayerSync {
           // nothing.
           if (!hasRegisteredProtocol(scheme))
             throw new Error(`no MapLibre protocol handler registered for "${scheme}://"`);
-          const bounds = layer.source.bounds;
-          const rectangle =
-            Array.isArray(bounds) &&
-            bounds.length === 4 &&
-            bounds.every((v) => typeof v === "number" && Number.isFinite(v))
-              ? webMercatorRectangle(Cesium, bounds as [number, number, number, number])
-              : undefined;
-          // The tile size drives Cesium's level selection the way it drives
-          // MapLibre's, so a 512 px source fetches the same zoom on both.
-          const tileSize = Number(layer.source.tileSize);
-          const tileWidth = Number.isFinite(tileSize) && tileSize > 0 ? tileSize : undefined;
           provider = new ProtocolImageryProvider(Cesium, {
             template: url,
             scheme: layer.source.scheme === "tms" ? "tms" : "xyz",
@@ -2495,14 +2508,30 @@ export class CesiumLayerSync {
             rectangle,
             maximumLevel: Number.isFinite(maxLevel) ? maxLevel : undefined,
             minimumLevel: Number.isFinite(minLevel) ? minLevel : undefined,
-            credit: str(layer.source.attribution),
+            credit: layerCredit(layer),
           });
         } else {
-          const resource = makeResource(url);
+          let finalUrl = url;
+          if (layer.source.scheme === "tms") {
+            finalUrl = finalUrl.replace(/\{y\}/g, "{-y}");
+          }
+          const resource = makeResource(finalUrl);
           provider = new Cesium.UrlTemplateImageryProvider({
             url: resource,
+            tileWidth,
+            tileHeight: tileWidth,
+            rectangle,
             maximumLevel: Number.isFinite(maxLevel) ? maxLevel : undefined,
             minimumLevel: Number.isFinite(minLevel) ? minLevel : undefined,
+            credit: layerCredit(layer),
+            customTags: {
+              "bbox-epsg-3857": (_p: unknown, x: number, y: number, level: number) =>
+                mercatorBbox(level, x, y),
+              quadkey: (_p: unknown, x: number, y: number, level: number) => quadkey(level, x, y),
+              "-y": (_p: unknown, _x: number, y: number, level: number) =>
+                String(2 ** level - 1 - y),
+              ratio: () => "",
+            },
           });
         }
       }
@@ -2728,7 +2757,11 @@ export class CesiumLayerSync {
             ? (style.extrusionHeightScale as number)
             : 1;
           const base = Number.isFinite(style.extrusionBase) ? (style.extrusionBase as number) : 0;
-          const extColorStr = style.extrusionColor || style.fillColor || "#3b82f6";
+          const extColorVal = extrusionColorValue(style);
+          const extColorStr =
+            typeof extColorVal === "string"
+              ? extColorVal
+              : style.extrusionColor || style.fillColor || "#3b82f6";
 
           let heightEvaluator: ((f: Feature) => unknown) | undefined;
           if (style.extrusionAdvancedStyleEnabled && style.extrusionHeightExpression) {
@@ -2739,8 +2772,14 @@ export class CesiumLayerSync {
           }
 
           let colorEvaluator: ((f: Feature) => unknown) | undefined;
-          if (style.extrusionAdvancedStyleEnabled && style.extrusionColorExpression) {
-            const res = compileFeatureExpression(style.extrusionColorExpression, {
+          let colorExprStr: string | null = null;
+          if (typeof extColorVal !== "string") {
+            colorExprStr = JSON.stringify(extColorVal);
+          } else if (style.extrusionAdvancedStyleEnabled && style.extrusionColorExpression) {
+            colorExprStr = style.extrusionColorExpression;
+          }
+          if (colorExprStr) {
+            const res = compileFeatureExpression(colorExprStr, {
               expectedType: "color",
             });
             if (res.ok && res.evaluate) colorEvaluator = res.evaluate;
@@ -3477,10 +3516,16 @@ export class CesiumLayerSync {
     // white+alpha only fades them.
     const marker = Cesium.Color.WHITE.withAlpha(opacity);
     const isExtruded = Boolean(style.extrusionEnabled);
-    const extColorStr = style.extrusionColor || style.fillColor || "#3b82f6";
+    const extColorVal = isExtruded ? extrusionColorValue(style) : null;
+    const extColorStr =
+      typeof extColorVal === "string"
+        ? extColorVal
+        : style.extrusionColor || style.fillColor || "#3b82f6";
     const extFill = Cesium.Color.fromCssColorString(extColorStr).withAlpha(extOpacity);
     const hasColorExpr =
-      isExtruded && style.extrusionAdvancedStyleEnabled && Boolean(style.extrusionColorExpression);
+      isExtruded &&
+      (typeof extColorVal !== "string" ||
+        (style.extrusionAdvancedStyleEnabled && Boolean(style.extrusionColorExpression)));
     const arrow =
       style.lineDecoration === "arrow" &&
       Boolean(

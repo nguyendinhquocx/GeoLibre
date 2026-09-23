@@ -982,6 +982,9 @@
       "errorUrl": "შეიყვანეთ PMTiles-ის სწორი HTTP ან HTTPS URL.",
       "errorMlt": "ArcGIS საჭიროებს MVT ვექტორულ ფილებს და არა MLT-ს."
     },
+    "lidar": {
+      "errorUrl": "შეიყვანეთ LiDAR-ის სწორი HTTP ან HTTPS URL."
+    },
     "zarr": {
       "errorUrl": "შეიყვანეთ Zarr-ის სწორი HTTP ან HTTPS URL.",
       "errorColorLimits": "ფერის მაქსიმალური ზღვარი მინიმალურზე მეტი უნდა იყოს."
@@ -2377,6 +2380,7 @@
       },
       "earthquakes": "მიწისძვრები",
       "spaceMissions": "კოსმოსური მისიები (30 დღე)",
+      "activeFires": "აქტიური ხანძრები (24 სთ)",
       "satellites": "თანამგზავრები",
       "flights": "ფრენები რეალურ დროში",
       "militaryFlights": "სამხედრო ფრენები",
@@ -4695,6 +4699,10 @@
       "errorStartSidecar": "GeoLibre-ის sidecar-ის გაშვება ვერ მოხერხდა.",
       "errorStopSidecar": "GeoLibre-ის sidecar-ის გაჩერება ვერ მოხერხდა.",
       "noToolsFound": "ხელსაწყოები ვერ მოიძებნა.",
+      "searchToolsByMeaning": "ხელსაწყოების ძიება ან ამოცანის აღწერა",
+      "searchingByMeaning": "კატალოგის ძიება მნიშვნელობით",
+      "bestMatches": "საუკეთესო შესატყვისები",
+      "otherMatches": "სხვა შესატყვისები",
       "noParameters": "ამ ხელსაწყოს პარამეტრები არ აქვს.",
       "noOutput": "შედეგი ჯერ არ არის.",
       "enabled": "ჩართული",
@@ -7397,6 +7405,8 @@
     "renameGroup": "ჯგუფის სახელის შეცვლა",
     "moveGroupUp": "ჯგუფის ზემოთ წაწევა",
     "moveGroupDown": "ჯგუფის ქვემოთ წაწევა",
+    "sortGroupAscending": "დალაგება A-დან Z-მდე",
+    "sortGroupDescending": "დალაგება Z-დან A-მდე",
     "ungroupKeepLayers": "დაჯგუფების მოხსნა (შრეების შენარჩუნება)",
     "deleteGroupAndLayers": "ჯგუფისა და შრეების წაშლა",
     "groupActions": "ჯგუფის მოქმედებები",

@@ -961,6 +961,9 @@
       "errorUrl": "유효한 HTTP 또는 HTTPS PMTiles URL을 입력하세요.",
       "errorMlt": "ArcGIS에는 MLT가 아닌 MVT 벡터 타일이 필요합니다."
     },
+    "lidar": {
+      "errorUrl": "유효한 HTTP 또는 HTTPS LiDAR URL을 입력하세요."
+    },
     "zarr": {
       "errorUrl": "유효한 HTTP 또는 HTTPS Zarr URL을 입력하세요.",
       "errorColorLimits": "색상 최댓값은 최솟값보다 커야 합니다."
@@ -2329,6 +2332,7 @@
       },
       "earthquakes": "지진",
       "spaceMissions": "우주 임무(30일)",
+      "activeFires": "활성 화재(24시간)",
       "satellites": "위성",
       "flights": "실시간 항공편",
       "militaryFlights": "군용기",
@@ -4622,6 +4626,10 @@
       "errorStartSidecar": "GeoLibre 사이드카를 시작하지 못했습니다.",
       "errorStopSidecar": "GeoLibre 사이드카를 중지하지 못했습니다.",
       "noToolsFound": "도구를 찾을 수 없습니다.",
+      "searchToolsByMeaning": "도구 검색 또는 작업 설명",
+      "searchingByMeaning": "의미 기반으로 카탈로그 검색 중",
+      "bestMatches": "가장 적합한 결과",
+      "otherMatches": "기타 결과",
       "noParameters": "이 도구에는 매개변수가 없습니다.",
       "noOutput": "아직 출력이 없습니다.",
       "enabled": "사용",
@@ -7316,6 +7324,8 @@
     "renameGroup": "그룹 이름 변경",
     "moveGroupUp": "그룹 위로 이동",
     "moveGroupDown": "그룹 아래로 이동",
+    "sortGroupAscending": "A에서 Z로 정렬",
+    "sortGroupDescending": "Z에서 A로 정렬",
     "ungroupKeepLayers": "그룹 해제(레이어 유지)",
     "deleteGroupAndLayers": "그룹 및 레이어 삭제",
     "groupActions": "그룹 작업",

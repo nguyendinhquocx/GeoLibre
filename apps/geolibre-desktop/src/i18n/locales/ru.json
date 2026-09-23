@@ -1024,6 +1024,9 @@
       "errorUrl": "Введите корректный URL PMTiles по протоколу HTTP или HTTPS.",
       "errorMlt": "ArcGIS требует векторные тайлы MVT, а не MLT."
     },
+    "lidar": {
+      "errorUrl": "Введите корректный URL LiDAR по протоколу HTTP или HTTPS."
+    },
     "zarr": {
       "errorUrl": "Введите корректный URL Zarr по протоколу HTTP или HTTPS.",
       "errorColorLimits": "Верхний предел цвета должен быть больше нижнего."
@@ -2473,6 +2476,7 @@
       },
       "earthquakes": "Землетрясения",
       "spaceMissions": "Космические миссии (30 дней)",
+      "activeFires": "Активные пожары (24 ч)",
       "satellites": "Спутники",
       "flights": "Полёты в реальном времени",
       "militaryFlights": "Военные самолёты",
@@ -4841,6 +4845,10 @@
       "errorStartSidecar": "Не удалось запустить sidecar GeoLibre.",
       "errorStopSidecar": "Не удалось остановить sidecar GeoLibre.",
       "noToolsFound": "Инструменты не найдены.",
+      "searchToolsByMeaning": "Поиск инструментов или описание задачи",
+      "searchingByMeaning": "Поиск в каталоге по смыслу",
+      "bestMatches": "Лучшие совпадения",
+      "otherMatches": "Другие совпадения",
       "noParameters": "У этого инструмента нет параметров.",
       "noOutput": "Вывода пока нет.",
       "enabled": "Включено",
@@ -7559,6 +7567,8 @@
     "renameGroup": "Переименовать группу",
     "moveGroupUp": "Переместить группу вверх",
     "moveGroupDown": "Переместить группу вниз",
+    "sortGroupAscending": "Сортировать от А до Я",
+    "sortGroupDescending": "Сортировать от Я до А",
     "ungroupKeepLayers": "Разгруппировать (сохранить слои)",
     "deleteGroupAndLayers": "Удалить группу и слои",
     "groupActions": "Действия с группой",

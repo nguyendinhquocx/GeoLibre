@@ -104,8 +104,11 @@ browser against an authenticated Mapbox map):
 - **Time Slider** for XYZ, WMS, GeoJSON and TiTiler-served COG sources. A COG
   bound to the `gpu` / `wasm` engines (MapLibre-only tile protocols) is
   re-added through TiTiler; a mosaic manifest is dropped with a console
-  warning. Pixel identify and pixel time series are not available while Mapbox
-  is primary because those interactions still depend on the MapLibre map.
+  warning. The pixel time series tool picks and marks its points on Mapbox too
+  (the engine's click events and projected DOM markers), and Identify reads a
+  pixel's band values, as on MapLibre.
+- **NetCDF** sample markers, the 3D cube's "current view" and "draw" extents,
+  and the COG spectral-profile click work on either 2D engine.
 - **Timelapse**, including recording the Mapbox canvas to video.
 - **Elevation Profile**, **USGS LiDAR** (the 3DEP index raster is adopted
   natively; point clouds already drew through deck.gl), and **Mapillary**
@@ -227,9 +230,24 @@ Layers drawn with deck.gl need none:
 `@deck.gl/mapbox` targets Mapbox GL JS natively, so the engine reports
 `capabilities.deckOverlay` and the shared interleaved overlay binds to the
 Mapbox map through `app.getMapboxMap()`. Visible unsupported layers report an error
-on the map instead of being silently omitted. Advanced MapLibre-only symbology
-(such as custom marker assets and blend modes) is not reproduced by this native
-renderer. Mapbox Standard is loaded as a local style import with a shared opacity setting.
+on the map instead of being silently omitted. The heatmap and clustered point
+renderers compile to native Mapbox layers, with a clustered layer's authored
+filters applied to its data before clustering, as on MapLibre.
+The Style panel's symbology compiles to native Mapbox layers as on MapLibre:
+marker and KML icons, Geo Editor text markers, fill patterns and line
+decorations (generated sprites supplied through `styleimagemissing`), the
+inverted fill and the geometry generator (companion GeoJSON sources), the flat
+fill below a zoom-stepped extrusion, and attribute labels (de-duplicated labels
+read an aggregated companion source; the data-defined size, color, opacity,
+visibility and priority expressions apply). Layer blend modes are not
+reproduced, and the Style panel says so on a layer that sets one. Large
+GeoJSON (over 50,000 features) keeps mapbox-gl's own GeoJSON source: MapLibre
+serves such layers as vector tiles through a geojson-vt protocol, and mapbox-gl
+has no `addProtocol` hook, but its source already tiles the data in a worker
+with geojson-vt. With 200,000 points, adding the layer took about 2.1 s on
+Mapbox against 1.5 s on MapLibre, a restyle 0.9 s against 0.8 s, and a data
+edit 2.1 s against 1.2 s, with a shorter longest main-thread stall on Mapbox
+(0.8 s against 0.85 s). Mapbox Standard is loaded as a local style import with a shared opacity setting.
 The Background card fades its land and water colors, labels (including ocean labels),
 3D objects, and atmosphere while preserving project layers and Standard's configuration.
 

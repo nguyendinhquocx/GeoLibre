@@ -1492,3 +1492,84 @@ describe("PluginManager renderer compatibility", () => {
     assert.equal(mounted, 1);
   });
 });
+
+describe("PluginManager getProjectState fallback", () => {
+  const restored = {
+    manifestUrls: [],
+    activePluginIds: [],
+    mapControlPositions: { broken: "top-left" as const },
+    settings: { broken: { step: 1 } },
+  };
+  const brokenPlugin = () =>
+    testPlugin({
+      id: "broken",
+      getProjectState: () => {
+        throw new Error("control is gone");
+      },
+    });
+
+  it("keeps a failing plugin's restored entry by default", () => {
+    const manager = new PluginManager();
+    manager.register(brokenPlugin());
+    manager.restoreProjectState(restored, app);
+
+    const state = manager.getProjectState();
+    assert.deepEqual(state.settings.broken, { step: 1 });
+    assert.equal(state.mapControlPositions.broken, "top-left");
+  });
+
+  it("takes a failing plugin's entry from a newer stored snapshot when given one", () => {
+    const manager = new PluginManager();
+    manager.register(brokenPlugin());
+    manager.restoreProjectState(restored, app);
+
+    const state = manager.getProjectState({
+      ...restored,
+      mapControlPositions: { broken: "bottom-right" },
+      settings: { broken: { step: 7 } },
+    });
+    assert.deepEqual(state.settings.broken, { step: 7 });
+    assert.equal(state.mapControlPositions.broken, "bottom-right");
+  });
+
+  it("keeps a live control position read before the state accessor threw", () => {
+    const manager = new PluginManager();
+    manager.register({ ...brokenPlugin(), getMapControlPosition: () => "top-right" });
+    manager.restoreProjectState(restored, app);
+
+    const state = manager.getProjectState();
+    assert.equal(state.mapControlPositions.broken, "top-right");
+    assert.deepEqual(state.settings.broken, { step: 1 });
+  });
+});
+
+describe("PluginManager restore onto a replaced map", () => {
+  it("reactivates active plugins when the map was replaced on the same renderer", () => {
+    const manager = new PluginManager();
+    const calls: string[] = [];
+    manager.register(
+      testPlugin({
+        id: "dock",
+        activate: () => {
+          calls.push("activate");
+        },
+        deactivate: () => {
+          calls.push("deactivate");
+        },
+      }),
+    );
+    const state = {
+      manifestUrls: [],
+      activePluginIds: ["dock"],
+      mapControlPositions: {},
+      settings: {},
+    };
+    manager.restoreProjectState(state, app);
+    manager.restoreProjectState(state, app);
+    assert.deepEqual(calls, ["activate"]);
+
+    manager.restoreProjectState(state, app, { mapReplaced: true });
+    assert.deepEqual(calls, ["activate", "deactivate", "activate"]);
+    assert.equal(manager.isActive("dock"), true);
+  });
+});

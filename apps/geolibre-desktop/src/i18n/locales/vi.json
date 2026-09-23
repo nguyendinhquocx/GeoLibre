@@ -961,6 +961,9 @@
       "errorUrl": "Hãy nhập URL PMTiles hợp lệ theo HTTP hoặc HTTPS.",
       "errorMlt": "ArcGIS yêu cầu ô bản đồ vector MVT, không phải MLT."
     },
+    "lidar": {
+      "errorUrl": "Hãy nhập URL LiDAR hợp lệ theo HTTP hoặc HTTPS."
+    },
     "zarr": {
       "errorUrl": "Hãy nhập URL Zarr hợp lệ theo HTTP hoặc HTTPS.",
       "errorColorLimits": "Giới hạn màu tối đa phải lớn hơn giới hạn tối thiểu."
@@ -2329,6 +2332,7 @@
       },
       "earthquakes": "Động đất",
       "spaceMissions": "Sứ mệnh không gian (30 ngày)",
+      "activeFires": "Đám cháy đang hoạt động (24 giờ)",
       "satellites": "Vệ tinh",
       "flights": "Chuyến bay trực tiếp",
       "militaryFlights": "Chuyến bay quân sự",
@@ -4622,6 +4626,10 @@
       "errorStartSidecar": "Không thể khởi động sidecar GeoLibre.",
       "errorStopSidecar": "Không thể dừng sidecar GeoLibre.",
       "noToolsFound": "Không tìm thấy công cụ nào.",
+      "searchToolsByMeaning": "Tìm công cụ hoặc mô tả một tác vụ",
+      "searchingByMeaning": "Đang tìm trong danh mục theo ngữ nghĩa",
+      "bestMatches": "Kết quả phù hợp nhất",
+      "otherMatches": "Kết quả khác",
       "noParameters": "Công cụ này không có tham số.",
       "noOutput": "Chưa có đầu ra.",
       "enabled": "Đã bật",
@@ -7316,6 +7324,8 @@
     "renameGroup": "Nhấp đúp để thay đổi bản đồ cơ sở",
     "moveGroupUp": "Di chuyển nhóm lên",
     "moveGroupDown": "Di chuyển nhóm xuống",
+    "sortGroupAscending": "Sắp xếp từ A đến Z",
+    "sortGroupDescending": "Sắp xếp từ Z đến A",
     "ungroupKeepLayers": "Ungroup (giữ các lớp)",
     "deleteGroupAndLayers": "Xóa nhóm và lớp",
     "groupActions": "Hành động nhóm",

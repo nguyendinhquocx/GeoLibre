@@ -1,4 +1,3 @@
-import { listAssistantTools } from "@geolibre/plugins/assistant-tool-registry";
 import {
   DEFAULT_LAYER_STYLE,
   OPENFREEMAP_BASEMAPS,
@@ -18,14 +17,16 @@ import { cleanStatement, maskSqlLiterals, runSqlQuery } from "../sql-workspace";
 import { createXyzTileUrlTemplate } from "../xyz-url";
 import { findNamedTileBasemap, NAMED_TILE_BASEMAPS } from "./basemaps";
 import {
+  CATALOG_MAX_KEYWORD_CANDIDATES,
   mergeCatalogMatches,
   selectCatalogTools,
   type CatalogMatch,
   type CatalogTool,
 } from "./catalog-select";
-import { describeLayers, summarizeLayers } from "./layer-summary";
+import { describeLayers, SQL_GEOMETRY_SOURCE_METADATA_KEY, summarizeLayers } from "./layer-summary";
 import { buildSymbologyStyle } from "./symbology";
 import { readRuntimeEnv } from "./provider";
+import { guardMapForScript } from "./map-script-guard";
 import { resolveSystemOneEndpoint } from "./system-one";
 import { typesafeFetch } from "./typesafe-fetch";
 import { searchWhiteboxTools } from "../whitebox-tool-search";
@@ -115,15 +116,6 @@ const MAX_MODEL_ALGORITHM_MATCHES = 25;
 const MAX_WHITEBOX_MATCHES = 25;
 
 /**
- * Keyword hits offered to the catalog lookup as extra candidates.
- *
- * A one-word search can match hundreds of tools by substring; feeding all of
- * them into a Choice question would crowd out the categories the lookup's own
- * first question chose. This keeps the reinforcement without the takeover.
- */
-const MAX_KEYWORD_CANDIDATES = 40;
-
-/**
  * Rank the catalog against a search, semantically first and literally after.
  *
  * The two searches answer different questions. The substring filter is exact
@@ -151,7 +143,7 @@ async function rankWhiteboxSearch(
     return await selectCatalogTools({
       query,
       tools,
-      keywordMatches: keywordMatches.slice(0, MAX_KEYWORD_CANDIDATES),
+      keywordMatches: keywordMatches.slice(0, CATALOG_MAX_KEYWORD_CANDIDATES),
       endpoint,
       fetchImpl: await typesafeFetch(),
     });
@@ -302,10 +294,13 @@ function asFeatureCollection(data: unknown): FeatureCollection {
  * by mutating MapLibre directly — so all changes flow through the app's one-way
  * data flow and are covered by undo/redo.
  *
+ * Plugin-contributed tools are not included: the agent scopes those separately
+ * (see `tool-scope.ts`), since they may be deferred behind `load_plugin_tools`.
+ *
  * @param deps Map-controller accessor for camera tools.
- * @returns The tools to register on the agent.
+ * @returns The host tools, which are always sent to the model.
  */
-export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
+export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
   const store = () => useAppStore.getState();
   // Tool results are serialized to the model; the data we return is JSON-safe by
   // construction, so this asserts the shape against Strands' strict JSONValue.
@@ -381,7 +376,7 @@ export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
   const runSql = tool({
     name: "run_sql",
     description:
-      "Run a single read-only DuckDB Spatial SQL statement against the loaded layers (use the SQL table names from list_layers) and/or remote files. Returns column names, the row count, and a small preview. Set add_as_layer to add a geometry result to the map.",
+      "Run a single read-only DuckDB Spatial SQL statement against the loaded layers (use the SQL table names from list_layers) and/or remote files. Returns column names, the row count, and a small preview. Set add_as_layer to add a geometry result to the map. A geometry result that reads no layer, table or file comes back with geometrySource 'literal' and a warning: its geometry was typed into the SQL, so never present it as data.",
     inputSchema: z.object({
       sql: z.string().describe("A single SELECT statement (no trailing semicolon needed)."),
       add_as_layer: z
@@ -398,17 +393,37 @@ export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
         throw new Error("Only read-only SELECT/WITH queries are allowed.");
       }
       const result = await runSqlQuery(input.sql, store().layers);
+      // An empty source list means the query reads no layer, table or file, so
+      // its geometry was typed into the SQL (ST_Point(...), a WKT literal)
+      // rather than queried. Still allowed, since "drop a point at Bangkok" is a
+      // fair request, but flagged so neither the model nor a later tool call
+      // mistakes the result for real data (issue #2582).
+      const literalGeometry = Boolean(result.geojson) && result.dataSources?.length === 0;
       let addedLayerId: string | null = null;
       if (input.add_as_layer && result.geojson) {
         addedLayerId = store().addGeoJsonLayer(
           input.layer_name?.trim() || "SQL result",
           result.geojson,
         );
+        if (literalGeometry) {
+          const layer = store().layers.find((entry) => entry.id === addedLayerId);
+          store().updateLayer(addedLayerId, {
+            metadata: { ...layer?.metadata, [SQL_GEOMETRY_SOURCE_METADATA_KEY]: "literal" },
+          });
+        }
       }
       return json({
         columns: result.columns,
         rowCount: result.rowCount,
         hasGeometry: Boolean(result.geojson),
+        ...(result.geojson && result.dataSources ? { dataSources: result.dataSources } : {}),
+        ...(literalGeometry
+          ? {
+              geometrySource: "literal",
+              warning:
+                "This query reads no loaded layer, table or file: its geometry comes from literal values written into the SQL, not from queried data. Do not present it as data.",
+            }
+          : {}),
         preview: result.rows.slice(0, 10),
         addedLayerId,
       });
@@ -684,7 +699,7 @@ export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
   const runMaplibreJs = tool({
     name: "run_maplibre_js",
     description:
-      "Fallback for tasks with no dedicated tool (e.g. globe projection, terrain, sky, custom paint/layout properties, controls, markers). Runs a small JavaScript snippet against the live map. The snippet is a function body with `map` (the MapLibre GL JS map) and `maplibregl` (the MapLibre GL JS module, e.g. `maplibregl.TerrainControl`, `maplibregl.Marker`) in scope, and may `return` a JSON-serializable value. Example — switch to globe: `map.setProjection({ type: 'globe' })`. Prefer dedicated tools when one exists; changes made here bypass the store and are NOT undoable.",
+      "Fallback for tasks with no dedicated tool (e.g. globe projection, terrain, sky, custom paint/layout properties, controls, markers). Runs a small JavaScript snippet against the live map. The snippet is a function body with `map` (the MapLibre GL JS map) and `maplibregl` (the MapLibre GL JS module, e.g. `maplibregl.TerrainControl`, `maplibregl.Marker`) in scope, and may `return` a JSON-serializable value. Example — switch to globe: `map.setProjection({ type: 'globe' })`. Prefer dedicated tools when one exists; changes made here bypass the store and are NOT undoable. map.setStyle() and map.remove() are blocked: use set_basemap to change the basemap and remove_layer to remove a layer.",
     inputSchema: z.object({
       code: z.string().describe("JavaScript function body; `map` and `maplibregl` are in scope."),
     }),
@@ -702,7 +717,9 @@ export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
         map: unknown,
         maplibregl: unknown,
       ) => unknown;
-      const result = run(map, maplibregl);
+      // Whole-map mutations (setStyle, remove) are blocked: they bypass the
+      // store, so the Layers panel and undo would stop matching the map.
+      const result = run(guardMapForScript(map), maplibregl);
       // Coerce to a JSON-safe value so non-serializable returns (e.g. the map
       // object itself) don't blow up the tool result.
       let safe: JSONValue = null;
@@ -813,6 +830,7 @@ export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
         // always outranks a tool that merely mentions the query in its summary.
         const keywordMatches = searchWhiteboxTools(tools, query, (item) => ({
           name: `${item.name} ${item.id} ${item.category}`,
+          identifiers: [item.id, item.name],
           summary: item.description,
         }));
         const selected = await rankWhiteboxSearch(query, tools, keywordMatches);
@@ -1079,7 +1097,6 @@ export function createAssistantTools(deps: AssistantToolDeps): Tool[] {
   });
 
   return [
-    ...listAssistantTools(),
     listLayers,
     runSql,
     addLayerFromUrl,

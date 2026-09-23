@@ -163,21 +163,45 @@ export class PluginManager {
     return this.activationResults.get(id);
   }
 
-  getProjectState(): ProjectPluginState {
+  /**
+   * Snapshots every plugin's project state.
+   *
+   * @param fallbackState - Where a plugin that cannot report its own state
+   *   (unsupported on this renderer, or its accessor threw) takes its entry
+   *   from. Defaults to the state last restored; a caller holding a newer
+   *   stored snapshot should pass it.
+   * @returns The plugin state to persist with the project.
+   */
+  getProjectState(
+    fallbackState: ProjectPluginState | null = this.deferredState,
+  ): ProjectPluginState {
     const mapControlPositions: ProjectPluginState["mapControlPositions"] = {};
     const settings: ProjectPluginState["settings"] = {};
     for (const plugin of this.plugins.values()) {
       if (this.renderer && !isPluginEngineSupported(plugin, this.renderer)) {
-        const position = this.deferredState?.mapControlPositions[plugin.id];
+        const position = fallbackState?.mapControlPositions[plugin.id];
         if (position) mapControlPositions[plugin.id] = position;
-        if (this.deferredState?.settings && plugin.id in this.deferredState.settings)
-          settings[plugin.id] = this.deferredState.settings[plugin.id];
+        if (fallbackState?.settings && plugin.id in fallbackState.settings)
+          settings[plugin.id] = fallbackState.settings[plugin.id];
         continue;
       }
-      const position = plugin.getMapControlPosition?.();
-      if (position) mapControlPositions[plugin.id] = position;
-      const pluginState = plugin.getProjectState?.();
-      if (pluginState !== undefined) settings[plugin.id] = pluginState;
+      // One plugin that cannot report its state (an external plugin whose
+      // control is gone, say) must not cost every other plugin its snapshot.
+      try {
+        const position = plugin.getMapControlPosition?.();
+        if (position) mapControlPositions[plugin.id] = position;
+        const pluginState = plugin.getProjectState?.();
+        if (pluginState !== undefined) settings[plugin.id] = pluginState;
+      } catch (error) {
+        console.warn(`[GeoLibre] Could not read the project state of plugin "${plugin.id}"`, error);
+        // Keep a live position read before the state accessor threw.
+        if (!(plugin.id in mapControlPositions)) {
+          const position = fallbackState?.mapControlPositions[plugin.id];
+          if (position) mapControlPositions[plugin.id] = position;
+        }
+        if (fallbackState?.settings && plugin.id in fallbackState.settings)
+          settings[plugin.id] = fallbackState.settings[plugin.id];
+      }
     }
 
     return {
@@ -495,10 +519,14 @@ export class PluginManager {
   restoreProjectState(
     state: ProjectPluginState | null,
     app: GeoLibreAppAPI,
-    options: { resetMissingSettings?: boolean } = {},
+    options: { resetMissingSettings?: boolean; mapReplaced?: boolean } = {},
   ): void {
     const renderer = app.getMapRenderer?.() ?? "maplibre";
-    if (this.renderer !== null && renderer !== this.renderer) {
+    // A new map took down every live control with the old one, so reactivate
+    // from scratch. A swap and back (MapLibre to Mapbox to MapLibre) before
+    // the middle map restored lands on the same renderer kind, so the kind
+    // alone cannot tell; the caller says when the map itself was replaced.
+    if (this.renderer !== null && (renderer !== this.renderer || options.mapReplaced)) {
       for (const id of Array.from(this.active)) this.deactivate(id, app);
     }
     this.renderer = renderer;

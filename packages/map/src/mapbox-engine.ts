@@ -2,7 +2,7 @@ import { showGlSearchResult } from "./gl-search-result";
 import type * as mapboxgl from "mapbox-gl";
 import type { MapDiagnosticEvent } from "./map-diagnostic";
 import type * as maplibregl from "maplibre-gl";
-import type { FeatureCollection, Point, Polygon } from "geojson";
+import type { Feature, FeatureCollection, Point, Polygon } from "geojson";
 import type {
   GeoLibreLayer,
   MapPreferences,
@@ -36,6 +36,7 @@ import {
 } from "./map-engine";
 import {
   compileMapboxLayer,
+  isInternalMapboxLayer,
   isMapboxPluginLayer,
   DEFAULT_MAPBOX_TEXT_FONT,
   type MapboxLayerPlan,
@@ -48,6 +49,8 @@ import {
   styleLayerLabel,
 } from "./layer-labels";
 import { mapboxSourceId } from "./style-layer-ids";
+import { ensureGeneratedImageHandler } from "./generated-images";
+import { hasZoomDependentClusterFilter } from "./cluster-input";
 import { resolveTextFontFromStyleLayers } from "./text-font";
 import { getLayerBounds } from "./geojson-loader";
 import { captureEngineImage } from "./map-capture";
@@ -236,6 +239,15 @@ export class MapboxEngine implements MapEngine {
     if (this.syncPending) this.syncLayers(this.layers);
     if (this.basemapPending) this.applyBasemap();
   };
+  /**
+   * A clustered layer's authored filters are applied to its data before
+   * clustering, once per sync. A filter that reads `["zoom"]` therefore needs
+   * a sync per zoom to stay truthful, as MapLibre's controller does; the
+   * cluster input is cached per zoom, so an unchanged outcome costs no setData.
+   */
+  private onZoomEnd = () => {
+    if (hasZoomDependentClusterFilter(this.layers)) this.syncLayers(this.layers);
+  };
 
   constructor(
     map: mapboxgl.Map,
@@ -283,10 +295,14 @@ export class MapboxEngine implements MapEngine {
       unproject: (p) => map.unproject(p),
       redraw: () => map.triggerRepaint(),
     };
+    // Marker icons, fill patterns and line decorations are generated sprites
+    // the map asks for through `styleimagemissing`, as on MapLibre.
+    ensureGeneratedImageHandler(map as unknown as maplibregl.Map);
     map.on("style.load", this.styleLoaded);
     map.on("error", this.onError);
     map.on("sourcedata", this.onSourceData);
     map.on("idle", this.flushLayers);
+    map.on("zoomend", this.onZoomEnd);
     map.on("styledata", this.onStyleData);
     for (const id of MAPBOX_HOSTED_CONTROL_ORDER) {
       if (this.controlVisibility[id]) this.mountBuiltInControl(id);
@@ -428,6 +444,7 @@ export class MapboxEngine implements MapEngine {
     this.map.off("error", this.onError);
     this.map.off("sourcedata", this.onSourceData);
     this.map.off("idle", this.flushLayers);
+    this.map.off("zoomend", this.onZoomEnd);
     this.map.off("styledata", this.onStyleData);
     this.layerControlHost.destroy();
     // Leave no stale names behind for whichever engine mounts next — but only
@@ -717,24 +734,55 @@ export class MapboxEngine implements MapEngine {
           this.clearError(`layer:${original.id}`);
           continue;
         }
-        const plan = compileMapboxLayer(layer, { textFont: this.textFont });
+        const plan = compileMapboxLayer(layer, { textFont: this.textFont, zoom: map.getZoom() });
         const previous = this.previous.get(layer.id);
         const oldPlan = this.plans.get(layer.id);
         const sourceChanged =
           oldPlan &&
-          (JSON.stringify(oldPlan.additionalSources) !== JSON.stringify(plan.additionalSources) ||
-            oldPlan.source.type !== plan.source.type ||
+          (oldPlan.source.type !== plan.source.type ||
             (plan.source.type === "geojson" && oldPlan.source.type === "geojson"
-              ? false
+              ? // Clustering is a source option mapbox-gl cannot change in
+                // place, so a renderer switch or new cluster radius/max zoom
+                // rebuilds the source; new data alone goes through setData.
+                clusterOptionsKey(oldPlan.source) !== clusterOptionsKey(plan.source)
               : JSON.stringify(oldPlan.source) !== JSON.stringify(plan.source)));
         if (sourceChanged) this.removeLayer(layer.id);
+        else if (oldPlan) {
+          // A companion source that went away or changed shape (the dedup
+          // label points appearing as a filter clears, say) is swapped on its
+          // own, with only the style layers that read it; the layer's other
+          // style layers stay as they are.
+          for (const [id, old] of Object.entries(oldPlan.additionalSources ?? {})) {
+            const next = plan.additionalSources?.[id];
+            if (next && sourcesShapeKey({ [id]: next }) === sourcesShapeKey({ [id]: old }))
+              continue;
+            for (const spec of oldPlan.layers)
+              if ("source" in spec && spec.source === id && map.getLayer(spec.id))
+                map.removeLayer(spec.id);
+            if (map.getSource(id)) map.removeSource(id);
+            this.clearError(id);
+          }
+        }
         for (const [id, source] of Object.entries(plan.additionalSources ?? {})) {
           if (!map.getSource(id)) map.addSource(id, source);
+          else if (
+            source.type === "geojson" &&
+            oldPlan?.additionalSources?.[id]?.type === "geojson" &&
+            (oldPlan.additionalSources[id] as mapboxgl.GeoJSONSourceSpecification).data !==
+              source.data
+          ) {
+            // A companion GeoJSON source (the dedup label points) got new data.
+            (map.getSource(id) as mapboxgl.GeoJSONSource).setData(source.data!);
+          }
         }
         if (!map.getSource(plan.sourceId)) map.addSource(plan.sourceId, plan.source);
         else if (
           plan.source.type === "geojson" &&
-          (previous?.geojson !== layer.geojson || previous?.source !== layer.source)
+          (previous?.geojson !== layer.geojson ||
+            previous?.source !== layer.source ||
+            // A clustered layer's data is its GeoJSON narrowed by the authored
+            // filters, so a filter edit changes the data without a new layer.
+            (oldPlan?.source.type === "geojson" && oldPlan.source.data !== plan.source.data))
         ) {
           (map.getSource(plan.sourceId) as mapboxgl.GeoJSONSource).setData(plan.source.data!);
         }
@@ -742,16 +790,29 @@ export class MapboxEngine implements MapEngine {
         for (const old of oldPlan?.layers ?? [])
           if (!wanted.has(old.id) && map.getLayer(old.id)) map.removeLayer(old.id);
         for (const spec of plan.layers) {
+          const oldSpec = oldPlan?.layers.find((s) => s.id === spec.id);
           const old = map.getLayer(spec.id);
-          if (old && old.type !== spec.type) map.removeLayer(spec.id);
+          // A style layer's type and source are fixed once added.
+          if (
+            old &&
+            (old.type !== spec.type ||
+              ("source" in spec && "source" in old && old.source !== spec.source))
+          )
+            map.removeLayer(spec.id);
           if (!map.getLayer(spec.id)) map.addLayer(spec);
-          else if (
-            JSON.stringify(oldPlan?.layers.find((s) => s.id === spec.id)) !== JSON.stringify(spec)
-          ) {
+          else if (JSON.stringify(oldSpec) !== JSON.stringify(spec)) {
             for (const [key, value] of Object.entries(spec.paint ?? {}))
               map.setPaintProperty(spec.id, key as keyof mapboxgl.AnyPaint, value);
             for (const [key, value] of Object.entries(spec.layout ?? {}))
               map.setLayoutProperty(spec.id, key as keyof mapboxgl.AnyLayout, value);
+            // A property the new plan dropped (a cleared label priority, say)
+            // goes back to its default rather than keeping its last value.
+            for (const key of Object.keys(oldSpec?.paint ?? {}))
+              if (!(key in (spec.paint ?? {})))
+                map.setPaintProperty(spec.id, key as keyof mapboxgl.AnyPaint, undefined);
+            for (const key of Object.keys(oldSpec?.layout ?? {}))
+              if (!(key in (spec.layout ?? {})))
+                map.setLayoutProperty(spec.id, key as keyof mapboxgl.AnyLayout, undefined);
             if ("filter" in spec) map.setFilter(spec.id, spec.filter ?? null);
             map.setLayerZoomRange(spec.id, spec.minzoom ?? 0, spec.maxzoom ?? 24);
           }
@@ -807,7 +868,13 @@ export class MapboxEngine implements MapEngine {
     const entries: Array<readonly [string, string]> = [];
     for (const layer of layers) {
       const prefix = `${mapboxSourceId(layer.id)}-`;
-      const planned = this.plans.get(layer.id)?.layers.map((spec) => spec.id) ?? [];
+      // Companion layers (masks, generator shapes, decorations, dedup labels)
+      // are not the layer's own, so no control lists them, as on MapLibre.
+      const planned =
+        this.plans
+          .get(layer.id)
+          ?.layers.filter((spec) => !isInternalMapboxLayer(spec))
+          .map((spec) => spec.id) ?? [];
       const native = Array.isArray(layer.metadata?.nativeLayerIds)
         ? layer.metadata.nativeLayerIds.filter((id): id is string => typeof id === "string")
         : [];
@@ -1249,7 +1316,10 @@ export class MapboxEngine implements MapEngine {
     }
     let plan: MapboxLayerPlan;
     try {
-      plan = compileMapboxLayer({ ...layer, opacity: clamped }, { textFont: this.textFont });
+      plan = compileMapboxLayer(
+        { ...layer, opacity: clamped },
+        { textFont: this.textFont, zoom: map.getZoom() },
+      );
     } catch {
       // The layer does not compile at all; a full sync reports that the usual
       // way instead of failing silently here.
@@ -1271,8 +1341,16 @@ export class MapboxEngine implements MapEngine {
     }
     // Keep the remembered plan in step with what the map now shows, or the
     // next `syncLayers` would diff the restored paint against a plan that
-    // still holds the pre-fade opacity and skip writing it back.
-    this.plans.set(id, plan);
+    // still holds the pre-fade opacity and skip writing it back. Only the
+    // paint was applied here, so the sources stay the ones the map holds: a
+    // recompiled clustered source's data was never pushed with setData.
+    const applied = this.plans.get(id);
+    this.plans.set(
+      id,
+      applied
+        ? { ...plan, source: applied.source, additionalSources: applied.additionalSources }
+        : plan,
+    );
   }
   /**
    * Give a story fade mapbox-gl's paint transition, so the chapter's duration
@@ -1348,14 +1426,17 @@ export class MapboxEngine implements MapEngine {
     if (!map?.isStyleLoaded()) return [];
     const ids = [...this.plans]
       .filter(([id]) => !layerId || id === layerId)
-      .flatMap(([id, p]) => p.layers.map((s) => ({ id: s.id, layerId: id })));
+      .flatMap(([id, p]) =>
+        p.layers.filter((s) => !isInternalMapboxLayer(s)).map((s) => ({ id: s.id, layerId: id })),
+      );
     const byId = new Map(ids.map((s) => [s.id, s.layerId]));
     const queryIds = ids.map((s) => s.id).filter((id) => map.getLayer(id));
     if (!queryIds.length) return [];
     const seen = new Set<string>();
     return map.queryRenderedFeatures(map.project(lngLat), { layers: queryIds }).flatMap((f) => {
-      const id = byId.get(f.layer?.id ?? "")!;
-      const featureId = this.featureIdForLayer(id, f.id);
+      const id = byId.get(f.layer?.id ?? "");
+      if (!id) return [];
+      const featureId = this.featureIdForLayer(id, f);
       const key = `${id}:${featureId ?? JSON.stringify(f.properties)}`;
       if (seen.has(key)) return [];
       seen.add(key);
@@ -1374,16 +1455,23 @@ export class MapboxEngine implements MapEngine {
     const map = this.map;
     if (!map?.isStyleLoaded()) return null;
     const layer = this.layers.find((candidate) => candidate.id === layerId);
-    const queryIds = layer ? this.nativeLayerIds(layer) : [];
+    const queryIds = layer
+      ? (this.plans.get(layer.id)?.layers ?? [])
+          .filter((spec) => !isInternalMapboxLayer(spec) && this.map?.getLayer(spec.id))
+          .map((spec) => spec.id)
+      : [];
     if (!queryIds.length) return null;
-    const [feature] = map.queryRenderedFeatures(
-      [
-        [point.x - 4, point.y - 4],
-        [point.x + 4, point.y + 4],
-      ],
-      { layers: queryIds },
-    );
-    return feature ? this.featureIdForLayer(layerId, feature.id) : null;
+    const queryable = new Set(queryIds);
+    const feature = map
+      .queryRenderedFeatures(
+        [
+          [point.x - 4, point.y - 4],
+          [point.x + 4, point.y + 4],
+        ],
+        { layers: queryIds },
+      )
+      .find((candidate) => queryable.has(candidate.layer?.id ?? ""));
+    return feature ? this.featureIdForLayer(layerId, feature) : null;
   }
   /**
    * Resolve a queried feature's id to the app's `String(feature.id ?? index)`
@@ -1391,14 +1479,30 @@ export class MapboxEngine implements MapEngine {
    * the feature's index in the source data and overwrites any authored id; map
    * it back through the layer's own GeoJSON so selection and highlighting key
    * on the same value as the attribute table.
+   *
+   * A clustered source indexes the data the plan handed it, which the layer's
+   * authored filters may have narrowed (`authoredClusterInput`), so the index
+   * is read against that collection and the feature is then located in the
+   * layer's own. A cluster bubble aggregates many points and is no feature of
+   * the layer, so it has no id to select.
    */
-  private featureIdForLayer(layerId: string, queried: string | number | undefined): string | null {
-    if (queried == null) return null;
+  private featureIdForLayer(
+    layerId: string,
+    queried: { id?: string | number; properties?: Record<string, unknown> | null },
+  ): string | null {
+    if (queried.id == null) return null;
+    if (queried.properties?.cluster === true) return null;
     const features = this.layers.find((l) => l.id === layerId)?.geojson?.features;
-    if (!features) return String(queried);
-    const index = Number(queried);
-    const feature = Number.isInteger(index) ? features[index] : undefined;
-    return feature ? String(feature.id ?? index) : String(queried);
+    if (!features) return String(queried.id);
+    const source = this.plans.get(layerId)?.source;
+    const data = source?.type === "geojson" ? source.data : undefined;
+    const indexed =
+      data && typeof data === "object" && "features" in data ? data.features : features;
+    const index = Number(queried.id);
+    const feature = Number.isInteger(index) ? indexed[index] : undefined;
+    if (!feature) return String(queried.id);
+    if (feature.id != null) return String(feature.id);
+    return String(indexed === features ? index : featureIndex(features, feature));
   }
   highlightFeature(
     layer: GeoLibreLayer | undefined,
@@ -1790,4 +1894,38 @@ export class MapboxEngine implements MapEngine {
   async setTerrainCogSource(source: string | Blob | null): Promise<boolean> {
     return source === null;
   }
+}
+
+/** The clustering options of a GeoJSON source, which mapbox-gl fixes at creation. */
+function clusterOptionsKey(source: mapboxgl.SourceSpecification): string {
+  if (source.type !== "geojson") return "";
+  const { cluster, clusterRadius, clusterMaxZoom } = source;
+  return JSON.stringify([cluster ?? false, clusterRadius, clusterMaxZoom]);
+}
+
+// A feature's index in its layer's collection, for identify on a filtered
+// clustered source. Memoized per collection: an id-less layer would otherwise
+// pay a linear scan for every hit of every click.
+const featureIndexes = new WeakMap<Feature[], Map<Feature, number>>();
+function featureIndex(features: Feature[], feature: Feature): number {
+  let indexes = featureIndexes.get(features);
+  if (!indexes) {
+    indexes = new Map(features.map((candidate, index) => [candidate, index]));
+    featureIndexes.set(features, indexes);
+  }
+  return indexes.get(feature) ?? -1;
+}
+
+/**
+ * What a plan's companion sources look like apart from GeoJSON data, which
+ * the engine updates in place with `setData` instead of rebuilding the layer.
+ */
+function sourcesShapeKey(sources: Record<string, mapboxgl.SourceSpecification> | undefined) {
+  return JSON.stringify(
+    Object.entries(sources ?? {}).map(([id, source]) =>
+      source.type === "geojson"
+        ? [id, { ...source, data: typeof source.data === "string" ? source.data : "inline" }]
+        : [id, source],
+    ),
+  );
 }
