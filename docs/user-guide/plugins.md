@@ -16,7 +16,7 @@ The built-in plugins are:
 | **GeoEditor** | Drawing, vertex editing, and deletion tools for GeoJSON layers. |
 | **Annotations** | The map-annotation toolbar and Elements panel. See [Annotations](map-controls.md#annotations-and-the-elements-panel). |
 | **Basemaps** | A basemap gallery for switching the background map, from the same catalog as the [Change basemap dialog](adding-data.md#basemaps). |
-| **Web Services** | A submenu of catalog and service browsers: FEMA NFHL, NASA Earthdata, US EPA EnviroAtlas, USGS National Map, USGS NLDI, Vantor Open Data, Planet Open Data, Earthdata GIS, OpenAerialMap, ArcGIS Hub, Socrata, CKAN, STAC Catalogs, Source Cooperative, Natural Earth, Hugging Face, Satellite Embeddings, and GeoLens. See [Web Services](web-services.md). |
+| **Web Services** | A submenu of catalog and service browsers: FEMA NFHL, NASA Earthdata, US EPA EnviroAtlas, USGS National Map, USGS NLDI, Vantor Open Data, Planet Open Data, Earthdata GIS, OpenAerialMap, ArcGIS Hub, Socrata, CKAN, STAC Catalogs, Source Cooperative, Natural Earth, Hugging Face, Satellite Embeddings, Fields of the World, and GeoLens. See [Web Services](web-services.md). |
 | **Historical Imagery** | Browse historical aerial and satellite imagery for a location. |
 | **Time Slider** | Filter a temporal layer by a date or number field. |
 | **Timelapse** | Animate annual cloudless basemaps (EOX Sentinel-2, and NASA GIBS Landsat/WELD and MODIS land cover) with a provider picker and legend. |
@@ -47,6 +47,15 @@ Source Cooperative mirror under CC BY-NC-SA 3.0, including its NonCommercial
 restriction. Public camera imagery comes from TfL, Austin, Calgary, Fintraffic,
 Ontario 511, DriveBC, Live Traffic NSW, and Caltrans under each provider's
 public-data terms.
+
+Two layers use a key of your own, entered under **API keys** at the bottom of
+the panel. **Live AIS Vessels** streams ship positions from
+[AISStream](https://aisstream.io/) for the current view (up to 30° across) and
+shows nothing without a key. **Simulated Street Traffic** works keyless; with a
+[TomTom](https://developer.tomtom.com/) key it also draws live congestion and
+paces its vehicles by it. Keys typed there stay in the browser and are never
+written to the project; `VITE_TOMTOM_API_KEY` or `AISSTREAM_API_KEY` under
+**Settings → Environment variables** works too.
 
 ![A plugin submenu, with Activate above the four map-corner positions](https://assets.geolibre.app/images/geolibre-plugin-position-menu.webp)
 

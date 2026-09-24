@@ -1462,6 +1462,59 @@ def test_voronoi_diagonal_collinear_points_raise() -> None:
 
 
 @requires_geopandas
+def test_voronoi_antimeridian_crossing_raises_value_error() -> None:
+    # A layer spanning > 180° of longitude crosses the antimeridian; reject
+    # rather than building an unconstrained cross-world planar envelope.
+    with pytest.raises(ValueError, match="cross the antimeridian"):
+        run_vector_tool(
+            "voronoi",
+            _points((179.0, 10.0), (-179.0, 11.0), (179.5, 12.0)),
+            parameters={"type": "voronoi"},
+        )
+
+
+@requires_geopandas
+def test_voronoi_out_of_range_points_raise_value_error() -> None:
+    # Points past the WGS84 limits would clamp the envelope to a sliver that no
+    # longer contains them; reject them instead of emitting stray cells.
+    with pytest.raises(ValueError, match="valid WGS84 coordinates"):
+        run_vector_tool(
+            "voronoi",
+            _points((181.0, 10.0), (182.0, 11.0), (183.0, 10.0)),
+            parameters={"type": "voronoi"},
+        )
+
+
+@requires_geopandas
+def test_voronoi_non_finite_points_raise_value_error() -> None:
+    # NaN passes every bounds comparison, so it needs its own guard.
+    with pytest.raises(ValueError, match="finite coordinates"):
+        run_vector_tool(
+            "voronoi",
+            _points((float("nan"), 10.0), (1.0, 11.0), (2.0, 10.0)),
+            parameters={"type": "voronoi"},
+        )
+
+
+@requires_geopandas
+def test_voronoi_envelope_clamped_to_wgs84_bounds() -> None:
+    # High-latitude and boundary points must not produce cells with coordinates
+    # outside valid WGS84 geographic limits (lat in [-90, 90], lon in [-180, 180]).
+    arctic_points = _points((0.0, 70.0), (10.0, 80.0), (5.0, 89.0))
+    geojson, _ = run_vector_tool("voronoi", arctic_points, parameters={"type": "voronoi"})
+    assert len(geojson["features"]) > 0
+    from shapely.geometry import shape
+
+    for feature in geojson["features"]:
+        geom = shape(feature["geometry"])
+        minx, miny, maxx, maxy = geom.bounds
+        assert -180.0 <= minx <= 180.0
+        assert -180.0 <= maxx <= 180.0
+        assert -90.0 <= miny <= 90.0
+        assert -90.0 <= maxy <= 90.0
+
+
+@requires_geopandas
 def test_json_wrapper_round_trips() -> None:
     payload = json.dumps(
         {
@@ -1607,3 +1660,90 @@ def test_check_validity_counts_empty_geometry_as_missing() -> None:
     _, messages = run_vector_tool("check-validity", with_empty)
     assert any("1 without geometry" in m for m in messages)
     assert any("Checked 1 feature(s)" in m for m in messages)
+
+
+@requires_geopandas
+@pytest.mark.parametrize(
+    "tolerance", [-1, -0.001, True, False, float("nan"), float("inf"), float("-inf")]
+)
+def test_simplify_negative_or_non_finite_tolerance_raises_value_error(tolerance: object) -> None:
+    with pytest.raises(
+        ValueError, match="Simplify tolerance must be a finite, non-negative number"
+    ):
+        run_vector_tool("simplify", SQUARE, parameters={"tolerance": tolerance})
+
+
+@requires_geopandas
+def test_simplify_unparseable_tolerance_raises_value_error() -> None:
+    with pytest.raises(
+        ValueError, match="Simplify tolerance must be a finite, non-negative number"
+    ):
+        run_vector_tool("simplify", SQUARE, parameters={"tolerance": "invalid_num"})
+
+
+@requires_geopandas
+def test_simplify_defaults_missing_tolerance() -> None:
+    geojson, messages = run_vector_tool("simplify", SQUARE)
+    assert len(geojson["features"]) == 1
+    assert any("tolerance 0.01 degrees" in m for m in messages)
+
+
+@requires_geopandas
+@pytest.mark.parametrize(
+    ("tolerance", "expected_tolerance"),
+    [
+        (0, "tolerance 0.0 degrees"),
+        (None, "tolerance 0.01 degrees"),
+        (0.05, "tolerance 0.05 degrees"),
+    ],
+)
+def test_simplify_preserves_boundary_tolerances(tolerance: object, expected_tolerance: str) -> None:
+    geojson, messages = run_vector_tool("simplify", SQUARE, parameters={"tolerance": tolerance})
+    assert len(geojson["features"]) == 1
+    assert any(expected_tolerance in m for m in messages)
+
+
+NULL_GEOM_LAYER = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"name": "no_geom"},
+            "geometry": None,
+        }
+    ],
+}
+
+
+@requires_geopandas
+def test_bounding_box_empty_geometries_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="contains no valid geometry to compute a bounding box"):
+        run_vector_tool("bounding-box", NULL_GEOM_LAYER)
+
+
+@requires_geopandas
+def test_bounding_box_computes_expected_bounds() -> None:
+    geojson, messages = run_vector_tool("bounding-box", SQUARE)
+    assert len(geojson["features"]) == 1
+    coords = geojson["features"][0]["geometry"]["coordinates"][0]
+    assert len(coords) == 5
+    assert coords == [
+        [1.0, 0.0],
+        [1.0, 1.0],
+        [0.0, 1.0],
+        [0.0, 0.0],
+        [1.0, 0.0],
+    ]
+    assert any("Computed bounding box" in m for m in messages)
+
+
+@requires_geopandas
+def test_buffer_empty_geometries_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="contains no valid geometry coordinates to project"):
+        run_vector_tool("buffer", NULL_GEOM_LAYER, parameters={"distance": 1})
+
+
+@requires_geopandas
+def test_centroids_empty_geometries_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="contains no valid geometry coordinates to project"):
+        run_vector_tool("centroids", NULL_GEOM_LAYER)
