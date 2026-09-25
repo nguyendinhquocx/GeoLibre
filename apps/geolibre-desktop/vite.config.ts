@@ -3,7 +3,8 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { RollupLog, RollupOptions, WarningHandlerWithDefault } from "rollup";
+import type { RollupLog, WarningHandlerWithDefault } from "rollup";
+import type { OutputChunk, RolldownOptions } from "rolldown";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
@@ -577,6 +578,10 @@ function manualChunks(id: string): string | undefined {
   // and the shell never mounts (see e2e/pwa.spec.ts). Let CSS and other assets
   // fall through to default handling so only their JS is code-split.
   if (!/\.[mc]?[jt]sx?(?:\?|$)/.test(id)) return undefined;
+  // A `?url` import (e.g. the DuckDB worker script) is a one-line module that
+  // exports the asset's URL. Named after its package, it landed in that
+  // package's chunk, so importing the URL string fetched all of DuckDB-WASM.
+  if (/\?(?:[^#]*&)?url(?:&|$)/.test(id)) return undefined;
   // Keep @duckdb/duckdb-wasm AND its apache-arrow dependency together in one
   // lazily-fetched chunk. apache-arrow is shared with maplibre-gl-duckdb; if it
   // is left to default chunking it can be hoisted into a chunk the eager
@@ -604,23 +609,129 @@ function manualChunks(id: string): string | undefined {
   // `maplibre` chunk and force DuckDB into boot. Give it its own lazy chunk.
   if (id.includes("maplibre-gl-duckdb")) return "maplibre-duckdb";
   if (id.includes("/mapbox-gl/")) return "mapbox";
+  // One chunk per `maplibre-gl-*` feature plugin (components, splat, 3d-tiles,
+  // lidar, …). A single shared chunk put ~12 MB of plugins, plus the
+  // dependencies they pull in (three, deck.gl, luma.gl), into the chunk that
+  // holds MapLibre core, which boots eagerly. Split per package, each plugin
+  // loads when its control is first used and boot fetches only MapLibre core.
+  const mapLibrePlugin = id.match(/\/node_modules\/(maplibre-gl-[^/]+)\//);
+  if (mapLibrePlugin) return mapLibrePlugin[1];
   if (id.includes("maplibre-gl")) return "maplibre";
-  // Cesium is large (~several MB) and only loads when the user opens the 3D
-  // globe view; keep it in its own lazily-fetched chunk, off the boot graph.
-  // The globe imports `@cesium/engine` directly rather than the `cesium`
-  // wrapper: the wrapper re-exports `@cesium/widgets` too, and that barrel
-  // defeats tree-shaking, so the widget chrome and Knockout shipped in this
-  // chunk even though the pane builds a bare `CesiumWidget`. The `cesium`
-  // package is still a dependency — copy-cesium-assets stages the runtime
-  // Workers/Assets from its prebuilt `Build/Cesium` — so both paths are matched
-  // here, which also keeps the intent if a future eager import appears.
-  if (id.includes("/node_modules/cesium/") || id.includes("/node_modules/@cesium/"))
-    return "cesium";
+  // Cesium is handled by a dedicated group in CODE_SPLITTING_GROUPS below, not
+  // here: a name returned from this function also captures the module's
+  // dependencies, which is how Cesium used to pull shared helpers into its
+  // chunk and onto the boot path.
   // Returning undefined hands remaining node_modules back to Rollup's default
   // chunking. We intentionally do not group them into a single "vendor" chunk:
   // that produced a circular manual-chunks warning. Do not re-add a catch-all
   // `return "vendor"` here without re-checking that warning.
   return undefined;
+}
+
+// Rolldown code-splitting groups. A group captures its matched modules AND,
+// by default, their dependencies recursively, and an earlier capture wins over
+// a later `manualChunks` name. When Cesium was named from manualChunks, its
+// chunk swallowed Vite's dynamic-import preload helper, tslib, and dompurify.
+// The entry imports the preload helper, so the whole ~4.7 MB Cesium chunk was
+// modulepreloaded on every boot. The higher-priority groups here claim those
+// shared modules first. The Cesium and manualChunks groups do not follow
+// dependencies, so each named chunk holds only its own package.
+const CODE_SPLITTING_GROUPS = [
+  { name: "preload-helper", test: /vite\/preload-helper/, priority: 3 },
+  { name: "tslib", test: /\/node_modules\/tslib\//, priority: 3 },
+  { name: "dompurify", test: /\/node_modules\/dompurify\//, priority: 3 },
+  // Cesium only loads when a pane switches to the 3D globe. The globe imports
+  // `@cesium/engine` directly rather than the `cesium` wrapper: the wrapper
+  // re-exports `@cesium/widgets` too, and that barrel defeats tree-shaking. The
+  // `cesium` package is still a dependency (copy-cesium-assets stages its
+  // runtime Workers/Assets), so both paths are matched.
+  {
+    name: "cesium",
+    test: /\/node_modules\/(?:cesium|@cesium)\//,
+    includeDependenciesRecursively: false,
+    priority: 2,
+  },
+  // The named chunks from manualChunks do not follow dependencies either. With
+  // recursion, whichever named chunk reached a shared library first absorbed
+  // it: `maplibre-duckdb` held all of deck.gl and luma.gl, `maplibre-gl-raster`
+  // held loaders.gl, and `maplibre-gl-components` held three.js. Any startup
+  // code that needed one of those libraries then fetched the whole plugin
+  // chunk, about 5.7 MB of plugins at boot. Shared libraries now land in
+  // Rolldown's default chunks and load only with code that uses them.
+  {
+    name: (id: string) => manualChunks(id) ?? null,
+    includeDependenciesRecursively: false,
+    priority: 1,
+  },
+];
+
+// Upper bound on the minified JS the app entry imports statically, i.e. what
+// index.html modulepreloads before the shell can mount. It measured ~2.2 MB
+// when this guard was added (MapLibre core is ~1.2 MB of it); it was ~19 MB
+// while Cesium and every MapLibre plugin sat on the boot path. Raise it only
+// deliberately, after confirming the new eager code actually belongs at boot.
+const BOOT_JS_BUDGET_BYTES = 3 * 1024 * 1024;
+
+/**
+ * Fails the build when the app entry's static import graph exceeds
+ * BOOT_JS_BUDGET_BYTES or includes Cesium. Chunk-grouping regressions are
+ * silent otherwise: the app still works, it just downloads megabytes more on
+ * every launch.
+ */
+function bootBundleBudgetPlugin(): Plugin {
+  return {
+    name: "geolibre-boot-bundle-budget",
+    apply: "build",
+    generateBundle(_, bundle) {
+      // Sizes are only meaningful once selectiveJsMinifyPlugin has run.
+      if (process.env.TAURI_DEBUG) return;
+      const entry = Object.values(bundle).find(
+        (chunk): chunk is OutputChunk =>
+          chunk.type === "chunk" && chunk.isEntry && chunk.name === "main",
+      );
+      // A missing entry would switch the guard off without anyone noticing,
+      // which is the kind of silent regression it exists to catch.
+      if (!entry) {
+        this.error(
+          'Boot bundle budget: no entry chunk named "main" found. Update ' +
+            "bootBundleBudgetPlugin if the build input key changed.",
+        );
+      }
+      const seen = new Set<string>();
+      const pending = [entry.fileName];
+      let bytes = 0;
+      const offenders: string[] = [];
+      while (pending.length > 0) {
+        const fileName = pending.pop()!;
+        if (seen.has(fileName)) continue;
+        seen.add(fileName);
+        const chunk = bundle[fileName];
+        if (chunk?.type !== "chunk") continue;
+        bytes += Buffer.byteLength(chunk.code);
+        if (chunk.moduleIds.some((id) => /\/node_modules\/(?:cesium|@cesium)\//.test(id))) {
+          offenders.push(`${fileName} contains Cesium`);
+        }
+        pending.push(...chunk.imports);
+      }
+      const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
+      if (bytes > BOOT_JS_BUDGET_BYTES) {
+        offenders.push(`boot JS is ${mb(bytes)}, over the ${mb(BOOT_JS_BUDGET_BYTES)} budget`);
+      }
+      if (offenders.length > 0) {
+        const largest = [...seen]
+          .map((fileName) => bundle[fileName])
+          .filter((chunk): chunk is OutputChunk => chunk?.type === "chunk")
+          .sort((a, b) => b.code.length - a.code.length)
+          .slice(0, 5)
+          .map((chunk) => `  ${chunk.fileName} (${mb(Buffer.byteLength(chunk.code))})`);
+        this.error(
+          `Boot bundle regression: ${offenders.join("; ")}.\n` +
+            `Largest statically imported chunks:\n${largest.join("\n")}\n` +
+            "See CODE_SPLITTING_GROUPS and manualChunks in vite.config.ts.",
+        );
+      }
+    },
+  };
 }
 
 function onwarn(warning: RollupLog, defaultHandler: WarningHandlerWithDefault): void {
@@ -931,6 +1042,10 @@ function selectiveJsMinifyPlugin(): Plugin {
           }
 
           const result = await transform(asset.code, {
+            // esbuild's default ASCII charset escapes every non-ASCII character,
+            // which inflates chunks that embed binary data as a string (the
+            // h5wasm HDF5 chunk grows ~0.8 MB). Vite emits UTF-8 anyway.
+            charset: "utf8",
             legalComments: "none",
             minify: true,
             target: "esnext",
@@ -1143,8 +1258,9 @@ function pwaPlugin(): Plugin[] {
   // caches them on first use for offline. Hashed filenames make CacheFirst safe
   // (a redeploy mints new URLs, so a stale entry is never served as current).
   const HEAVY_PRECACHE_IGNORES = [
-    // MapLibre core (~13 MB) and its feature-plugin chunks. The map boots from
-    // its first runtime fetch and is CacheFirst-cached thereafter.
+    // MapLibre core (~1.2 MB) and the per-package `maplibre-gl-*` plugin
+    // chunks. The map boots from its first runtime fetch and is
+    // CacheFirst-cached thereafter.
     "**/maplibre-*",
     "**/mapbox-*",
     "**/duckdb-*",
@@ -1365,6 +1481,7 @@ export default defineConfig({
     wmsProxyPlugin(),
     fastPathProxyPlugin(),
     selectiveJsMinifyPlugin(),
+    bootBundleBudgetPlugin(),
     removeJupyterLiteFromTauriDistPlugin(),
     ...pwaPlugin(),
   ],
@@ -1416,6 +1533,10 @@ export default defineConfig({
   },
   worker: {
     format: "es",
+    // Worker bundles are separate builds that do not inherit the top-level
+    // plugins, and `build.minify` is off, so without this the MapLibre worker
+    // (loaded on every map start) and the tool workers ship unminified.
+    plugins: () => [selectiveJsMinifyPlugin()],
   },
   envPrefix: ["VITE_", "TAURI_"],
   optimizeDeps: {
@@ -1479,6 +1600,11 @@ export default defineConfig({
       // discovers the package on first open of the globe and triggers a
       // full-page reload to re-optimize.
       "@cesium/widgets",
+      // The globe's Zarr imagery provider, imported on the first Zarr layer the
+      // globe draws; listed so that first draw does not trigger a re-optimize
+      // reload. Its `cesium` import resolves to `@cesium/engine` (see
+      // `resolve.alias`), so it shares the pre-bundled engine above.
+      "zarr-cesium",
     ],
     // PGlite ships its own WASM + filesystem bundles and must not be pre-bundled
     // by esbuild, which mangles those asset references (per PGlite's Vite guide).
@@ -1520,11 +1646,19 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
     chunkSizeWarningLimit: GIS_CHUNK_WARNING_LIMIT_KB,
     rollupOptions: {
+      // Two pages: the app shell and the standalone OAuth callback. The
+      // callback gets its own entry so its tiny script is compiled through
+      // Vite (base-path-aware asset URLs) instead of shipped as raw inline
+      // HTML; see oauth-callback.html.
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        oauthCallback: path.resolve(__dirname, "oauth-callback.html"),
+      },
       onwarn,
       output: {
-        manualChunks,
+        codeSplitting: { groups: CODE_SPLITTING_GROUPS },
       },
-    } satisfies RollupOptions,
+    } satisfies RolldownOptions,
   },
   resolve: {
     // `@anthropic-ai/sdk` (and the other assistant provider SDKs) are optional
@@ -1536,12 +1670,22 @@ export default defineConfig({
     // these forces resolution from this app's node_modules — where they are always
     // installed — so the build is deterministic across environments (see #331).
     dedupe: ["react", "react-dom", "maplibre-gl", "@anthropic-ai/sdk", "openai", "@google/genai"],
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
       // The published package resolves to dist, but the monorepo app should
       // hot-reload SDK source during development.
-      "@geolibre/embed": path.resolve(__dirname, "../../packages/embed/src/index.ts"),
-      module: path.resolve(__dirname, "./src/lib/browser-node-module.ts"),
-    },
+      {
+        find: "@geolibre/embed",
+        replacement: path.resolve(__dirname, "../../packages/embed/src/index.ts"),
+      },
+      { find: "module", replacement: path.resolve(__dirname, "./src/lib/browser-node-module.ts") },
+      // zarr-cesium (the globe's Zarr layers) and its wind layer import the
+      // `cesium` wrapper, but only engine classes. Point the bare specifier at
+      // the `@cesium/engine` the globe already loads, so there is one engine
+      // instance (one set of classes, one worker pool) and the wrapper's
+      // `@cesium/widgets` barrel stays out of the bundle. Exact match only:
+      // nothing in the bundle imports a `cesium/...` subpath.
+      { find: /^cesium$/, replacement: "@cesium/engine" },
+    ],
   },
 });

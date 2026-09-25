@@ -1445,8 +1445,12 @@ export function TopToolbar({
       appApi.getMapRenderer?.() === "arcgis"
         ? openAddDataKind("pmtiles")
         : openPMTilesLayerPanel(appApi),
+    // The ArcGIS view and the globe draw Zarr natively and have no Zarr control
+    // to open, so they take the Add Data form instead.
     zarr: () =>
-      appApi.getMapRenderer?.() === "arcgis" ? openAddDataKind("zarr") : openZarrLayerPanel(appApi),
+      appApi.getMapRenderer?.() === "arcgis" || appApi.getMapRenderer?.() === "cesium"
+        ? openAddDataKind("zarr")
+        : openZarrLayerPanel(appApi),
     netcdf: () => setNetcdfDialogOpen(true),
     lidar: () => openLidarLayerPanel(appApi),
     splatting: () => openSplattingLayerPanel(appApi),
@@ -2485,7 +2489,9 @@ export function TopToolbar({
       <ProjectGalleryDialog
         open={galleryDialogOpen}
         onOpenChange={setGalleryDialogOpen}
-        onOpenProject={(url, authToken) => projectFiles.openProjectFromShareUrl(url, { authToken })}
+        onOpenProject={(url, authToken, options) =>
+          projectFiles.openProjectFromShareUrl(url, { authToken, ...options })
+        }
       />
       {isMenuVisible(uiProfile, "help") && (
         <HelpMenu

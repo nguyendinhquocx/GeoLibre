@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "geolibre-desktop"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "bincode",
  "chrono",
@@ -4860,6 +4860,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
+ "tauri-plugin-deep-link",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -161,3 +161,52 @@ def test_default_pat_preserves_existing_project_powers(client):
     assert project["visibility"] == "public"
     assert client.get(f"/api/projects/{project['id']}", headers=auth(token)).status_code == 200
     assert client.get("/api/projects?mine=true", headers=auth(token)).status_code == 200
+
+
+def test_organization_and_group_routes_follow_project_scopes(client):
+    """Org/group reads need read:projects; org/group writes need write:projects."""
+    full = pat(client)
+    reader = pat(client, scopes=["read:projects"])
+    writer = pat(client, scopes=["write:projects"])
+
+    org = client.post(
+        "/api/organizations", headers=auth(full), json={"slug": "scoped-org", "name": "Scoped"}
+    )
+    assert org.status_code == 201
+    org_id = org.json()["organization"]["id"]
+    group = client.post("/api/groups", headers=auth(full), json={"name": "Scoped group"})
+    assert group.status_code == 201
+    group_id = group.json()["group"]["id"]
+
+    # A read-only token can list but cannot create or change membership.
+    assert client.get("/api/organizations/mine", headers=auth(reader)).status_code == 200
+    assert client.get(f"/api/groups/{group_id}/members", headers=auth(reader)).status_code == 200
+    assert client.get("/api/projects?shared_with_me=true", headers=auth(reader)).status_code == 200
+    for method, path, body in [
+        ("post", "/api/organizations", {"slug": "another-org", "name": "Another"}),
+        ("post", "/api/groups", {"name": "Another group"}),
+        ("patch", f"/api/organizations/{org_id}", {"name": "Renamed"}),
+        ("patch", f"/api/groups/{group_id}", {"name": "Renamed"}),
+        ("patch", "/api/account", {"email": "ada@example.org"}),
+    ]:
+        response = client.request(method, path, headers=auth(reader), json=body)
+        assert response.status_code == 403, (method, path)
+        assert response.json() == {"error": "insufficient_scope", "requiredScope": "write:projects"}
+
+    # A write-only token can mutate but cannot read membership listings.
+    assert (
+        client.patch(
+            f"/api/organizations/{org_id}", headers=auth(writer), json={"name": "Renamed"}
+        ).status_code
+        == 200
+    )
+    for path in [
+        "/api/organizations/mine",
+        "/api/groups/mine",
+        f"/api/organizations/{org_id}/members",
+        f"/api/groups/{group_id}/projects",
+        "/api/projects?shared_with_me=true",
+    ]:
+        response = client.get(path, headers=auth(writer))
+        assert response.status_code == 403, path
+        assert response.json()["requiredScope"] == "read:projects"

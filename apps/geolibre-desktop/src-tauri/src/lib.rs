@@ -251,6 +251,28 @@ struct MartinProcess {
 }
 
 #[cfg(not(feature = "mas"))]
+impl MartinProcess {
+    /// Whether the Martin child is still alive. A server that crashed or was
+    /// killed from outside must not keep blocking new starts with "already
+    /// running", so the start path clears the slot when this reports false.
+    /// Only a confirmed exit counts: a failed `try_wait` keeps the process, so
+    /// a transient inspection error can never kill a healthy server.
+    fn is_running(&mut self) -> bool {
+        !matches!(self.child.try_wait(), Ok(Some(_)))
+    }
+}
+
+/// Clear a recorded Martin process that has already exited, then report
+/// whether a live one is still holding the slot.
+#[cfg(not(feature = "mas"))]
+fn martin_slot_is_busy(process: &mut Option<MartinProcess>) -> bool {
+    if process.as_mut().is_some_and(|martin| !martin.is_running()) {
+        *process = None;
+    }
+    process.is_some()
+}
+
+#[cfg(not(feature = "mas"))]
 struct SidecarProcess {
     child: Child,
 }
@@ -447,6 +469,26 @@ pub fn run() {
         ])
         .setup(|app| {
             create_main_window(app)?;
+            // Nothing on Linux claims the OAuth callback scheme for us.
+            // `tauri-bundler` writes `Exec=` into the bundled .desktop with no
+            // field code, so `xdg-open org.geolibre.desktop:/oauth/callback?...`
+            // starts the app with an empty argv and the authorization code is
+            // dropped on the floor; an AppImage installs no .desktop at all.
+            // Registering at runtime writes a `%u`-qualified handler entry and
+            // makes it the scheme default, which covers deb, rpm, AppImage and
+            // the AUR/COPR repackages alike (#2667). Off the main thread: this
+            // shells out to update-desktop-database and xdg-mime, and window
+            // creation must not wait on them.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Err(error) = handle.deep_link().register_all() {
+                        eprintln!("Deep link: could not register URL schemes ({error}).");
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -487,6 +529,37 @@ fn project_path_string(path: &Path) -> String {
     value.into_owned()
 }
 
+/// A launch argument as a local path.
+///
+/// The Linux desktop entry uses the `%u` field code, which is the only one that
+/// serves both the project file association and the OAuth callback scheme, and
+/// it hands over a URI. GIO localizes `file://` to a plain path before exec, but
+/// KIO and others do not, so both spellings arrive in practice (#2671).
+///
+/// Anything that is not a resolvable local `file://` URI is passed through
+/// untouched, so a non-UTF-8 path keeps its original bytes and a URI that names
+/// a remote host falls through to the caller's extension and canonicalize
+/// checks, which reject it.
+fn launch_argument_path(argument: std::ffi::OsString) -> PathBuf {
+    if let Some(text) = argument.to_str() {
+        // Scheme comparison is case-insensitive per RFC 3986. Every real
+        // launcher emits lowercase, but matching exactly would silently drop
+        // the launch rather than fall back to anything useful.
+        if text
+            .get(..7)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file://"))
+        {
+            if let Some(path) = tauri::Url::parse(text)
+                .ok()
+                .and_then(|url| url.to_file_path().ok())
+            {
+                return path;
+            }
+        }
+    }
+    PathBuf::from(argument)
+}
+
 /// Resolve existing GeoLibre project files supplied by the operating system.
 ///
 /// Other CLI flags are deliberately ignored. Resolving the path before it
@@ -499,7 +572,7 @@ where
 {
     args.into_iter()
         .filter_map(|argument| {
-            let candidate = PathBuf::from(argument);
+            let candidate = launch_argument_path(argument);
             if !has_geolibre_project_extension(&candidate) {
                 return None;
             }
@@ -557,7 +630,7 @@ fn take_pending_project_paths(state: tauri::State<'_, PendingProjectPaths>) -> V
 /// `/...` or a Windows drive-letter `C:\...`, never a UNC `\\host\share`), free
 /// of `..` traversal, ending in a GeoLibre project extension — `.geolibre` or
 /// `.geolibre.json`. These are the canonical formats `saveProject` writes and
-/// `isGeoLibreProjectPath` recognizes in `tauri-io.ts`.
+/// `isGeoLibreProjectFileName` recognizes in `file-io/paths.ts`.
 ///
 /// Without this, the command was an arbitrary local-file reader: any webview JS
 /// or loaded plugin could `invoke("read_project_file", { path: "~/.ssh/id_rsa" })`
@@ -617,9 +690,9 @@ fn read_project_file(path: String) -> Result<String, String> {
 }
 
 /// Local vector file extensions the restore path may re-read (lowercased, no
-/// dot). Mirrors `VECTOR_FILE_DIALOG_EXTENSIONS` in `tauri-io.ts`; keep the two
+/// dot). Mirrors `VECTOR_FILE_DIALOG_EXTENSIONS` in `file-io/paths.ts`; keep the two
 /// in step.
-// SYNC: VECTOR_FILE_DIALOG_EXTENSIONS in src/lib/tauri-io.ts — grep "SYNC:" to
+// SYNC: VECTOR_FILE_DIALOG_EXTENSIONS in src/lib/file-io/paths.ts — grep "SYNC:" to
 // find the partner list and update both together.
 const RESTORABLE_VECTOR_EXTENSIONS: [&str; 17] = [
     "geojson",
@@ -648,7 +721,7 @@ const RESTORABLE_VECTOR_EXTENSIONS: [&str; 17] = [
 ///
 /// This is a Rust-side backstop mirroring the frontend guard
 /// (`isAbsoluteLocalPath` + `hasPathTraversal` + `isRestorableVectorPath` in
-/// `tauri-io.ts`). It narrows the attack surface of a compromised webview or
+/// `file-io/paths.ts`). It narrows the attack surface of a compromised webview or
 /// rogue plugin: arbitrary system files (`/etc/passwd`, SSH keys, most shell and
 /// app configs) are blocked. It does not make the command harmless — the
 /// allowlist still includes broad extensions like `json`, so a script that knows
@@ -924,6 +997,8 @@ const ALLOWED_ENV_VARS: &[&str] = &[
     "GOOGLE_GENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
     "OLLAMA_BASE_URL",
     "OLLAMA_MODEL",
     "OPENAI_COMPATIBLE_BASE_URL",
@@ -2110,11 +2185,11 @@ fn start_martin_server_blocking(
     let binary = ensure_martin_binary_path(&app)?;
     let state = app.state::<MartinServerState>();
     {
-        let process = state
+        let mut process = state
             .process
             .lock()
             .map_err(|_| "Could not lock Martin process state.".to_string())?;
-        if process.is_some() {
+        if martin_slot_is_busy(&mut process) {
             return Err(
                 "A Martin server is already running. Stop it before starting a new one."
                     .to_string(),
@@ -2134,7 +2209,7 @@ fn start_martin_server_blocking(
                     .process
                     .lock()
                     .map_err(|_| "Could not lock Martin process state.".to_string())?;
-                if process.is_some() {
+                if martin_slot_is_busy(&mut process) {
                     drop(info.process);
                     return Err(
                         "A Martin server is already running. Stop it before starting a new one."
@@ -2700,8 +2775,9 @@ fn wait_for_jupyter_health(
 // is the only thing that identifies *why* startup failed (a uv resolution error,
 // a missing `jupyter` executable, a port conflict...), and in an installed build
 // there is no terminal to read it from, so it has to travel with the error.
-// Shared by the Jupyter and sidecar waiters, and by both of their failure paths
-// (early exit and timeout), so no path can quietly drop the one useful detail.
+// Shared by the Jupyter, sidecar and Martin waiters, and by both of their
+// failure paths (early exit and timeout), so no path can quietly drop the one
+// useful detail.
 #[cfg(not(feature = "mas"))]
 fn child_failure_message(summary: &str, output: &CapturedOutput) -> String {
     // The child may have only just exited, with its last lines still in flight.
@@ -3949,15 +4025,18 @@ fn spawn_martin_server(
     let mut child = command
         .spawn()
         .map_err(|error| format!("Could not start Martin: {error}"))?;
+    // Drain both pipes from the moment we spawn, and for as long as Martin
+    // runs. Martin logs at least one line per auto-published table before it
+    // binds its port, so a database with a few hundred tables overflows the
+    // pipe buffer during discovery: reading only after exit (the old shape)
+    // left Martin blocked on a log write and every health poll timing out.
+    let output = CapturedOutput::attach(&mut child);
 
-    if let Err(error) = wait_for_martin_health(&base_url, &mut child) {
+    if let Err(error) = wait_for_martin_health(&base_url, &mut child, &output) {
         let _ = child.kill();
         let _ = child.wait();
         return Err(error);
     }
-
-    let _ = child.stdout.take();
-    let _ = child.stderr.take();
 
     Ok(SpawnedMartinServer {
         base_url,
@@ -3967,7 +4046,11 @@ fn spawn_martin_server(
 }
 
 #[cfg(not(feature = "mas"))]
-fn wait_for_martin_health(base_url: &str, child: &mut Child) -> Result<(), String> {
+fn wait_for_martin_health(
+    base_url: &str,
+    child: &mut Child,
+    output: &CapturedOutput,
+) -> Result<(), String> {
     let health_url = format!("{base_url}/health");
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(500))
@@ -3979,12 +4062,10 @@ fn wait_for_martin_health(base_url: &str, child: &mut Child) -> Result<(), Strin
             .try_wait()
             .map_err(|error| format!("Could not inspect Martin process: {error}"))?
         {
-            let output = read_child_output(child);
-            return Err(if output.trim().is_empty() {
-                format!("Martin exited before it was ready: {status}")
-            } else {
-                format!("Martin exited before it was ready: {output}")
-            });
+            return Err(child_failure_message(
+                &format!("Martin exited before it was ready (exit status: {status})."),
+                output,
+            ));
         }
 
         if client
@@ -3999,19 +4080,10 @@ fn wait_for_martin_health(base_url: &str, child: &mut Child) -> Result<(), Strin
         thread::sleep(Duration::from_millis(100));
     }
 
-    Err("Martin did not become ready in time.".to_string())
-}
-
-#[cfg(not(feature = "mas"))]
-fn read_child_output(child: &mut Child) -> String {
-    let mut output = String::new();
-    if let Some(mut stdout) = child.stdout.take() {
-        let _ = stdout.read_to_string(&mut output);
-    }
-    if let Some(mut stderr) = child.stderr.take() {
-        let _ = stderr.read_to_string(&mut output);
-    }
-    output
+    Err(child_failure_message(
+        "Martin did not become ready in time.",
+        output,
+    ))
 }
 
 #[derive(Serialize)]
@@ -4523,6 +4595,9 @@ mod tests {
         find_zip_manifest_path, plugin_archive_file_name, resolve_sidecar_in_resource_dir,
         CapturedOutput, CAPTURED_LOG_MAX_LINES, CAPTURED_LOG_REPORTED_LINES, CAPTURED_LOG_SETTLE,
     };
+    // Only the unix-only Martin tests (they spawn `sh`) use these.
+    #[cfg(all(unix, not(feature = "mas")))]
+    use super::{martin_slot_is_busy, wait_for_martin_health, MartinProcess};
     #[cfg(not(feature = "mas"))]
     use std::env;
     #[cfg(not(feature = "mas"))]
@@ -4642,6 +4717,64 @@ mod tests {
                 project_path_string(&legacy.canonicalize().unwrap()),
             ]
         );
+    }
+
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn accepts_file_uri_arguments_from_linux_launchers() {
+        let root = ScratchDir::new("project-argument-file-uri");
+        let spaced = root.path().join("my project.geolibre");
+        std::fs::write(&spaced, "{}").unwrap();
+        let canonical = spaced.canonicalize().unwrap();
+        // Percent-encoded, exactly as a launcher that does not localize `%u`
+        // spells it. The bare path spelling is covered above.
+        let uri = format!(
+            "file://{}",
+            canonical
+                .to_str()
+                .unwrap()
+                .replace('%', "%25")
+                .replace(' ', "%20")
+        );
+
+        assert_eq!(
+            project_paths_from_args([OsString::from(uri)], root.path()),
+            [project_path_string(&canonical)]
+        );
+    }
+
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn accepts_file_uris_whatever_the_scheme_casing() {
+        let root = ScratchDir::new("project-argument-uri-casing");
+        let project = root.path().join("cased.geolibre");
+        std::fs::write(&project, "{}").unwrap();
+        let canonical = project.canonicalize().unwrap();
+
+        for scheme in ["file", "FILE", "File"] {
+            assert_eq!(
+                project_paths_from_args(
+                    [OsString::from(format!(
+                        "{scheme}://{}",
+                        canonical.to_str().unwrap()
+                    ))],
+                    root.path()
+                ),
+                [project_path_string(&canonical)],
+                "{scheme}:// was not accepted"
+            );
+        }
+    }
+
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn rejects_file_uris_that_name_a_remote_host() {
+        let root = ScratchDir::new("project-argument-remote-uri");
+        assert!(project_paths_from_args(
+            [OsString::from("file://example.com/shared/project.geolibre")],
+            root.path()
+        )
+        .is_empty());
     }
 
     #[cfg(all(unix, not(feature = "mas")))]
@@ -5162,6 +5295,76 @@ mod tests {
     fn child_failure_message_says_so_when_there_was_no_output() {
         let message = child_failure_message("Jupyter server exited.", &CapturedOutput::new());
         assert_eq!(message, "Jupyter server exited. It produced no output.");
+    }
+
+    // Regression for #2677. Martin writes one or more log lines per discovered
+    // table before it binds its port, so a large schema overflows the pipe
+    // buffer during startup. With the pipes left unread the child blocked on
+    // that write and never exited, and the waiter reported a bare timeout. A
+    // child that writes well past the buffer and then exits must be seen to
+    // exit, with its last line quoted.
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn martin_waiter_drains_a_log_larger_than_the_pipe_buffer() {
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(
+                "i=0; while [ $i -lt 2000 ]; do \
+                 echo \"INFO martin: source public.table_$i added, no spatial index\"; \
+                 i=$((i+1)); done; echo 'error: last line' >&2; exit 3",
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn a chatty child");
+        let output = CapturedOutput::attach(&mut child);
+        // Port 9 (discard) is never serving HTTP, so health never succeeds and
+        // the only way out before the timeout is the child exiting.
+        let error = wait_for_martin_health("http://127.0.0.1:9", &mut child, &output)
+            .expect_err("the child exits without becoming healthy");
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(error.contains("exited before it was ready"), "got: {error}");
+        assert!(error.contains("error: last line"), "got: {error}");
+    }
+
+    // A Martin that died or was killed from outside must not keep blocking new
+    // starts with "already running"; a live one still must.
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn martin_slot_clears_an_exited_process_but_keeps_a_live_one() {
+        use std::process::{Command, Stdio};
+
+        let spawn = |script: &str| {
+            Command::new("sh")
+                .arg("-c")
+                .arg(script)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn a child")
+        };
+
+        let mut exited = spawn("exit 0");
+        exited.wait().expect("wait for the child to exit");
+        let mut slot = Some(MartinProcess { child: exited });
+        assert!(!martin_slot_is_busy(&mut slot));
+        assert!(slot.is_none());
+
+        let mut slot = Some(MartinProcess {
+            child: spawn("sleep 30"),
+        });
+        assert!(martin_slot_is_busy(&mut slot));
+        assert!(slot.is_some());
+        // Dropping the MartinProcess kills and reaps the sleeper.
+        drop(slot);
+
+        let mut empty: Option<MartinProcess> = None;
+        assert!(!martin_slot_is_busy(&mut empty));
     }
 
     // The whole point of the capture is that the child's *last* lines — the

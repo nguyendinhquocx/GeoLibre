@@ -12,8 +12,8 @@ import { buildSpectralIndexExpression } from "./spectral-indices";
  * write a fresh GeoTIFF the map can render directly.
  *
  * Compute follows the de-facto ESRI/GDAL DEM formulas (Horn's method) and is
- * intended as a convenience fallback; for production-grade results (proper
- * geographic-CRS scaling, large rasters, multi-raster band math) prefer the
+ * intended as a convenience fallback; for production-grade results (large
+ * rasters, multi-raster band math, south-up georeferencing) prefer the
  * rasterio sidecar engine.
  */
 
@@ -69,12 +69,17 @@ export function supportsClientRaster(id: string): boolean {
 
 // --- GeoTIFF I/O -----------------------------------------------------------
 
-/** GeoKeys the writer understands; copied from the source to keep the CRS. */
+/**
+ * GeoKeys the writer understands; copied from the source to keep the CRS and
+ * the angular unit the terrain scaling keys off (dropping the unit tag would
+ * make re-read tool output default to degrees and rescale wrongly).
+ */
 const PRESERVED_GEO_KEYS = [
   "GTModelTypeGeoKey",
   "GTRasterTypeGeoKey",
   "GeographicTypeGeoKey",
   "ProjectedCSTypeGeoKey",
+  "GeogAngularUnitsGeoKey",
 ] as const;
 
 /**
@@ -218,6 +223,65 @@ function gradY(win: number[], resY: number): number {
   return (win[6] + 2 * win[7] + win[8] - (win[0] + 2 * win[1] + win[2])) / (8 * resY);
 }
 
+/**
+ * Metres per degree of latitude on WGS84 (same constant terrain-viewshed uses).
+ */
+const METERS_PER_DEGREE_LAT = 111320;
+
+/**
+ * Degrees spanned by one GeoTIFF angular unit, keyed by the EPSG unit codes
+ * the spec assigns (GeoTIFF 1.0, "Angular Units Codes": 9101 radian, 9102
+ * degree, 9103 arc-minute, 9104 arc-second). The spec default when the key is
+ * absent is degrees.
+ */
+const DEGREES_PER_ANGULAR_UNIT: Record<number, number> = {
+  9101: 180 / Math.PI, // radian
+  9102: 1, // degree
+  9103: 1 / 60, // arc-minute
+  9104: 1 / 3600, // arc-second
+};
+
+/**
+ * Terrain gradients compare elevation (metres) against horizontal distance, so
+ * their denominators must be metres. Rasters stored in a geographic CRS (the
+ * distribution format of SRTM/AW3D30/Copernicus DEM) have cell sizes in
+ * degrees, which are converted with the gdaldem convention (its documented
+ * default scale for lat/long DEMs) plus a cos(latitude) correction on the
+ * east-west axis, where a degree of longitude shrinks away from the equator.
+ * Without this, slope on a 4326 DEM comes back ~111,320x too steep and
+ * saturates at 90 degrees.
+ */
+function gradientResolutions(input: RasterData): { resX: number; resY: number } {
+  const geoKeys = input.geoKeys ?? {};
+  const modelType = geoKeys.GTModelTypeGeoKey as number | undefined;
+  const isGeographic =
+    modelType === 2 || (modelType == null && geoKeys.GeographicTypeGeoKey != null);
+  if (!isGeographic) {
+    return { resX: input.resX, resY: input.resY };
+  }
+  const unitKey = geoKeys.GeogAngularUnitsGeoKey as number | undefined;
+  const degreesPerUnit = unitKey == null ? 1 : DEGREES_PER_ANGULAR_UNIT[unitKey];
+  if (degreesPerUnit == null) {
+    // Grads, gons and other codes we cannot convert: fail loudly rather than
+    // hand raw angular cell sizes to the terrain math as if they were metres.
+    throw new Error(
+      `Unsupported geographic angular unit (GeogAngularUnitsGeoKey ${unitKey}). Convert the raster or use the sidecar (rasterio/GDAL) engine instead.`,
+    );
+  }
+  // North-up GeoTIFFs put originY on the top (northern) edge; south-up rasters
+  // (flipY) put it on the southern edge, so the mid-latitude sign follows flipY.
+  const halfSpan = (input.height * input.resY) / 2;
+  const midLat =
+    (input.flipY ? input.originY + halfSpan : input.originY - halfSpan) * degreesPerUnit;
+  // Clamped so near-polar extents (cos -> 0) cannot collapse the east-west
+  // denominators to zero; at the clamp the correction is meaningless anyway.
+  const lonScale = Math.max(Math.cos((midLat * Math.PI) / 180), 1e-4);
+  return {
+    resX: input.resX * degreesPerUnit * METERS_PER_DEGREE_LAT * lonScale,
+    resY: input.resY * degreesPerUnit * METERS_PER_DEGREE_LAT,
+  };
+}
+
 export interface HillshadeParams {
   azimuth?: number;
   altitude?: number;
@@ -227,7 +291,8 @@ export interface HillshadeParams {
 /** Shaded relief (0–255) via the ESRI/GDAL hillshade formula (Horn's method). */
 export function hillshade(input: RasterData, params: HillshadeParams): RasterData {
   const band = input.bands[0];
-  const { width, height, resX, resY, nodata } = input;
+  const { width, height, nodata } = input;
+  const { resX, resY } = gradientResolutions(input);
   const azimuth = params.azimuth ?? 315;
   const altitude = params.altitude ?? 45;
   const zFactor = params.z_factor ?? 1;
@@ -278,7 +343,8 @@ export interface SlopeParams {
 /** Slope (steepness) in degrees or percent (Horn's method). */
 export function slope(input: RasterData, params: SlopeParams): RasterData {
   const band = input.bands[0];
-  const { width, height, resX, resY, nodata } = input;
+  const { width, height, nodata } = input;
+  const { resX, resY } = gradientResolutions(input);
   const zFactor = params.z_factor ?? 1;
   const percent = params.units === "percent";
 
@@ -308,7 +374,8 @@ export function slope(input: RasterData, params: SlopeParams): RasterData {
  */
 export function aspect(input: RasterData): RasterData {
   const band = input.bands[0];
-  const { width, height, resX, resY, nodata } = input;
+  const { width, height, nodata } = input;
+  const { resX, resY } = gradientResolutions(input);
 
   const out = new Float32Array(width * height);
   const win = new Array<number>(9);

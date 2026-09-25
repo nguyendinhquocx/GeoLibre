@@ -24,10 +24,15 @@ class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     username: Mapped[str | None] = mapped_column(String(39), unique=True, nullable=True)
+    # Optional contact address; organization and group invitations can target it.
+    email: Mapped[str | None] = mapped_column(String(320), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(String(32))
+    # Projects carry two account FKs (owner_id, created_by_id), so the join is
+    # explicit. Organization-owned projects outlive their creator: owner_id is
+    # ON DELETE SET NULL rather than a delete-orphan cascade.
     projects: Mapped[list["Project"]] = relationship(
-        back_populates="owner", cascade="all, delete-orphan"
+        back_populates="owner", foreign_keys="Project.owner_id"
     )
 
 
