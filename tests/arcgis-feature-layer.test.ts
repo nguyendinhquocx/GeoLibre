@@ -93,6 +93,8 @@ function fakeViewportMap(initial: [number, number, number, number]) {
       getEast: () => east,
       getNorth: () => north,
     }),
+    // Zoomed in far enough that viewport queries load full-resolution GeoJSON.
+    getZoom: () => 14,
     isMoving: () => false,
     on: (event: string, listener: () => void) => listeners.set(event, listener),
     off: (event: string, listener: () => void) => {
@@ -1190,6 +1192,31 @@ describe("addArcGISLayer (feature layer)", () => {
       fetchUrls.some((url) => url.startsWith(`${serviceUrl}/query`)),
       "expected the resolved service URL to be queried",
     );
+  });
+
+  it("queries a map service layer registered as a Feature Service item", async () => {
+    // City ArcGIS Server sites often register `MapServer/<n>` as a "Feature
+    // Service" item; that layer answers the same GeoJSON queries.
+    const serviceUrl = "https://example.gov/gisweb/rest/services/Boundaries/MapServer/2";
+    const fetchUrls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      fetchUrls.push(url);
+      if (url.includes("/content/items/")) return jsonResponse({ url: `${serviceUrl}/` });
+      return jsonResponse(url.includes("/query") ? QUERY_GEOJSON : LAYER_INFO);
+    }) as typeof fetch;
+
+    const id = await addArcGISLayer(app, {
+      layerType: "feature",
+      sourceType: "portal-item",
+      itemId: "fed456abc123",
+      name: "Council Districts",
+    });
+
+    const layer = useAppStore.getState().layers.find((l) => l.id === id);
+    assert.equal(layer?.type, "geojson");
+    assert.equal(layer?.geojson?.features.length, 1);
+    assert.ok(fetchUrls.some((url) => url.startsWith(`${serviceUrl}/query`)));
   });
 });
 

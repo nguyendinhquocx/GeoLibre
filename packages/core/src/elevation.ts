@@ -50,13 +50,30 @@ interface ElevationResponse {
 }
 
 /**
+ * Normalize longitude into [-180, 180] degrees (handles unwrapped coordinates
+ * from antimeridian cross-overs and world-copy pannings).
+ */
+export function normalizeLongitude(lng: number): number {
+  if (!Number.isFinite(lng)) return 0;
+  return ((((lng + 180) % 360) + 360) % 360) - 180;
+}
+
+/**
+ * Clamp latitude into [-90, 90] degrees.
+ */
+export function clampLatitude(lat: number): number {
+  if (!Number.isFinite(lat)) return 0;
+  return Math.min(90, Math.max(-90, lat));
+}
+
+/**
  * Fetch elevations (in meters) for an ordered list of coordinates.
  *
  * @param points - Coordinates as `[lng, lat]`, at most {@link MAX_POINTS_PER_REQUEST}
  * @param fetchImpl - Optional `fetch` implementation; defaults to the global `fetch`
  * @returns The elevation in meters for each input coordinate, in the same order
- * @throws {ElevationFetchError} On too many points, a network error, a non-2xx
- *   response, a malformed body, or a length mismatch
+ * @throws {ElevationFetchError} On too many points, a non-finite coordinate, a
+ *   network error, a non-2xx response, a malformed body, or a length mismatch
  */
 export async function fetchElevations(points: LngLat[], fetchImpl?: FetchLike): Promise<number[]> {
   if (points.length === 0) return [];
@@ -65,10 +82,15 @@ export async function fetchElevations(points: LngLat[], fetchImpl?: FetchLike): 
       `Too many points: ${points.length} (max ${MAX_POINTS_PER_REQUEST}).`,
     );
   }
+  // Normalizing would turn NaN/Infinity into 0 and query (0, 0) as if it were
+  // the requested point, so reject them instead of returning a wrong elevation.
+  if (points.some(([lng, lat]) => !Number.isFinite(lng) || !Number.isFinite(lat))) {
+    throw new ElevationFetchError("Invalid coordinate: longitude and latitude must be finite.");
+  }
 
   const doFetch: FetchLike = fetchImpl ?? ((url, init) => fetch(url, init));
-  const latitudes = points.map((p) => p[1].toFixed(6)).join(",");
-  const longitudes = points.map((p) => p[0].toFixed(6)).join(",");
+  const latitudes = points.map((p) => clampLatitude(p[1]).toFixed(6)).join(",");
+  const longitudes = points.map((p) => normalizeLongitude(p[0]).toFixed(6)).join(",");
   const url = `${ENDPOINT}?latitude=${latitudes}&longitude=${longitudes}`;
 
   // A default fetch never times out, so a hung request would leave the control's

@@ -13,6 +13,7 @@ export * from "./routing";
 export * from "./polyline";
 export * from "./vector-color";
 export * from "./expressions";
+export * from "./style-layer-evaluator";
 export * from "./document-locale";
 export * from "./label-number-format";
 export * from "./external-native-paint";
@@ -61,6 +62,10 @@ export {
   canUndoProjectRestore,
   DEFAULT_COLLABORATION_STATE,
   IDENTIFY_ALL_LAYERS_ID,
+  type IdentifyState,
+  identifyAllIncludes,
+  identifyStateWithoutLayers,
+  resolveIdentifyTarget,
   projectPathLabel,
   registerProjectRestoreHistory,
   subscribeProjectRestoreHistory,

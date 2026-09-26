@@ -16,7 +16,7 @@ The built-in plugins are:
 | **GeoEditor** | Drawing, vertex editing, and deletion tools for GeoJSON layers. |
 | **Annotations** | The map-annotation toolbar and Elements panel. See [Annotations](map-controls.md#annotations-and-the-elements-panel). |
 | **Basemaps** | A basemap gallery for switching the background map, from the same catalog as the [Change basemap dialog](adding-data.md#basemaps). |
-| **Web Services** | A submenu of catalog and service browsers: FEMA NFHL, NASA Earthdata, US EPA EnviroAtlas, USGS National Map, USGS NLDI, Vantor Open Data, Planet Open Data, Earthdata GIS, OpenAerialMap, ArcGIS Hub, Socrata, CKAN, STAC Catalogs, Source Cooperative, Natural Earth, Hugging Face, Satellite Embeddings, Fields of the World, and GeoLens. See [Web Services](web-services.md). |
+| **Web Services** | A submenu of catalog and service browsers: FEMA NFHL, NASA Earthdata, US EPA EnviroAtlas, USGS National Map, USGS NLDI, Vantor Open Data, Planet Open Data, Earthdata GIS, OpenAerialMap, ArcGIS Hub, Socrata, CKAN, STAC Catalogs, Source Cooperative, Natural Earth, Hugging Face, Satellite Embeddings, Fields of the World, Ocean Data Platform, and GeoLens. See [Web Services](web-services.md). |
 | **Historical Imagery** | Browse historical aerial and satellite imagery for a location. |
 | **Time Slider** | Filter a temporal layer by a date or number field. |
 | **Timelapse** | Animate annual cloudless basemaps (EOX Sentinel-2, and NASA GIBS Landsat/WELD and MODIS land cover) with a provider picker and legend. |
@@ -61,6 +61,85 @@ written to the project; `VITE_TOMTOM_API_KEY` or `AISSTREAM_API_KEY` under
 
 !!! note "Components live on the Controls menu"
     Measure, Bookmark, Legend, Colorbar, Minimap, View State, Search, and HTML are on-map component panels rather than Plugins-menu entries; toggle them from the [Controls menu](map-controls.md). The Print composer is under [Project → Print Layout](projects.md#print).
+
+## Open a plugin from a link
+
+Add `plugin=<link name>` to a GeoLibre web address to open the app with that
+plugin already active, as if you had picked it from the Plugins menu:
+
+```text
+https://web.geolibre.app/?plugin=nasa-earthdata
+```
+
+List several with commas (`?plugin=graticule,h3-grid`). The full plugin id, such
+as `maplibre-gl-nasa-earthdata`, works too. See
+[Deep-linking a plugin](embedding.md#deep-linking-a-plugin) for how it combines
+with a shared project and the read-only viewer.
+
+| Plugin | Link name |
+| --- | --- |
+| Layer Control | `layer-control` |
+| GeoEditor | `geo-editor` |
+| Annotations | `annotations` |
+| Dimensions | `dimensions` |
+| Basemaps | `basemap-control` |
+| FEMA NFHL | `fema-wms` |
+| NASA Earthdata | `nasa-earthdata` |
+| US EPA EnviroAtlas | `enviroatlas` |
+| USGS National Map | `national-map` |
+| USGS NLDI | `usgs-nldi` |
+| Vantor Open Data | `vantor` |
+| Planet Open Data | `planet-open-data` |
+| Portolan | `portolan` |
+| Earthdata GIS | `earthdata-gis` |
+| OpenAerialMap | `openaerialmap` |
+| OSM Downloader | `osm-downloader` |
+| IGN LiDAR HD Downloader | `ign-lidar-hd` |
+| ArcGIS Hub | `arcgis-hub` |
+| Tennessee GIS | `tennessee-gis` |
+| Socrata | `socrata` |
+| CKAN | `ckan` |
+| STAC Catalogs | `stac-catalogs` |
+| Source Cooperative | `source-coop` |
+| Natural Earth | `natural-earth` |
+| Hugging Face | `huggingface` |
+| Satellite Embeddings | `satellite-embeddings` |
+| Fields of the World | `fields-of-the-world` |
+| Ocean Data Platform | `ocean-data-platform` |
+| GeoLens | `geolens` |
+| Historical Imagery | `esri-wayback` |
+| Time Slider | `time-slider` |
+| Timelapse | `timelapse` |
+| Overture Maps | `overture-maps` |
+| GeoAgent | `geoagent` |
+| USGS LiDAR | `usgs-lidar` |
+| Street View | `streetview` |
+| Mapillary | `mapillary` |
+| Elevation Profile | `elevation-profile` |
+| Layer Swipe | `swipe` |
+| Gridlines | `graticule` |
+| H3 Grid | `h3-grid` |
+| S2 Grid | `s2-grid` |
+| A5 Grid | `a5-grid` |
+| DGGRID | `dggrid` |
+| DGGAL | `dggal` |
+| OLC | `olc` |
+| Geohash | `geohash` |
+| Tilecode | `tilecode` |
+| Clouds | `clouds` |
+| Precipitation | `precipitation` |
+| Atmospheric Effects | `atmosphere-effects` |
+| Sun Simulation | `sun` |
+| Route Animation | `route-animation` |
+| Flight Simulator | `flight-simulator` |
+| God's Eye View | `gods-eye-view` |
+| SamGeo | `samgeo` |
+| Deck.gl Layer | `deckgl-viz` |
+| Components | `components` |
+
+Directions and reverse geocoding are not listed: they send what you click to a
+public server, so they only open from the menu, after their one-time notice.
+Plugins installed from **Manage Plugins** can't be opened from a link.
 
 ## Manage Plugins
 

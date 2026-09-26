@@ -56,6 +56,11 @@ import {
   setEarthdataGisLabels,
   setOpenAerialMapLabels,
   setArcGisHubLabels,
+  setTennesseeGisLabels,
+  setUsStateGisLabels,
+  setUsLocalGisLabels,
+  setUsFederalGisLabels,
+  type ArcGisHubLabels,
   setOpenDataCatalogLabels,
   setHuggingFaceLabels,
   setSourceCoopLabels,
@@ -381,7 +386,7 @@ export function TopToolbar({
       metaSource: t("openAerialMap.metaSource"),
       metaRaw: t("openAerialMap.metaRaw"),
     });
-    setArcGisHubLabels({
+    const arcGisHubLabels: ArcGisHubLabels = {
       hint: t("arcgisHub.hint"),
       searchPlaceholder: t("arcgisHub.searchPlaceholder"),
       search: t("arcgisHub.search"),
@@ -394,10 +399,13 @@ export function TopToolbar({
       noResults: t("arcgisHub.noResults"),
       searchError: t("arcgisHub.searchError"),
       showing: (shown, total) => t("arcgisHub.showing", { shown, total }),
+      showingSome: (shown) => t("arcgisHub.showingSome", { shown }),
       noDescription: t("arcgisHub.noDescription"),
       add: t("arcgisHub.add"),
       adding: (title) => t("arcgisHub.adding", { title }),
       added: (title) => t("arcgisHub.added", { title }),
+      addedCapped: (title, limit) =>
+        t("arcgisHub.addedCapped", { title, limit: limit.toLocaleString(i18n.language) }),
       addError: t("arcgisHub.addError"),
       zoom: t("arcgisHub.zoom"),
       download: t("arcgisHub.download"),
@@ -405,10 +413,55 @@ export function TopToolbar({
       downloading: (completed, total, title) =>
         t("arcgisHub.downloading", { completed, total, title }),
       downloadStarted: (title) => t("arcgisHub.downloadStarted", { title }),
+      downloadCapped: (title, limit) =>
+        t("arcgisHub.downloadCapped", { title, limit: limit.toLocaleString(i18n.language) }),
       downloadFirstLayer: (title, layerCount) =>
         t("arcgisHub.downloadFirstLayer", { title, layerCount }),
       downloadError: t("arcgisHub.downloadError"),
       details: t("arcgisHub.details"),
+    };
+    setArcGisHubLabels(arcGisHubLabels);
+    // The Tennessee portal is an ArcGIS Hub site, so it shares the panel's
+    // strings and overrides only the ones that name the catalog.
+    setTennesseeGisLabels({
+      ...arcGisHubLabels,
+      hint: t("tennesseeGis.hint"),
+      searchPlaceholder: t("tennesseeGis.searchPlaceholder"),
+      noResults: t("tennesseeGis.noResults"),
+      searchError: t("tennesseeGis.searchError"),
+    });
+    setUsStateGisLabels({
+      ...arcGisHubLabels,
+      hint: t("usStateGis.hint"),
+      searchPlaceholder: t("usStateGis.searchPlaceholder"),
+      noResults: t("usStateGis.noResults"),
+      searchError: t("usStateGis.searchError"),
+      catalogSet: t("usStateGis.chooseState"),
+      catalog: t("usStateGis.portal"),
+      chooseCatalogSet: t("usStateGis.chooseStateHint"),
+      openPortal: t("usStateGis.openPortal"),
+    });
+    setUsLocalGisLabels({
+      ...arcGisHubLabels,
+      hint: t("usLocalGis.hint"),
+      searchPlaceholder: t("usLocalGis.searchPlaceholder"),
+      noResults: t("usLocalGis.noResults"),
+      searchError: t("usLocalGis.searchError"),
+      catalogSet: t("usLocalGis.chooseState"),
+      catalog: t("usLocalGis.portal"),
+      chooseCatalogSet: t("usLocalGis.chooseStateHint"),
+      openPortal: t("usLocalGis.openPortal"),
+    });
+    setUsFederalGisLabels({
+      ...arcGisHubLabels,
+      hint: t("usFederalGis.hint"),
+      searchPlaceholder: t("usFederalGis.searchPlaceholder"),
+      noResults: t("usFederalGis.noResults"),
+      searchError: t("usFederalGis.searchError"),
+      catalogSet: t("usFederalGis.chooseDepartment"),
+      catalog: t("usFederalGis.agency"),
+      chooseCatalogSet: t("usFederalGis.chooseDepartmentHint"),
+      openPortal: t("usFederalGis.openPortal"),
     });
     setOpenDataCatalogLabels({
       socrataHint: t("openDataCatalogs.socrataHint"),

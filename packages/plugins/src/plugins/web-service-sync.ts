@@ -35,6 +35,10 @@ export const WEB_SERVICE_PLUGIN_IDS = [
   "geolibre-osm-downloader",
   "geolibre-ign-lidar-hd",
   "maplibre-gl-arcgis-hub",
+  "geolibre-tennessee-gis",
+  "geolibre-us-federal-gis",
+  "geolibre-us-state-gis",
+  "geolibre-us-local-gis",
   "maplibre-gl-socrata",
   "maplibre-gl-ckan",
   "geolibre-stac-catalogs",
@@ -44,6 +48,7 @@ export const WEB_SERVICE_PLUGIN_IDS = [
   "maplibre-gl-huggingface",
   "geolibre-satellite-embeddings",
   "geolibre-fields-of-the-world",
+  "geolibre-ocean-data-platform",
   "maplibre-gl-geolens",
 ] as const;
 

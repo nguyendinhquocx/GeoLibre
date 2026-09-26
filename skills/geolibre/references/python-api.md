@@ -55,8 +55,9 @@ m.add_ee_layer(ee_object, vis_params=None, name="Earth Engine", shown=True,
 m.add_pmtiles(url, name, tile_type="vector", source_layers=None)
 m.add_vector_tiles(url, name, source_layers=None)
 m.add_wms(endpoint, layers, name, version="1.1.1", crs=None, bounds=None)
-# crs: EPSG:3857 by default; for a server without it, EPSG:4326/4258/6706, or
-# CRS:84 with version="1.3.0"; drawn only by the desktop app (blank on the web)
+# crs: EPSG:3857 by default; for a server without it, EPSG:4326/4258/6706,
+# CRS:84 with version="1.3.0", or a projected EPSG:<code> such as EPSG:25832;
+# drawn only by the desktop app (blank on the web)
 m.add_wmts(endpoint, name, bounds=None)
 m.add_wfs(endpoint, type_name, max_features=1000)
 m.add_3d_tiles(url, name, altitude_offset=0)          # or ion_asset_id=96188 (3D globe only)
@@ -109,10 +110,13 @@ Every `add_*` that takes style overrides accepts `popup=` and `tooltip=`
 `m.set_popup(...)` / `m.set_tooltip(...)` / `m.clear_popup(...)`. Without a config a
 layer shows its name plus every visible property on click, and no hover tip.
 Click popups open only while Identify is armed: `m.set_identify()` arms it on
-every visible layer, `m.set_identify("Sites")` on one, `m.set_identify(None)`
-turns it off. Hover tips pause while it is armed. `m.show_control("bookmark")`,
+every visible layer, `m.set_identify("Sites")` on one, `m.set_identify(["Sites",
+"Roads"])` on only those, `m.set_identify(None)` turns it off. Hover tips pause
+while it is armed. `m.show_control("bookmark")`,
 `m.show_control("search")` and `m.hide_control("globe")` toggle panels and map
 controls, and `m.set_projection("mercator")` draws a flat map instead of a globe.
+`save_project`, `to_project` and `to_html` keep the Identify and control choices
+(the project's `interaction` block).
 
 ```python
 m.add_markers(

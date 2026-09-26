@@ -92,6 +92,7 @@ function makeSdk() {
       kind = kind;
       label: unknown;
       destroyed = false;
+      viewModel = { reset: () => {} };
       constructor(public props: Record<string, unknown> = {}) {
         this.label = props.label;
         widgets.push(this as never);
@@ -145,7 +146,7 @@ function makeSdk() {
     },
     destroy: () => {},
   };
-  const uiAdds: { component: unknown; position: unknown }[] = [];
+  const uiAdds: { component: unknown; position: unknown; index?: number }[] = [];
   const view = {
     type: "2d" as "2d" | "3d",
     viewingMode: "global" as "global" | "local",
@@ -170,7 +171,12 @@ function makeSdk() {
     height: 600,
     ui: {
       components: ["attribution", "zoom"],
-      add: (component: unknown, position: unknown) => uiAdds.push({ component, position }),
+      add: (component: unknown, position: unknown) =>
+        uiAdds.push(
+          typeof position === "object" && position
+            ? { component, ...(position as { position: string; index?: number }) }
+            : { component, position },
+        ),
       remove: (component: unknown) => {
         const i = uiAdds.findIndex((entry) => entry.component === component);
         if (i >= 0) uiAdds.splice(i, 1);
@@ -528,6 +534,80 @@ describe("ArcgisEngine camera moves", () => {
     engine.destroy();
     assert.deepEqual(seen, [false, true, false, false]);
   });
+  it("rotates and tilts on a Ctrl drag at MapLibre's rates, and leaves plain drags alone", () => {
+    const { engine, goTo, fireViewEvent, rawView } = makeSceneEngine();
+    let stopped = 0;
+    const drag = (action: string, x: number, y: number, ctrlKey: boolean) =>
+      fireViewEvent("drag", {
+        action,
+        x,
+        y,
+        button: 0,
+        native: { ctrlKey },
+        stopPropagation: () => stopped++,
+      });
+    drag("start", 100, 100, false);
+    drag("update", 150, 50, false);
+    drag("end", 150, 50, false);
+    assert.equal(goTo.length, 0);
+    assert.equal(stopped, 0);
+    // The fake camera looks at heading 30, tilt 45: right 10px turns 8
+    // degrees, up 20px tilts 10 degrees further.
+    drag("start", 100, 100, true);
+    drag("update", 110, 80, true);
+    assert.deepEqual(goTo.at(-1), {
+      target: { heading: 38, tilt: 55 },
+      options: { animate: false },
+    });
+    // The next update builds on that target even when the camera has not
+    // landed there yet (an unanimated goTo may still be pending).
+    rawView.camera = { heading: 30, tilt: 45, position: { z: 1500 } };
+    drag("update", 120, 60, true);
+    assert.deepEqual((goTo.at(-1) as { target: unknown }).target, { heading: 46, tilt: 65 });
+    // Movement made while navigation is suspended is discarded, so resuming
+    // does not jump the camera by it.
+    const resume = engine.suspendNavigation();
+    drag("update", 170, 10, true);
+    resume();
+    const moves = goTo.length;
+    drag("update", 180, 0, true);
+    assert.equal(goTo.length, moves + 1);
+    assert.deepEqual((goTo.at(-1) as { target: unknown }).target, { heading: 54, tilt: 70 });
+    drag("end", 180, 0, true);
+    // Every Ctrl-drag event is swallowed, the suspended one twice (the
+    // suspension swallows drags too).
+    assert.equal(stopped, 7);
+  });
+  it("does not steer the camera on a Ctrl drag while navigation is suspended", () => {
+    const { engine, goTo, fireViewEvent } = makeSceneEngine();
+    const drag = (action: string, x: number, y: number) =>
+      fireViewEvent("drag", {
+        action,
+        x,
+        y,
+        button: 0,
+        native: { ctrlKey: true },
+        stopPropagation: () => {},
+      });
+    const resume = engine.suspendNavigation();
+    drag("start", 100, 100);
+    drag("update", 110, 80);
+    drag("end", 110, 80);
+    assert.equal(goTo.length, 0);
+    resume();
+    resume();
+    drag("start", 100, 100);
+    drag("update", 110, 80);
+    assert.equal(goTo.length, 1);
+  });
+  it("resets both heading and pitch from the compass, as MapLibre's does", () => {
+    const { goTo, widgets } = makeSceneEngine();
+    const compass = widgets.find((w) => w.kind === "Compass") as unknown as {
+      viewModel: { reset(): void };
+    };
+    compass.viewModel.reset();
+    assert.deepEqual((goTo.at(-1) as { target: unknown }).target, { heading: 0, tilt: 0 });
+  });
   it("reads and steps the zoom of a view with no tiling scheme through its scale", () => {
     const { engine, goTo, rawView } = makeEngine();
     rawView.zoom = -1;
@@ -851,6 +931,37 @@ describe("ArcgisEngine controls", () => {
     assert.equal(engine.addControl(), false);
     assert.equal(engine.capabilities.domControls, true);
   });
+  it("keeps MapLibre's corner order when a control mounts after its neighbours", () => {
+    const { document } = parseHTML("<html><body></body></html>");
+    const previous = globalThis.document;
+    (globalThis as { document: unknown }).document = document;
+    try {
+      const { engine, uiAdds } = makeSceneEngine("global", {
+        onProjectionToggle: () => {},
+        onLayerVisibilityChange: () => {},
+      });
+      const topRight = () =>
+        uiAdds.filter((entry) => entry.position === "top-right").map((entry) => entry.index);
+      // Fullscreen, compass, globe, then the layer list, as on MapLibre.
+      assert.deepEqual(topRight(), [0, 1, 2, 3]);
+      // Shown again from the Controls menu, the globe slots back in before
+      // the layer list instead of being appended after it.
+      engine.setBuiltInControlVisible("globe", false);
+      engine.setBuiltInControlVisible("globe", true);
+      assert.equal(uiAdds.at(-1)?.index, 2);
+      // A control in another corner does not count towards the index.
+      engine.setBuiltInControlPosition("compass", "bottom-left");
+      engine.setBuiltInControlVisible("globe", false);
+      engine.setBuiltInControlVisible("globe", true);
+      assert.equal(uiAdds.at(-1)?.index, 1);
+      // Moved into the same corner, the scale bar goes before the layer list,
+      // which MapLibre mounts only once the style loads.
+      engine.setBuiltInControlPosition("scale", "top-right");
+      assert.equal(uiAdds.at(-1)?.index, 2);
+    } finally {
+      (globalThis as { document: unknown }).document = previous;
+    }
+  });
   it("mounts moved controls in the corners an earlier view reported", () => {
     using _document = withDocument();
     const moves: [string, string][] = [];
@@ -919,10 +1030,10 @@ describe("ArcgisEngine layer sync", () => {
         ],
       },
     });
-    // Store order is topmost first: A above B.
+    // Store order is bottom to top: B above A.
     engine.syncLayers([SQUARE, other]);
     const kinds = layers.items.map((l) => `${l.kind}:${l.title}`);
-    assert.deepEqual(kinds, ["geojson:Layer B", "geojson:Layer A", "geojson:Layer A"]);
+    assert.deepEqual(kinds, ["geojson:Layer A", "geojson:Layer A", "geojson:Layer B"]);
     const square = created.filter((l) => l.title === "Layer A");
     assert.deepEqual(
       square.map((l) => l.props.geometryType),
@@ -934,7 +1045,7 @@ describe("ArcgisEngine layer sync", () => {
     engine.syncLayers([other, SQUARE]);
     assert.deepEqual(
       layers.items.map((l) => l.title),
-      ["Layer A", "Layer A", "Layer B"],
+      ["Layer B", "Layer A", "Layer A"],
     );
     assert.equal(created.length, 3);
   });
@@ -998,10 +1109,10 @@ describe("ArcgisEngine layer sync", () => {
     ]);
     assert.deepEqual(
       layers.items.map((l) => l.kind),
-      ["feature", "web-tile"],
+      ["web-tile", "feature"],
     );
-    assert.equal(layers.items[1].props.urlTemplate, "https://t/{level}/{col}/{row}.png");
-    assert.equal(layers.items[1].props.copyright, "© T");
+    assert.equal(layers.items[0].props.urlTemplate, "https://t/{level}/{col}/{row}.png");
+    assert.equal(layers.items[0].props.copyright, "© T");
     // Story exports rebuild the layer in MapLibre, so they get the store template.
     assert.deepEqual(engine.getLayerRasterSource("xyz"), {
       type: "raster",

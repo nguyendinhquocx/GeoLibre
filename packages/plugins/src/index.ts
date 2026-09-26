@@ -531,6 +531,12 @@ export {
   type FieldsOfTheWorldFileSaver,
 } from "./plugins/maplibre-fields-of-the-world";
 export {
+  OCEAN_DATA_PLATFORM_PLUGIN_ID,
+  maplibreOceanDataPlatformPlugin,
+  setOceanDataPlatformFileSaver,
+  type OceanDataPlatformFileSaver,
+} from "./plugins/maplibre-ocean-data-platform";
+export {
   maplibreSatelliteEmbeddingsPlugin,
   SATELLITE_EMBEDDINGS_PLUGIN_ID,
   setSatelliteEmbeddingsFileSaver,
@@ -570,14 +576,56 @@ export {
 } from "./plugins/ign-lidar-hd-api";
 export {
   ARCGIS_HUB_PLUGIN_ID,
+  createArcGisHubPlugin,
   DEFAULT_ARCGIS_HUB_LABELS,
   maplibreArcGisHubPlugin,
   setArcGisHubLabels,
+  type ArcGisHubCatalog,
+  type ArcGisHubCatalogSet,
   type ArcGisHubLabels,
+  type ArcGisHubPluginConfig,
+  type ArcGisHubPluginInstance,
 } from "./plugins/maplibre-arcgis-hub";
+export {
+  DEFAULT_TENNESSEE_GIS_LABELS,
+  maplibreTennesseeGisPlugin,
+  setTennesseeGisLabels,
+  TENNESSEE_GIS_CATALOG_GROUPS,
+  TENNESSEE_GIS_PLUGIN_ID,
+  TENNESSEE_GIS_PORTAL_URL,
+  TENNESSEE_GIS_SITE_ID,
+} from "./plugins/maplibre-tennessee-gis";
+export {
+  DEFAULT_US_STATE_GIS_LABELS,
+  maplibreUsStateGisPlugin,
+  setUsStateGisLabels,
+  US_STATE_GIS_PLUGIN_ID,
+} from "./plugins/maplibre-us-state-gis";
+export { US_STATE_GIS_CATALOGS } from "./plugins/us-state-gis-catalogs";
+export {
+  DEFAULT_US_LOCAL_GIS_LABELS,
+  maplibreUsLocalGisPlugin,
+  setUsLocalGisLabels,
+  US_LOCAL_GIS_PLUGIN_ID,
+} from "./plugins/maplibre-us-local-gis";
+export { US_LOCAL_GIS_CATALOGS } from "./plugins/us-local-gis-catalogs";
+export {
+  DEFAULT_US_FEDERAL_GIS_LABELS,
+  maplibreUsFederalGisPlugin,
+  setUsFederalGisLabels,
+  US_FEDERAL_GIS_PLUGIN_ID,
+} from "./plugins/maplibre-us-federal-gis";
+export { US_FEDERAL_GIS_CATALOGS } from "./plugins/us-federal-gis-catalogs";
+export {
+  buildSocrataCatalogUrl,
+  searchSocrataCatalog,
+  SOCRATA_CATALOG_API_URL,
+} from "./plugins/socrata-api";
 export {
   ARCGIS_HUB_PAGE_URL,
   ARCGIS_HUB_PORTAL_URL,
+  ARCGIS_HUB_SEARCH_TYPES,
+  fetchArcGisHubSiteGroups,
   arcGisHubItemDataUrl,
   arcGisHubItemPageUrl,
   arcGisHubItemThumbnailUrl,
@@ -587,6 +635,7 @@ export {
   sanitizeArcGisHubSearchText,
   searchArcGisHub,
   type ArcGisHubItem,
+  type ArcGisHubSearchOptions,
   type ArcGisHubSearchResult,
 } from "./plugins/arcgis-hub-api";
 export {

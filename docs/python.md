@@ -296,7 +296,7 @@ m.on_layer_change(lambda e: print("layers", e["layerIds"]))
 | `add_pmtiles(url, name=, tile_type=, source_layers=, **style)` | Add a PMTiles archive (vector or raster). |
 | `add_tile_layer(url, name=, tile_size=, attribution=)` | Add a raster XYZ tile layer. |
 | `add_ee_layer(ee_object, vis_params=, name=, shown=, opacity=)` | Add an authenticated Google Earth Engine object as raster tiles (needs `earthengine-api`). |
-| `add_wms(endpoint, layers, name=, styles=, image_format=, transparent=, tile_size=, version=, crs=, bounds=, **style)` | Add a WMS layer (GetMap, tiled raster). `bounds` is `[west, south, east, north]`, needed for zoom-to-layer. `crs` defaults to `EPSG:3857`; for a server without Web Mercator pass a geographic CRS it lists (`EPSG:4326`, `EPSG:4258`, `EPSG:6706`, or `CRS:84` with `version="1.3.0"`; no others). Only the desktop app redraws those tiles into Web Mercator: the web build and `export_html` pages still send the Web Mercator BBOX, so such a layer stays blank there. |
+| `add_wms(endpoint, layers, name=, styles=, image_format=, transparent=, tile_size=, version=, crs=, bounds=, **style)` | Add a WMS layer (GetMap, tiled raster). `bounds` is `[west, south, east, north]`, needed for zoom-to-layer. `crs` defaults to `EPSG:3857`; for a server without Web Mercator pass a CRS it lists: preferably a geographic one (`EPSG:4326`, `EPSG:4258`, `EPSG:6706`, or `CRS:84` with `version="1.3.0"`), otherwise a projected `EPSG:<code>` such as `EPSG:25832`, which the desktop app warps from its EPSG tables. Only the desktop app redraws those tiles into Web Mercator: the web build and `export_html` pages still send the Web Mercator BBOX, so such a layer stays blank there. |
 | `add_wmts(url, name=, tile_size=, bounds=, **style)` | Add a WMTS layer from a tile URL template. |
 | `add_wfs(endpoint, type_name, name=, version=, output_format=, srs_name=, max_features=, **style)` | Add a WFS layer (GetFeature GeoJSON, fetched and inlined). |
 | `add_cog(url, name=, bands=, colormap=, rescale=, **style)` | Add a Cloud Optimized GeoTIFF (URL or a kernel-side local GeoTIFF path). |
@@ -320,7 +320,7 @@ m.on_layer_change(lambda e: print("layers", e["layerIds"]))
 | `remove_layer(layer_id)` / `clear_layers()` | Remove one layer by id, name, or handle, or remove all layers. |
 | `set_popup(layer, fields=None, click=, hover=, title=, title_expression=, body_expression=, show_feature_id=, tooltip=, merge=False)` | Choose what a click popup shows for a layer, and how each value is formatted. |
 | `set_tooltip(layer, fields=True)` / `clear_popup(layer)` | Turn a hover tooltip on (or off), or drop the popup config and restore the default popup. |
-| `set_identify(layer="all")` | Arm the Identify tool so a click opens the popup: on one layer (id, name, or handle), on every visible layer (`"all"`), or off (`None`). |
+| `set_identify(layer="all")` | Arm the Identify tool so a click opens the popup: on one layer (id, name, or handle), on a list of layers, on every visible layer (`"all"`), or off (`None`). |
 | `show_control(name, visible=True)` / `hide_control(name)` | Show or hide a toolbar panel (`bookmark`, `search`, `measure`, `minimap`, `print`) or a built-in map control (`navigation`, `fullscreen`, `compass`, `geolocate`, `globe`, `scale`, `attribution`, `logo`). |
 | `set_projection(projection)` / `projection` | Draw the map as a `"globe"` (the default) or flat `"mercator"` map; saved in the project. |
 | `to_project(keep_credentials=False)` | Return the current project as a dict, credentials redacted unless `keep_credentials=True`. |
@@ -391,12 +391,13 @@ m.clear_popup("Sites")                                 # back to the default
 Popups open only while the Identify tool is armed, which in the app is the
 Identify button on a layer or the "Identify visible layers" button in the Layers
 panel header. `set_identify` arms it from Python, and can run before the map is
-displayed. Identify covers one layer or every visible layer at a time, and hover
-tooltips pause while it is armed:
+displayed. Identify covers one layer, a list of layers, or every visible layer,
+and hover tooltips pause while it is armed:
 
 ```python
 m.set_identify()                 # every visible layer
 m.set_identify("Sites")          # one layer
+m.set_identify(["Sites", "Roads"])  # only these layers
 m.set_identify(None)             # off
 
 m.show_control("bookmark")       # open the Bookmarks panel
@@ -405,7 +406,10 @@ m.hide_control("globe")          # hide the globe/flat toggle button
 m.set_projection("mercator")     # draw a flat map instead of a globe
 ```
 
-Identify and the controls are not saved in the project. `set_projection` is.
+`save_project`, `to_project` and `to_html` save the Identify target and the
+controls in the project's `interaction` block, so the saved file or HTML page
+opens the same way, and `load_project` reads them back. `set_projection` is
+saved as a project preference.
 
 `popup=` also accepts shorter forms: a single property name (`popup="name"`), a
 list of names (`popup=["name", "pop"]`), a list of field mappings, or `False` to
