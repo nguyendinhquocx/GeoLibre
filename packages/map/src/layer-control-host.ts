@@ -103,10 +103,6 @@ interface LayerControlInternalState {
  */
 const BASEMAP_ID_SENTINEL = "geolibre:basemap";
 
-function isCustomControllableLayer(layer: GeoLibreLayer): boolean {
-  return typeof layer.metadata.customLayerType === "string";
-}
-
 /**
  * Restore `refreshed` to just before `anchor` under `parent` after a
  * remove/re-add appended it to the end of its control corner. No-ops safely
@@ -426,18 +422,17 @@ export class LayerControlHost {
     const excludeLayers = Array.from(
       new Set([...this.adapter.excludedLayerIds, ...nativeStyleLayerIds, ...internalStyleLayerIds]),
     );
-    const controllableLayers = layers.filter(
-      (layer) =>
-        this.adapter.getNativeLayerIds(layer).length > 0 || isCustomControllableLayer(layer),
-    );
-
-    if (controllableLayers.length === 0) {
+    if (layers.length === 0) {
       return { excludeLayers };
     }
 
+    // The project store owns the Layers panel's membership, so every store
+    // layer gets a row. A hidden or still-loading layer may have no native
+    // style layer yet; excluding it here makes it appear only after a
+    // visibility toggle and control rebuild.
     return {
       excludeLayers,
-      customLayerAdapters: [this.createGeoLibreLayerAdapter(controllableLayers)],
+      customLayerAdapters: [this.createGeoLibreLayerAdapter(layers)],
     };
   }
 

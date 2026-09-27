@@ -34,8 +34,10 @@ import {
   attributionForTileUrl,
   createBaseLayer,
   createWmsTileUrl,
+  normalizeWmsCrs,
   normalizeWmsVersion,
   stripOgcOperationParams,
+  usableWmsCrs,
   wmsVersionFromEndpoint,
 } from "./helpers";
 import {
@@ -121,6 +123,8 @@ export interface WmsLayerParams {
   transparent: boolean;
   tileSize: string;
   version: string;
+  /** CRS of the requested tiles (default EPSG:3857); see {@link normalizeWmsCrs}. */
+  crs?: string;
 }
 
 /**
@@ -145,6 +149,7 @@ export function buildWmsLayer(params: WmsLayerParams): GeoLibreLayer {
     transparent: params.transparent,
     tileSize,
     version,
+    crs: normalizeWmsCrs(params.crs || undefined, version),
   });
   const attribution = attributionForTileUrl(tileUrl);
   return createBaseLayer(
@@ -183,6 +188,7 @@ export function wmsFieldsToParams(entry: ServiceLibraryEntry): WmsLayerParams {
     transparent: serviceFieldBoolean(fields, "transparent", true),
     tileSize: serviceFieldString(fields, "tileSize", "256"),
     version: normalizeWmsVersion(savedVersion || detectedVersion || "1.1.1"),
+    crs: serviceFieldString(fields, "crs"),
   };
 }
 
@@ -497,7 +503,15 @@ export async function applyServiceEntry(
         throw new Error("The desktop app needs an absolute http(s) WMS endpoint.");
       }
       const { routeWmsLayerThroughNativeProtocol } = await import("../../../lib/xyz-url");
-      addLayer(routeWmsLayerThroughNativeProtocol(buildWmsLayer(params)), beforeLayerId);
+      // Only the desktop tile protocol reprojects a CRS other than EPSG:3857,
+      // and only a code its EPSG tables can resolve; anything else keeps Web
+      // Mercator, including every saved CRS in the web build.
+      const { reprojectableWmsCrs } = await import("../../../lib/wms-projected");
+      const crs = isTauri()
+        ? await reprojectableWmsCrs(usableWmsCrs(params.crs, params.version))
+        : undefined;
+      const wmsParams = { ...params, crs };
+      addLayer(routeWmsLayerThroughNativeProtocol(buildWmsLayer(wmsParams)), beforeLayerId);
       return;
     }
     case "wmts": {

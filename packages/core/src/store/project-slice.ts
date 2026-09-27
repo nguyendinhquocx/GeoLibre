@@ -139,6 +139,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     const applied = applyProjectToStore(project);
     set((s) => ({
       ...applied,
+      hoverTooltipsEnabled: true,
       projectPath: null,
       projectGeneration: s.projectGeneration + 1,
       isDirty: false,
@@ -198,6 +199,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           : (applied.layers[0]?.id ?? null);
     set((s) => ({
       ...applied,
+      hoverTooltipsEnabled: true,
       projectPath: path,
       projectGeneration: s.projectGeneration + 1,
       isDirty: false,

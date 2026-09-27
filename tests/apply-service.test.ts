@@ -134,6 +134,25 @@ describe("buildWmsLayer", () => {
     });
     assert.equal((layer.source as Record<string, unknown>).attribution, GEBCO_ATTRIBUTION);
   });
+
+  it("requests the tiles in the chosen CRS", () => {
+    const params = {
+      name: "WMS",
+      endpoint: "https://example.com/wms",
+      layers: "a",
+      styles: "",
+      format: "image/png",
+      transparent: true,
+      tileSize: "256",
+      version: "1.3.0",
+    };
+    const tileUrl = (layer: ReturnType<typeof buildWmsLayer>) =>
+      ((layer.source as Record<string, unknown>).tiles as string[])[0];
+    assert.match(tileUrl(buildWmsLayer({ ...params, crs: "epsg:25832" })), /[?&]CRS=EPSG%3A25832/);
+    // No CRS, or an empty one from a saved service, keeps Web Mercator.
+    assert.match(tileUrl(buildWmsLayer({ ...params, crs: "" })), /[?&]CRS=EPSG%3A3857/);
+    assert.throws(() => buildWmsLayer({ ...params, version: "1.1.1", crs: "CRS:84" }), /1\.3\.0/);
+  });
 });
 
 describe("buildWmtsLayer", () => {
@@ -260,6 +279,17 @@ describe("field mappers", () => {
     assert.equal(params.version, "1.3.0");
   });
 
+  it("reads the saved WMS CRS", () => {
+    const saved = wmsFieldsToParams(
+      entry("wms", { endpoint: "https://e/wms", layers: "a", crs: "EPSG:4326" }),
+    );
+    assert.equal(saved.crs, "EPSG:4326");
+    assert.equal(
+      wmsFieldsToParams(entry("wms", { endpoint: "https://e/wms", layers: "a" })).crs,
+      "",
+    );
+  });
+
   it("defaults the WMS version to 1.1.1 when neither source has it", () => {
     const params = wmsFieldsToParams(entry("wms", { endpoint: "https://e/wms", layers: "a" }));
     assert.equal(params.version, "1.1.1");
@@ -375,6 +405,41 @@ describe("applyServiceEntry", () => {
     assert.equal(added[0].layer.type, "wms");
     assert.equal(added[0].layer.name, "My WMS");
     assert.equal(added[0].beforeLayerId, "layer-2");
+  });
+
+  it("keeps a saved WMS CRS out of the web build, which cannot reproject it", async () => {
+    const { added, deps } = stubDeps();
+    await applyServiceEntry(
+      entry("wms", { endpoint: "https://e/wms", layers: "a", crs: "EPSG:25832" }),
+      deps,
+    );
+    const source = added[0].layer.source as Record<string, unknown>;
+    assert.match((source.tiles as string[])[0], /[?&]SRS=EPSG%3A3857/);
+  });
+
+  it("requests a saved WMS CRS on desktop only when it can be reprojected", async () => {
+    const globals = globalThis as { window?: unknown };
+    const originalWindow = globals.window;
+    globals.window = { __TAURI_INTERNALS__: {} };
+    const tileFor = async (fields: Record<string, string>) => {
+      const { added, deps } = stubDeps();
+      await applyServiceEntry(
+        entry("wms", { endpoint: "https://e/wms", layers: "a", ...fields }),
+        deps,
+      );
+      const tiles = (added[0].layer.source as Record<string, unknown>).tiles as string[];
+      // The native protocol wraps the encoded GetMap URL, so decode twice.
+      return decodeURIComponent(decodeURIComponent(tiles[0]));
+    };
+    try {
+      assert.match(await tileFor({ crs: "EPSG:25832" }), /SRS=EPSG:25832/);
+      // Unknown to the EPSG tables, or not requestable with this version.
+      assert.match(await tileFor({ crs: "EPSG:999999" }), /SRS=EPSG:3857/);
+      assert.match(await tileFor({ crs: "CRS:84", version: "1.1.1" }), /SRS=EPSG:3857/);
+      assert.match(await tileFor({ crs: "CRS:84", version: "1.3.0" }), /CRS=CRS:84/);
+    } finally {
+      globals.window = originalWindow;
+    }
   });
 
   it("adds a WMTS layer through the store", async () => {

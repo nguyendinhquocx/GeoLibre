@@ -453,6 +453,7 @@ pub fn run() {
             take_pending_project_paths,
             allow_raster_asset,
             read_local_file,
+            write_local_geojson_file,
             read_project_file,
             read_shapefile_siblings,
             resolve_url_redirect,
@@ -771,6 +772,152 @@ fn read_local_file(path: String) -> Result<tauri::ipc::Response, String> {
     fs::read(&path)
         .map(tauri::ipc::Response::new)
         .map_err(|error| format!("Could not read local file: {error}"))
+}
+
+/// Whether `path` names a GeoJSON file the attribute write-back may overwrite:
+/// an absolute local path (see `is_safe_absolute_path`) ending in `.geojson` or
+/// `.json`, excluding `.geolibre.json` project files.
+fn is_allowed_geojson_write_path(path: &str) -> bool {
+    if !is_safe_absolute_path(path) {
+        return false;
+    }
+    let lower = path.to_ascii_lowercase();
+    (lower.ends_with(".geojson") || lower.ends_with(".json")) && !lower.ends_with(".geolibre.json")
+}
+
+/// Whether `bytes` parse as a JSON object whose `type` is `FeatureCollection`
+/// and whose `features` is an array of `Feature` objects (a leading UTF-8
+/// byte-order mark is allowed).
+fn is_geojson_feature_collection(bytes: &[u8]) -> bool {
+    let bytes = bytes
+        .strip_prefix(b"\xEF\xBB\xBF".as_slice())
+        .unwrap_or(bytes);
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .is_some_and(|value| {
+            value.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
+                && value
+                    .get("features")
+                    .and_then(|f| f.as_array())
+                    .is_some_and(|features| {
+                        features.iter().all(|feature| {
+                            feature.get("type").and_then(|t| t.as_str()) == Some("Feature")
+                        })
+                    })
+        })
+}
+
+/// Whether a canonicalized path points at a network share. `canonicalize` on
+/// Windows returns a verbatim path, `\\?\C:\…` for a local drive but
+/// `\\?\UNC\host\share\…` for a share; a symlink or junction can resolve to
+/// one even when the path the caller passed was local.
+fn is_unc_resolved_path(resolved: &str) -> bool {
+    let rest = resolved
+        .strip_prefix(r"\\?\")
+        .or_else(|| resolved.strip_prefix(r"\\.\"));
+    match rest {
+        Some(rest) => rest.to_ascii_lowercase().starts_with(r"unc\"),
+        None => resolved.starts_with(r"\\") || resolved.starts_with("//"),
+    }
+}
+
+/// Distinguishes concurrent writes to the same file (a double-clicked save), so
+/// they never share a temporary file.
+static GEOJSON_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Overwrite an existing local GeoJSON file with edited contents, for Layer
+/// actions > Save edits to source file (GeoLibre#2439).
+///
+/// A GeoJSON rewrite needs no GeoPandas, so it no longer goes through the
+/// optional Python sidecar, which is not running unless something started it:
+/// the save used to fail with a connection error and leave the file unchanged.
+/// Like `read_local_file`, this bypasses the `fs` plugin's runtime scope, which
+/// does not cover a path dropped onto the map or restored with a project. The
+/// guard is narrower than a read's: the file must already exist (write-back
+/// replaces a layer's own source, never creates a file), and the canonical
+/// path is re-checked so a symlink cannot redirect the write. Because `.json` is
+/// a common GeoJSON extension but also a common config format, both the file
+/// being replaced and the new contents must be GeoJSON FeatureCollections, so
+/// the command cannot clobber arbitrary JSON. The contents go to a temporary
+/// file beside the target, which takes the target's permissions and is renamed
+/// over it, so a failed write never leaves the source half-written.
+#[tauri::command]
+fn write_local_geojson_file(path: String, contents: String) -> Result<(), String> {
+    if !is_allowed_geojson_write_path(&path) {
+        return Err(format!(
+            "Refusing to write \"{path}\": not an absolute local GeoJSON file path"
+        ));
+    }
+    let canonical = fs::canonicalize(&path)
+        .map_err(|error| format!("Could not save to source file: {error}"))?;
+    // The full `is_safe_absolute_path` guard can't be re-run on the resolved
+    // path, because `canonicalize` yields a `\\?\C:\…` verbatim path on
+    // Windows that it would reject. Re-check the parts a symlink or junction
+    // could change: the extension, and that it stays off network shares.
+    let resolved = canonical.to_string_lossy().to_ascii_lowercase();
+    if is_unc_resolved_path(&resolved) {
+        return Err(format!(
+            "Refusing to write \"{path}\": resolves to a network path"
+        ));
+    }
+    if !((resolved.ends_with(".geojson") || resolved.ends_with(".json"))
+        && !resolved.ends_with(".geolibre.json"))
+    {
+        return Err(format!(
+            "Refusing to write \"{path}\": resolves to a non-GeoJSON file"
+        ));
+    }
+    if !canonical.is_file() {
+        return Err(format!("Refusing to write \"{path}\": not a file"));
+    }
+    if !is_geojson_feature_collection(contents.as_bytes()) {
+        return Err(
+            "Refusing to write: the edited layer is not a GeoJSON FeatureCollection".into(),
+        );
+    }
+    let existing =
+        fs::read(&canonical).map_err(|error| format!("Could not save to source file: {error}"))?;
+    if !is_geojson_feature_collection(&existing) {
+        return Err(format!(
+            "Refusing to write \"{path}\": the file is not a GeoJSON FeatureCollection"
+        ));
+    }
+    let permissions = fs::metadata(&canonical)
+        .map_err(|error| format!("Could not save to source file: {error}"))?
+        .permissions();
+    let file_name = canonical
+        .file_name()
+        .ok_or_else(|| format!("Refusing to write \"{path}\": no file name"))?;
+    let mut temp_name = std::ffi::OsString::from(".");
+    temp_name.push(file_name);
+    temp_name.push(format!(
+        ".geolibre-{}-{}.tmp",
+        std::process::id(),
+        GEOJSON_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let temp = canonical.with_file_name(temp_name);
+    // `create_new` refuses a path that already exists, so a symlink planted at
+    // the temporary name cannot redirect the write. The file starts owner-only
+    // (Unix) so the contents are never readable more widely than intended, and
+    // takes the target's permissions before the rename so a restrictive (e.g.
+    // 0600) source is not loosened.
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let write = options
+        .open(&temp)
+        .and_then(|mut file| {
+            std::io::Write::write_all(&mut file, contents.as_bytes())?;
+            file.sync_all()
+        })
+        .and_then(|()| fs::set_permissions(&temp, permissions))
+        .and_then(|()| fs::rename(&temp, &canonical));
+    if let Err(error) = write {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("Could not save to source file: {error}"));
+    }
+    Ok(())
 }
 
 /// Pick images without adding them to Tauri's filesystem or asset scopes. The
@@ -4577,11 +4724,12 @@ fn configure_linux_webkit() {}
 mod tests {
     use super::{
         client_cert_is_pkcs12, client_cert_password_without_path, ensure_fetchable_url,
-        is_allowed_local_vector_path, is_allowed_project_path, is_disallowed_ip,
-        is_image_picker_path, is_persisted_image_file,
-        is_safe_absolute_path, is_ssrf_guard_error, path_is_under, project_path_string,
-        project_paths_from_args, read_mbtiles_zoom_range, resolve_fetch_timeout_secs, tcp_table_port,
-        MAX_FETCH_TIMEOUT_SECS, REMOTE_TILE_TIMEOUT_SECS, SSRF_BLOCKED_MESSAGE,
+        is_allowed_geojson_write_path, is_allowed_local_vector_path, is_allowed_project_path,
+        is_disallowed_ip, is_image_picker_path, is_persisted_image_file, is_safe_absolute_path,
+        is_ssrf_guard_error, is_unc_resolved_path, path_is_under, project_path_string,
+        project_paths_from_args, read_mbtiles_zoom_range, resolve_fetch_timeout_secs,
+        tcp_table_port, write_local_geojson_file, MAX_FETCH_TIMEOUT_SECS, REMOTE_TILE_TIMEOUT_SECS,
+        SSRF_BLOCKED_MESSAGE,
     };
     #[cfg(target_os = "linux")]
     use super::{
@@ -4589,6 +4737,7 @@ mod tests {
         linux_needs_wasm_osr_workaround, linux_uses_nvidia_renderer, nvidia_is_primary_gpu,
         LinuxDmabufWorkaround, WASM_OSR_ENTRY_JSC_OPTIONS,
     };
+    use std::fs;
     // Everything these imports feed is compiled out of the `mas` build, so the
     // tests that exercise it (and their scaffolding) are gated with it.
     #[cfg(not(feature = "mas"))]
@@ -5118,6 +5267,109 @@ mod tests {
         assert!(is_allowed_local_vector_path("C:/data/roads.gpkg"));
         // Case-insensitive extension; a ".." inside the filename is fine.
         assert!(is_allowed_local_vector_path("/data/v1..2.SHP"));
+    }
+
+    #[test]
+    fn geojson_write_path_accepts_only_absolute_geojson_files() {
+        assert!(is_allowed_geojson_write_path("/data/parks.geojson"));
+        assert!(is_allowed_geojson_write_path("/data/parks.JSON"));
+        assert!(is_allowed_geojson_write_path("C:\\gis\\parks.GeoJSON"));
+        // Other vector formats go through the sidecar, never this command.
+        assert!(!is_allowed_geojson_write_path("/data/parks.gpkg"));
+        assert!(!is_allowed_geojson_write_path("/data/parks.shp"));
+        // Project files are not layer sources.
+        assert!(!is_allowed_geojson_write_path("/data/map.geolibre.json"));
+        assert!(!is_allowed_geojson_write_path("/data/map.GEOLIBRE.JSON"));
+        // Relative, traversal, and UNC paths.
+        assert!(!is_allowed_geojson_write_path("parks.geojson"));
+        assert!(!is_allowed_geojson_write_path("/data/../etc/parks.geojson"));
+        assert!(!is_allowed_geojson_write_path(
+            "//server/share/parks.geojson"
+        ));
+        assert!(!is_allowed_geojson_write_path(""));
+    }
+
+    #[test]
+    fn unc_resolved_paths_are_detected() {
+        assert!(is_unc_resolved_path(r"\\?\unc\host\share\parks.geojson"));
+        assert!(is_unc_resolved_path(r"\\?\UNC\host\share\parks.geojson"));
+        assert!(is_unc_resolved_path(r"\\host\share\parks.geojson"));
+        assert!(is_unc_resolved_path("//host/share/parks.geojson"));
+        assert!(!is_unc_resolved_path(r"\\?\c:\gis\parks.geojson"));
+        assert!(!is_unc_resolved_path("/home/user/parks.geojson"));
+    }
+
+    #[test]
+    fn write_local_geojson_file_replaces_an_existing_file_only() {
+        let dir = std::env::temp_dir().join(format!("geolibre-write-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let old = r#"{"type":"FeatureCollection","features":[]}"#;
+        let new = r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"area":99},"geometry":null}]}"#;
+        let target = dir.join("parks.geojson");
+        fs::write(&target, old).unwrap();
+        let path = target.to_string_lossy().into_owned();
+
+        write_local_geojson_file(path.clone(), new.into()).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), new);
+        // Only the target remains: the temporary file was renamed over it.
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+
+        // Contents that are not a FeatureCollection are refused, including a
+        // FeatureCollection without a `features` array.
+        assert!(write_local_geojson_file(path.clone(), r#"{"a":1}"#.into()).is_err());
+        assert!(write_local_geojson_file(
+            path.clone(),
+            r#"{"type":"FeatureCollection","features":"x"}"#.into()
+        )
+        .is_err());
+        assert!(
+            write_local_geojson_file(path.clone(), r#"{"type":"FeatureCollection"}"#.into())
+                .is_err()
+        );
+        // ...or one whose features are not all Feature objects.
+        assert!(write_local_geojson_file(
+            path.clone(),
+            r#"{"type":"FeatureCollection","features":[null]}"#.into()
+        )
+        .is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), new);
+        assert_eq!(fs::read_to_string(&target).unwrap(), new);
+
+        // A missing file is not created.
+        let missing = dir.join("missing.geojson").to_string_lossy().into_owned();
+        assert!(write_local_geojson_file(missing, new.into()).is_err());
+        assert!(!dir.join("missing.geojson").exists());
+
+        // An existing `.json` file that is not GeoJSON (a config file, say) is
+        // never overwritten.
+        let config = dir.join("settings.json");
+        fs::write(&config, r#"{"theme":"dark"}"#).unwrap();
+        let config_path = config.to_string_lossy().into_owned();
+        assert!(write_local_geojson_file(config_path, new.into()).is_err());
+        assert_eq!(fs::read_to_string(&config).unwrap(), r#"{"theme":"dark"}"#);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_local_geojson_file_keeps_the_target_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("geolibre-perm-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("private.geojson");
+        fs::write(&target, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+
+        write_local_geojson_file(
+            target.to_string_lossy().into_owned(),
+            r#"{"type":"FeatureCollection","features":[]}"#.into(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

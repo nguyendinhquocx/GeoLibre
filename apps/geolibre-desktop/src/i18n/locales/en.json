@@ -490,7 +490,12 @@
       "selectLayer_other": "Select from {{count}} layers",
       "noLayersFound": "No layers were found for this service.",
       "retrieveError": "Could not retrieve layers from this service.",
-      "version": "WMS version"
+      "version": "WMS version",
+      "crs": "Coordinate reference system",
+      "crsReprojected": "The map requests the layer in this CRS and reprojects it to Web Mercator.",
+      "crsDesktopOnly": "This layer does not offer Web Mercator (EPSG:3857). The desktop app can request it in one of its own coordinate reference systems.",
+      "crsUnsupported": "This layer does not offer Web Mercator (EPSG:3857), and none of its coordinate reference systems can be reprojected here. It is requested in EPSG:3857, which the service may reject.",
+      "crsPickUnsupported": "The saved coordinate reference system {{crs}} cannot be reprojected here, so the layer is requested in EPSG:3857."
     },
     "csw": {
       "defaultName": "CSW Catalog",
@@ -3332,7 +3337,7 @@
       "geolibre-us-local-gis": "US Local GIS",
       "geolibre-us-federal-gis": "US Federal GIS",
       "geolibre-osm-downloader": "OSM Downloader",
-      "geolibre-ign-lidar-hd": "IGN LiDAR HD Downloader",
+      "geolibre-ign-lidar-hd": "IGN LiDAR HD",
       "geolibre-stac-catalogs": "STAC Catalogs",
       "geolibre-planet-open-data": "Planet Open Data",
       "maplibre-gl-source-coop": "Source Cooperative",
@@ -7777,6 +7782,7 @@
     "emptyBeginner": "No layers yet. Add basemaps via Plugins → Basemaps, or your own data via the Add Data menu.",
     "hideAllLayers": "Hide all layers",
     "showAllLayers": "Show all layers",
+    "hoverTooltips": "Hover tooltips",
     "dragNamedToReorder": "Drag {{name}} to reorder",
     "hideLayer": "Hide layer",
     "showLayer": "Show layer",

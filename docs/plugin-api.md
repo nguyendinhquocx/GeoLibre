@@ -115,6 +115,8 @@ export interface GeoLibreAppAPI {
   ) => string;
   listLayers?: () => GeoLibreLayerSummary[];
   getLayerFeatures?: (layerId: string) => Feature<Geometry | null>[];
+  // Dress a layer with an SLD, QML or Mapbox GL style. See "Layer styles".
+  importLayerStyle?: (layerId: string, text: string) => GeoLibreImportLayerStyleResult;
   getSelectedFeatures?: () => Feature<Geometry | null>[];
   getSelectedLayerId?: () => string | null;
   // Sample a raster layer over a geographic window. See "Sampling raster
@@ -599,6 +601,21 @@ Group visibility and opacity are **combined** with each child layer's own: a hid
 
 These methods are typed optional for forward-compatibility with host variants, so call them with optional chaining.
 
+## Layer styles
+
+`importLayerStyle` applies a style written in another format to a layer, like the Layers panel's "Import style": an OGC SLD, a QGIS QML or a Mapbox GL style JSON, detected from the content. The style is merged over the layer's current one, so fields it does not describe keep their values, and it is saved with the project. Like the Layers panel, it styles only GeoJSON and vector-tile layers; it accepts any such layer id, not only the plugin's own, and throws for an unknown one.
+
+A plugin that adds features from a web service can dress them as the service does. A GeoServer, for example, returns a layer's SLD for WMS `GetStyles`:
+
+```typescript
+const layerId = app.addGeoJsonLayer("Land cover", features);
+const sld = await (await fetch(`${wmsUrl}?service=WMS&version=1.1.1&request=GetStyles&layers=M5:L4`)).text();
+const result = app.importLayerStyle?.(layerId, sld);
+if (result && !result.ok) console.warn(`Style not applied (${result.reason})`, result.warnings);
+```
+
+`result.warnings` lists what the style asked for that GeoLibre could not represent. On failure, `reason` is `invalid` when the text is not a style in any format read, `no-match` when it parsed but describes no symbology the layer can wear, `unsupported-layer` when the layer is not a vector layer; the layer is left untouched.
+
 ## Raster and tile layers
 
 `addGeoJsonLayer` registers vector data as a native layer. For raster and tile data there are three matching helpers — `addTileLayer` (XYZ), `addWmtsLayer` (WMTS), and `addWmsLayer` (WMS). Each returns the new layer's id, and the layer appears in the Layers panel with full opacity, reorder, and styling support and persists with the project, so a plugin no longer has to call `getMap().addSource()/addLayer()` directly (which leaves the layer invisible to GeoLibre's layer store).
@@ -623,6 +640,7 @@ export interface GeoLibreWmsLayerOptions extends GeoLibreTileLayerOptions {
   format?: string; // default "image/png"
   transparent?: boolean; // default true
   version?: string; // "1.1.1" (default) or "1.3.0" (sends CRS instead of SRS)
+  crs?: string; // "EPSG:3857" (default), "EPSG:4326", "CRS:84" (1.3.0 only), any "EPSG:<code>"
 }
 
 export interface GeoLibreCogLayerOptions {
@@ -655,6 +673,14 @@ app.addWmsLayer?.("LINZ Coverage", {
   transparent: true,
 });
 
+// A WMS that does not offer EPSG:3857: request a CRS it lists instead.
+app.addWmsLayer?.("Cadastral parcels", {
+  url: "https://wms.example.it/wms",
+  layers: "parcels",
+  version: "1.3.0",
+  crs: "EPSG:6706",
+});
+
 // COG — read the GeoTIFF directly (client-side), with raster controls.
 const cogId = await app.addCogLayer?.(
   "LINZ DEM",
@@ -664,6 +690,8 @@ const cogId = await app.addCogLayer?.(
 ```
 
 `options.engine` picks the renderer (`"maplibre-gl-raster"` for the GPU/deck.gl path, `"cog-tiler-wasm"` for the WebAssembly tiler, `"titiler"` for a TiTiler server). Unlike the other options it is **not per layer**: the raster control holds one engine for every raster it manages, so naming one re-renders the rasters already on the map. Pass `"auto"` to leave whatever the control is on alone; omit it and the GPU renderer is used. The GPU renderer requires a Mercator projection, so a plugin that expects to work on the globe should ask for `"cog-tiler-wasm"`.
+
+`addWmsLayer` requests Web Mercator tiles unless `crs` names another CRS, for a server whose capabilities do not list EPSG:3857. Pick one the layer lists, preferably geographic (`EPSG:4326`, `EPSG:4258`, `EPSG:6706`, or `CRS:84` with `version: "1.3.0"`), otherwise a projected `EPSG:<code>` such as `EPSG:25832`. Only the desktop app redraws those tiles into Web Mercator: the web build still sends the Web Mercator BBOX, so such a layer stays blank there. An unsupported value, or `CRS:84` with WMS 1.1.1, throws.
 
 `addTileLayer`/`addWmtsLayer`/`addWmsLayer` expect **pre-rendered tiles** (e.g. a COG already served through a tiler such as titiler as an XYZ endpoint). `addCogLayer` is different: it loads the **GeoTIFF itself** and renders it client-side, exposing band selection, rescale, colormap, and nodata in the raster panel. It is async (it fetches the file's header), so it returns a `Promise<string>` and rejects if the COG cannot be read.
 
