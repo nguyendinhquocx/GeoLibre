@@ -1105,6 +1105,49 @@ def build_server(workspace: Workspace) -> MCPServer:
         return _summarize(file, project, legend=entry)
 
     @tool()
+    def set_map_legend(
+        path: str,
+        title: str | None = None,
+        position: str | None = None,
+        group_by_layer: bool | None = None,
+        visible: bool | None = None,
+        collapsed: bool | None = None,
+    ) -> dict[str, Any]:
+        """Show the map legend, built from the layers' own symbology.
+
+        This is the app's Controls > Legend panel: its rows come from each
+        visible layer's style (graduated classes, categories, ramps), so it
+        needs no entries. Use `add_legend` for hand-written entries instead. A
+        project has one map legend; calling this again updates it.
+
+        Args:
+            path: Path to the `.geolibre.json` file.
+            title: Heading above the entries. Keeps the current one when
+                omitted.
+            position: `top-left`, `top-right`, `bottom-left`, or
+                `bottom-right`. Keeps the current corner when omitted.
+            group_by_layer: Group each layer's classes under a layer heading.
+                Keeps the current setting when omitted.
+            visible: Whether the on-map panel is open. Keeps the current
+                state when omitted; a new legend opens.
+            collapsed: Whether the open panel is collapsed to its header.
+                Keeps the current state when omitted.
+
+        Returns:
+            The project's map legend config.
+        """
+        with edit(path) as (file, project):
+            legend = authoring.set_map_legend(
+                project,
+                title,
+                position=position,
+                group_by_layer=group_by_layer,
+                visible=visible,
+                collapsed=collapsed,
+            )
+        return _summarize(file, project, mapLegend=legend)
+
+    @tool()
     def add_colorbar(
         path: str,
         colormap: str = "viridis",

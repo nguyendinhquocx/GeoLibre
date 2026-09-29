@@ -30,7 +30,7 @@ full-quality video.
 
 [![Animation of Manhattan buildings appearing by construction year as the Time Slider advances from 1850 to 2025](https://assets.geolibre.app/demos/nyc-buildings-gif.gif)](https://assets.geolibre.app/demos/nyc-buildings.webm)
 
-[Open the live project](https://share.geolibre.app/giswqs/nyc-buildings-and-subways){ .md-button .md-button--primary }
+[Open the live project](https://share.geolibre.app/giswqs/manhattan-buildings-through-time){ .md-button .md-button--primary }
 
 ## Planetary basemaps
 
@@ -78,6 +78,44 @@ The deep-space starfield behind each globe comes from the
     <td align="center"><b>Charon</b><br>New Horizons Mosaic (NASA / JHU APL / SwRI)</td>
   </tr>
 </table>
+
+## Open data showcase
+
+<!-- demo-gallery-teaser:start -->
+100 interactive maps built from public open data, from air quality and
+earthquakes to Roman roads and the aurora, each a single `.geolibre.json`
+project you can open live, explore, and fork. A few highlights:
+
+<table>
+  <tr>
+    <td width="50%"><a href="https://share.geolibre.app/giswqs/manhattan-buildings-through-time"><img src="https://assets.geolibre.app/images/manhattan-buildings-through-time.webp" alt="GeoLibre map: Manhattan buildings through time" loading="lazy"></a></td>
+    <td width="50%"><a href="https://share.geolibre.app/giswqs/the-global-flight-network"><img src="https://assets.geolibre.app/images/the-global-flight-network.webp" alt="GeoLibre map: The global flight network" loading="lazy"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><b><a href="https://share.geolibre.app/giswqs/manhattan-buildings-through-time">Manhattan buildings through time</a></b><br>Urban growth · Buildings extruded at true height and replayed by construction year, 1850–2025, under the subway<br><small>Data: NYC Open Data, MTA</small></td>
+    <td align="center"><b><a href="https://share.geolibre.app/giswqs/the-global-flight-network">The global flight network</a></b><br>Human mobility · The 4,000 busiest air corridors as great circles, hubs sized by routes<br><small>Data: OpenFlights</small></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="https://share.geolibre.app/giswqs/us-tornado-tracks-1950-2024"><img src="https://assets.geolibre.app/images/us-tornado-tracks-1950-2024.webp" alt="GeoLibre map: US tornado tracks, 1950–2024" loading="lazy"></a></td>
+    <td width="50%"><a href="https://share.geolibre.app/giswqs/the-vanishing-aral-sea"><img src="https://assets.geolibre.app/images/the-vanishing-aral-sea.webp" alt="GeoLibre map: The vanishing Aral Sea" loading="lazy"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><b><a href="https://share.geolibre.app/giswqs/us-tornado-tracks-1950-2024">US tornado tracks, 1950–2024</a></b><br>Natural hazards · (E)F1+ tracks by rating on a time slider that accumulates year by year<br><small>Data: NOAA Storm Prediction Center</small></td>
+    <td align="center"><b><a href="https://share.geolibre.app/giswqs/the-vanishing-aral-sea">The vanishing Aral Sea</a></b><br>Environmental change · Swipe between water occurrence and 1984–2021 transitions<br><small>Data: EC JRC Global Surface Water</small></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="https://share.geolibre.app/giswqs/roads-of-the-roman-empire"><img src="https://assets.geolibre.app/images/roads-of-the-roman-empire.webp" alt="GeoLibre map: Roads of the Roman Empire" loading="lazy"></a></td>
+    <td width="50%"><a href="https://share.geolibre.app/giswqs/aurora-forecast"><img src="https://assets.geolibre.app/images/aurora-forecast.webp" alt="GeoLibre map: Aurora forecast" loading="lazy"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><b><a href="https://share.geolibre.app/giswqs/roads-of-the-roman-empire">Roads of the Roman Empire</a></b><br>History · About 300,000 km of Roman roads by how certain the route is<br><small>Data: Itiner-e</small></td>
+    <td align="center"><b><a href="https://share.geolibre.app/giswqs/aurora-forecast">Aurora forecast</a></b><br>Space weather · The chance of seeing an aurora, a snapshot of the OVATION model<br><small>Data: NOAA SWPC</small></td>
+  </tr>
+</table>
+
+[Browse the full gallery](gallery.md){ .md-button .md-button--primary }
+[Official Demos collection](https://share.geolibre.app/giswqs/collections/official-demos){ .md-button }
+<!-- demo-gallery-teaser:end -->
 
 ## SQL Workspace
 

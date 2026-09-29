@@ -71,6 +71,7 @@ import { isTauri } from "./lib/is-tauri";
 import { installStaleChunkReload } from "./lib/stale-chunk-reload";
 import { resolveAuthGate, type AuthGateConfig } from "./lib/auth-gate";
 import { getInitialThemeMode } from "./hooks/useThemeMode";
+import { KeychainWaitScreen } from "./components/common/KeychainWaitScreen";
 import { applyTemporaryDesktopSettings } from "./hooks/useDesktopSettings";
 import {
   desktopSettingsUrl,
@@ -95,6 +96,7 @@ const nativeProjectOpenReady = initializeNativeProjectOpen();
 let nativeShareFetchReady: Promise<void> = Promise.resolve();
 let nativeArcGISFetchReady: Promise<void> = Promise.resolve();
 let nativeSidecarFetchReady: Promise<void> = Promise.resolve();
+let nativeWmsIdentifyFetchReady: Promise<void> = Promise.resolve();
 // Install desktop-only transports before requests can be issued. ArcGIS uses
 // a dedicated guarded Rust command; the other adapters use scoped HTTP hosts.
 if (isTauri()) {
@@ -117,6 +119,13 @@ if (isTauri()) {
         console.error("[GeoLibre] Failed to install native sidecar fetch", error);
       });
   }
+  nativeWmsIdentifyFetchReady = import("./lib/wms-identify-fetch")
+    .then(({ installNativeWmsIdentifyFetch }) => installNativeWmsIdentifyFetch())
+    .catch((error: unknown) => {
+      // Identify would stay on the webview fetch, which fails on WMS servers
+      // without CORS headers (#2712), so surface the install failure.
+      console.error("[GeoLibre] Failed to install native WMS identify fetch", error);
+    });
   void import("./lib/geocoding-fetch")
     .then(({ installNativeGeocodingFetch }) => installNativeGeocodingFetch())
     .catch((error: unknown) => {
@@ -178,13 +187,14 @@ const isHostedWebApp = !isTauri() && !__GEOLIBRE_EMBED_BUILD__;
 startAnalytics(isHostedWebApp);
 // Clerk or Auth0, whichever this deployment configured (neither, normally).
 const authGate = resolveAuthGate(isHostedWebApp);
-if (authGate) {
+if (authGate || isDesktopRuntime()) {
   // Apply the initial theme now rather than leaving it to <App />. A gate paints
-  // a full-screen signed-out page *before* App mounts, and App is where
-  // useThemeMode adds the `dark` class — so without this a dark-mode visitor
-  // gets a white sign-in screen that flips to dark only after signing in. This
-  // sets exactly what useThemeMode's layout effect will set a moment later
-  // (same helper, same `?theme=` handling), so it is a no-op once App mounts.
+  // a full-screen signed-out page, and desktop may paint the keychain waiting
+  // screen, *before* App mounts, and App is where useThemeMode adds the `dark`
+  // class — so without this a dark-mode user gets a white screen that flips to
+  // dark only once the app renders. This sets exactly what useThemeMode's
+  // layout effect will set a moment later (same helper, same `?theme=`
+  // handling), so it is a no-op once App mounts.
   const initialTheme = getInitialThemeMode();
   document.documentElement.classList.toggle("dark", initialTheme === "dark");
   document.documentElement.style.colorScheme = initialTheme;
@@ -267,6 +277,18 @@ const sharedSettingsReady = sharedSettingsUrl
       })
   : Promise.resolve(null);
 
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+
+const desktopCredentialsReady = sharedSettingsReady
+  .then(() =>
+    import("./lib/credential-hydration").then(({ hydrateDesktopCredentials }) =>
+      hydrateDesktopCredentials(),
+    ),
+  )
+  .catch((error: unknown) => {
+    console.error("[GeoLibre] Failed to load desktop credentials", error);
+  });
+
 const startupLanguageReady = Promise.all([i18nReady, sharedSettingsReady]).then(
   async ([, settings]) => {
     if (!settings) return;
@@ -286,6 +308,28 @@ const startupLanguageReady = Promise.all([i18nReady, sharedSettingsReady]).then(
   },
 );
 
+// A locked keyring (common on Linux when it is not unlocked at login) holds
+// hydration until the user answers the unlock prompt. Say so rather than
+// leaving the window blank, which looks frozen when the prompt is behind it.
+const KEYCHAIN_WAIT_SCREEN_DELAY_MS = 300;
+let appRendered = false;
+if (isDesktopRuntime()) {
+  const waitTimer = window.setTimeout(() => {
+    void startupLanguageReady
+      .catch(() => undefined)
+      .then(() => {
+        if (appRendered) return;
+        root.render(
+          <KeychainWaitScreen
+            title={i18n.t("startup.keychainWaitTitle")}
+            detail={i18n.t("startup.keychainWaitDetail")}
+          />,
+        );
+      });
+  }, KEYCHAIN_WAIT_SCREEN_DELAY_MS);
+  void desktopCredentialsReady.finally(() => window.clearTimeout(waitTimer));
+}
+
 // Fetch both chunks in parallel rather than waterfalling the boundary import
 // after App resolves — a free win, and it matters over the network in the web
 // build where these are separate fetches.
@@ -298,6 +342,8 @@ void Promise.all([
   nativeSidecarFetchReady,
   // Restored ArcGIS layers can query immediately when App mounts.
   nativeArcGISFetchReady,
+  // An Identify click on a restored WMS layer must not beat the native fetcher.
+  nativeWmsIdentifyFetchReady,
   // Capture a file-association or command-line project path before App decides
   // whether to restore a configured startup project or the default workspace.
   nativeProjectOpenReady,
@@ -305,11 +351,14 @@ void Promise.all([
   // Gate the first render on i18next being initialized with the active locale's
   // (lazily loaded) catalog, so the UI never paints raw translation keys.
   startupLanguageReady,
+  // Keychain-held tokens must be in the settings store before any consumer reads them.
+  desktopCredentialsReady,
 ])
   .then(([{ default: App }, { AppErrorBoundary }, withAuthGate]) => {
     const app = <App />;
     const authenticatedApp = withAuthGate ? withAuthGate(app) : app;
-    ReactDOM.createRoot(document.getElementById("root")!).render(
+    appRendered = true;
+    root.render(
       <React.StrictMode>
         <I18nextProvider i18n={i18n}>
           <AppErrorBoundary>

@@ -1,10 +1,18 @@
 // Authorization Code + S256 PKCE for the reference share server. Web uses a
 // same-origin popup and issuer-keyed tab storage; desktop uses the system
-// browser and process-memory-only tokens. Neither mode stores an access token.
+// browser and keeps the refresh token in the OS credential store. Neither mode
+// stores an access token.
 // The manager step-up grant never enters the project-session cache or storage.
 
 import { create } from "zustand";
 import type { ParseKeys } from "i18next";
+import {
+  hasPendingCredential,
+  queueCredentialChanges,
+  reportCredentialStorageError,
+  useCredentialStorageStatus,
+  writeSecureCredential,
+} from "./credential-store";
 import { isDesktopRuntime } from "./is-mobile";
 import { isTauri } from "./is-tauri";
 import { getShareFetch } from "./share-fetch";
@@ -57,7 +65,8 @@ export type ShareOAuthErrorCode =
   | "exchange-failed"
   | "refresh-unavailable"
   | "setup-failed"
-  | "restart-required";
+  | "restart-required"
+  | "sign-out-incomplete";
 
 /** Typed failure so the UI renders guidance (t()) instead of a raw message. */
 export class ShareOAuthError extends Error {
@@ -89,6 +98,8 @@ export function shareOAuthErrorKey(code: ShareOAuthErrorCode): ParseKeys {
       return "share.oauthSetupFailed";
     case "restart-required":
       return "share.oauthRestartSignIn";
+    case "sign-out-incomplete":
+      return "share.oauthSignOutIncomplete";
     case "not-configured":
       return "gallery.errorNotConfigured";
     default:
@@ -102,6 +113,11 @@ interface ShareOAuthState {
   pending: boolean;
   startupError: "restart-required" | null;
   setupError: boolean;
+  /**
+   * Desktop: the sign-in could not be marked for safe persistence, so it is
+   * kept in memory only and any stored copy is being removed.
+   */
+  desktopSessionOnly: boolean;
 }
 
 export const useShareOAuthStore = create<ShareOAuthState>(() => ({
@@ -110,6 +126,7 @@ export const useShareOAuthStore = create<ShareOAuthState>(() => ({
   pending: false,
   startupError: null,
   setupError: false,
+  desktopSessionOnly: false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -238,7 +255,138 @@ interface StoredSession {
   refreshToken: string;
 }
 
+/**
+ * The desktop session. It is persisted to the OS credential store (issue
+ * #1667) through {@link persistDesktopRefresh} and restored before the app
+ * renders by {@link hydrateDesktopShareSession}; this variable is the source
+ * of truth while the app runs.
+ */
 let desktopRefresh: { issuer: string; refreshToken: string } | null = null;
+
+/** Credential-store account holding the desktop refresh token for `issuer`. */
+export function shareRefreshTokenAccount(issuer: string): string {
+  return `share.oauth.refreshToken.${issuer}`;
+}
+
+/** Keychain accounts the desktop Share sign-in reads at startup. */
+export function desktopShareSessionAccounts(): string[] {
+  const issuer = resolveShareIssuer();
+  return issuer ? [shareRefreshTokenAccount(issuer)] : [];
+}
+
+/**
+ * Non-secret localStorage list of issuers whose keychain entry may be stale:
+ * written synchronously before a keychain write is queued and cleared only
+ * once no write for that issuer is pending. Refresh tokens rotate and the
+ * server revokes the whole session when a consumed one is presented, so a
+ * stored token is trusted at startup only when this list does not name its
+ * issuer.
+ */
+export const SHARE_UNSAVED_ISSUERS_STORAGE_KEY = "geolibre.share.oauth.unsavedIssuers";
+
+/** Throws on unreadable storage or a malformed value, so callers stay conservative. */
+function readUnsavedIssuers(): string[] {
+  const raw = window.localStorage.getItem(SHARE_UNSAVED_ISSUERS_STORAGE_KEY);
+  if (raw === null) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed) || !parsed.every((issuer) => typeof issuer === "string")) {
+    throw new Error("The saved sign-in marker is malformed.");
+  }
+  return parsed as string[];
+}
+
+function writeUnsavedIssuers(issuers: readonly string[]): void {
+  if (issuers.length === 0) window.localStorage.removeItem(SHARE_UNSAVED_ISSUERS_STORAGE_KEY);
+  else window.localStorage.setItem(SHARE_UNSAVED_ISSUERS_STORAGE_KEY, JSON.stringify(issuers));
+}
+
+/** Drop issuers whose keychain writes have all completed. */
+function reconcileUnsavedIssuers(): void {
+  try {
+    const unsaved = readUnsavedIssuers();
+    const still = unsaved.filter((issuer) =>
+      hasPendingCredential(shareRefreshTokenAccount(issuer)),
+    );
+    if (still.length !== unsaved.length) writeUnsavedIssuers(still);
+  } catch (error) {
+    reportCredentialStorageError(error);
+  }
+}
+
+let reconcilingOnRetry = false;
+
+/**
+ * Mirror a desktop session change into the OS credential store. The issuer is
+ * marked unsaved first, so quitting while the write is in flight, or after it
+ * failed, makes the next launch start signed out instead of presenting a
+ * consumed refresh token. A failed write is retried with the next queued
+ * credential change, and the marker clears once it succeeds.
+ *
+ * If the marker itself cannot be written (localStorage unavailable), the new
+ * token is not stored at all and a delete of any stored copy is queued; the
+ * session continues in memory only. After a refresh this is best effort: the
+ * delete is asynchronous, so quitting before it completes leaves the previous
+ * token stored with no marker, and the next launch restores it. Rotation has
+ * already consumed that token, so the server rejects its first refresh and
+ * the app signs out (the pre-#1667 outcome, reached one request later).
+ * Sign-out waits for its delete (see {@link signOutOfShare}), because the
+ * stored token is still valid there if the revoke request also fails.
+ */
+function persistDesktopRefresh(
+  previous: typeof desktopRefresh,
+  next: typeof desktopRefresh,
+): Promise<void> {
+  const secrets = (session: typeof desktopRefresh): Record<string, string> =>
+    session ? { [shareRefreshTokenAccount(session.issuer)]: session.refreshToken } : {};
+  const issuers = [previous?.issuer, next?.issuer].filter((issuer) => issuer !== undefined);
+  if (!reconcilingOnRetry) {
+    reconcilingOnRetry = true;
+    // A retry triggered by another credential change clears a failed account.
+    useCredentialStorageStatus.subscribe((state, before) => {
+      if (state.failedAccounts !== before.failedAccounts) reconcileUnsavedIssuers();
+    });
+  }
+  try {
+    writeUnsavedIssuers([...new Set([...readUnsavedIssuers(), ...issuers])]);
+  } catch (error) {
+    reportCredentialStorageError(error);
+    useShareOAuthStore.setState({ desktopSessionOnly: next !== null });
+    const stored = Object.fromEntries(
+      issuers.map((issuer) => [shareRefreshTokenAccount(issuer), "stored"]),
+    );
+    return queueCredentialChanges(stored, {});
+  }
+  useShareOAuthStore.setState({ desktopSessionOnly: false });
+  return queueCredentialChanges(secrets(previous), secrets(next)).then(reconcileUnsavedIssuers);
+}
+
+/**
+ * Desktop startup: restore the sign-in for the configured issuer from the
+ * caller's single credential-store read (`null` when that read failed and was
+ * reported). A token whose last save never completed may already be consumed,
+ * so it is deleted instead and the app starts signed out.
+ */
+export async function hydrateDesktopShareSession(
+  stored: Readonly<Record<string, string>> | null,
+): Promise<void> {
+  const issuer = resolveShareIssuer();
+  if (!issuer || stored === null) return;
+  const account = shareRefreshTokenAccount(issuer);
+  try {
+    const unsaved = readUnsavedIssuers();
+    if (unsaved.includes(issuer)) {
+      await writeSecureCredential(account, "");
+      writeUnsavedIssuers(unsaved.filter((candidate) => candidate !== issuer));
+      return;
+    }
+    const refreshToken = stored[account];
+    if (!refreshToken) return;
+    desktopRefresh = { issuer, refreshToken };
+    setStoreIssuer(issuer);
+  } catch (error) {
+    reportCredentialStorageError(error);
+  }
+}
 
 /** Main installs listener and HTTP transport before enabling native sign-in. */
 let desktopOAuthReady: Promise<void> | null = null;
@@ -288,7 +436,9 @@ function readSession(issuer: string): StoredSession | null {
 
 function writeSession(issuer: string, refreshToken: string): void {
   if (isDesktopRuntime()) {
+    const previous = desktopRefresh;
     desktopRefresh = { issuer, refreshToken };
+    void persistDesktopRefresh(previous, desktopRefresh);
     return;
   }
   try {
@@ -301,16 +451,24 @@ function writeSession(issuer: string, refreshToken: string): void {
   }
 }
 
-function clearStoredSession(issuer: string): void {
+/**
+ * Forget the stored session. On desktop the returned promise settles once the
+ * keychain delete has been attempted (it never rejects; a failure is reported
+ * through the credential-storage status).
+ */
+function clearStoredSession(issuer: string): Promise<void> {
   if (isDesktopRuntime()) {
-    if (desktopRefresh?.issuer === issuer) desktopRefresh = null;
-    return;
+    if (desktopRefresh?.issuer !== issuer) return Promise.resolve();
+    const previous = desktopRefresh;
+    desktopRefresh = null;
+    return persistDesktopRefresh(previous, null);
   }
   try {
     window.sessionStorage.removeItem(SESSION_PREFIX + issuer);
   } catch {
     // Nothing further to clean up.
   }
+  return Promise.resolve();
 }
 
 function loadSignedInIssuer(): string | null {
@@ -729,7 +887,7 @@ async function refreshAccessToken(
       (parsedBody?.error === "invalid_grant" || parsedBody?.error === "invalid_client");
     if (grantDead) {
       // Dead family (reused/rotated elsewhere, revoked, expired): drop it.
-      clearStoredSession(issuer);
+      void clearStoredSession(issuer);
       if (cachedAccess?.issuer === issuer) cachedAccess = null;
       if (loadSignedInIssuer() === null) setStoreIssuer(null);
       return null;
@@ -759,22 +917,39 @@ async function refreshAccessToken(
 }
 
 // ---------------------------------------------------------------------------
-// Sign-out: revoke the family, then clear local state either way
+// Sign-out: clear local state, delete the stored token and revoke the family
 // ---------------------------------------------------------------------------
 
+/**
+ * Sign out. The keychain delete and the revoke request run independently: a
+ * failed delete must not skip the revoke, and a failed revoke must not keep a
+ * token stored on this device. The session stops being usable immediately;
+ * the UI reports signed out once the stored token is gone, so it never says
+ * signed out while a still-valid token could be restored on the next launch.
+ * Resolves once both have been attempted.
+ */
 export async function signOutOfShare(baseUrl?: string): Promise<void> {
   if (!supportsShareOAuth()) return;
   sessionGeneration += 1;
   const issuer = resolveShareIssuer(baseUrl);
   if (!issuer) return;
   const session = readSession(issuer);
-  // Local state is cleared first and unconditionally: a failed revoke must not
-  // leave the UI signed in, and the refresh token is single-use enough that the
-  // server-side family expires on its own schedule regardless.
-  clearStoredSession(issuer);
+  const deleted = clearStoredSession(issuer);
   if (cachedAccess?.issuer === issuer) cachedAccess = null;
+  const revoked = session ? revokeRefreshToken(issuer, session.refreshToken) : Promise.resolve();
+  await deleted;
   if (loadSignedInIssuer() === null) setStoreIssuer(null);
-  if (!session) return;
+  await revoked;
+  // The session is gone from memory either way, but a failed delete leaves the
+  // token on this device. The delete stays queued and is retried only with a
+  // later credential write in this process, so report the sign-out as
+  // incomplete instead of as clean.
+  if (session && isDesktopRuntime() && hasPendingCredential(shareRefreshTokenAccount(issuer))) {
+    throw new ShareOAuthError("sign-out-incomplete");
+  }
+}
+
+async function revokeRefreshToken(issuer: string, refreshToken: string): Promise<void> {
   try {
     await getShareFetch()(oauthEndpointUrl(issuer, "revoke"), {
       method: "POST",
@@ -782,7 +957,7 @@ export async function signOutOfShare(baseUrl?: string): Promise<void> {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: shareOAuthClientId(),
-        token: session.refreshToken,
+        token: refreshToken,
         token_type_hint: "refresh_token",
       }),
     });
