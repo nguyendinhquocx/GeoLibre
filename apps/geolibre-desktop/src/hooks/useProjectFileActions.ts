@@ -6,6 +6,7 @@ import {
   redactProjectCredentials,
   excludeHiddenFieldsFromProject,
   serializeProject,
+  splitProjectCredentials,
   useAppStore,
   type GeoLibreLayer,
   type GeoLibreProject,
@@ -39,7 +40,8 @@ import {
   saveTextFileWithFallback,
 } from "../lib/tauri-io";
 import { useDesktopSettingsStore } from "./useDesktopSettings";
-import { buildProjectHtml } from "../lib/html-export";
+import { buildProjectHtml, viewerChromeParams } from "../lib/html-export";
+import { isLayersPanelCollapsed } from "../lib/layer-panel-collapse";
 import { ensureHtmlFileName, ensureProjectFileName } from "../lib/file-names";
 import { mergeStringLists } from "../lib/string-lists";
 import { fetchProjectFromUrl } from "../lib/project-url";
@@ -81,6 +83,21 @@ import { importArcgisProject, type ArcgisProjectImportWarning } from "../lib/arc
 import type { MapControllerRef } from "../components/layout/toolbar/constants";
 import { IS_MAS_BUILD } from "../lib/build-flags";
 import { resolveDroppedProjectIfCurrent } from "../lib/dropped-project";
+import {
+  projectCredentialRollback,
+  projectCredentialsInKeychain,
+  rememberProjectCredentials,
+} from "../lib/project-credentials";
+
+/** Keychain changes a save made early, undone unless the project is written. */
+interface SaveCredentials {
+  rollback: Record<string, string> | null;
+  written: boolean;
+  /** Every credential reached the keychain and was left out of the file. */
+  stripped: boolean;
+  /** The user chose to keep the remaining credentials in the file. */
+  keptPlaintext: boolean;
+}
 
 /** A pending "strip credentials before saving?" prompt. */
 export interface CredentialStripPrompt {
@@ -1308,8 +1325,135 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
 
   const cancelSaveNamePrompt = () => settleSaveNamePrompt(saveNamePrompt, null);
 
+  // Saving back to an editable shared project writes the version every group
+  // member opens, so it is built like Share: local vector data is embedded (never
+  // file references) and credentials are redacted. The local-save prompts do not
+  // apply, since neither choice can be honoured on the server.
+  const saveBackToShare = async (
+    remoteProject: RemoteSharedProjectTarget & { projectGeneration: number },
+    saveProjectGeneration: number,
+  ): Promise<boolean> => {
+    // Unembedded snapshot, compared after the upload to tell whether the user
+    // changed the project while the save was in flight.
+    const startContent = serializeForSave(
+      excludeHiddenFieldsFromProject(buildCurrentProject().project),
+    );
+    if (startContent === null) return false;
+    try {
+      const { project } = await buildEmbeddedProject();
+      if (useAppStore.getState().projectGeneration !== saveProjectGeneration) return false;
+      const contentToSave = serializeForSave(
+        redactProjectCredentials(excludeHiddenFieldsFromProject(project)).project,
+      );
+      if (contentToSave === null) return false;
+      // Re-resolved per save: an OAuth access token captured at open time
+      // may have expired; `remoteProject.token` is the personal-token fallback.
+      const token = await resolveShareRequestToken(remoteProject.token, remoteProject.baseUrl);
+      if (
+        remoteProject !== remoteProjectRef.current ||
+        (remoteProject.oauthSessionRevision !== undefined &&
+          remoteProject.oauthSessionRevision !== useShareOAuthStore.getState().sessionRevision)
+      )
+        return false;
+      const updated = await updateSharedProjectContent({
+        token,
+        projectId: remoteProject.id,
+        content: contentToSave,
+        expectedVersion: remoteProject.versionCount,
+        baseUrl: remoteProject.baseUrl,
+      });
+      if (
+        useAppStore.getState().projectGeneration !== saveProjectGeneration ||
+        remoteProject !== remoteProjectRef.current ||
+        (remoteProject.oauthSessionRevision !== undefined &&
+          remoteProject.oauthSessionRevision !== useShareOAuthStore.getState().sessionRevision)
+      )
+        return false;
+      const updatedRemoteProject = {
+        ...remoteProject,
+        versionCount: updated.versionCount,
+      };
+      remoteProjectRef.current = updatedRemoteProject;
+
+      // The upload already succeeded, so a failure here must not report an
+      // error; it only leaves the project marked unsaved.
+      let liveContent: string | null = null;
+      try {
+        liveContent = serializeProject(
+          excludeHiddenFieldsFromProject(buildCurrentProject().project),
+        );
+      } catch (error) {
+        console.error("Failed to compare the saved shared project", error);
+      }
+      if (liveContent && sharedProjectContentMatches(startContent, liveContent)) {
+        markSaved();
+        recordExplicitProjectSave();
+      }
+      setRemoteSaveWarning(updated.warning ? updatedRemoteProject : null);
+      return true;
+    } catch (error) {
+      console.error("Failed to update shared project", error);
+      setActionError(
+        error instanceof ShareOAuthError
+          ? t(shareOAuthErrorKey(error.code))
+          : error instanceof ShareUploadError && error.code === "unauthorized"
+            ? t(
+                supportsShareOAuth()
+                  ? "gallery.errorUnauthorizedOAuth"
+                  : "gallery.errorUnauthorized",
+                { shareHost: shareHostLabel() },
+              )
+            : error instanceof Error
+              ? error.message
+              : t("toolbar.error.couldNotSaveProject"),
+      );
+      return false;
+    }
+  };
+
+  // Saving moves credentials to the device-wide keychain before the file is
+  // written, so the prompt below has nothing to ask about. A save that never
+  // writes (cancelled prompt or picker, failed write, a project switched in
+  // meanwhile) puts the previous values back, so it cannot replace the value
+  // other projects on this device use.
   const runSaveProject = async (options?: { saveAs?: boolean }): Promise<boolean> => {
+    const credentials: SaveCredentials = {
+      rollback: null,
+      written: false,
+      stripped: false,
+      keptPlaintext: false,
+    };
+    try {
+      return await saveProjectWithCredentials(options, credentials);
+    } finally {
+      // Awaited so saveProject's overlapping-save guard stays held until the
+      // shared values are back, and a later save starts from them.
+      if (
+        credentials.rollback &&
+        (!credentials.written || (!credentials.stripped && credentials.keptPlaintext)) &&
+        !(await rememberProjectCredentials(credentials.rollback))
+      ) {
+        console.error("[GeoLibre] Could not restore stored project credentials", {
+          accounts: Object.keys(credentials.rollback),
+        });
+        setActionError(t("toolbar.error.credentialRollbackFailed"));
+      }
+    }
+  };
+
+  const saveProjectWithCredentials = async (
+    options: { saveAs?: boolean } | undefined,
+    credentials: SaveCredentials,
+  ): Promise<boolean> => {
     const saveProjectGeneration = useAppStore.getState().projectGeneration;
+    const remoteProject = remoteProjectRef.current;
+    if (
+      !options?.saveAs &&
+      remoteProject?.canEdit &&
+      remoteProject.projectGeneration === saveProjectGeneration
+    ) {
+      return saveBackToShare(remoteProject, saveProjectGeneration);
+    }
     // Offer to embed local vector data (or, on desktop, save file references)
     // first, so the serialized content below reflects the user's choice.
     const layersForSave = await resolveLayersForSave();
@@ -1323,11 +1467,26 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       undefined,
       layersForSave.layers,
     );
-    // Credentials are serialized in plain text for a local project that needs
-    // them. Make keeping them an explicit choice and use the same central
-    // redaction pass as every external egress.
+    // Desktop: geocoding keys and uniquely named secret environment variables
+    // move to the OS keychain. Ambiguous rows and
+    // failed keychain writes fall through to the keep/strip prompt below, so
+    // the user neither writes plaintext silently nor loses the value.
+    let projectForSave = project;
+    if (projectCredentialsInKeychain()) {
+      const split = splitProjectCredentials(project);
+      const rollback = projectCredentialRollback(split.secrets);
+      if (Object.keys(rollback).length > 0) credentials.rollback = rollback;
+      if (await rememberProjectCredentials(split.secrets)) {
+        projectForSave = split.project;
+        credentials.stripped = true;
+      }
+      if (useAppStore.getState().projectGeneration !== saveProjectGeneration) return false;
+    }
+    // Remaining credentials are serialized in plain text for a local project
+    // that needs them. Make keeping them an explicit choice and use the same
+    // central redaction pass as every external egress.
     let contentToSave: string | null;
-    const projectToEgress = excludeHiddenFieldsFromProject(project);
+    const projectToEgress = excludeHiddenFieldsFromProject(projectForSave);
     const redacted = redactProjectCredentials(projectToEgress);
     if (redacted.redactedPaths.length > 0) {
       const remembered = saveChoicesForProject(saveChoicesRef.current, saveProjectGeneration);
@@ -1340,6 +1499,9 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
         rememberedCredentialChoice ??
         (await askStripCredentials(redacted.redactedCount, saveProjectGeneration));
       if (choice === "cancel") return false;
+      // Keep writes the plaintext into the file, so a partial keychain write
+      // is redundant and is undone. Strip leaves the keychain as the only copy.
+      credentials.keptPlaintext = choice === "keep";
       if (useAppStore.getState().projectGeneration !== saveProjectGeneration) return false;
       saveChoicesRef.current = rememberProjectSaveChoices(
         saveChoicesRef.current,
@@ -1359,69 +1521,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       contentToSave = serializeForSave(projectToEgress);
     }
     if (contentToSave === null) return false;
-    const remoteProject = remoteProjectRef.current;
-    if (
-      !options?.saveAs &&
-      remoteProject?.canEdit &&
-      remoteProject.projectGeneration === saveProjectGeneration
-    ) {
-      try {
-        // Re-resolved per save: an OAuth access token captured at open time
-        // may have expired; `remoteProject.token` is the personal-token fallback.
-        const token = await resolveShareRequestToken(remoteProject.token, remoteProject.baseUrl);
-        if (
-          remoteProject !== remoteProjectRef.current ||
-          (remoteProject.oauthSessionRevision !== undefined &&
-            remoteProject.oauthSessionRevision !== useShareOAuthStore.getState().sessionRevision)
-        )
-          return false;
-        const updated = await updateSharedProjectContent({
-          token,
-          projectId: remoteProject.id,
-          content: contentToSave,
-          expectedVersion: remoteProject.versionCount,
-          baseUrl: remoteProject.baseUrl,
-        });
-        if (
-          useAppStore.getState().projectGeneration !== saveProjectGeneration ||
-          remoteProject !== remoteProjectRef.current ||
-          (remoteProject.oauthSessionRevision !== undefined &&
-            remoteProject.oauthSessionRevision !== useShareOAuthStore.getState().sessionRevision)
-        )
-          return false;
-        const updatedRemoteProject = {
-          ...remoteProject,
-          versionCount: updated.versionCount,
-        };
-        remoteProjectRef.current = updatedRemoteProject;
 
-        const liveProject = excludeHiddenFieldsFromProject(buildCurrentProject().project);
-        const liveContent = serializeForSave(liveProject);
-        if (liveContent && sharedProjectContentMatches(updated.savedContent, liveContent)) {
-          markSaved();
-          recordExplicitProjectSave();
-        }
-        setRemoteSaveWarning(updated.warning ? updatedRemoteProject : null);
-        return true;
-      } catch (error) {
-        console.error("Failed to update shared project", error);
-        setActionError(
-          error instanceof ShareOAuthError
-            ? t(shareOAuthErrorKey(error.code))
-            : error instanceof ShareUploadError && error.code === "unauthorized"
-              ? t(
-                  supportsShareOAuth()
-                    ? "gallery.errorUnauthorizedOAuth"
-                    : "gallery.errorUnauthorized",
-                  { shareHost: shareHostLabel() },
-                )
-              : error instanceof Error
-                ? error.message
-                : t("toolbar.error.couldNotSaveProject"),
-        );
-        return false;
-      }
-    }
     // Projects opened from a URL have no writable path, so both Save and
     // Save As fall back to the save dialog for them.
     const existingLocalPath = projectPath && !isHttpUrl(projectPath) ? projectPath : null;
@@ -1464,6 +1564,7 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       return false;
     }
     if (!path) return false;
+    credentials.written = true;
     // A native picker can remain open while another project arrives through an
     // external action. The old project may have been written successfully, but
     // never attach its path or saved state to the replacement project.
@@ -1560,6 +1661,12 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       const html = buildProjectHtml({
         project,
         title: defaultProjectName,
+        // Open the export with this app's chrome: its layout flags, theme,
+        // and a collapsed Layers panel (#2764).
+        viewerParams: viewerChromeParams(window.location.search, {
+          themeMode: document.documentElement.classList.contains("dark") ? "dark" : "light",
+          layersCollapsed: isLayersPanelCollapsed(),
+        }),
       });
       // Returns null when the user cancels the save dialog; report that as a
       // no-op rather than a successful export.
