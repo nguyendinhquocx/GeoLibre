@@ -1,7 +1,14 @@
 // The standalone PMTiles layer control and its store sync.
 // Split out of maplibre-components.ts (opengeos/GeoLibre#2633).
 
-import { DEFAULT_LAYER_STYLE, type GeoLibreLayer, useAppStore } from "@geolibre/core";
+import {
+  DEFAULT_LAYER_STYLE,
+  explainS3ReadError,
+  type GeoLibreLayer,
+  resolveReadableUrl,
+  unsignedSourceUrl,
+  useAppStore,
+} from "@geolibre/core";
 import {
   createArcgisPMTilesArchiveLayers,
   createPMTilesArchiveLayers,
@@ -112,7 +119,8 @@ export async function addPMTilesLayerFromUrl(
   let address: URL;
   try {
     address = new URL(url);
-    if (!["https:", "http:"].includes(address.protocol)) throw new Error("Unsupported protocol");
+    if (!["https:", "http:", "s3:"].includes(address.protocol))
+      throw new Error("Unsupported protocol");
   } catch {
     throw new Error(
       app.translate?.("addData.pmtiles.errorUrl", "Enter a valid HTTP(S) PMTiles URL") ??
@@ -120,6 +128,9 @@ export async function addPMTilesLayerFromUrl(
     );
   }
   const normalizedUrl = address.href;
+  // `s3://` archives and private-bucket URLs: the control reads a presigned
+  // URL, and the store sync maps it back to `normalizedUrl`.
+  const readableUrl = await resolveReadableUrl(normalizedUrl);
   if (app.getMapRenderer?.() === "arcgis") {
     const info = await readRemotePMTilesInfo(normalizedUrl);
     if (info.encoding === "mlt")
@@ -196,9 +207,9 @@ export async function addPMTilesLayerFromUrl(
   cameraEvents?.on("movestart", onMoveStart);
   cameraEvents?.on("moveend", onMoveEnd);
   const control = pmtilesControl;
-  const endAdd = beginProgrammaticPMTilesAdd(normalizedUrl);
+  const endAdd = beginProgrammaticPMTilesAdd(readableUrl);
   try {
-    await control.addLayer(normalizedUrl);
+    await control.addLayer(readableUrl);
   } finally {
     endAdd();
     // Preserve a host user's camera interaction that happened while the archive
@@ -218,7 +229,7 @@ export async function addPMTilesLayerFromUrl(
   // to surface it. `_addLayer` clears `error` on entry, so this reads the
   // outcome of the call above.
   const { error } = control.getState();
-  if (error) throw new Error(error);
+  if (error) throw await explainS3ReadError(normalizedUrl, new Error(error), app.translate);
   return true;
 }
 
@@ -439,7 +450,9 @@ function pmtilesLayerOptions(
   return {
     id,
     name: pmtilesArchiveName(id, layerInfo),
-    url: layerInfo.url,
+    // A presigned S3 archive is stored by its unsigned URL; layer sync signs it
+    // again on every read (see remotePMTilesArchive).
+    url: unsignedSourceUrl(layerInfo.url),
     // The control also reports "unknown", which it and the map both draw as vector tiles.
     tileType: layerInfo.tileType === "raster" ? "raster" : "vector",
     sourceLayers,

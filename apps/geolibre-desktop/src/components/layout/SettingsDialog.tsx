@@ -45,6 +45,7 @@ import type { MapEngine } from "@geolibre/map";
 import {
   Bot,
   Braces,
+  Cloud,
   Check,
   Crosshair,
   DownloadCloud,
@@ -132,6 +133,7 @@ import { resolveShareHost, shareHostLabel } from "../../lib/share-geolibre";
 import { credentialStorageLocation } from "../../lib/credential-store";
 import { IS_STORE_BUILD, type UpdateNotificationLevel } from "../../lib/updates";
 import { ensureStartupProjectSnapshot, openProjectFile } from "../../lib/tauri-io";
+import { pickLayerStylesFile } from "../../lib/layer-style-files";
 import {
   DATA_SOURCE_CATALOG,
   DATA_SOURCE_SECTION_LABEL_KEYS,
@@ -159,6 +161,8 @@ import {
   type ProviderField,
 } from "../../lib/assistant/provider-fields";
 import { AiSectionContent } from "./AiSectionContent";
+import { CloudStorageSection } from "./CloudStorageSection";
+import { normalizeS3DefaultLocation, type S3Connection } from "../../lib/s3-connections";
 import { CredentialStorageNotice } from "./CredentialStorageNotice";
 import {
   projectCredentialsInKeychain,
@@ -174,6 +178,7 @@ export type SettingsSection =
   | "geocoding"
   | "ai"
   | "environment"
+  | "cloudStorage"
   | "updates"
   | "startup";
 
@@ -300,6 +305,7 @@ const SECTION_ITEMS: Array<{
     labelKey: "settings.section.environment",
     icon: Braces,
   },
+  { id: "cloudStorage", labelKey: "settings.section.cloudStorage", icon: Cloud },
   {
     id: "updates",
     labelKey: "settings.section.updates",
@@ -315,6 +321,7 @@ const SECTION_GATE: Partial<Record<SettingsSection, string>> = {
   map: "settings.mapPreferences",
   geocoding: "settings.geocoding",
   environment: "settings.environment",
+  cloudStorage: "settings.cloudStorage",
 };
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -340,6 +347,8 @@ interface DraftDesktopSettings {
   arcgisApiKey: string;
   aiProfiles: AssistantProfile[];
   defaultAiProfileId: string | null;
+  s3Connections: S3Connection[];
+  s3DefaultLocation: string;
   uiProfile: UiProfileSettings;
   updates: UpdateSettings;
   startup: StartupSettings;
@@ -426,6 +435,11 @@ function cloneDesktopSettings(
       fieldValues: { ...p.fieldValues },
     })),
     defaultAiProfileId: settings.defaultAiProfileId,
+    s3Connections: settings.s3Connections.map((connection) => ({
+      ...connection,
+      buckets: [...connection.buckets],
+    })),
+    s3DefaultLocation: settings.s3DefaultLocation,
     uiProfile: {
       ...settings.uiProfile,
       hiddenDataSources: [...settings.uiProfile.hiddenDataSources],
@@ -1217,6 +1231,23 @@ export function SettingsDialog({
     }
   };
 
+  const chooseStartupLayerStyles = async () => {
+    try {
+      const picked = await pickLayerStylesFile();
+      if (!picked) return;
+      updateDraftStartupSettings({
+        layerStyles: { fileName: picked.name, path: picked.path, entries: picked.entries },
+      });
+    } catch (error) {
+      console.error("Could not select a layer styles file.", error);
+      setError(
+        t("settings.startup.layerStylesSelectError", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  };
+
   const applyCurrentStartupView = () => {
     const view = mapControllerRef.current?.readView();
     if (!view) {
@@ -1431,6 +1462,8 @@ export function SettingsDialog({
       arcgisApiKey: draftDesktopSettings.arcgisApiKey,
       aiProfiles: draftDesktopSettings.aiProfiles,
       defaultAiProfileId: draftDesktopSettings.defaultAiProfileId,
+      s3Connections: draftDesktopSettings.s3Connections,
+      s3DefaultLocation: normalizeS3DefaultLocation(draftDesktopSettings.s3DefaultLocation),
       uiProfile: committedUiProfile,
       updates: draftDesktopSettings.updates,
       startup: draftDesktopSettings.startup,
@@ -1826,6 +1859,17 @@ export function SettingsDialog({
             >
               <Braces className="me-2 h-3.5 w-3.5" />
               {t("settings.menu.environmentVariables")}
+            </DropdownMenuItem>
+          )}
+          {showSettingsItem("settings.cloudStorage") && (
+            <DropdownMenuItem
+              onSelect={() => {
+                setSection("cloudStorage");
+                setOpen(true);
+              }}
+            >
+              <Cloud className="me-2 h-3.5 w-3.5" />
+              {t("settings.menu.cloudStorage")}
             </DropdownMenuItem>
           )}
           {/* Share the same gate as the in-dialog nav/pane so the Store build
@@ -2852,6 +2896,21 @@ export function SettingsDialog({
                   />
                 </div>
               ) : null}
+              {effectiveSection === "cloudStorage" ? (
+                <div className="space-y-5">
+                  <CredentialStorageNotice />
+                  <CloudStorageSection
+                    connections={draftDesktopSettings.s3Connections}
+                    onChange={(s3Connections) =>
+                      setDraftDesktopSettings((current) => ({ ...current, s3Connections }))
+                    }
+                    defaultLocation={draftDesktopSettings.s3DefaultLocation}
+                    onDefaultLocationChange={(s3DefaultLocation) =>
+                      setDraftDesktopSettings((current) => ({ ...current, s3DefaultLocation }))
+                    }
+                  />
+                </div>
+              ) : null}
               {effectiveSection === "environment" ? (
                 <div className="space-y-5">
                   <CredentialStorageNotice />
@@ -3264,6 +3323,49 @@ export function SettingsDialog({
                         />
                       </div>
                     </div>
+                  </div>
+                  <div className="space-y-3 rounded-md border p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-sm">{t("settings.startup.layerStyles")}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {t("settings.startup.layerStylesHint")}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void chooseStartupLayerStyles()}
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          {t("settings.startup.chooseLayerStyles")}
+                        </Button>
+                        {draftDesktopSettings.startup.layerStyles ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => updateDraftStartupSettings({ layerStyles: null })}
+                          >
+                            {t("settings.startup.clearLayerStyles")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <p
+                      className="truncate text-xs text-muted-foreground"
+                      title={draftDesktopSettings.startup.layerStyles?.path}
+                      data-testid="settings-startup-layer-styles-file"
+                    >
+                      {draftDesktopSettings.startup.layerStyles
+                        ? t("settings.startup.layerStylesSelected", {
+                            file: draftDesktopSettings.startup.layerStyles.fileName,
+                            count: draftDesktopSettings.startup.layerStyles.entries.length,
+                          })
+                        : t("settings.startup.noLayerStylesSelected")}
+                    </p>
                   </div>
                 </div>
               ) : null}

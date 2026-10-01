@@ -16,6 +16,7 @@ The Settings dialog is organized into these sections:
 | **Geocoding** | The address-search provider. See [Data Integrations](data-integrations.md#geocoding). |
 | **AI Providers** | Model and credentials for the [AI Assistant](ai-assistant.md). |
 | **Environment** | The share token and runtime key-value pairs. See [Environment Variables](#environment-variables). |
+| **Cloud Storage** | S3 connections for private buckets, and the S3 Browser's default location. See [Cloud Storage](#cloud-storage). |
 | **Updates** | Update checks (desktop only). See [Updates](#updates). |
 | **Startup** | Which project the app opens with (desktop only). See [Startup](#startup). |
 | **Style Manager** | Your saved symbology presets, reachable here and from a layer's **Layer actions → Styles → Saved styles**. See [Styling Layers](styling.md). |
@@ -68,6 +69,10 @@ Panels also auto-hide on small screens for a responsive layout.
 
 !!! tip "Protomaps basemaps"
     To use the [Protomaps](https://protomaps.com) basemaps in the **New map** dialog, add an environment variable named `VITE_PROTOMAPS_API_KEY` with your own Protomaps API key. The Protomaps options appear in the dialog as soon as the key is enabled — no restart needed. When no key is set, the Protomaps section is hidden. See [Getting Started](../getting-started.md#optional-basemap-credentials) for setting the key at build time for a self-hosted deployment.
+
+## Cloud Storage
+
+**Settings → Cloud Storage** (also in the **Settings** menu) holds the S3 connections that read private Amazon S3 and S3-compatible buckets (access keys, AWS profiles including SSO, environment variables, and IAM roles), and the S3 Browser's default location. See [Cloud Storage](cloud-storage.md).
 
 ## Project name and file
 

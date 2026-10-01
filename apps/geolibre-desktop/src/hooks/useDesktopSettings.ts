@@ -2,6 +2,8 @@ import {
   createDefaultMapView,
   isAllowedPluginManifestUrl,
   normalizeMapViewState,
+  normalizeLayerStyleEntries,
+  type LayerStyleFileEntry,
 } from "@geolibre/core";
 import { useEffect } from "react";
 import { create } from "zustand";
@@ -25,6 +27,11 @@ import {
 } from "../lib/theme-schemes";
 import type { UpdateNotificationLevel } from "../lib/updates";
 import { migrateLegacyAiEnv } from "../lib/assistant/profiles";
+import {
+  normalizeS3Connections,
+  normalizeS3DefaultLocation,
+  type S3Connection,
+} from "../lib/s3-connections";
 import { ASSISTANT_PROVIDER_IDS } from "../lib/assistant/provider";
 import type { AssistantProfile } from "../lib/assistant/provider";
 
@@ -89,6 +96,18 @@ export interface DesktopSettings {
    */
   defaultAiProfileId: string | null;
   /**
+   * S3 (and S3-compatible) connections used to read private buckets, matched
+   * by bucket name. Device-local, never in a project file. The secret key and
+   * session token of an access-key connection live in the OS credential store
+   * on desktop and in this blob on the web.
+   */
+  s3Connections: S3Connection[];
+  /**
+   * Where the S3 Browser opens (`s3://bucket/prefix/`), or "" for the last
+   * location browsed. Device-local like the connections.
+   */
+  s3DefaultLocation: string;
+  /**
    * Appearance preferences (the accent color scheme). The light/dark mode is
    * handled separately by `useThemeMode` (it tracks the OS / embed preference).
    */
@@ -120,6 +139,25 @@ export interface StartupSettings {
   center: [number, number];
   /** Zoom used for the untitled workspace when no project is provided. */
   zoom: number;
+  /**
+   * Layer styles file whose styles are applied, by layer name, to every layer
+   * added to the map. Null when none is set.
+   */
+  layerStyles: StartupLayerStyles | null;
+}
+
+/**
+ * The layer styles file chosen in Startup settings. The parsed styles are
+ * kept here rather than re-read from `path` on each launch: the browser build
+ * never gets a readable path back from its picker, and on desktop the file may
+ * have moved. Choosing the file again picks up later edits to it.
+ */
+export interface StartupLayerStyles {
+  /** The file's name, for display. */
+  fileName: string;
+  /** The path (desktop) or file name (browser) it was read from. */
+  path: string;
+  entries: LayerStyleFileEntry[];
 }
 
 export interface ThemeSettings {
@@ -251,6 +289,7 @@ export const DEFAULT_STARTUP_SETTINGS: StartupSettings = {
   globeByDefault: true,
   center: [...createDefaultMapView().center],
   zoom: createDefaultMapView().zoom,
+  layerStyles: null,
 };
 
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
@@ -269,6 +308,8 @@ const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   arcgisApiKey: "",
   aiProfiles: [],
   defaultAiProfileId: null,
+  s3Connections: [],
+  s3DefaultLocation: "",
   theme: DEFAULT_THEME_SETTINGS,
   uiProfile: DEFAULT_UI_PROFILE_SETTINGS,
   updates: DEFAULT_UPDATE_SETTINGS,
@@ -311,6 +352,8 @@ export function normalizeDesktopSettings(settings: unknown): DesktopSettings {
       typeof candidate.defaultAiProfileId === "string" && candidate.defaultAiProfileId.trim()
         ? candidate.defaultAiProfileId.trim()
         : null,
+    s3Connections: normalizeS3Connections(candidate.s3Connections),
+    s3DefaultLocation: normalizeS3DefaultLocation(candidate.s3DefaultLocation),
     theme: normalizeThemeSettings(candidate.theme),
     uiProfile: normalizeUiProfileSettings(candidate.uiProfile),
     updates: normalizeUpdateSettings(candidate.updates),
@@ -344,7 +387,21 @@ function normalizeStartupSettings(startup: unknown): StartupSettings {
     globeByDefault: typeof candidate.globeByDefault === "boolean" ? candidate.globeByDefault : true,
     center: view.center,
     zoom: view.zoom,
+    layerStyles: normalizeStartupLayerStyles(candidate.layerStyles),
   };
+}
+
+function normalizeStartupLayerStyles(value: unknown): StartupLayerStyles | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<Record<keyof StartupLayerStyles, unknown>>;
+  const entries = normalizeLayerStyleEntries(candidate.entries);
+  if (entries.length === 0) return null;
+  const path = typeof candidate.path === "string" ? candidate.path : "";
+  const fileName =
+    typeof candidate.fileName === "string" && candidate.fileName.trim()
+      ? candidate.fileName.trim()
+      : path;
+  return { fileName, path, entries };
 }
 
 /**

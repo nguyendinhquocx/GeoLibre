@@ -1703,18 +1703,21 @@ dependencies = [
 
 [[package]]
 name = "geolibre-desktop"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "bincode",
  "chrono",
  "duckdb",
  "flate2",
  "getrandom 0.4.3",
+ "hmac",
  "keyring",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2",
  "tar",
  "tauri",
  "tauri-build",

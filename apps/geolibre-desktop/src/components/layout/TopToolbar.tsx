@@ -64,6 +64,7 @@ import {
   setOpenDataCatalogLabels,
   setHuggingFaceLabels,
   setSourceCoopLabels,
+  setS3BrowserLabels,
   setReverseGeocodeLabels,
   setSamGeoLabels,
   setStacLabels,
@@ -406,7 +407,10 @@ export function TopToolbar({
       adding: (title) => t("arcgisHub.adding", { title }),
       added: (title) => t("arcgisHub.added", { title }),
       addedCapped: (title, limit) =>
-        t("arcgisHub.addedCapped", { title, limit: limit.toLocaleString(i18n.language) }),
+        t("arcgisHub.addedCapped", {
+          title,
+          limit: limit.toLocaleString(i18n.language),
+        }),
       addError: t("arcgisHub.addError"),
       zoom: t("arcgisHub.zoom"),
       download: t("arcgisHub.download"),
@@ -415,7 +419,10 @@ export function TopToolbar({
         t("arcgisHub.downloading", { completed, total, title }),
       downloadStarted: (title) => t("arcgisHub.downloadStarted", { title }),
       downloadCapped: (title, limit) =>
-        t("arcgisHub.downloadCapped", { title, limit: limit.toLocaleString(i18n.language) }),
+        t("arcgisHub.downloadCapped", {
+          title,
+          limit: limit.toLocaleString(i18n.language),
+        }),
       downloadFirstLayer: (title, layerCount) =>
         t("arcgisHub.downloadFirstLayer", { title, layerCount }),
       downloadError: t("arcgisHub.downloadError"),
@@ -555,6 +562,36 @@ export function TopToolbar({
       metaPortalItem: t("earthdataGis.metaPortalItem"),
       metaRaw: t("earthdataGis.metaRaw"),
     });
+    setS3BrowserLabels({
+      hint: t("s3Browser.hint"),
+      noConnections: t("s3Browser.noConnections"),
+      connection: t("s3Browser.connection"),
+      listBuckets: t("s3Browser.listBuckets"),
+      locationPlaceholder: t("s3Browser.locationPlaceholder"),
+      go: t("s3Browser.go"),
+      up: t("s3Browser.up"),
+      loading: t("s3Browser.loading"),
+      empty: t("s3Browser.empty"),
+      loadMore: t("s3Browser.loadMore"),
+      add: t("s3Browser.add"),
+      added: t("s3Browser.added"),
+      adding: t("s3Browser.adding"),
+      copyUri: t("s3Browser.copyUri"),
+      copied: t("s3Browser.copied"),
+      tooLarge: t("s3Browser.tooLarge"),
+      notAddable: t("s3Browser.notAddable"),
+      signed: t("s3Browser.signed"),
+      anonymous: t("s3Browser.anonymous"),
+      setDefault: t("s3Browser.setDefault"),
+      isDefault: t("s3Browser.isDefault"),
+      pointCloud: t("s3Browser.pointCloud"),
+      select: t("s3Browser.select"),
+      selectAll: t("s3Browser.selectAll"),
+      addSelected: (count) => t("s3Browser.addSelected", { count }),
+      addingProgress: (index, total) => t("s3Browser.addingProgress", { index, total }),
+      addFailed: (name, message) => t("s3Browser.addFailed", { name, message }),
+      error: (message) => t("s3Browser.error", { message }),
+    });
     setSourceCoopLabels({
       hint: t("sourceCoop.hint"),
       searchPlaceholder: t("sourceCoop.searchPlaceholder"),
@@ -641,6 +678,7 @@ export function TopToolbar({
       tooLargeToOpen: (size, limit) => t("huggingFace.tooLargeToOpen", { size, limit }),
       tokenLabel: t("huggingFace.tokenLabel"),
       tokenHint: t("huggingFace.tokenHint"),
+      tokenHintKeychain: t("huggingFace.tokenHintKeychain"),
       tokenPlaceholder: t("huggingFace.tokenPlaceholder"),
       tokenSave: t("huggingFace.tokenSave"),
       tokenClear: t("huggingFace.tokenClear"),
@@ -2279,6 +2317,7 @@ export function TopToolbar({
           onOpenGallery={() => setGalleryDialogOpen(true)}
           onImportQgisProject={() => void projectFiles.handleImportQgisProject()}
           onImportArcgisProject={() => void projectFiles.handleImportArcgisProject()}
+          onImportLayerStyles={() => void projectFiles.handleImportLayerStyles()}
           onOpenRecent={(path) => {
             void projectFiles.handleOpenRecent(path).then((error) => {
               if (error) projectFiles.setActionError(error);
@@ -2291,6 +2330,7 @@ export function TopToolbar({
           onSaveAsTemplate={() => projectFiles.handleSaveAsTemplate()}
           onShare={() => setShareDialogOpen(true)}
           onExportHtml={() => void projectFiles.handleExportHtml()}
+          onExportLayerStyles={() => void projectFiles.handleExportLayerStyles()}
           onCollaborate={() => setCollaborateDialogOpen(true)}
           onPrintLayout={() => setPrintLayoutOpen(true)}
           onOpenOfflineBasemap={onOpenBasemapExtract}

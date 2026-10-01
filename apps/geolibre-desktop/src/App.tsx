@@ -6,6 +6,7 @@ import { DesktopShell } from "./components/layout/DesktopShell";
 import { OnboardingDialog } from "./components/layout/OnboardingDialog";
 import { UpdateNotificationModal } from "./components/layout/UpdateNotificationModal";
 import { useDesktopSettingsPersistence } from "./hooks/useDesktopSettings";
+import "./lib/s3-signer-setup";
 import { useLayoutOptions } from "./hooks/useLayoutOptions";
 import { useProjectUrlLoader } from "./hooks/useProjectUrlLoader";
 import { useDataUrlLoader } from "./hooks/useDataUrlLoader";
@@ -16,6 +17,7 @@ import { useLayerLibraryPersistence } from "./hooks/useLayerLibraryPersistence";
 import { useLastBasemapPersistence } from "./hooks/useLastBasemapPersistence";
 import { useLastRendererPersistence } from "./hooks/useLastRendererPersistence";
 import { useStyleLibraryPersistence } from "./hooks/useStyleLibraryPersistence";
+import { useStartupLayerStyles } from "./hooks/useStartupLayerStyles";
 import { useTemplateLibraryPersistence } from "./hooks/useTemplateLibraryPersistence";
 import { useRuntimeEnvironmentVariables } from "./hooks/useRuntimeEnvironmentVariables";
 import { useStartupUpdateCheck } from "./hooks/useStartupUpdateCheck";
@@ -56,6 +58,7 @@ export default function App() {
   const { warning: startupProjectWarning, restoring: restoringStartupProject } =
     useStartupProject();
   useStyleLibraryPersistence();
+  useStartupLayerStyles();
   useLayerLibraryPersistence();
   useTemplateLibraryPersistence();
   useRuntimeEnvironmentVariables();

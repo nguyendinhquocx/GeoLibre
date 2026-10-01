@@ -1,4 +1,10 @@
-import { effectiveLayerRenderState, styleValue, useAppStore } from "@geolibre/core";
+import {
+  effectiveLayerRenderState,
+  explainS3ReadError,
+  resolveReadableUrl,
+  styleValue,
+  useAppStore,
+} from "@geolibre/core";
 import type { Layer } from "@deck.gl/core";
 import type { Map as MapboxMap } from "mapbox-gl";
 import type {
@@ -391,6 +397,10 @@ export async function addRasterToMap(
     const { addArcgisRaster } = await import("./arcgis-raster-import");
     return addArcgisRaster(app, source, options);
   }
+  // `s3://` sources and private-bucket object URLs are read through a
+  // presigned URL; the store sync maps it back to `source`. Signed before the
+  // control is taken, so a control replaced while signing is never used.
+  const readable = typeof source === "string" ? await resolveReadableUrl(source) : source;
   const control = await ensureRasterControl(app);
   if (!control) {
     throw new Error("The raster control could not be initialized.");
@@ -404,7 +414,45 @@ export async function addRasterToMap(
   if (options.defaults?.engine && control.getEngine() !== options.defaults.engine) {
     control.setEngine(options.defaults.engine);
   }
-  const id = await control.addRaster(source, {
+  // Named here rather than by the control, so a failure below removes exactly
+  // this add's raster and never one a concurrent add created.
+  const rasterId = `raster-${crypto.randomUUID().slice(0, 8)}`;
+  let id: string;
+  try {
+    id = await addRasterSource(control, readable, { ...options, id: rasterId });
+  } catch (error) {
+    // The control lists a raster before its header is read, so an add that
+    // failed (a blocked or unreachable URL) would otherwise stay in the Layers
+    // panel as an empty layer. A striped GeoTIFF is the exception: the
+    // non-tiled conversion offer (see the control's "error" handler) owns that
+    // raster, and reads its bytes, until it dismisses it.
+    const failed = control.getRaster(rasterId);
+    if (failed && !isNonTiledRasterError(failed.error)) control.removeRaster(rasterId);
+    // A bucket whose CORS rules block this origin fails as "Failed to fetch";
+    // say so instead.
+    throw typeof source === "string"
+      ? await explainS3ReadError(source, error, app.translate)
+      : error;
+  }
+  applyRgbBandDefaults(control, id, options.defaults?.rgbBands);
+  if (options.localPath) {
+    // The id only exists once addRaster resolves, which is after the rasteradd
+    // sync has already written the store layer -- so record the path and re-run
+    // the (diffing, idempotent) sync to put it on the layer.
+    rememberLocalRasterPath(id, options.localPath);
+    syncRasterLayersToStoreForRuntime(control);
+  }
+  return id;
+}
+
+/** The control call {@link addRasterToMap} makes, split out so its errors can be explained. */
+function addRasterSource(
+  control: RasterControl,
+  source: string | File,
+  options: Parameters<typeof addRasterToMap>[2] & object & { id: string },
+): Promise<string> {
+  return control.addRaster(source, {
+    id: options.id,
     name: options.name,
     zoomTo: options.zoomTo ?? true,
     // Safe to pass before the band count is known: the renderer applies a
@@ -419,15 +467,6 @@ export async function addRasterToMap(
       : {}),
     ...(options.beforeId ? { beforeId: options.beforeId } : {}),
   });
-  applyRgbBandDefaults(control, id, options.defaults?.rgbBands);
-  if (options.localPath) {
-    // The id only exists once addRaster resolves, which is after the rasteradd
-    // sync has already written the store layer -- so record the path and re-run
-    // the (diffing, idempotent) sync to put it on the layer.
-    rememberLocalRasterPath(id, options.localPath);
-    syncRasterLayersToStoreForRuntime(control);
-  }
-  return id;
 }
 
 /** Switch the shared COG renderer, including rasters already on the map. */
@@ -707,9 +746,19 @@ export function restoreRasterLayers(app: GeoLibreAppAPI): void {
                 : undefined;
             return url
               ? [
-                  readableStacLayerHref(layer, url).then(
-                    (href) => [layer.id, { sourceUrl: url, href }] as const,
-                  ),
+                  readableStacLayerHref(layer, url)
+                    // An `s3://` source (or a private bucket's object URL) is
+                    // signed afresh on every load; the saved URL holds no
+                    // signature.
+                    .then((href) =>
+                      resolveReadableUrl(href).catch((error: unknown) => {
+                        // One bucket's missing credentials must not stop the
+                        // other rasters from restoring.
+                        console.error(`[GeoLibre] Could not sign S3 raster "${layer.name}"`, error);
+                        return href;
+                      }),
+                    )
+                    .then((href) => [layer.id, { sourceUrl: url, href }] as const),
                 ]
               : [];
           }),

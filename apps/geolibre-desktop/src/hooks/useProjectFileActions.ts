@@ -5,6 +5,8 @@ import {
   projectFromStore,
   redactProjectCredentials,
   excludeHiddenFieldsFromProject,
+  extractLayerStyleEntries,
+  serializeLayerStylesFile,
   serializeProject,
   splitProjectCredentials,
   useAppStore,
@@ -42,7 +44,8 @@ import {
 import { useDesktopSettingsStore } from "./useDesktopSettings";
 import { buildProjectHtml, viewerChromeParams } from "../lib/html-export";
 import { isLayersPanelCollapsed } from "../lib/layer-panel-collapse";
-import { ensureHtmlFileName, ensureProjectFileName } from "../lib/file-names";
+import { ensureHtmlFileName, ensureJsonFileName, ensureProjectFileName } from "../lib/file-names";
+import { pickLayerStylesFile } from "../lib/layer-style-files";
 import { mergeStringLists } from "../lib/string-lists";
 import { fetchProjectFromUrl } from "../lib/project-url";
 import { getShareFetch } from "../lib/share-fetch";
@@ -301,6 +304,16 @@ async function addImportedProjectRaster(
   }
 }
 
+/** What Import Layer Styles did, shown in its summary dialog. */
+export interface LayerStyleImportResult {
+  /** The imported file's name. */
+  fileName: string;
+  /** Names of the layers that were restyled. */
+  restyled: string[];
+  /** Layer names in the file that no layer in the project took. */
+  unused: string[];
+}
+
 /**
  * Bundles every project file action (open from file/URL/recent, save, save as)
  * along with the related dialog state (Open-from-URL, env-var strip prompt, and
@@ -331,6 +344,8 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   const [arcgisImportWarnings, setArcgisImportWarnings] = useState<
     ArcgisProjectImportWarning[] | null
   >(null);
+  const [layerStyleImportResult, setLayerStyleImportResult] =
+    useState<LayerStyleImportResult | null>(null);
   const [projectUrlDialogOpen, setProjectUrlDialogOpen] = useState(false);
   const [projectUrl, setProjectUrl] = useState("");
   const [projectUrlError, setProjectUrlError] = useState<string | null>(null);
@@ -1693,6 +1708,106 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     }
   };
 
+  // Write every layer's style to one JSON file, keyed by layer name, for
+  // Import Layer Styles or the Startup setting to apply to another project.
+  const handleExportLayerStyles = async (): Promise<boolean> => {
+    if (isSavingRef.current) return false;
+    const entries = extractLayerStyleEntries(useAppStore.getState().layers);
+    if (entries.length === 0) {
+      setActionError(t("toolbar.error.noLayerStylesToExport"));
+      return false;
+    }
+    isSavingRef.current = true;
+    try {
+      const exportProjectGeneration = useAppStore.getState().projectGeneration;
+      const projectName = useAppStore.getState().projectName.trim() || DEFAULT_PROJECT_NAME;
+      const slug = `${
+        projectName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "geolibre-map"
+      }-styles`;
+      let defaultName = `${slug}.json`;
+      // Same name prompt as Export HTML, for browsers that would otherwise
+      // download straight away under the generated name (issue #991).
+      if (browserSaveFallsBackToDownload()) {
+        const chosen = await askSaveName(
+          defaultName,
+          {
+            title: t("toolbar.item.exportLayerStylesAsTitle"),
+            description: t("toolbar.item.exportLayerStylesAsDesc"),
+            label: t("toolbar.item.exportLayerStylesFileName"),
+            placeholder: t("toolbar.item.exportLayerStylesFileNamePlaceholder"),
+          },
+          exportProjectGeneration,
+        );
+        if (chosen === null) return false;
+        defaultName = ensureJsonFileName(chosen, slug);
+      }
+      // Don't write a project that is no longer open. Checked before the write,
+      // not after it: the save picker writes as it closes, so a later check
+      // would report a failure for a file already on disk. A switch while the
+      // native picker itself is open still saves the styles as they were when
+      // the user chose Export, which is what they asked for.
+      if (useAppStore.getState().projectGeneration !== exportProjectGeneration) return false;
+      const savedPath = await saveTextFileWithFallback(serializeLayerStylesFile(entries), {
+        defaultName,
+        filters: [{ name: t("toolbar.item.layerStylesFile"), extensions: ["json"] }],
+        browserTypes: [
+          {
+            description: t("toolbar.item.layerStylesFile"),
+            accept: { "application/json": [".json"] },
+          },
+        ],
+        mimeType: "application/json",
+      });
+      return savedPath !== null;
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : t("toolbar.error.couldNotExportLayerStyles"),
+      );
+      return false;
+    } finally {
+      isSavingRef.current = false;
+    }
+  };
+
+  // Restyle the current project's layers from a layer styles file, matching
+  // each entry to a layer by name, then report what matched.
+  const handleImportLayerStyles = async () => {
+    try {
+      const importProjectGeneration = useAppStore.getState().projectGeneration;
+      const picked = await pickLayerStylesFile();
+      if (!picked) return;
+      // The styles were picked for the project open when the import started.
+      if (useAppStore.getState().projectGeneration !== importProjectGeneration) return;
+      const applied = useAppStore.getState().applyLayerStyleEntries(picked.entries);
+      const appliedIds = new Set(applied.map((match) => match.layerId));
+      const usedEntries = new Set(applied.map((match) => match.entryIndex));
+      const layers = useAppStore.getState().layers;
+      const restyled = layers.filter((layer) => appliedIds.has(layer.id));
+      // Report the entries no layer took, including a same-named entry of the
+      // other style family and a duplicate shadowed by an earlier one.
+      const unused = [
+        ...new Set(
+          picked.entries
+            .filter((_, index) => !usedEntries.has(index))
+            .map((entry) => entry.layerName),
+        ),
+      ];
+      setLayerStyleImportResult({
+        fileName: picked.name,
+        restyled: restyled.map((layer) => layer.name),
+        unused,
+      });
+    } catch (error) {
+      console.error("Failed to import layer styles", error);
+      setActionError(
+        error instanceof Error ? error.message : t("toolbar.error.couldNotImportLayerStyles"),
+      );
+    }
+  };
+
   // Open-change handler for the Open-from-URL dialog; aborts an in-flight fetch
   // and resets the form when the dialog closes.
   const handleProjectUrlDialogOpenChange = (open: boolean) => {
@@ -1759,6 +1874,10 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     handleSave,
     handleSaveAs,
     handleExportHtml,
+    handleExportLayerStyles,
+    handleImportLayerStyles,
+    layerStyleImportResult,
+    setLayerStyleImportResult,
   };
 }
 

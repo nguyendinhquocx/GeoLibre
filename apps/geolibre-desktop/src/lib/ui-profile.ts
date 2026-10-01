@@ -221,6 +221,7 @@ export const PLUGIN_TIERS: Record<string, ComplexityTier> = {
   "geolibre-us-state-gis": "advanced",
   "geolibre-us-local-gis": "advanced",
   "maplibre-gl-source-coop": "advanced",
+  "geolibre-s3-browser": "advanced",
   "maplibre-gl-huggingface": "advanced",
   "maplibre-gl-vantor": "advanced",
   "maplibre-gl-esri-wayback": "advanced",
@@ -338,6 +339,12 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     id: "project.exportHtml",
     menuId: "project",
     labelKey: "toolbar.item.exportHtmlEllipsis",
+    tier: "intermediate",
+  },
+  {
+    id: "project.exportLayerStyles",
+    menuId: "project",
+    labelKey: "toolbar.item.exportLayerStylesEllipsis",
     tier: "intermediate",
   },
   {
@@ -795,6 +802,13 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     menuId: "settings",
     labelKey: "settings.menu.environmentVariables",
     tier: "intermediate",
+  },
+  // S3 connections; advanced like the S3 Browser that uses them.
+  {
+    id: "settings.cloudStorage",
+    menuId: "settings",
+    labelKey: "settings.menu.cloudStorage",
+    tier: "advanced",
   },
   {
     id: "settings.managePlugins",

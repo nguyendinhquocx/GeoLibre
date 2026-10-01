@@ -67,6 +67,7 @@ nav:
       - Python Console: user-guide/python-console.md
       - AI Assistant: user-guide/ai-assistant.md
       - Data Integrations: user-guide/data-integrations.md
+      - Cloud Storage (S3): user-guide/cloud-storage.md
       - Plugins & Marketplace: user-guide/plugins.md
       - Web Services: user-guide/web-services.md
       - Settings & Preferences: user-guide/settings.md
@@ -102,6 +103,7 @@ nav:
       - Collaboration: collaboration.md
       - UI Profiles: ui-profiles.md
       - Deployment Capabilities: deployment-capabilities.md
+      - Deployment Policy: deployment-policy.md
       - Internationalization: i18n.md
       - Python Package: python.md
       - R Package: r.md
