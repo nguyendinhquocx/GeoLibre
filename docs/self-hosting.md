@@ -155,6 +155,8 @@ Settings that matter for a private deployment:
 | `GEOLIBRE_APP_NAME` | optional, e.g. `Acme Maps` | Replaces "GeoLibre" at the start of the toolbar and in the browser tab title. Whitespace runs collapse to one space and the name is capped at 60 characters. `VITE_GEOLIBRE_APP_NAME` is the equivalent build arg. |
 | `VITE_WELCOME_DISABLED=1` (build arg) | optional | Skips the first-launch wizard for every visitor. |
 | `VITE_GEOLIBRE_CAPABILITIES` (build arg) | unset, or the capabilities to grant | Unset grants everything (today's behavior). Naming a subset — or `none` — pins what the interface offers: adding data, processing, export, plugins, settings, project authoring. Removes affordances only; it is not a server-side restriction. See [Deployment Capabilities](deployment-capabilities.md). |
+| `GEOLIBRE_DEPLOYMENT_FILE` | unset, or a mounted policy file | Path to a [`deployment.json`](deployment-policy.md#docker) inside the container. The entrypoint validates it, applies the `GEOLIBRE_*` overrides per field, and writes `/deployment.json` on every boot. An invalid file stops the container. |
+| `GEOLIBRE_CAPABILITIES` | unset, or the capabilities to grant | Same as `VITE_GEOLIBRE_CAPABILITIES`, but set at run time with `-e` on a prebuilt image. Unset leaves the file or build value in force; `none` grants nothing. An unknown name stops the container and lists the accepted values. See [Deployment Capabilities](deployment-capabilities.md). |
 
 See [Getting Started](getting-started.md#run-with-docker) for the full list.
 
@@ -228,6 +230,74 @@ anyone the SSO layer has not admitted.
     The project deep link is validated as an absolute `http(s)` URL, so
     `?url=/projects/watershed.geolibre.json` is ignored. Write the full URL, as
     above. It is still same-origin, so the session cookie is still sent.
+
+#### Passing the signed-in user to the projects server
+
+If you also run the [projects server](server-api.md) (`geolibre-server` in
+`docker-compose.yml`), the same proxy can sign users in to it, so Share and the
+Project Gallery need no separate GeoLibre password. The server trusts the
+proxy's `Remote-User` and `Remote-Email` headers on its sign-in (consent) page
+once `GEOLIBRE_PROXY_AUTH=true`, and only on connections from an address listed
+in `GEOLIBRE_TRUSTED_PROXIES`:
+
+1. Set `GEOLIBRE_PROXY_AUTH=true` and set `GEOLIBRE_TRUSTED_PROXIES` to the
+   address the projects server sees the proxy connect from: a comma-separated
+   list of IPs or CIDRs, such as the proxy container's IP or a Docker network
+   that contains only the proxy and the server. Every other peer's identity
+   headers are ignored. `GEOLIBRE_TRUSTED_PROXIES` alone only trusts the
+   proxy's `X-Forwarded-For`.
+2. Bind the projects server so only the proxy can reach it. The Compose file
+   publishes it on `127.0.0.1` only; drop that port entirely when the proxy runs
+   in the same Compose network.
+3. The proxy **must strip identity headers sent by the client**. Otherwise
+   anyone who reaches a route where the proxy does not overwrite them can claim
+   to be any user.
+
+The projects server answers on `/api/*` like GeoLens does, so give it its own
+hostname and point the web image's `GEOLIBRE_SHARE_URL` (and the server's
+`GEOLIBRE_PUBLIC_URL`) at it. Only the consent page goes through forward auth:
+the app calls the token endpoint and the API cross-origin with bearer tokens,
+and a login redirect there would break them.
+
+```caddyfile
+projects.example.org {
+    # Drop client-sent identity headers before anything else runs. Caddy orders
+    # request_header ahead of handle, so this precedes the forward_auth below.
+    request_header -Remote-User
+    request_header -Remote-Email
+
+    # The consent page: forward auth sets the headers for the signed-in user.
+    handle /oauth/authorize {
+        forward_auth authelia:9091 {
+            uri /api/verify?rd=https://auth.example.org
+            copy_headers Remote-User Remote-Email
+        }
+        reverse_proxy geolibre-server:8000
+    }
+
+    # `handle`, not `handle_path`: the server expects the /oauth and /api prefixes.
+    handle /oauth/* {
+        reverse_proxy geolibre-server:8000
+    }
+
+    handle /api/* {
+        reverse_proxy geolibre-server:8000
+    }
+}
+```
+
+Signing in from the app then opens a consent page that names the proxy user
+(`Signed in through your organization's proxy as …`) and asks only for the
+device label. The first sign-in creates the account. If your proxy uses other
+header names (oauth2-proxy sends `X-Forwarded-User` and `X-Forwarded-Email`),
+set `GEOLIBRE_PROXY_USER_HEADER` and `GEOLIBRE_PROXY_EMAIL_HEADER` and strip
+those names instead. See
+[Trusted-header proxy sign-in](server-api.md#trusted-header-proxy-sign-in) for
+the full contract.
+
+The nginx Basic Auth built into the web image (`GEOLIBRE_AUTH_USER` /
+`GEOLIBRE_AUTH_PASSWORD`) is not a substitute: it is a single shared
+credential, so it cannot tell the projects server who the visitor is.
 
 ## 3. Connect GeoLibre to GeoLens
 

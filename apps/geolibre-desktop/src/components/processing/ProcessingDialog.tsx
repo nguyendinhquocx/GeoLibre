@@ -1,4 +1,9 @@
-import { useAppStore, useLayersWhen, type GeoLibreLayer } from "@geolibre/core";
+import {
+  shouldZoomToNewLayers,
+  useAppStore,
+  useLayersWhen,
+  type GeoLibreLayer,
+} from "@geolibre/core";
 import { getLayerBounds, type MapEngine } from "@geolibre/map";
 import {
   clearRemoteWhiteboxCatalogSnapshotCache,
@@ -75,7 +80,11 @@ import {
   wgs84VectorLayerIds,
   type DistanceUnit,
 } from "../../lib/whitebox-distance-params";
-import { isMultipleDatasetParameter, parameterKind } from "../../lib/whitebox-param-kind";
+import {
+  isDirectoryParameter,
+  isMultipleDatasetParameter,
+  parameterKind,
+} from "../../lib/whitebox-param-kind";
 import { isTiff } from "../../lib/scripting/binary-output";
 import {
   canUseLayerForParameter,
@@ -278,11 +287,6 @@ function isPathParameter(param: WhiteboxToolParameter): boolean {
   if (isDataInputParameter(param) || isOutputParameter(param)) return true;
   const text = `${param.name} ${param.description ?? ""} ${param.type ?? ""}`.toLowerCase();
   return /\b(path|file|folder|directory)\b/.test(text);
-}
-
-function isDirectoryParameter(param: WhiteboxToolParameter): boolean {
-  const text = `${param.name} ${param.description ?? ""} ${param.type ?? ""}`.toLowerCase();
-  return /\b(folder|directory|dir)\b/.test(text);
 }
 
 function pathFiltersForParameter(param: WhiteboxToolParameter): FileDialogFilter[] {
@@ -1571,7 +1575,7 @@ export function ProcessingDialog({ mapControllerRef, onAddRaster }: ProcessingDi
         const layerId = addGeoJsonLayer(layerName, data, path || undefined);
         historyTrackersRef.current.get(nextJob.id)?.addOutputLayer(layerName);
         const layer = useAppStore.getState().layers.find((item) => item.id === layerId);
-        if (layer) mapControllerRef.current?.fitLayer(layer);
+        if (layer && shouldZoomToNewLayers()) mapControllerRef.current?.fitLayer(layer);
       }
 
       // Binary outputs come back from the WASM runner inline. Raster (COG) bytes

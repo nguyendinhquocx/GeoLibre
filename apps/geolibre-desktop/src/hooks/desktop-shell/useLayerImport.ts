@@ -1,4 +1,4 @@
-import { detectNonGeographicCoordinates, useAppStore } from "@geolibre/core";
+import { shouldZoomToNewLayers, detectNonGeographicCoordinates, useAppStore } from "@geolibre/core";
 import type { MapEngine } from "@geolibre/map";
 import { getLayerBounds } from "@geolibre/map";
 import { addRasterToMap, setKmlFileImportHandler, TIME_SLIDER_PLUGIN_ID } from "@geolibre/plugins";
@@ -239,6 +239,8 @@ export function useLayerImport({
         togglePlugin(TIME_SLIDER_PLUGIN_ID, createAppAPI(mapControllerRef));
       }
 
+      if (!shouldZoomToNewLayers()) return;
+
       // A folder-aware KML becomes one layer per placemark, so framing the last
       // layer alone would open on a single point. Combine the extents of every
       // layer the last source contributed and fit that instead.
@@ -336,7 +338,7 @@ export function useLayerImport({
       if (!result || result.located === 0) return 0;
       const layerId = addGeoJsonLayer(t("addData.photos.defaultName"), result.featureCollection);
       const layer = useAppStore.getState().layers.find((existing) => existing.id === layerId);
-      if (layer) mapControllerRef.current?.fitLayer(layer);
+      if (layer && shouldZoomToNewLayers()) mapControllerRef.current?.fitLayer(layer);
       // Report skipped (no-GPS) photos too, mirroring the Add Data dialog's
       // summary, so a partially-skipped drop isn't silent.
       const summary = t("addData.photos.addedSummary", {
