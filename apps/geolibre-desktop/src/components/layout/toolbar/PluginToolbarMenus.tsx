@@ -16,6 +16,7 @@ import {
 } from "@geolibre/ui";
 import { Puzzle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useDesktopSettingsStore } from "../../../hooks/useDesktopSettings";
 import { useToolbarMenus } from "../../../hooks/usePluginUiSurfaces";
 import { isExternalPluginId } from "../../../lib/external-plugins";
 import { isImageSource } from "../../../lib/icon-source";
@@ -43,8 +44,16 @@ function MenuIcon({ icon, className }: { icon?: string; className: string }) {
 // from a plugin cannot blow the stack; deeper levels are dropped.
 const MAX_MENU_DEPTH = 8;
 
-/** Render a plugin menu item tree (actions, submenus, separators) recursively. */
-function renderItems(items: GeoLibreToolbarMenuItem[], menuId: string, depth = 0): React.ReactNode {
+/**
+ * Render a plugin menu item tree (actions, submenus, separators) recursively.
+ * Shared with the built-in menus' plugin contributions
+ * (`PluginMenuContributions`), which take the same item shape.
+ */
+export function renderItems(
+  items: GeoLibreToolbarMenuItem[],
+  menuId: string,
+  depth = 0,
+): React.ReactNode {
   if (depth > MAX_MENU_DEPTH) {
     console.warn(
       `Toolbar menu "${menuId}" exceeds the maximum submenu depth (${MAX_MENU_DEPTH}); deeper items are not rendered.`,
@@ -52,10 +61,15 @@ function renderItems(items: GeoLibreToolbarMenuItem[], menuId: string, depth = 0
     return null;
   }
   return items.map((item, index) => {
+    // Plugins are untyped at runtime, so a malformed entry (null, a submenu
+    // without an items array) is skipped rather than throwing and taking the
+    // whole menu down with it.
+    if (!item || typeof item !== "object") return null;
     if (item.type === "separator") {
       return <DropdownMenuSeparator key={item.id ?? `sep-${menuId}-${index}`} />;
     }
     if (item.type === "submenu") {
+      if (!Array.isArray(item.items)) return null;
       return (
         <DropdownMenuSub key={item.id}>
           <DropdownMenuSubTrigger>
@@ -125,6 +139,9 @@ function PluginToolbarMenu({ menu, chrome }: { menu: GeoLibreToolbarMenu; chrome
  */
 export function PluginToolbarMenus({ chrome, placement }: PluginToolbarMenusProps) {
   const { entries } = useToolbarMenus();
+  const foldedPluginMenus = useDesktopSettingsStore(
+    (state) => state.desktopSettings.foldedPluginMenus,
+  );
   // Subscribed purely for its `languageChanged` re-render: a menu whose labels
   // are getters keeps them in step with the app language only if the host
   // re-reads the tree after a switch, and the registry itself has no i18n
@@ -141,7 +158,10 @@ export function PluginToolbarMenus({ chrome, placement }: PluginToolbarMenusProp
     // plugin (which removes its menu, re-rendering this list) before dropping
     // its source map entry, so a menu is never seen with a now-stale owner.
     const external = Boolean(entry.ownerPluginId && isExternalPluginId(entry.ownerPluginId));
-    return placement === "external" ? external : !external;
+    if (placement !== "external") return !external;
+    // The user moved this plugin's menus out of the banner; the Plugins menu
+    // renders them under Plugins → Installed instead (GeoLibre#2850).
+    return external && !foldedPluginMenus.includes(entry.ownerPluginId ?? "");
   });
   if (visible.length === 0) return null;
   return (

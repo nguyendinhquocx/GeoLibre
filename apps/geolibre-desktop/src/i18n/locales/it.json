@@ -3341,6 +3341,9 @@
       "activate": "Attiva",
       "position": "Posizione",
       "webServices": "Servizi web",
+      "installedPlugins": "Installati",
+      "managePlugins": "Gestisci plugin…",
+      "showMenuInToolbar": "Mostra menu nella barra degli strumenti",
       "dggs": "DGGS",
       "commandPalette": "Palette dei comandi",
       "openProjectFromUrl": "Apri progetto da URL",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} layer raster",
       "savePromptTitle": "Salvare il progetto corrente?",
       "savePromptDescription": "Il progetto corrente contiene modifiche non salvate. Salvarle prima di aprire il progetto trascinato?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Salvare le modifiche prima di chiudere?",
+      "savePromptDescription": "Il progetto corrente contiene modifiche non salvate. Salvarle prima di chiudere GeoLibre?"
     },
     "error": {
       "couldNotOpenProject": "Impossibile aprire il progetto.",

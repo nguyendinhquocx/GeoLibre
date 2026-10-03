@@ -3341,6 +3341,9 @@
       "activate": "Activeren",
       "position": "Positie",
       "webServices": "Webservices",
+      "installedPlugins": "Geïnstalleerd",
+      "managePlugins": "Plugins beheren…",
+      "showMenuInToolbar": "Menu in werkbalk tonen",
       "dggs": "DGGS",
       "commandPalette": "Opdrachtenpalet",
       "openProjectFromUrl": "Project openen vanuit URL",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} rasterlagen",
       "savePromptTitle": "Huidig project opslaan?",
       "savePromptDescription": "Het huidige project bevat niet-opgeslagen wijzigingen. Wilt u die opslaan voordat het neergezette project wordt geopend?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Wijzigingen opslaan voor het sluiten?",
+      "savePromptDescription": "Het huidige project bevat niet-opgeslagen wijzigingen. Opslaan voordat GeoLibre wordt gesloten?"
     },
     "error": {
       "couldNotOpenProject": "Het project kon niet worden geopend.",

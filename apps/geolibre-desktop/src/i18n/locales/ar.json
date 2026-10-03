@@ -3536,6 +3536,9 @@
       "activate": "تفعيل",
       "position": "الموضع",
       "webServices": "خدمات الويب",
+      "installedPlugins": "المثبّتة",
+      "managePlugins": "إدارة الإضافات…",
+      "showMenuInToolbar": "إظهار القائمة في شريط الأدوات",
       "dggs": "DGGS",
       "commandPalette": "لوحة الأوامر",
       "openProjectFromUrl": "فتح مشروع من عنوان URL",
@@ -3770,6 +3773,10 @@
       "bothRasterLayers_other": "{{count}} طبقة نقطية",
       "savePromptTitle": "هل تريد حفظ المشروع الحالي؟",
       "savePromptDescription": "يحتوي المشروع الحالي على تغييرات غير محفوظة. هل تريد حفظها قبل فتح المشروع المُسقَط؟"
+    },
+    "windowClose": {
+      "savePromptTitle": "هل تريد حفظ التغييرات قبل الإغلاق؟",
+      "savePromptDescription": "يحتوي المشروع الحالي على تغييرات غير محفوظة. هل تريد حفظها قبل إغلاق GeoLibre؟"
     },
     "error": {
       "couldNotOpenProject": "تعذر فتح المشروع.",

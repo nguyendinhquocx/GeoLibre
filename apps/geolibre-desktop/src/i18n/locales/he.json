@@ -3390,6 +3390,9 @@
       "activate": "הפעל",
       "position": "מיקום",
       "webServices": "שירותי רשת",
+      "installedPlugins": "מותקנים",
+      "managePlugins": "ניהול תוספים…",
+      "showMenuInToolbar": "הצג את התפריט בסרגל הכלים",
       "dggs": "DGGS",
       "commandPalette": "לוח הפקודות",
       "openProjectFromUrl": "פתיחת פרויקט מכתובת URL",
@@ -3597,6 +3600,10 @@
       "addedRasterLayers_two": "{{count}} שכבות רסטר נוספו לחלונית השכבות.",
       "bothVectorLayers_two": "{{count}} שכבות וקטוריות",
       "bothRasterLayers_two": "{{count}} שכבות רסטר"
+    },
+    "windowClose": {
+      "savePromptTitle": "לשמור את השינויים לפני הסגירה?",
+      "savePromptDescription": "בפרויקט הנוכחי יש שינויים שלא נשמרו. לשמור אותם לפני סגירת GeoLibre?"
     },
     "error": {
       "couldNotOpenProject": "לא ניתן היה לפתוח את הפרויקט.",

@@ -3341,6 +3341,9 @@
       "activate": "გააქტიურება",
       "position": "პოზიცია",
       "webServices": "ვებ-სერვისები",
+      "installedPlugins": "დაინსტალირებული",
+      "managePlugins": "პლაგინების მართვა…",
+      "showMenuInToolbar": "მენიუს ჩვენება ხელსაწყოთა ზოლში",
       "dggs": "DGGS",
       "commandPalette": "ბრძანებების პალიტრა",
       "openProjectFromUrl": "პროექტის გახსნა URL-იდან",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} რასტრული შრე",
       "savePromptTitle": "შეინახოს მიმდინარე პროექტი?",
       "savePromptDescription": "მიმდინარე პროექტს შეუნახავი ცვლილებები აქვს. შეინახოს ისინი ჩამოგდებული პროექტის გახსნამდე?"
+    },
+    "windowClose": {
+      "savePromptTitle": "შევინახოთ ცვლილებები დახურვამდე?",
+      "savePromptDescription": "მიმდინარე პროექტს აქვს შეუნახავი ცვლილებები. შევინახოთ ისინი GeoLibre-ის დახურვამდე?"
     },
     "error": {
       "couldNotOpenProject": "პროექტის გახსნა ვერ მოხერხდა.",

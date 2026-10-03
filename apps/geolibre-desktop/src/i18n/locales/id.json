@@ -3292,6 +3292,9 @@
       "activate": "Aktifkan",
       "position": "Posisi",
       "webServices": "Layanan Web",
+      "installedPlugins": "Terpasang",
+      "managePlugins": "Kelola Plugin…",
+      "showMenuInToolbar": "Tampilkan menu di bilah alat",
       "dggs": "DGGS",
       "commandPalette": "Palet Perintah",
       "openProjectFromUrl": "Buka proyek dari URL",
@@ -3481,6 +3484,10 @@
       "bothRasterLayers_other": "{{count}} layer raster",
       "savePromptTitle": "Simpan proyek saat ini?",
       "savePromptDescription": "Proyek saat ini memiliki perubahan yang belum disimpan. Simpan sebelum membuka proyek yang dijatuhkan?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Simpan perubahan sebelum menutup?",
+      "savePromptDescription": "Proyek saat ini memiliki perubahan yang belum disimpan. Simpan sebelum menutup GeoLibre?"
     },
     "error": {
       "couldNotOpenProject": "Tidak dapat membuka proyek.",

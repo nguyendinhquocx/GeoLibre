@@ -159,6 +159,7 @@ export function createWfsGetFeatureUrl(options: {
   outputFormat: string;
   srsName: string;
   maxFeatures?: string;
+  bbox?: [number, number, number, number];
 }): string {
   const isWfs2 = options.version.startsWith("2");
   const params: Array<[string, string]> = [
@@ -174,6 +175,13 @@ export function createWfsGetFeatureUrl(options: {
   if (options.srsName) params.push(["srsName", options.srsName]);
   if (options.maxFeatures) {
     params.push([isWfs2 ? "count" : "maxFeatures", options.maxFeatures]);
+  }
+  if (options.bbox) {
+    const [west, south, east, north] = options.bbox;
+    const bbox = options.version.startsWith("1.0")
+      ? `${west},${south},${east},${north},EPSG:4326`
+      : `${south},${west},${north},${east},urn:ogc:def:crs:EPSG::4326`;
+    params.push(["bbox", bbox]);
   }
 
   return appendQuery(options.endpoint, params);
@@ -198,7 +206,11 @@ interface FetchedText {
  */
 export async function fetchGeoJsonFeatureCollection(
   url: string,
-  options: { useWfsProxy?: boolean; useCswProxy?: boolean; signal?: AbortSignal } = {},
+  options: {
+    useWfsProxy?: boolean;
+    useCswProxy?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<FeatureCollection> {
   // Combine signals so a caller-supplied signal does not drop the timeout.
   const signal = options.signal
@@ -239,12 +251,17 @@ export async function fetchGeoJsonFeatureCollection(
   return arcGis ? repairArcGisAxisOrder(collection, arcGis, options, signal) : collection;
 }
 
-type FetchRouting = { useWfsProxy?: boolean; useCswProxy?: boolean };
+type FetchRouting = {
+  useWfsProxy?: boolean;
+  useCswProxy?: boolean;
+};
 
 // The transport for a request: the native client for a WFS request on desktop,
 // otherwise the browser fetch (through the dev proxy under Vite).
 function fetchText(url: string, options: FetchRouting, signal: AbortSignal): Promise<FetchedText> {
-  if (options.useWfsProxy && isTauri() && isHttpUrl(url)) return fetchNativeText(url, signal);
+  if (options.useWfsProxy && isTauri() && isHttpUrl(url)) {
+    return fetchNativeText(url, signal);
+  }
   return fetchBrowserText(
     options.useWfsProxy
       ? proxyWfsRequestUrl(url)
@@ -405,6 +422,7 @@ export async function fetchWfsGeoJson(
     outputFormat: string;
     srsName: string;
     maxFeatures?: string;
+    bbox?: [number, number, number, number];
   },
   options: { useWfsProxy?: boolean; signal?: AbortSignal } = {},
 ): Promise<{ data: FeatureCollection; url: string; outputFormat: string }> {

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, before, beforeEach, describe, it } from "node:test";
 import type { PluginManager } from "../packages/plugins/src/plugin-manager";
 import type { GeoLibreAppAPI } from "../packages/plugins/src/types";
+import { strToU8, zipSync } from "fflate";
+import { setDeploymentPolicy } from "../apps/geolibre-desktop/src/lib/deployment-env";
 
 // Recovering from a SHA-256 pin block (#2318). external-plugins pulls in
 // browser-only modules through its import chain, so the module is imported
@@ -16,6 +18,7 @@ const ENTRY_URL = "http://localhost:7777/pin-demo/entry.js";
 // Files the fetch shim serves, keyed by absolute URL.
 let served = new Map<string, string>();
 let storage = new Map<string, string>();
+let requests: string[] = [];
 
 function pluginBundle(): Map<string, string> {
   return new Map([
@@ -56,6 +59,7 @@ function installBrowserShims(): void {
   globals.document = { getElementById: () => null };
   globals.fetch = (input: unknown) => {
     const url = String(input);
+    requests.push(url.split("?")[0]);
     const body = serve(url);
     if (body === undefined) {
       return Promise.resolve({ ok: false, status: 404 } as Response);
@@ -100,6 +104,7 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
   beforeEach(() => {
     storage = new Map();
     served = pluginBundle();
+    requests = [];
     manager = new PluginManagerCtor();
   });
 
@@ -108,6 +113,193 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
     // left registered by one test would be skipped as "already loaded" by the
     // next. Uninstalling every URL is the same teardown the app performs.
     externalPlugins.unloadRemovedUrlPlugins(manager, [], app);
+  });
+
+  it("reports a blocked ID before fetching entry or style, even when allowed", async () => {
+    served.set(
+      MANIFEST_URL,
+      JSON.stringify({
+        id: "pin-demo",
+        name: "Pin Demo",
+        version: "1.0.0",
+        entry: "entry.js",
+        style: "style.css",
+      }),
+    );
+    const result = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], {
+      policy: { version: 1, plugins: { blocked: ["pin-demo"], allowed: ["pin-demo"] } },
+    });
+    assert.deepEqual(result.loadedPluginIds, []);
+    assert.deepEqual(manager.list(), []);
+    assert.deepEqual(requests, [MANIFEST_URL]);
+    assert.equal(result.issues[0].sourceUrl, MANIFEST_URL);
+    assert.match(result.issues[0].message, /blocked by deployment policy/);
+  });
+
+  it("allowed empty denies URLs but exempts bundled drop-ins", async () => {
+    const policy = { version: 1 as const, plugins: { allowed: [] } };
+    const denied = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], {
+      policy,
+    });
+    assert.deepEqual(requests, [MANIFEST_URL]);
+    assert.match(denied.issues[0].message, /not allowed/);
+    requests = [];
+    const bundled = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], {
+      policy,
+      bundledManifestUrls: [MANIFEST_URL],
+    });
+    assert.deepEqual(bundled.loadedPluginIds, ["pin-demo"]);
+    assert.deepEqual(bundled.issues, []);
+    assert.deepEqual(requests, [MANIFEST_URL, ENTRY_URL]);
+  });
+
+  it("sideload false denies stored manual URLs but permits registry URLs", async () => {
+    const policy = { version: 1 as const, plugins: { sideload: false } };
+    const denied = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], {
+      policy,
+    });
+    assert.deepEqual(requests, []);
+    assert.match(denied.issues[0].message, /sideloading/);
+    const registry = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], {
+      policy,
+      registryManifestUrls: [MANIFEST_URL],
+    });
+    assert.deepEqual(registry.loadedPluginIds, ["pin-demo"]);
+    assert.deepEqual(registry.issues, []);
+  });
+
+  it("reports every configured directory denied by sideload policy without scanning it", async () => {
+    const globals = globalThis as Record<string, unknown>;
+    const originalWindow = globals.window;
+    globals.window = {
+      __TAURI_INTERNALS__: {
+        invoke: async (command: string, args: { additionalPluginDirectories: string[] }) => {
+          assert.equal(command, "load_external_plugin_bundles");
+          if (args.additionalPluginDirectories.length > 0) {
+            throw new Error("Policy-denied directories must not be read.");
+          }
+          return { pluginsDirectories: [], bundles: [], errors: [] };
+        },
+      },
+    };
+    const directories = ["/plugins/manual", "/plugins/project"];
+    const policy = { version: 1 as const, plugins: { sideload: false } };
+    try {
+      for (const filteredByHook of [false, true]) {
+        const result = await externalPlugins.loadExternalPlugins(
+          manager,
+          filteredByHook ? [] : directories,
+          [],
+          { policy, ...(filteredByHook ? { configuredPluginDirectories: directories } : {}) },
+        );
+        assert.deepEqual(result.loadedPluginIds, []);
+        assert.deepEqual(
+          result.issues.map((issue) => issue.archiveName),
+          directories,
+        );
+        for (const issue of result.issues) {
+          assert.deepEqual(issue.policyDenial, {
+            kind: "sideload-disabled",
+            pluginId: "",
+          });
+          assert.match(issue.message, /sideloading is disabled by deployment policy/);
+        }
+      }
+    } finally {
+      if (originalWindow === undefined) delete globals.window;
+      else globals.window = originalWindow;
+    }
+  });
+
+  it("programmatic archive installation refuses before unpacking with a load issue", async () => {
+    await assert.rejects(
+      externalPlugins.installWebPluginArchive(manager, "denied.zip", new Uint8Array(), app, {
+        version: 1,
+        plugins: { sideload: false },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof externalPlugins.PluginPolicyError);
+        assert.equal(error.archiveName, "denied.zip");
+        assert.equal(error.policyDenial.kind, "sideload-disabled");
+        assert.equal(error.policyDenial.pluginId, "");
+        return true;
+      },
+    );
+    assert.deepEqual(manager.list(), []);
+  });
+
+  it("blocked archive code is not evaluated or persisted", async () => {
+    const bytes = zipSync({
+      "plugin.json": strToU8(served.get(MANIFEST_URL)!),
+      "entry.js": strToU8("throw new Error('archive entry executed');"),
+    });
+    await assert.rejects(
+      externalPlugins.installWebPluginArchive(manager, "blocked.zip", bytes, app, {
+        version: 1,
+        plugins: { blocked: ["pin-demo"] },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof externalPlugins.PluginPolicyError);
+        assert.equal(error.archiveName, "blocked.zip");
+        assert.equal(error.policyDenial.kind, "blocked");
+        assert.equal(error.policyDenial.pluginId, "pin-demo");
+        return true;
+      },
+    );
+    assert.deepEqual(manager.list(), []);
+    assert.deepEqual(await externalPlugins.listInstalledWebPlugins(), []);
+  });
+
+  it("policy defaultActive activates only on fresh-project restore", async () => {
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], {
+      policy: { version: 1, plugins: { defaultActive: ["pin-demo"] } },
+    });
+    assert.equal(manager.isActive("pin-demo"), false);
+    manager.restoreProjectState(null, app);
+    assert.equal(manager.isActive("pin-demo"), true);
+    manager.restoreProjectState(
+      { manifestUrls: [], activePluginIds: [], mapControlPositions: {}, settings: {} },
+      app,
+    );
+    assert.equal(manager.isActive("pin-demo"), false);
+  });
+
+  it("URL updates preserve deployment defaults for later fresh projects", async () => {
+    const policy = { version: 1 as const, plugins: { defaultActive: ["pin-demo"] } };
+    const emptyState = {
+      manifestUrls: [],
+      activePluginIds: [],
+      mapControlPositions: {},
+      settings: {},
+    };
+    try {
+      for (const useRuntimePolicy of [false, true]) {
+        served = pluginBundle();
+        manager = new PluginManagerCtor();
+        setDeploymentPolicy(useRuntimePolicy ? policy : null);
+        const options = useRuntimePolicy ? {} : { policy };
+        await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], options);
+        manager.restoreProjectState(null, app);
+        assert.equal(manager.isActive("pin-demo"), true);
+        served.set(MANIFEST_URL, served.get(MANIFEST_URL)!.replace("1.0.0", "2.0.0"));
+        served.set(ENTRY_URL, served.get(ENTRY_URL)!.replace("1.0.0", "2.0.0"));
+        const updated = await externalPlugins.reloadExternalUrlPlugin(
+          manager,
+          MANIFEST_URL,
+          app,
+          options,
+        );
+        assert.equal(updated.version, "2.0.0");
+        assert.equal(manager.isActive("pin-demo"), true);
+        manager.restoreProjectState(emptyState, app);
+        assert.equal(manager.isActive("pin-demo"), false);
+        manager.restoreProjectState(null, app);
+        assert.equal(manager.isActive("pin-demo"), true);
+        externalPlugins.unloadRemovedUrlPlugins(manager, [], app);
+      }
+    } finally {
+      setDeploymentPolicy(null);
+    }
   });
 
   it("clears the pin on uninstall even though the blocked plugin never registered", async () => {
@@ -139,6 +331,51 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
     );
   });
 
+  it("reports a held-back release and loads it through the update action", async () => {
+    // Pinned at 0.9.0 with a different hash; the URL now serves 1.0.0.
+    integrity.pinPluginBundle(MANIFEST_URL, "0".repeat(64), "0.9.0");
+
+    const blocked = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    assert.deepEqual(blocked.loadedPluginIds, []);
+    assert.deepEqual(blocked.issues[0].heldBack, {
+      pluginId: "pin-demo",
+      pinnedVersion: "0.9.0",
+      version: "1.0.0",
+    });
+
+    const plugin = await externalPlugins.reloadExternalUrlPlugin(manager, MANIFEST_URL, app);
+    assert.equal(plugin.id, "pin-demo");
+    assert.equal(manager.list().length, 1);
+    assert.equal(integrity.getPluginBundlePinVersion(MANIFEST_URL), "1.0.0");
+
+    // The next launch matches the new pin and loads without a block.
+    // Reset the loader's session state (which also drops the pin), restore the
+    // pin the update wrote, and load into a fresh manager as a new launch would.
+    const pinnedHash = integrity.getPluginBundlePin(MANIFEST_URL) ?? "";
+    externalPlugins.unloadRemovedUrlPlugins(manager, [], app);
+    integrity.pinPluginBundle(MANIFEST_URL, pinnedHash, "1.0.0");
+    manager = new PluginManagerCtor();
+    const next = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    assert.deepEqual(next.issues, []);
+    assert.deepEqual(
+      manager.list().map((p) => p.id),
+      ["pin-demo"],
+    );
+
+    // An update for a version other than the one now served is refused.
+    externalPlugins.unloadRemovedUrlPlugins(manager, [], app);
+    integrity.pinPluginBundle(MANIFEST_URL, "0".repeat(64), "0.9.0");
+    manager = new PluginManagerCtor();
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    await assert.rejects(
+      externalPlugins.reloadExternalUrlPlugin(manager, MANIFEST_URL, app, {
+        expectedVersion: "2.0.0",
+      }),
+      /expected version 2\.0\.0/,
+    );
+    assert.equal(manager.list().length, 0);
+  });
+
   it("still clears the pin and unregisters when the plugin did load", async () => {
     const loaded = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
     assert.deepEqual(loaded.loadedPluginIds, ["pin-demo"]);
@@ -146,6 +383,33 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
 
     assert.deepEqual(externalPlugins.unloadRemovedUrlPlugins(manager, [], app), ["pin-demo"]);
     assert.equal(manager.list().length, 0);
+    assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), null);
+  });
+
+  it("registry denial unloads an active plugin without trusting changed code when approval returns", async () => {
+    const policy = { version: 1 as const, plugins: { sideload: false } };
+    const approved = { policy, registryManifestUrls: [MANIFEST_URL] };
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL], approved);
+    manager.activate("pin-demo", app);
+    const pinned = integrity.getPluginBundlePin(MANIFEST_URL);
+    assert.notEqual(pinned, null);
+    assert.deepEqual(externalPlugins.unloadRemovedUrlPlugins(manager, [], app, [MANIFEST_URL]), [
+      "pin-demo",
+    ]);
+    assert.equal(manager.isActive("pin-demo"), false);
+    assert.deepEqual(manager.list(), []);
+    assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), pinned);
+    served.set(ENTRY_URL, `${served.get(ENTRY_URL)}\n// Changed while delisted`);
+    const returned = await externalPlugins.loadExternalPlugins(
+      manager,
+      [],
+      [MANIFEST_URL],
+      approved,
+    );
+    assert.deepEqual(returned.loadedPluginIds, []);
+    assert.equal(returned.issues[0]?.integrityStatus, "changed");
+    assert.deepEqual(manager.list(), []);
+    externalPlugins.unloadRemovedUrlPlugins(manager, [], app);
     assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), null);
   });
 

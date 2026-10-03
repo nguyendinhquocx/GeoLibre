@@ -6,10 +6,16 @@ other) at it and you can ask for a map in words: the server writes a real
 `.geolibre.json` project you open in the desktop app, the web app, or the
 `geolibre` Jupyter widget, and can export it as a standalone HTML page.
 
-The server is **headless**. It needs no browser, no running GeoLibre instance,
-and no bundled web build. It builds project files with the same
-[project builders](python.md) the Python package uses, so a project it writes is
-byte-for-byte the kind the app already loads.
+The file tools are **headless**. They need no browser, no running GeoLibre
+instance, and no bundled web build. They build project files with the same
+[project builders](python.md) the Python package uses, so a project they write
+is byte-for-byte the kind the app already loads.
+
+The `live_*` tools are the other half. They speak the desktop Notebook relay
+([Notebook panel](notebook.md)), so a command from an MCP client moves the map
+already open in GeoLibre Desktop. Open **Processing → Jupyter Notebook** once
+per app launch; the panel can be closed after that. Web and JupyterLite have
+no relay, so those tools have nothing to attach to there.
 
 ## Install
 
@@ -173,10 +179,12 @@ will not load for anyone else, so use hosted URLs for a shareable export.
 - **Remote fetches are checked**: a URL whose host resolves to a private,
   loopback, or link-local address is refused, on every redirect hop as well as
   the first request, so a crafted URL cannot reach a cloud metadata endpoint.
-- The server authors projects; it does **not** drive a live map. Interactive
-  control of a running GeoLibre instance goes through the scripting bridge that
-  backs the [Python widget](python.md) and the
-  [embed API](user-guide/embedding.md).
+- **File tools write a project. `live_*` tools move the open desktop map.**
+  A live edit is in the session until you save it from the app. The relay is
+  loopback-only and refuses redirects, so the Jupyter token stays on the
+  machine. The same scripting surface backs the [Python widget](python.md)
+  and the [embed API](user-guide/embedding.md); those remain how a host page
+  or a notebook drives a map without MCP.
 
 ## Driving the server from an agent
 

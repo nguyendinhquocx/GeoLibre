@@ -3341,6 +3341,9 @@
       "activate": "Etkinleştir",
       "position": "Konum",
       "webServices": "Web Servisleri",
+      "installedPlugins": "Kurulu",
+      "managePlugins": "Eklentileri Yönet…",
+      "showMenuInToolbar": "Menüyü araç çubuğunda göster",
       "dggs": "DGGS",
       "commandPalette": "Komut Paleti",
       "openProjectFromUrl": "URL'den proje aç",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} raster katmanı",
       "savePromptTitle": "Geçerli proje kaydedilsin mi?",
       "savePromptDescription": "Geçerli projede kaydedilmemiş değişiklikler var. Bırakılan projeyi açmadan önce kaydetmek ister misiniz?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Kapatmadan önce değişiklikler kaydedilsin mi?",
+      "savePromptDescription": "Mevcut projede kaydedilmemiş değişiklikler var. GeoLibre kapatılmadan önce kaydedilsin mi?"
     },
     "error": {
       "couldNotOpenProject": "Proje açılamadı.",

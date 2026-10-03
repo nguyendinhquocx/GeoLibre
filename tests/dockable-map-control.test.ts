@@ -33,7 +33,7 @@ function fakeMap(mapContainer: HTMLElement) {
     off: (type: string, listener: () => void) => {
       if (type === "remove" && removeListener === listener) removeListener = null;
     },
-    emitRemove: () => removeListener?.(),
+    emitRemove: () => removeListener?.({ type: "remove" }),
   };
 }
 
@@ -119,6 +119,69 @@ describe("mountMapControlInPanel", () => {
     cleanup();
 
     assert.equal(removeCalls, 1);
+    assert.equal(host.childElementCount, 0);
+  });
+
+  it("tells the plugin when the map is removed, but not on a panel close", () => {
+    const document = installDom();
+    const mapContainer = document.querySelector<HTMLElement>("#map")!;
+    const control = {
+      onAdd: () => {
+        mapContainer.appendChild(document.createElement("section"));
+        return document.createElement("button");
+      },
+      onRemove: () => {},
+    };
+    const map = fakeMap(mapContainer);
+    const app = { getMap: () => map } as unknown as GeoLibreAppAPI;
+
+    // A renderer swap with no replacement engine re-renders nothing, so this
+    // callback is the plugin's only chance to release state kept outside the
+    // control (GeoAgent's store sync and Layers rows).
+    let mapRemoved = 0;
+    const closed = mountMapControlInPanel(
+      app,
+      control as never,
+      document.createElement("div"),
+      undefined,
+      () => (mapRemoved += 1),
+    );
+    closed!();
+    assert.equal(mapRemoved, 0, "a panel close is not a map removal");
+
+    mountMapControlInPanel(
+      app,
+      control as never,
+      document.createElement("div"),
+      undefined,
+      () => (mapRemoved += 1),
+    );
+    map.emitRemove();
+    assert.equal(mapRemoved, 1);
+  });
+
+  it("does not let a control that throws on a dead map abort map removal", () => {
+    const document = installDom();
+    const mapContainer = document.querySelector<HTMLElement>("#map")!;
+    const host = document.createElement("div");
+    const control = {
+      onAdd: () => {
+        const toggle = document.createElement("button");
+        const panel = document.createElement("section");
+        mapContainer.appendChild(panel);
+        return toggle;
+      },
+      onRemove: () => {
+        throw new TypeError("Cannot read properties of undefined (reading 'style')");
+      },
+    };
+    const map = fakeMap(mapContainer);
+    const app = { getMap: () => map } as unknown as GeoLibreAppAPI;
+
+    const cleanup = mountMapControlInPanel(app, control as never, host);
+    assert.ok(cleanup);
+
+    assert.doesNotThrow(() => map.emitRemove());
     assert.equal(host.childElementCount, 0);
   });
 

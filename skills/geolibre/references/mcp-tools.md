@@ -3,7 +3,8 @@
 Every tool that reads or writes a project takes `path`, the `.geolibre.json`
 file, resolved against the workspace roots. Relative paths resolve against the
 first root, so `city.geolibre.json` works without knowing the host layout.
-(`list_catalog` is the one exception — it takes no arguments at all.)
+`list_catalog` and the `live_*` tools take no path: the live tools move the
+map open in Desktop instead of a file.
 
 The server's own docstrings are the authority — this page is the map of the
 surface, so you can pick the right tool before calling anything.
@@ -209,6 +210,32 @@ export_html(path, out_path, title="GeoLibre Map", width="100%", height="800px",
 Writes a standalone page that embeds the hosted GeoLibre viewer and injects the
 project into it. Credentials are stripped on the way out. `app_url` is a trust
 boundary — see the SKILL.
+
+## Live desktop map
+
+These tools do not take a `path`. They move the map open in GeoLibre Desktop.
+`live_status()` first: if `connected` is false, the user opens
+Processing → Jupyter Notebook once. A live edit persists only after the user
+saves in the app. Layer ids come from `live_list_layers()`, not from a
+project file.
+
+```text
+live_status()
+live_list_layers()
+live_fly_to(lng=None, lat=None, zoom=None)
+live_fit_bounds(bounds)
+live_zoom_to_layer(layer_id)
+live_set_basemap(basemap)
+live_add_geojson(data, name="GeoJSON", style=None)
+live_set_visibility(layer_id, visible)
+live_set_opacity(layer_id, opacity)
+live_set_style(layer_id, style)
+live_remove_layer(layer_id)
+```
+
+`live_set_basemap` takes a catalog name (`liberty`, `bright`, `positron`,
+`dark`, `fiord`) or an `http(s)` style URL. `live_add_geojson` confines a
+local path to the workspace, the same way `add_geojson_layer` does.
 
 ## Workspace rules
 

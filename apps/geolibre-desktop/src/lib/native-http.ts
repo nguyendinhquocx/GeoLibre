@@ -1,6 +1,7 @@
 /**
  * Thin wrappers around the native Tauri HTTP commands (`fetch_url_bytes`,
- * `resolve_url_redirect`) that record every call in the Diagnostics network log.
+ * `fetch_url_response`, and `resolve_url_redirect`) that record every call in
+ * the Diagnostics network log.
  *
  * These commands run in Rust and never pass through `window.fetch`, so the
  * diagnostics fetch interceptor cannot see them; their failures used to surface
@@ -11,8 +12,14 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { isCredentialUrlParam, redactUrlCredentials } from "@geolibre/core";
 import { appendDiagnostic, formatUnknown, type DiagnosticInput } from "./diagnostics";
 import { classifyFetchFailure } from "./fetch-error";
+
+// Diagnostics URL/detail text is redacted for every native command so a fetch of
+// a token-bearing WFS, tile, or archive URL never records the secret. The key
+// registry is @geolibre/core's (the one `redactUrlCredentials` uses), so a
+// credential name added there is covered here too.
 
 /** The native HTTP commands exposed by the Tauri backend. */
 export type NativeHttpCommand = "fetch_url_bytes" | "fetch_url_response" | "resolve_url_redirect";
@@ -40,6 +47,29 @@ interface FetchUrlBytesOptions extends NativeHttpOptions {
   maxBytes?: number;
 }
 
+function diagnosticUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    const keys = [...parsed.searchParams.keys()];
+    for (const key of keys) {
+      if (isCredentialUrlParam(key)) {
+        parsed.searchParams.set(key, "[redacted]");
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function diagnosticError(error: unknown): string {
+  return formatUnknown(error)
+    .replace(/https?:\/\/[^\s"'<>]+/gi, (url) => redactUrlCredentials(url))
+    .replace(/(https?:\/\/)[^/@\s]+@/gi, "$1[credentials]@");
+}
+
 function recordSource(command: NativeHttpCommand, context?: string): string {
   return context ? `native ${command} — ${context}` : `native ${command}`;
 }
@@ -61,7 +91,7 @@ export function nativeHttpSuccessRecord(
     durationMs,
     method: "GET",
     source: recordSource(command, context),
-    url,
+    url: diagnosticUrl(url),
   };
 }
 
@@ -78,7 +108,7 @@ export function nativeHttpFailureRecord(
   context?: string,
 ): DiagnosticInput {
   const { kind, label, hint } = classifyFetchFailure(error);
-  const rawError = formatUnknown(error);
+  const rawError = diagnosticError(error);
   return {
     category: "network",
     level: "error",
@@ -90,7 +120,7 @@ export function nativeHttpFailureRecord(
     durationMs,
     method: "GET",
     source: recordSource(command, context),
-    url,
+    url: diagnosticUrl(url),
   };
 }
 

@@ -32,6 +32,39 @@ import {
   verifyPluginBundleIntegrity,
 } from "./plugin-integrity";
 import { isTauri } from "./tauri-io";
+import type { DeploymentPolicy } from "./deployment-policy";
+import { getDeploymentPolicy } from "./deployment-env";
+import {
+  evaluatePlugin,
+  type PluginDenialDecision,
+  type PluginPolicyDenial,
+  type PluginSource,
+} from "./plugin-policy";
+
+export class PluginPolicyError extends Error implements ExternalPluginLoadIssue {
+  public readonly policyDenial: PluginPolicyDenial;
+
+  constructor(
+    public readonly archiveName: string,
+    decision: PluginDenialDecision,
+    public readonly sourceUrl?: string,
+  ) {
+    super(decision.reason);
+    this.name = "PluginPolicyError";
+    this.policyDenial = decision.denial;
+  }
+}
+
+function enforcePluginPolicy(
+  id: string,
+  source: PluginSource,
+  policy: DeploymentPolicy | null,
+  archiveName: string,
+  sourceUrl?: string,
+): void {
+  const decision = evaluatePlugin(id, source, policy);
+  if (!decision.allowed) throw new PluginPolicyError(archiveName, decision, sourceUrl);
+}
 
 interface ExternalPluginBundleError {
   archiveName: string;
@@ -48,6 +81,18 @@ export interface ExternalPluginLoadIssue {
   archiveName: string;
   sourceUrl?: string;
   message: string;
+  policyDenial?: PluginPolicyDenial;
+  integrityStatus?: "changed";
+  /** Set when the changed version is a registry-announced update. */
+  heldBack?: HeldBackPluginBundle;
+}
+
+export interface HeldBackPluginBundle {
+  pluginId: string;
+  /** Version recorded with the pin, or null for a pin written before versions were kept. */
+  pinnedVersion: string | null;
+  /** Version in the manifest now served at the URL. */
+  version: string;
 }
 
 export interface ExternalPluginLoadResult {
@@ -81,6 +126,11 @@ const inFlightUrlUpgrades = new Map<string, Promise<GeoLibrePlugin>>();
 // again (#2318). Recording the attempt instead of the registration covers it.
 const pinnedUrlLoadAttempts = new Set<string>();
 
+// Bundles the pin held back this session, by manifest URL. The marketplace's
+// Update action registers one of these as a fresh plugin (there is no loaded
+// version to replace) and re-pins it.
+const heldBackBundles = new Map<string, HeldBackPluginBundle>();
+
 export async function loadExternalPlugins(
   manager: PluginManager,
   additionalPluginDirectories: string[] = [],
@@ -102,10 +152,31 @@ export async function loadExternalPlugins(
      * would stop loading until they reloaded it from Settings.
      */
     bundledManifestUrls?: readonly string[];
+    policy?: DeploymentPolicy | null;
+    /** URLs recognized by the configured registry, not arbitrary installed URLs. */
+    registryManifestUrls?: readonly string[];
+    /** Original settings directories when the caller suppresses them for policy. */
+    configuredPluginDirectories?: readonly string[];
   } = {},
 ): Promise<ExternalPluginLoadResult> {
   const issues: ExternalPluginLoadIssue[] = [];
   const bundledUrls = new Set(options.bundledManifestUrls ?? []);
+  const policy = options.policy === undefined ? getDeploymentPolicy() : options.policy;
+  if (policy?.plugins?.sideload === false) {
+    const decision = evaluatePlugin("", "directory", policy);
+    if (!decision.allowed) {
+      for (const directory of options.configuredPluginDirectories ?? additionalPluginDirectories) {
+        issues.push({
+          archiveName: directory,
+          message: decision.reason,
+          policyDenial: decision.denial,
+        });
+      }
+    }
+  }
+  const registryUrls = new Set(options.registryManifestUrls ?? []);
+  const urlSource = (url: string): PluginSource =>
+    bundledUrls.has(url) ? "bundled" : registryUrls.has(url) ? "registry" : "manifest-url";
   // The filesystem scan (Tauri IPC + disk), the manifest URL fetches (network),
   // and the IndexedDB read (web-installed archives) are independent, so overlap
   // them. Web-installed archives are the browser counterpart of the desktop
@@ -113,13 +184,15 @@ export async function loadExternalPlugins(
   // re-scans it, while the web build replays the unpacked bundle stored here.
   const [filesystemResult, urlBundles, webBundles] = await Promise.all([
     isTauri()
-      ? loadFilesystemPluginBundles(additionalPluginDirectories)
+      ? loadFilesystemPluginBundles(
+          policy?.plugins?.sideload === false ? [] : additionalPluginDirectories,
+        )
       : Promise.resolve<ExternalPluginBundleLoadResult>({
           pluginsDirectories: [],
           bundles: [],
           errors: [],
         }),
-    loadPluginUrlBundles(pluginManifestUrls, issues, bundledUrls),
+    loadPluginUrlBundles(pluginManifestUrls, issues, bundledUrls, policy, urlSource),
     loadWebInstalledPluginBundles(),
   ]);
   for (const error of filesystemResult.errors) {
@@ -131,8 +204,16 @@ export async function loadExternalPlugins(
   const loadedPluginIds: string[] = [];
   const registeredPluginIds = new Set(manager.list().map((plugin) => plugin.id));
 
-  for (const bundle of [...filesystemResult.bundles, ...urlBundles, ...webBundles]) {
+  // Tag each bundle with its policy source at construction, where the origin is
+  // unambiguous, instead of re-deriving it from the concatenation order.
+  const bundles: Array<{ bundle: ExternalPluginBundle; source: PluginSource }> = [
+    ...filesystemResult.bundles.map((bundle) => ({ bundle, source: "directory" as const })),
+    ...urlBundles.map((bundle) => ({ bundle, source: urlSource(bundle.sourceUrl ?? "") })),
+    ...webBundles.map((bundle) => ({ bundle, source: "zip" as const })),
+  ];
+  for (const { bundle, source } of bundles) {
     try {
+      enforcePluginPolicy(bundle.manifest.id, source, policy, bundle.archiveName, bundle.sourceUrl);
       const loadedFrom = externallyLoadedPluginSources.get(bundle.manifest.id);
       if (loadedFrom !== undefined) {
         // Already loaded by a previous scan; a settings change re-runs the
@@ -158,13 +239,14 @@ export async function loadExternalPlugins(
 
       const plugin = await importExternalPlugin(bundle);
       manager.register(plugin);
-      // Manifest-level activeByDefault, honored for bundled drop-ins only
-      // (silently ignored elsewhere; see the manifest type doc). Marked after
-      // register() so the restore pass activates it with a real app API.
+      // Deployment defaults may opt permitted external plugins in; manifest
+      // activeByDefault remains bundled-only. Restore uses these marks only
+      // when the project has no saved plugin state.
       if (
-        bundle.manifest.activeByDefault === true &&
-        bundle.sourceUrl !== undefined &&
-        bundledUrls.has(bundle.sourceUrl)
+        policy?.plugins?.defaultActive?.includes(plugin.id) ||
+        (bundle.manifest.activeByDefault === true &&
+          bundle.sourceUrl !== undefined &&
+          bundledUrls.has(bundle.sourceUrl))
       ) {
         manager.markDefaultActive(plugin.id);
       }
@@ -182,6 +264,7 @@ export async function loadExternalPlugins(
         archiveName: bundle.archiveName,
         sourceUrl: bundle.sourceUrl,
         message: error instanceof Error ? error.message : "Could not load external plugin.",
+        ...(error instanceof PluginPolicyError ? { policyDenial: error.policyDenial } : {}),
       });
     }
   }
@@ -236,6 +319,8 @@ async function loadPluginUrlBundles(
   issues: ExternalPluginLoadIssue[],
   /** Manifest URLs of deployer-baked drop-ins, exempt from SHA-256 pinning. */
   bundledUrls: ReadonlySet<string>,
+  policy: DeploymentPolicy | null,
+  urlSource: (url: string) => PluginSource,
 ): Promise<ExternalPluginBundle[]> {
   const bundles: ExternalPluginBundle[] = [];
   // Record the attempt before the fetch, not after a successful verification:
@@ -245,7 +330,9 @@ async function loadPluginUrlBundles(
     if (!bundledUrls.has(manifestUrl)) pinnedUrlLoadAttempts.add(manifestUrl);
   }
   const results = await Promise.allSettled(
-    manifestUrls.map((manifestUrl) => loadPluginUrlBundle(manifestUrl)),
+    manifestUrls.map((manifestUrl) =>
+      loadPluginUrlBundle(manifestUrl, undefined, policy, urlSource(manifestUrl)),
+    ),
   );
   for (const [index, result] of results.entries()) {
     if (result.status === "fulfilled") {
@@ -260,16 +347,26 @@ async function loadPluginUrlBundles(
         // crypto.subtle unavailable) to this one URL — letting it throw here would
         // reject the whole loadExternalPlugins Promise.all and drop every plugin.
         try {
-          const integrity = await verifyPluginBundleIntegrity(manifestUrls[index], bundle);
+          const integrity = await verifyPluginBundleIntegrity(
+            manifestUrls[index],
+            bundle,
+            bundle.manifest.version,
+          );
           if (integrity.status === "changed") {
+            const heldBack: HeldBackPluginBundle = {
+              pluginId: bundle.manifest.id,
+              pinnedVersion: integrity.pinnedVersion,
+              version: bundle.manifest.version,
+            };
+            heldBackBundles.set(manifestUrls[index], heldBack);
             issues.push({
+              heldBack,
               archiveName: bundle.archiveName,
               sourceUrl: bundle.sourceUrl,
-              // Point at the recovery that actually works. A held-back bundle
-              // never registers, so the marketplace's Update action (which
-              // upgrades a *loaded* plugin) is not offered for it; uninstalling
-              // the URL clears the pin, and reinstalling re-pins the published
-              // bundle after the user has had the chance to review it.
+              integrityStatus: integrity.status,
+              // The registry can offer an announced version as an explicit
+              // update; otherwise uninstalling clears the pin and reinstalling
+              // re-pins the published bundle after review.
               message:
                 `Plugin at '${bundle.sourceUrl}' changed since you last trusted it and was not loaded. ` +
                 "Open Settings → Plugins, uninstall it, then install it again to review and accept the update.",
@@ -287,6 +384,7 @@ async function loadPluginUrlBundles(
           });
           continue;
         }
+        heldBackBundles.delete(manifestUrls[index]);
       }
       bundles.push(bundle);
     } else {
@@ -297,6 +395,9 @@ async function loadPluginUrlBundles(
           result.reason instanceof Error
             ? result.reason.message
             : "Could not load plugin manifest URL.",
+        ...(result.reason instanceof PluginPolicyError
+          ? { policyDenial: result.reason.policyDenial }
+          : {}),
       });
     }
   }
@@ -306,7 +407,13 @@ async function loadPluginUrlBundles(
 async function loadPluginUrlBundle(
   manifestUrl: string,
   signal?: AbortSignal,
+  policy: DeploymentPolicy | null = getDeploymentPolicy(),
+  source: PluginSource = "manifest-url",
 ): Promise<ExternalPluginBundle> {
+  // Sideload denial needs no manifest request; ID gates run after plugin.json.
+  if (policy?.plugins?.sideload === false && source !== "registry" && source !== "bundled") {
+    enforcePluginPolicy("", source, policy, manifestUrl, manifestUrl);
+  }
   // Revalidate every request (manifest, entry, style) instead of serving from
   // the HTTP cache. A static host can hand the manifest and the entry very
   // different cache lifetimes (e.g. GitHub Pages / Fastly cache JSON for ~10
@@ -328,6 +435,7 @@ async function loadPluginUrlBundle(
   if (!isExternalPluginManifest(manifest)) {
     throw new Error("Plugin manifest is invalid.");
   }
+  enforcePluginPolicy(manifest.id, source, policy, manifestUrl, manifestUrl);
 
   const cacheToken = pluginAssetCacheToken(manifestResponse, manifest);
   const entryUrl = withPluginAssetCacheToken(
@@ -546,8 +654,13 @@ export async function installWebPluginArchive(
   fileName: string,
   bytes: Uint8Array,
   app: GeoLibreAppAPI,
+  policy: DeploymentPolicy | null = getDeploymentPolicy(),
 ): Promise<string> {
+  if (policy?.plugins?.sideload === false) {
+    enforcePluginPolicy("", "zip", policy, fileName);
+  }
   const bundle = await bundleFromZipBytes(fileName, bytes);
+  enforcePluginPolicy(bundle.manifest.id, "zip", policy, fileName);
   // importExternalPlugin validates the exported plugin, that it matches the
   // manifest id/name/version, and rejects activeByDefault.
   const plugin = await importExternalPlugin(bundle);
@@ -578,6 +691,7 @@ export async function installWebPluginArchive(
   }
 
   manager.register(plugin);
+  if (policy?.plugins?.defaultActive?.includes(plugin.id)) manager.markDefaultActive(plugin.id);
   externallyLoadedPluginSources.set(plugin.id, webPluginSource(plugin.id));
   if (bundle.styleSource) {
     injectExternalPluginStyle(plugin.id, bundle.styleSource);
@@ -652,13 +766,18 @@ export function resolvePluginAssetUrlForLoadedPlugin(
  * URLs are always re-injected into the current list. Deactivates each plugin
  * (removing its map control) and drops its injected style, then the manager
  * notifies so the Plugins menu updates without a reload.
+ * `installedManifestUrls` may retain policy-ineligible URLs: unloading those
+ * must preserve their integrity pins until the user actually uninstalls them.
  */
 export function unloadRemovedUrlPlugins(
   manager: PluginManager,
   currentManifestUrls: string[],
   app: GeoLibreAppAPI,
+  installedManifestUrls: readonly string[] = currentManifestUrls,
 ): string[] {
   const keep = new Set(currentManifestUrls);
+  const pinKeep =
+    installedManifestUrls === currentManifestUrls ? keep : new Set(installedManifestUrls);
   // Collect first, then mutate: manager.unregister notifies subscribers
   // synchronously, so removing entries in a separate pass avoids mutating the
   // map while iterating it.
@@ -682,10 +801,12 @@ export function unloadRemovedUrlPlugins(
   // this off `toRemove` alone left exactly that plugin stuck: uninstall could
   // not clear its pin, and reinstalling hit the same stale hash (#2318).
   for (const url of pinnedUrlLoadAttempts) {
-    if (!keep.has(url)) removedUrls.add(url);
+    if (!pinKeep.has(url)) removedUrls.add(url);
   }
   for (const url of removedUrls) {
+    if (pinKeep.has(url)) continue;
     pinnedUrlLoadAttempts.delete(url);
+    heldBackBundles.delete(url);
     removePluginBundlePin(url);
   }
   return toRemove;
@@ -731,12 +852,19 @@ export function reloadExternalUrlPlugin(
   manager: PluginManager,
   manifestUrl: string,
   app: GeoLibreAppAPI,
+  options: {
+    policy?: DeploymentPolicy | null;
+    source?: PluginSource;
+    expectedVersion?: string;
+  } = {},
 ): Promise<GeoLibrePlugin> {
   const inFlight = inFlightUrlUpgrades.get(manifestUrl);
   if (inFlight) return inFlight;
-  const promise = reloadExternalUrlPluginUncoalesced(manager, manifestUrl, app).finally(() => {
-    inFlightUrlUpgrades.delete(manifestUrl);
-  });
+  const promise = reloadExternalUrlPluginUncoalesced(manager, manifestUrl, app, options).finally(
+    () => {
+      inFlightUrlUpgrades.delete(manifestUrl);
+    },
+  );
   inFlightUrlUpgrades.set(manifestUrl, promise);
   return promise;
 }
@@ -745,7 +873,13 @@ async function reloadExternalUrlPluginUncoalesced(
   manager: PluginManager,
   manifestUrl: string,
   app: GeoLibreAppAPI,
+  options: {
+    policy?: DeploymentPolicy | null;
+    source?: PluginSource;
+    expectedVersion?: string;
+  },
 ): Promise<GeoLibrePlugin> {
+  const policy = options.policy === undefined ? getDeploymentPolicy() : options.policy;
   let existingId: string | null = null;
   for (const [id, source] of externallyLoadedPluginSources) {
     if (source === manifestUrl) {
@@ -754,6 +888,15 @@ async function reloadExternalUrlPluginUncoalesced(
     }
   }
   const wasActive = existingId ? manager.isActive(existingId) : false;
+  if (existingId !== null) {
+    enforcePluginPolicy(
+      existingId,
+      options.source ?? "manifest-url",
+      policy,
+      manifestUrl,
+      manifestUrl,
+    );
+  }
 
   // Fetch and validate the new version first; if this throws the old plugin is
   // untouched. Bound the fetch so a stalled endpoint can't leave the Update
@@ -763,13 +906,49 @@ async function reloadExternalUrlPluginUncoalesced(
   let bundle: ExternalPluginBundle;
   let plugin: GeoLibrePlugin;
   try {
-    bundle = await loadPluginUrlBundle(manifestUrl, controller.signal);
+    bundle = await loadPluginUrlBundle(
+      manifestUrl,
+      controller.signal,
+      policy,
+      options.source ?? "manifest-url",
+    );
+    // The user consented to a specific version; the URL may have moved on since
+    // the dialog offered it.
+    if (
+      options.expectedVersion !== undefined &&
+      bundle.manifest.version !== options.expectedVersion
+    ) {
+      throw new Error(
+        `Cannot update plugin: expected version ${options.expectedVersion} but the registry now serves ${bundle.manifest.version}. Refresh the plugin list and try again.`,
+      );
+    }
     // The timeout only bounds the fetch/stream above; a dynamic import() of a
     // local blob URL can't be aborted, but it evaluates near-instantly so it is
     // not a practical hang risk.
     plugin = await importExternalPlugin(bundle);
   } finally {
     clearTimeout(timeout);
+  }
+
+  // The pin held this URL's bundle back, so nothing is loaded for it. The user
+  // asked for this update explicitly, which is the consent the pin wants: load
+  // the new bundle as a fresh plugin and pin it.
+  const heldBack = heldBackBundles.get(manifestUrl);
+  if (existingId === null && heldBack !== undefined) {
+    if (plugin.id !== heldBack.pluginId || manager.list().some((p) => p.id === plugin.id)) {
+      throw new Error(
+        `Cannot update plugin: '${plugin.id}' does not match the held-back plugin '${heldBack.pluginId}' or is already registered. Reinstall it manually.`,
+      );
+    }
+    const newHash = await computePluginBundleHash(bundle);
+    manager.register(plugin);
+    externallyLoadedPluginSources.set(plugin.id, manifestUrl);
+    pinPluginBundle(manifestUrl, newHash, bundle.manifest.version);
+    heldBackBundles.delete(manifestUrl);
+    if (bundle.styleSource) {
+      injectExternalPluginStyle(plugin.id, bundle.styleSource);
+    }
+    return plugin;
   }
 
   // Nothing was loaded for this URL (existingId null — e.g. the manifest is in
@@ -799,10 +978,11 @@ async function reloadExternalUrlPluginUncoalesced(
   removeExternalPluginStyle(existingId);
   externallyLoadedPluginSources.delete(existingId);
   manager.register(plugin);
+  if (policy?.plugins?.defaultActive?.includes(plugin.id)) manager.markDefaultActive(plugin.id);
   externallyLoadedPluginSources.set(plugin.id, manifestUrl);
   // Explicit user reload: accept this version as the new trusted baseline so the
   // next auto-scan doesn't flag it as changed.
-  pinPluginBundle(manifestUrl, await computePluginBundleHash(bundle));
+  pinPluginBundle(manifestUrl, await computePluginBundleHash(bundle), bundle.manifest.version);
   if (bundle.styleSource) {
     injectExternalPluginStyle(plugin.id, bundle.styleSource);
   }

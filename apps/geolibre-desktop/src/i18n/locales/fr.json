@@ -3341,6 +3341,9 @@
       "activate": "Activer",
       "position": "Position",
       "webServices": "Services web",
+      "installedPlugins": "Installées",
+      "managePlugins": "Gérer les extensions…",
+      "showMenuInToolbar": "Afficher le menu dans la barre d’outils",
       "dggs": "DGGS",
       "commandPalette": "Palette de commandes",
       "openProjectFromUrl": "Ouvrir un projet depuis une URL",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} couches raster",
       "savePromptTitle": "Enregistrer le projet actuel ?",
       "savePromptDescription": "Le projet actuel contient des modifications non enregistrées. Voulez-vous les enregistrer avant d’ouvrir le projet déposé ?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Enregistrer les modifications avant de fermer ?",
+      "savePromptDescription": "Le projet actuel contient des modifications non enregistrées. Les enregistrer avant de fermer GeoLibre ?"
     },
     "error": {
       "couldNotOpenProject": "Impossible d'ouvrir le projet.",

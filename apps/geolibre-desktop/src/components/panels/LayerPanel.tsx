@@ -56,7 +56,7 @@ import {
 import { RemoveLayerDialog } from "./layer-panel/RemoveLayerDialog";
 import { useLayerActions } from "./layer-panel/useLayerActions";
 import { useLayerDragAndDrop } from "./layer-panel/useLayerDragAndDrop";
-import { useLayerRefresh } from "./layer-panel/useLayerRefresh";
+import type { LayerRefresh } from "./layer-panel/useLayerRefresh";
 import { useLayerRename } from "./layer-panel/useLayerRename";
 import { useLayerSelection } from "./layer-panel/useLayerSelection";
 import { useTimeSliderBinding } from "./layer-panel/useTimeSliderBinding";
@@ -65,6 +65,7 @@ import { setLayersPanelCollapsed } from "../../lib/layer-panel-collapse";
 interface LayerPanelProps {
   themeMode: ThemeMode;
   mapControllerRef: RefObject<MapEngine | null>;
+  refresh: LayerRefresh;
   collaborationApi?: CollaborationApi;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   /** Id of the layer currently in a geometry-edit session, or null. */
@@ -116,6 +117,7 @@ interface LayerPanelProps {
 export function LayerPanel({
   themeMode,
   mapControllerRef,
+  refresh,
   collaborationApi,
   onResizeStart,
   geometryEditLayerId,
@@ -299,7 +301,6 @@ export function LayerPanel({
     selectOnlyLayer: selection.selectOnlyLayer,
   });
   const rename = useLayerRename(layers, layerGroups);
-  const refresh = useLayerRefresh({ layers, isCollapsed });
   const actions = useLayerActions({
     mapControllerRef,
     canEditLayer,
@@ -415,8 +416,6 @@ export function LayerPanel({
         moveTargets={groupMoveTargets(group)}
         addDataGroupSources={addDataGroupSources}
         rename={rename}
-        onDragOver={drag.handleGroupHeaderDragOver}
-        onDrop={drag.handleGroupHeaderDrop}
       />
     );
   };
@@ -525,7 +524,7 @@ export function LayerPanel({
         // legacy iOS property that does nothing on the Android WebView this fix
         // targets.
       >
-        <div className="w-full min-w-0 space-y-1 p-2">
+        <div data-layer-list="" className="w-full min-w-0 space-y-1 p-2">
           {layers.length === 0 && (
             <p className="px-2 py-4 text-xs text-muted-foreground">
               {isBeginnerProfile ? t("layers.emptyBeginner") : t("layers.empty")}
@@ -551,10 +550,10 @@ export function LayerPanel({
                     dragged={drag.draggedLayerId === layer.id}
                     dropTarget={drag.dropTargetLayerId === layer.id}
                     draggedDisplayIndex={drag.draggedDisplayIndex}
-                    onDragStart={drag.handleLayerDragStart}
-                    onDragOver={drag.handleLayerDragOver}
-                    onDrop={drag.handleLayerDrop}
-                    onDragEnd={drag.resetDragState}
+                    onPointerDown={drag.handlePointerDown}
+                    onPointerMove={drag.handlePointerMove}
+                    onPointerUp={drag.handlePointerUp}
+                    onPointerCancel={drag.resetDragState}
                     onSelect={selection.handleLayerSelection}
                     selectOnlyLayer={selection.selectOnlyLayer}
                     editing={rename.editingLayerId === layer.id}

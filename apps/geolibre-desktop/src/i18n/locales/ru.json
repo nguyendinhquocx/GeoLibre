@@ -3439,6 +3439,9 @@
       "activate": "Активировать",
       "position": "Положение",
       "webServices": "Веб-сервисы",
+      "installedPlugins": "Установленные",
+      "managePlugins": "Управление плагинами…",
+      "showMenuInToolbar": "Показывать меню на панели инструментов",
       "dggs": "DGGS",
       "commandPalette": "Палитра команд",
       "openProjectFromUrl": "Открыть проект по URL",
@@ -3655,6 +3658,10 @@
       "bothRasterLayers_other": "{{count}} растрового слоя",
       "savePromptTitle": "Сохранить текущий проект?",
       "savePromptDescription": "В текущем проекте есть несохранённые изменения. Сохранить их перед открытием перетащенного проекта?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Сохранить изменения перед закрытием?",
+      "savePromptDescription": "В текущем проекте есть несохранённые изменения. Сохранить их перед закрытием GeoLibre?"
     },
     "error": {
       "couldNotOpenProject": "Не удалось открыть проект.",

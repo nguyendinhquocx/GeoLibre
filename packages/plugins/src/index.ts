@@ -43,6 +43,16 @@ export {
   type ToolbarMenuEntry,
 } from "./toolbar-menu-registry";
 export {
+  registerMenuContribution,
+  unregisterMenuContribution,
+  listMenuContributions,
+  getMenuContributionsSnapshot,
+  subscribeMenuContributions,
+  isMenuContributionTarget,
+  type MenuContributionsSnapshot,
+  type MenuContributionEntry,
+} from "./menu-contribution-registry";
+export {
   registerFloatingPanel,
   unregisterFloatingPanel,
   openFloatingPanel,
@@ -68,7 +78,7 @@ export {
   resolveToolbarLabel,
   type GeoLibreToolbarLabel,
 } from "./toolbar-menu-label";
-export { maplibreLayerControlPlugin } from "./plugins/layer-control";
+export { LAYER_CONTROL_PLUGIN_ID, maplibreLayerControlPlugin } from "./plugins/layer-control";
 export { getStyleMap } from "./plugins/style-map";
 export {
   createAnnotationMarker,

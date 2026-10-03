@@ -3,6 +3,7 @@ import {
   getAssistantToolOwnerScope,
   unregisterAssistantToolsByOwner,
 } from "./assistant-tool-registry";
+import { unregisterMenuContributionsByOwner } from "./menu-contribution-registry";
 import type { MapRendererKind, ProjectPluginState } from "@geolibre/core";
 import type { IControl } from "maplibre-gl";
 import type {
@@ -10,8 +11,20 @@ import type {
   GeoLibreCredentialLocation,
   GeoLibreMapControlPosition,
   GeoLibrePlugin,
+  GeoLibreMenuContribution,
   GeoLibreToolbarMenu,
 } from "./types";
+
+/**
+ * Drop the host-side registrations a plugin owns once it stops being active
+ * (deactivated, unregistered, or a failed activation). Assistant tools and
+ * built-in menu contributions are both keyed by owner, so a plugin that forgets
+ * to dispose of them in `deactivate` cannot leave stale entries behind.
+ */
+function releaseOwnedRegistrations(id: string): void {
+  unregisterAssistantToolsByOwner(id);
+  unregisterMenuContributionsByOwner(id);
+}
 
 export class PluginManager {
   private renderer: MapRendererKind | null = null;
@@ -47,6 +60,8 @@ export class PluginManager {
     });
     return scopeAppToPlugin(app, id, {
       ...options,
+      pluginName: plugin?.name,
+      isLive: () => this.activating.has(id) || this.active.has(id),
       canAddControl: () =>
         this.plugins.get(id) === plugin &&
         (app.getMapRenderer?.() ?? "maplibre") === renderer &&
@@ -133,7 +148,7 @@ export class PluginManager {
       }
       this.active.delete(id);
     }
-    unregisterAssistantToolsByOwner(id);
+    releaseOwnedRegistrations(id);
     this.plugins.delete(id);
     this.deferredActive.delete(id);
     this.defaultActive.delete(id);
@@ -262,14 +277,14 @@ export class PluginManager {
     try {
       activated = plugin.activate(scopedApp);
     } catch (error) {
-      unregisterAssistantToolsByOwner(id);
+      releaseOwnedRegistrations(id);
       restoreDisplaced();
       throw error;
     } finally {
       this.activating.delete(id);
     }
     if (activated === false) {
-      unregisterAssistantToolsByOwner(id);
+      releaseOwnedRegistrations(id);
       restoreDisplaced();
       return false;
     }
@@ -355,7 +370,7 @@ export class PluginManager {
         console.warn(`Plugin '${id}' threw while reverting a failed activation.`, deactivateError);
       }
     }
-    unregisterAssistantToolsByOwner(id);
+    releaseOwnedRegistrations(id);
     this.notify();
     return true;
   }
@@ -373,7 +388,7 @@ export class PluginManager {
     try {
       plugin.deactivate(this.scopeAppToPlugin(app, id));
     } finally {
-      unregisterAssistantToolsByOwner(id);
+      releaseOwnedRegistrations(id);
       this.active.delete(id);
       this.nextActivationGeneration(id);
       this.activationResults.delete(id);
@@ -664,13 +679,13 @@ export class PluginManager {
       try {
         activated = plugin.activate(scopedApp);
       } catch (error) {
-        unregisterAssistantToolsByOwner(id);
+        releaseOwnedRegistrations(id);
         throw error;
       } finally {
         this.activating.delete(id);
       }
       if (activated === false) {
-        unregisterAssistantToolsByOwner(id);
+        releaseOwnedRegistrations(id);
         continue;
       }
       this.active.add(id);
@@ -734,6 +749,18 @@ interface ScopeAppOptions {
    * callable by the assistant until the plugin is unregistered.
    */
   assistantTools?: boolean;
+  /**
+   * The plugin's registered name, injected into `registerMenuContribution` so
+   * the host can title the plugin's submenu without a registry lookup.
+   */
+  pluginName?: string;
+  /**
+   * Whether the plugin is active or activating. Menu contributions are only
+   * accepted then: a restore callback can run for a plugin that stays inactive
+   * (`applyProjectState`), and its contributions would otherwise linger, since
+   * cleanup runs on deactivation.
+   */
+  isLive?: () => boolean;
 }
 
 function scopeAppToPlugin(
@@ -741,8 +768,16 @@ function scopeAppToPlugin(
   pluginId: string,
   options: ScopeAppOptions = {},
 ): GeoLibreAppAPI {
-  const { onControlAdded, onRightPanelOpened, assistantTools = false, canAddControl } = options;
+  const {
+    onControlAdded,
+    onRightPanelOpened,
+    assistantTools = false,
+    canAddControl,
+    pluginName,
+    isLive,
+  } = options;
   const register = app.registerToolbarMenu;
+  const registerContribution = app.registerMenuContribution;
   const registerRightPanel = app.registerRightPanel;
   const activatePlugin = app.activatePlugin;
   const deactivatePlugin = app.deactivatePlugin;
@@ -753,6 +788,8 @@ function scopeAppToPlugin(
     !canAddControl &&
     !hasAssistantRegistration &&
     !register &&
+    !registerContribution &&
+    !app.unregisterMenuContribution &&
     !onControlAdded &&
     !onRightPanelOpened &&
     !activatePlugin &&
@@ -814,6 +851,28 @@ function scopeAppToPlugin(
       canAddControl?.() === false ? () => {} : registerWithOwner(menu, pluginId);
   }
 
+  if (registerContribution) {
+    // Same host-side owner injection as registerToolbarMenu, plus the plugin's
+    // name so the host can title the submenu it nests the items under.
+    const registerContributionWithOwner = registerContribution as (
+      contribution: GeoLibreMenuContribution,
+      ownerPluginId: string,
+      ownerPluginName?: string,
+    ) => () => void;
+    scoped.registerMenuContribution = (contribution) =>
+      canAddControl?.() === false || isLive?.() === false
+        ? () => {}
+        : registerContributionWithOwner(contribution, pluginId, pluginName);
+  }
+  if (app.unregisterMenuContribution) {
+    // Scoped too, so a plugin can only remove contributions it owns.
+    const unregisterContribution = app.unregisterMenuContribution as (
+      id: string,
+      ownerPluginId: string,
+    ) => void;
+    scoped.unregisterMenuContribution = (id) => unregisterContribution(id, pluginId);
+  }
+
   if (registerRightPanel) {
     scoped.registerRightPanel = (panel) =>
       canAddControl?.() === false
@@ -826,7 +885,15 @@ function scopeAppToPlugin(
                     try {
                       panel.onExplicitClose?.();
                     } finally {
-                      if (deactivatePlugin) setTimeout(() => deactivatePlugin(pluginId), 0);
+                      // A plugin's own deactivate() closes its panel too, and a
+                      // renderer swap re-activates it before this timer fires.
+                      // That deactivation's scope has gone stale by then, so
+                      // only a close of the live activation deactivates.
+                      if (deactivatePlugin)
+                        setTimeout(() => {
+                          if (canAddControl?.() === false) return;
+                          deactivatePlugin(pluginId);
+                        }, 0);
                     }
                   },
                 }

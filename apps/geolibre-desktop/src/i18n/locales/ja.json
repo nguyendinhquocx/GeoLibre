@@ -3292,6 +3292,9 @@
       "activate": "有効化",
       "position": "位置",
       "webServices": "Web サービス",
+      "installedPlugins": "インストール済み",
+      "managePlugins": "プラグインを管理…",
+      "showMenuInToolbar": "ツールバーにメニューを表示",
       "dggs": "DGGS",
       "commandPalette": "コマンドパレット",
       "openProjectFromUrl": "URL からプロジェクトを開く",
@@ -3481,6 +3484,10 @@
       "bothRasterLayers_other": "ラスターレイヤー {{count}} 件",
       "savePromptTitle": "現在のプロジェクトを保存しますか？",
       "savePromptDescription": "現在のプロジェクトには未保存の変更があります。ドロップしたプロジェクトを開く前に保存しますか？"
+    },
+    "windowClose": {
+      "savePromptTitle": "閉じる前に変更を保存しますか?",
+      "savePromptDescription": "現在のプロジェクトには未保存の変更があります。GeoLibre を閉じる前に保存しますか?"
     },
     "error": {
       "couldNotOpenProject": "プロジェクトを開けませんでした。",

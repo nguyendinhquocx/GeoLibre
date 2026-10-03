@@ -1,3 +1,5 @@
+import { addPluginWfsLayer } from "../lib/plugin-wfs-layer";
+import type * as Proj4 from "proj4";
 import {
   clearExternalNativePaintBridge,
   setExternalNativePaintBridge,
@@ -9,6 +11,7 @@ import {
 } from "@geolibre/core";
 import { buildProjectEgressSnapshot } from "../lib/build-project-snapshot";
 import { nativeWmsTileUrl } from "../lib/native-wms-url";
+import { reserveBuiltInPluginIds } from "../lib/plugin-registry";
 import {
   addRasterToMap,
   readRasterWindow,
@@ -119,13 +122,19 @@ import {
   registerAssistantGuidance,
   registerToolbarMenu,
   unregisterToolbarMenu,
+  registerMenuContribution,
+  unregisterMenuContribution,
   registerFloatingPanel,
   unregisterFloatingPanel,
   openFloatingPanel,
   closeFloatingPanel,
   getOpenFloatingPanels,
 } from "@geolibre/plugins";
-import { readDeploymentEnvValue } from "../lib/deployment-env";
+import { getDeploymentPolicy, readDeploymentEnvValue } from "../lib/deployment-env";
+import type { DeploymentPolicy } from "../lib/deployment-policy";
+import { evaluatePlugin, type PluginPolicyDenial } from "../lib/plugin-policy";
+import { fetchPluginRegistryShared } from "../lib/plugin-registry";
+import { bundleFromZipBytes } from "../lib/plugin-archive-unpack";
 import { CesiumEngine, getPrimaryCesiumControlHost, type MapEngine } from "@geolibre/map";
 import type {
   GeoLibreCogLayerOptions,
@@ -144,7 +153,7 @@ import type {
   GeoLibreRasterWindowOptions,
 } from "@geolibre/plugins";
 import { cogEngineDefaults } from "../lib/cog-render-engine";
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, readFile } from "@tauri-apps/plugin-fs";
 import type { RefObject } from "react";
@@ -159,12 +168,16 @@ import {
   uninstallWebPlugin,
   unloadFilesystemPlugin,
   unloadRemovedUrlPlugins,
+  type HeldBackPluginBundle,
   type InstalledWebPlugin,
+  PluginPolicyError,
 } from "../lib/external-plugins";
 import { appendDiagnostic } from "../lib/diagnostics";
+import { createPluginHttpSend, createPluginNativeFetch } from "../lib/plugin-native-fetch";
 import { pickZarrDirectory, zarrDirectoryPickerSupported } from "../lib/zarr-directory-picker";
 import { openExternalLink } from "../lib/open-external";
 import { fetchUrlBytes } from "../lib/native-http";
+import { fetchNativeWithWebviewFallback } from "../lib/native-fetch-fallback";
 import {
   dedupeVectorUrlFetch,
   fetchBrowserShapefileZip,
@@ -244,7 +257,6 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreGeoEditorPlugin,
   maplibreAnnotationsPlugin,
   maplibreDimensionsPlugin,
-  maplibreBasemapControlPlugin,
   // The web service plugins (WEB_SERVICE_PLUGIN_IDS) are grouped into the
   // "Web Services" submenu, rendered where the first of them appears in this
   // order.
@@ -254,6 +266,7 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreNationalMapPlugin,
   maplibreUsgsNldiPlugin,
   maplibreUsgsDemPlugin,
+  maplibreUsgsLidarPlugin,
   maplibreVantorPlugin,
   maplibrePlanetOpenDataPlugin,
   maplibrePortolanPlugin,
@@ -277,17 +290,8 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreFieldsOfTheWorldPlugin,
   maplibreOceanDataPlatformPlugin,
   maplibreGeoLensPlugin,
-  maplibreEsriWaybackPlugin,
-  maplibreTimeSliderPlugin,
-  maplibreTimelapsePlugin,
-  maplibreOvertureMapsPlugin,
-  maplibreGeoAgentPlugin,
-  maplibreUsgsLidarPlugin,
   maplibreStreetViewPlugin,
   maplibreMapillaryPlugin,
-  maplibreElevationProfilePlugin,
-  maplibreSwipePlugin,
-  maplibreGraticulePlugin,
   // The DGGS grid plugins (grouped into the Plugins menu's "DGGS" submenu,
   // rendered where the first of them appears in this order).
   maplibreH3Plugin,
@@ -298,6 +302,15 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreOlcPlugin,
   maplibreGeohashPlugin,
   maplibreTilecodePlugin,
+  maplibreBasemapControlPlugin,
+  maplibreEsriWaybackPlugin,
+  maplibreTimeSliderPlugin,
+  maplibreTimelapsePlugin,
+  maplibreOvertureMapsPlugin,
+  maplibreGeoAgentPlugin,
+  maplibreElevationProfilePlugin,
+  maplibreSwipePlugin,
+  maplibreGraticulePlugin,
   maplibreCloudsPlugin,
   maplibrePrecipitationPlugin,
   maplibreEffectsPlugin,
@@ -315,6 +328,7 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreComponentsPlugin,
 ];
 manager.registerAll(BUILT_IN_PLUGINS);
+reserveBuiltInPluginIds(BUILT_IN_PLUGINS.map((plugin) => plugin.id));
 
 /**
  * Built-in plugins a `?plugin=` deep link may not activate: they send what the
@@ -511,7 +525,12 @@ manager.subscribe(() => {
 let externalPluginsLoaded = false;
 let externalPluginsLoadPromise: Promise<void> | null = null;
 let externalPluginsLoadKey: string | null = null;
-let externalPluginLoadIssues = new Map<string, string>();
+type ExternalPluginLoadIssueDisplay = {
+  message: string;
+  policyDenial?: PluginPolicyDenial;
+};
+let externalPluginLoadIssues = new Map<string, ExternalPluginLoadIssueDisplay>();
+let externalPluginHeldBack = new Map<string, HeldBackPluginBundle>();
 const externalPluginsListeners = new Set<() => void>();
 const EMPTY_PLUGIN_MANIFEST_URLS: string[] = [];
 
@@ -519,8 +538,13 @@ export function getPluginManager(): PluginManager {
   return manager;
 }
 
-export function getExternalPluginLoadIssues(): ReadonlyMap<string, string> {
+export function getExternalPluginLoadIssues(): ReadonlyMap<string, ExternalPluginLoadIssueDisplay> {
   return externalPluginLoadIssues;
+}
+
+/** Bundles the SHA-256 pin held back, by manifest URL (see HeldBackPluginBundle). */
+export function getExternalPluginHeldBack(): ReadonlyMap<string, HeldBackPluginBundle> {
+  return externalPluginHeldBack;
 }
 
 export function subscribeToExternalPluginLoads(listener: () => void): () => void {
@@ -536,8 +560,33 @@ export function subscribeToExternalPluginLoads(listener: () => void): () => void
 export async function upgradeExternalPlugin(
   manifestUrl: string,
   mapControllerRef: RefObject<MapEngine | null>,
+  expectedVersion?: string,
 ): Promise<void> {
-  await reloadExternalUrlPlugin(manager, manifestUrl, createAppAPI(mapControllerRef));
+  const policy = getDeploymentPolicy();
+  const bundledManifestUrls = bundledPluginManifestUrls();
+  const registryManifestUrls = await registryManifestUrlsForPolicy(
+    policy,
+    [manifestUrl],
+    bundledManifestUrls,
+  );
+  const source = bundledManifestUrls.includes(manifestUrl)
+    ? "bundled"
+    : registryManifestUrls.includes(manifestUrl)
+      ? "registry"
+      : "manifest-url";
+  await reloadExternalUrlPlugin(manager, manifestUrl, createAppAPI(mapControllerRef), {
+    policy,
+    source,
+    expectedVersion,
+  });
+  // A held-back bundle that just loaded is no longer a failure.
+  if (externalPluginHeldBack.has(manifestUrl) || externalPluginLoadIssues.has(manifestUrl)) {
+    externalPluginHeldBack = new Map(externalPluginHeldBack);
+    externalPluginHeldBack.delete(manifestUrl);
+    externalPluginLoadIssues = new Map(externalPluginLoadIssues);
+    externalPluginLoadIssues.delete(manifestUrl);
+    notifyExternalPluginsListeners();
+  }
 }
 
 // Install a plugin from a local `.zip` archive (desktop only). The Rust backend
@@ -553,6 +602,20 @@ export async function installPluginArchive(
 ): Promise<string> {
   if (!isTauriRuntime()) {
     throw new Error("Installing plugin archives requires the desktop app.");
+  }
+  const policy = getDeploymentPolicy();
+  // Reject sideloading before even reading the selected archive, and reject its
+  // manifest id before the install IPC can persist it in the app-data directory.
+  const sideloadDecision = evaluatePlugin("", "zip", policy);
+  if (policy?.plugins?.sideload === false && !sideloadDecision.allowed) {
+    throw new PluginPolicyError(sourcePath, sideloadDecision);
+  }
+  if (policy?.plugins?.allowed !== undefined || policy?.plugins?.blocked?.length) {
+    const bundle = await bundleFromZipBytes(sourcePath, await readFile(sourcePath));
+    const decision = evaluatePlugin(bundle.manifest.id, "zip", policy);
+    if (!decision.allowed) {
+      throw new PluginPolicyError(sourcePath, decision);
+    }
   }
   const pluginId = await invoke<string>("install_external_plugin_archive", {
     sourcePath,
@@ -578,7 +641,19 @@ export async function installPluginArchiveFromFile(
   bytes: Uint8Array,
   mapControllerRef: RefObject<MapEngine | null>,
 ): Promise<string> {
-  return installWebPluginArchive(manager, fileName, bytes, createAppAPI(mapControllerRef));
+  const app = createAppAPI(mapControllerRef);
+  const policy = getDeploymentPolicy();
+  const pluginId = await installWebPluginArchive(manager, fileName, bytes, app, policy);
+  if (policy?.plugins?.defaultActive?.includes(pluginId)) {
+    // Re-enter the normal ready/restore cycle, just like a desktop archive
+    // install, so defaults apply only when there is no saved project state.
+    await ensureExternalPluginsLoadedWithSettings(
+      useDesktopSettingsStore.getState().desktopSettings,
+      app,
+      { force: true },
+    );
+  }
+  return pluginId;
 }
 
 // Uninstall a plugin that was installed from a file in the browser.
@@ -760,18 +835,20 @@ export function useProjectPluginTrust(): ProjectPluginTrustState {
     (state) => state.desktopSettings.pluginManifestUrls,
   );
   const [dismissedUrls, setDismissedUrls] = useState<ReadonlySet<string>>(() => new Set());
+  const policy = getDeploymentPolicy();
 
   const pendingUrls = useMemo(() => {
     const { untrusted } = partitionProjectPluginManifestUrls(
       projectManifestUrls,
       trustedManifestUrls,
       bundledPluginManifestUrls(),
+      policy,
     );
     return untrusted.filter((url) => !dismissedUrls.has(url));
-  }, [projectManifestUrls, trustedManifestUrls, dismissedUrls]);
+  }, [projectManifestUrls, trustedManifestUrls, dismissedUrls, policy]);
 
   const trust = useCallback(() => {
-    if (pendingUrls.length === 0) return;
+    if (getDeploymentPolicy()?.plugins?.sideload === false || pendingUrls.length === 0) return;
     const current = useDesktopSettingsStore.getState().desktopSettings;
     useDesktopSettingsStore.getState().setDesktopSettings({
       ...current,
@@ -839,7 +916,35 @@ export function bundledPluginManifestUrls(): string[] {
   );
 }
 
-function ensureExternalPluginsLoadedWithSettings(
+/**
+ * Installed URL settings do not retain their marketplace origin. Under a
+ * no-sideload policy, reclassify them against the current registry rather than
+ * treating a past user trust decision as deployment approval. Bundled URLs
+ * need no registry lookup; a failed lookup leaves all other URLs unapproved.
+ */
+async function registryManifestUrlsForPolicy(
+  policy: DeploymentPolicy | null,
+  manifestUrls: readonly string[],
+  bundledManifestUrls: readonly string[],
+): Promise<string[]> {
+  if (
+    policy?.plugins?.sideload !== false ||
+    !manifestUrls.some((url) => !bundledManifestUrls.includes(url))
+  ) {
+    return [];
+  }
+  try {
+    const registry = await fetchPluginRegistryShared();
+    return registry.entries
+      .filter((entry) => evaluatePlugin(entry.id, "registry", policy).allowed)
+      .map((entry) => entry.manifestUrl);
+  } catch (error) {
+    console.warn("Could not classify installed plugins against the deployment registry.", error);
+    return [];
+  }
+}
+
+async function ensureExternalPluginsLoadedWithSettings(
   desktopSettings: ReturnType<typeof useDesktopSettingsStore.getState>["desktopSettings"],
   app: ReturnType<typeof createAppAPI>,
   options?: { force?: boolean },
@@ -850,13 +955,30 @@ function ensureExternalPluginsLoadedWithSettings(
   // reach this scan only after the user trusts them, at which point they are in
   // desktopSettings.pluginManifestUrls (see useProjectPluginTrust / #1062).
   const bundledManifestUrls = bundledPluginManifestUrls();
+  const policy = getDeploymentPolicy();
+  const additionalPluginDirectories =
+    policy?.plugins?.sideload === false ? [] : desktopSettings.additionalPluginDirectories;
   const pluginManifestUrls = mergeStringLists(
     bundledManifestUrls,
     desktopSettings.pluginManifestUrls,
   );
+  const registryManifestUrls = await registryManifestUrlsForPolicy(
+    policy,
+    desktopSettings.pluginManifestUrls,
+    bundledManifestUrls,
+  );
+  const eligibleManifestUrls =
+    policy?.plugins?.sideload === false
+      ? pluginManifestUrls.filter(
+          (url) => bundledManifestUrls.includes(url) || registryManifestUrls.includes(url),
+        )
+      : pluginManifestUrls;
   const loadKey = JSON.stringify({
-    additionalPluginDirectories: desktopSettings.additionalPluginDirectories,
+    additionalPluginDirectories,
+    configuredPluginDirectories: desktopSettings.additionalPluginDirectories,
     pluginManifestUrls,
+    eligibleManifestUrls,
+    policy: policy?.plugins,
   });
   // `force` re-scans even when the merged settings are unchanged. Installing a
   // zip writes a new archive into the app-data plugins directory without
@@ -870,6 +992,7 @@ function ensureExternalPluginsLoadedWithSettings(
   }
 
   externalPluginLoadIssues = new Map();
+  externalPluginHeldBack = new Map();
   notifyExternalPluginsListeners();
   setExternalPluginsLoaded(false);
   externalPluginsLoadKey = loadKey;
@@ -880,27 +1003,46 @@ function ensureExternalPluginsLoadedWithSettings(
   const previousLoad = externalPluginsLoadPromise ?? Promise.resolve();
   const loadPromise = previousLoad
     .then(() => {
-      // Unregister URL plugins whose manifest URL was removed from the merged
-      // list (e.g. uninstalled from the marketplace) so the Plugins menu updates
-      // and any active control is torn down without a reload. This runs after
-      // the previous scan settles so a plugin whose load was still in flight is
-      // already recorded and can be removed.
-      const unloaded = unloadRemovedUrlPlugins(manager, pluginManifestUrls, app);
+      // Remove uninstalled or no-longer-registry-approved URLs after the
+      // previous scan settles, including forced scans. Keep installed URLs'
+      // integrity pins so temporary denial cannot silently trust changed code.
+      const unloaded = unloadRemovedUrlPlugins(
+        manager,
+        eligibleManifestUrls,
+        app,
+        pluginManifestUrls,
+      );
       if (unloaded.length) {
         console.info(`Unloaded external GeoLibre plugins: ${unloaded.join(", ")}`);
       }
       return loadExternalPlugins(
         manager,
-        desktopSettings.additionalPluginDirectories,
+        additionalPluginDirectories,
         pluginManifestUrls,
         // Only manifests fetched from the bundled drop-in URLs may use
         // activeByDefault (they are baked into the build, hence trusted).
-        { bundledManifestUrls },
+        {
+          bundledManifestUrls,
+          policy,
+          registryManifestUrls,
+          configuredPluginDirectories: desktopSettings.additionalPluginDirectories,
+        },
       );
     })
     .then((result) => {
       externalPluginLoadIssues = new Map(
-        result.issues.map((issue) => [issue.sourceUrl ?? issue.archiveName, issue.message]),
+        result.issues.map((issue) => [
+          issue.sourceUrl ?? issue.archiveName,
+          {
+            message: issue.message,
+            ...(issue.policyDenial ? { policyDenial: issue.policyDenial } : {}),
+          },
+        ]),
+      );
+      externalPluginHeldBack = new Map(
+        result.issues.flatMap((issue) =>
+          issue.heldBack && issue.sourceUrl ? [[issue.sourceUrl, issue.heldBack] as const] : [],
+        ),
       );
       notifyExternalPluginsListeners();
       if (result.loadedPluginIds.length) {
@@ -1172,6 +1314,7 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
         beforeLayerId ?? null,
       );
     },
+    addWfsLayer: addPluginWfsLayer,
     // Unlike the tile helpers above, a COG is read client-side by the shared
     // raster control. Besides keeping every COG path on one renderer, this is
     // what mirrors the layer as `maplibre-gl-raster`, making the full Raster
@@ -1269,6 +1412,7 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
         }
       }),
     fetchArrayBuffer: fetchRemoteArrayBuffer,
+    nativeFetch: isTauriRuntime() ? pluginNativeFetch() : undefined,
     resolvePluginAssetUrl: resolvePluginAssetUrlForLoadedPlugin,
     activatePlugin: async (pluginId: string, state?: unknown) => {
       const activated = await manager.activate(pluginId, api);
@@ -1567,6 +1711,15 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
           throw error;
         }));
     })(),
+    // Share the host's proj4 instance; memoize loads but allow retry after failure.
+    getProj4: (() => {
+      let cached: Promise<typeof Proj4> | undefined;
+      return () =>
+        (cached ??= import("proj4").catch((error) => {
+          cached = undefined;
+          throw error;
+        }));
+    })(),
     // Set the persisted projection preference so the host's projection
     // enforcement keeps it (a raw map.setProjection is reverted on idle).
     // deck.gl-backed plugins need mercator; globe breaks deck tile traversal.
@@ -1610,6 +1763,8 @@ export function createAppAPI(mapControllerRef?: RefObject<MapEngine | null>) {
     registerAssistantGuidance,
     registerToolbarMenu,
     unregisterToolbarMenu,
+    registerMenuContribution,
+    unregisterMenuContribution,
     registerFloatingPanel,
     unregisterFloatingPanel,
     openFloatingPanel,
@@ -1634,23 +1789,27 @@ export async function fetchRemoteArrayBuffer(url: string): Promise<ArrayBuffer> 
   }
 
   if (isTauriRuntime()) {
-    try {
-      const bytes = await fetchUrlBytes(url, { context: "plugin resource" });
-      return normalizeBytes(bytes);
-    } catch {
-      // Fall back to browser fetch for web builds and during local development.
-    }
+    // The webview runs only when the server never answered the native request,
+    // and a double failure reports the native reason (issue #2840).
+    return fetchNativeWithWebviewFallback(
+      async () => normalizeBytes(await fetchUrlBytes(url, { context: "plugin resource" })),
+      (signal) => fetchWebviewArrayBuffer(url, signal),
+    );
   }
+  return fetchWebviewArrayBuffer(url);
+}
 
+/** The webview's own fetch, through the dev raster proxy in local development. */
+async function fetchWebviewArrayBuffer(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
   if (isLocalDevHost() && shouldUseDevRasterProxy(url)) {
-    return fetchDevRasterProxy(url);
+    return fetchDevRasterProxy(url, signal);
   }
 
   try {
-    return await fetchArrayBuffer(url);
+    return await fetchArrayBuffer(url, signal);
   } catch (error) {
     if (!isLocalDevHost()) throw error;
-    return fetchDevRasterProxy(url);
+    return fetchDevRasterProxy(url, signal);
   }
 }
 
@@ -1715,16 +1874,27 @@ function localPathFromReference(value: string): string {
   return decodeURIComponent(new URL(value).pathname);
 }
 
-function fetchDevRasterProxy(url: string): Promise<ArrayBuffer> {
-  return fetchArrayBuffer(`${RASTER_PROXY_PATH}?url=${encodeURIComponent(url)}`);
+function fetchDevRasterProxy(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  return fetchArrayBuffer(`${RASTER_PROXY_PATH}?url=${encodeURIComponent(url)}`, signal);
 }
 
-async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url);
+async function fetchArrayBuffer(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(url, signal ? { signal } : undefined);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} ${response.statusText}`);
   }
   return response.arrayBuffer();
+}
+
+let cachedPluginNativeFetch: typeof globalThis.fetch | null = null;
+
+/** The desktop's native plugin fetch (lib/plugin-native-fetch.ts), built once. */
+function pluginNativeFetch(): typeof globalThis.fetch {
+  cachedPluginNativeFetch ??= createPluginNativeFetch(
+    createPluginHttpSend(invoke, () => new Channel<void>()),
+    appendDiagnostic,
+  );
+  return cachedPluginNativeFetch;
 }
 
 function isTauriRuntime(): boolean {
@@ -1776,8 +1946,18 @@ function notifyExternalPluginsListeners(): void {
   for (const listener of externalPluginsListeners) listener();
 }
 
+/**
+ * Whether the dev raster proxy is there to use. It is served only by the Vite
+ * dev server (`configureServer` in `vite.config.ts`), so the hostname alone is
+ * not enough: the packaged desktop app on Linux and macOS also runs at
+ * `tauri://localhost`, where the proxy path falls through to the SPA's
+ * `index.html` and a failed request would "succeed" with the page's HTML
+ * (issue #2840).
+ *
+ * @returns True on a local Vite dev server, including `tauri dev`.
+ */
 function isLocalDevHost(): boolean {
-  if (typeof window === "undefined") return false;
+  if (!import.meta.env.DEV || typeof window === "undefined") return false;
   return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 

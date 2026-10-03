@@ -66,6 +66,8 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
     return () => window.clearInterval(timer);
   }, [isCollapsed, hasSyncTimestamps]);
   const refreshingLayerIdsRef = useRef(new Set<string>());
+  const observedWfsSourceUrlsRef = useRef(new Map<string, unknown>());
+  const observedWfsGenerationRef = useRef(projectGeneration);
   const refreshTimersRef = useRef(new Map<string, LayerRefreshTimer>());
   const refreshStatusTimersRef = useRef(new Map<string, number>());
   // Active filesystem watchers for "watch local file" layers, keyed by layer id.
@@ -103,9 +105,25 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
 
   const handleRefreshLayer = useCallback(
     async (layer: GeoLibreLayer, automatic = false) => {
-      if (refreshingLayerIdsRef.current.has(layer.id)) return;
+      const requestGeneration = projectGeneration;
+      const requestSourceUrl = layer.source.url;
+      const getCurrentRequestLayer = (): GeoLibreLayer | undefined => {
+        const state = useAppStore.getState();
+        if (state.projectGeneration !== requestGeneration) return undefined;
+        const current = state.layers.find((candidate) => candidate.id === layer.id);
+        if (
+          !current ||
+          current.source.url !== requestSourceUrl ||
+          current.sourcePath !== layer.sourcePath
+        ) {
+          return undefined;
+        }
+        return current;
+      };
+      const requestKey = `${requestGeneration}:${layer.id}:${requestSourceUrl}`;
+      if (refreshingLayerIdsRef.current.has(requestKey)) return;
 
-      refreshingLayerIdsRef.current.add(layer.id);
+      refreshingLayerIdsRef.current.add(requestKey);
       clearRefreshStatusTimer(layer.id);
       setRefreshStatuses((current) => ({
         ...current,
@@ -124,9 +142,7 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
             layer,
             useAppStore.getState().layers,
           );
-          const latest = useAppStore
-            .getState()
-            .layers.find((candidate) => candidate.id === layer.id);
+          const latest = getCurrentRequestLayer();
           if (!latest) return;
 
           updateLayer(layer.id, {
@@ -158,9 +174,7 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
           // only path that re-reads the table: they are excluded from the
           // interval scheduling below, so `automatic` is never true here.
           const { geojson, featureCount, totalRows, truncated } = await refreshIcebergLayer(layer);
-          const latest = useAppStore
-            .getState()
-            .layers.find((candidate) => candidate.id === layer.id);
+          const latest = getCurrentRequestLayer();
           if (!latest) return;
 
           updateLayer(layer.id, {
@@ -198,9 +212,7 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
           // Local-file vector layers re-read their features from disk (the same
           // conversion the import ran) rather than fetching a URL.
           const { geojson, featureCount } = await reloadLocalFileLayer(layer);
-          const latest = useAppStore
-            .getState()
-            .layers.find((candidate) => candidate.id === layer.id);
+          const latest = getCurrentRequestLayer();
           if (!latest) return;
 
           updateLayer(layer.id, {
@@ -235,6 +247,8 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
           const info =
             (await reloadVectorControlLayer(layer.id)) ??
             (await replayVectorControlLayerById(layer.id));
+          const latest = getCurrentRequestLayer();
+          if (!latest) return;
           if (!info) {
             // The control is unavailable (panel never opened, or torn down
             // and not yet replayed) or the replay above did not succeed.
@@ -259,9 +273,6 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
           // write would risk clobbering the synced values. `info` feeds only
           // the toast below.
           const featureCount = typeof info.featureCount === "number" ? info.featureCount : null;
-          const latest = useAppStore
-            .getState()
-            .layers.find((candidate) => candidate.id === layer.id);
           if (latest) {
             updateLayer(
               layer.id,
@@ -291,7 +302,7 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
           featureCount,
           metadata: refreshedMetadata,
         } = await refreshGeoJsonLayer(layer);
-        const latest = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+        const latest = getCurrentRequestLayer();
         if (!latest) return;
 
         updateLayer(layer.id, {
@@ -320,8 +331,9 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
         }));
         scheduleStatusClear(layer.id);
       } catch (error) {
+        const latest = getCurrentRequestLayer();
+        if (!latest) return;
         const message = error instanceof Error ? error.message : t("layers.refreshError");
-        const latest = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
         if (latest) {
           updateLayer(layer.id, {
             ...setLayerConnectionResult(latest, { error: message }),
@@ -343,10 +355,10 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
         }));
         scheduleStatusClear(layer.id);
       } finally {
-        refreshingLayerIdsRef.current.delete(layer.id);
+        refreshingLayerIdsRef.current.delete(requestKey);
       }
     },
-    [clearRefreshStatusTimer, scheduleStatusClear, t, updateLayer],
+    [clearRefreshStatusTimer, projectGeneration, scheduleStatusClear, t, updateLayer],
   );
 
   // Read through a ref inside interval callbacks so long-lived timers never
@@ -355,6 +367,51 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
   useEffect(() => {
     handleRefreshLayerRef.current = handleRefreshLayer;
   }, [handleRefreshLayer]);
+
+  useEffect(() => {
+    if (observedWfsGenerationRef.current !== projectGeneration) {
+      observedWfsGenerationRef.current = projectGeneration;
+      observedWfsSourceUrlsRef.current.clear();
+      for (const timer of refreshStatusTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      refreshStatusTimersRef.current.clear();
+      setRefreshStatuses({});
+      const generationPrefix = `${projectGeneration}:`;
+      for (const requestKey of refreshingLayerIdsRef.current) {
+        if (!requestKey.startsWith(generationPrefix)) {
+          refreshingLayerIdsRef.current.delete(requestKey);
+        }
+      }
+    }
+    const currentIds = new Set(layers.map((layer) => layer.id));
+    for (const id of observedWfsSourceUrlsRef.current.keys()) {
+      if (!currentIds.has(id)) observedWfsSourceUrlsRef.current.delete(id);
+    }
+    for (const layer of layers) {
+      if (layer.type !== "geojson" || layer.metadata.sourceKind !== "wfs-getfeature") {
+        observedWfsSourceUrlsRef.current.delete(layer.id);
+        continue;
+      }
+      const alreadyObserved = observedWfsSourceUrlsRef.current.has(layer.id);
+      if (alreadyObserved && observedWfsSourceUrlsRef.current.get(layer.id) === layer.source.url) {
+        continue;
+      }
+      observedWfsSourceUrlsRef.current.set(layer.id, layer.source.url);
+      // A hydrated layer present at first observation needs no bootstrap. Once
+      // observed, a changed URL must refresh even if old features are still set.
+      if (layer.geojson && !alreadyObserved) continue;
+      if (typeof layer.source.url !== "string") continue;
+      let requestUrl: URL;
+      try {
+        requestUrl = new URL(layer.source.url);
+      } catch {
+        continue;
+      }
+      if (requestUrl.protocol !== "http:" && requestUrl.protocol !== "https:") continue;
+      void handleRefreshLayerRef.current(layer);
+    }
+  }, [layers, projectGeneration]);
 
   // Drop the status notes (and their fade timers) of layers that were removed.
   useEffect(() => {

@@ -9,7 +9,15 @@ import {
   openRasterLayerPanel,
   subscribeGeometryEdit,
 } from "@geolibre/plugins";
-import { Suspense, useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import { BROWSER_PANEL_ID, useRegisterBrowserPanel } from "../../hooks/useRegisterBrowserPanel";
 import { COMMENTS_PANEL_ID, useRegisterCommentsPanel } from "../../hooks/useRegisterCommentsPanel";
@@ -83,6 +91,7 @@ import { AttributeTable } from "../panels/AttributeTable";
 import { RasterAttributeTable } from "../panels/RasterAttributeTable";
 import { BrowserPanel } from "../panels/BrowserPanel";
 import { LayerPanel } from "../panels/LayerPanel";
+import { useLayerRefresh } from "../panels/layer-panel/useLayerRefresh";
 import { ViewerLayerPanel } from "../panels/ViewerLayerPanel";
 import { FloatingPanels } from "../panels/FloatingPanels";
 import { SunPanel } from "../panels/SunPanel";
@@ -98,6 +107,7 @@ import { StoryMapPresenter } from "../storymap/StoryMapPresenter";
 import { DiagnosticsDialog } from "./DiagnosticsDialog";
 import { FileNamePromptDialog } from "./FileNamePromptDialog";
 import { ProjectPluginTrustDialog } from "./ProjectPluginTrustDialog";
+import { RegistryPluginTrustDialog } from "./RegistryPluginTrustDialog";
 import { ProjectHistoryDialog } from "./ProjectHistoryDialog";
 import { ProjectRecoveryDialog } from "./ProjectRecoveryDialog";
 import { StatusBar } from "./StatusBar";
@@ -140,6 +150,7 @@ import { useMapFullscreenAttribute } from "../../hooks/desktop-shell/useMapFulls
 import { useNativeProjectOpenListener } from "../../hooks/desktop-shell/useNativeProjectOpenListener";
 import { usePanelResize } from "../../hooks/desktop-shell/usePanelResize";
 import { usePluginStateRestore } from "../../hooks/desktop-shell/usePluginStateRestore";
+import { fetchPluginRegistry } from "../../lib/plugin-registry";
 import { usePluginDeepLink } from "../../hooks/desktop-shell/usePluginDeepLink";
 import { useRasterFileHandlers } from "../../hooks/desktop-shell/useRasterFileHandlers";
 import { useRasterSubsetLayer } from "../../hooks/desktop-shell/useRasterSubsetLayer";
@@ -223,6 +234,7 @@ export function DesktopShell({
   // the Raster Subset panel and opened from the Add Data menu in the toolbar.
   const [basemapExtractOpen, setBasemapExtractOpen] = useState(false);
   const projectGeneration = useAppStore((s) => s.projectGeneration);
+  const layers = useAppStore((s) => s.layers);
   const pythonConsoleOpen = useAppStore((s) => s.ui.pythonConsoleOpen);
   const setPythonConsoleOpen = useAppStore((s) => s.setPythonConsoleOpen);
   const sqlWorkspaceOpen = useAppStore((s) => s.ui.sqlWorkspaceOpen);
@@ -251,6 +263,16 @@ export function DesktopShell({
   // Style (right) or Layers (left) sidebar surface (issue #765).
   const replaceStylePanelId = useReplaceStylePanelId();
   const replaceLayersPanelId = useReplaceLayersPanelId();
+  const layerRefresh = useLayerRefresh({
+    layers,
+    isCollapsed:
+      layoutOptions.panelsHidden ||
+      layoutOptions.viewer ||
+      !layoutOptions.layerPanelVisible ||
+      layoutOptions.panelsCollapsed ||
+      storymapPresenting ||
+      autoCollapsedPanel === "layers",
+  });
   const enforceViewerPlugins = useViewerPluginGuard(layoutOptions, mapControllerRef);
   const {
     activePanelId,
@@ -347,16 +369,52 @@ export function DesktopShell({
     });
   useTileProtocols();
   useRasterFileHandlers(mapControllerRef, t);
-  usePluginStateRestore({
+  // Fetching the registry also tells the credential redaction which external
+  // plugins declared their project state publishable, so a save made before the
+  // Manage Plugins dialog is ever opened still keeps that state. A failed fetch
+  // only leaves the conservative default of dropping external plugin state.
+  const canInstallPlugins = useAppStore((state) =>
+    state.deploymentCapabilities.has("plugins:install"),
+  );
+  useEffect(() => {
+    // Same gate as the marketplace: a deployment that disables plugin
+    // installation has no registry plugins, so there is nothing to declare.
+    if (!canInstallPlugins) return;
+    const controller = new AbortController();
+    fetchPluginRegistry(undefined, controller.signal).catch(() => {});
+    return () => controller.abort();
+  }, [canInstallPlugins]);
+  const restoredProjectGeneration = usePluginStateRestore({
     mapControllerRef,
     enforceViewerPlugins,
     externalPluginsReady,
     mapReadyGeneration,
     projectGeneration,
   });
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.geolibreProjectGeneration = String(projectGeneration);
+    root.dataset.geolibreProjectReadyGeneration =
+      externalPluginsReady &&
+      projectPluginTrust.pendingUrls.length === 0 &&
+      restoredProjectGeneration === projectGeneration
+        ? String(projectGeneration)
+        : "";
+    // Clear both markers on unmount so an embed teardown or hot reload cannot
+    // leave a stale "ready" generation on the root element for external readers.
+    return () => {
+      delete root.dataset.geolibreProjectReadyGeneration;
+      delete root.dataset.geolibreProjectGeneration;
+    };
+  }, [
+    externalPluginsReady,
+    projectGeneration,
+    projectPluginTrust.pendingUrls.length,
+    restoredProjectGeneration,
+  ]);
   // After the restore above, so a `?url=` project's plugin state cannot close
   // what the link opened.
-  usePluginDeepLink({
+  const registryPluginLink = usePluginDeepLink({
     mapControllerRef,
     enforceViewerPlugins,
     viewer: layoutOptions.viewer,
@@ -550,6 +608,7 @@ export function DesktopShell({
                   forceBuiltinCollapsed={storymapPresenting}
                   renderBuiltin={({ collapsed, onCollapsedChange }) => (
                     <LayerPanel
+                      refresh={layerRefresh}
                       themeMode={themeMode}
                       mapControllerRef={mapControllerRef}
                       collaborationApi={collaboration}
@@ -581,6 +640,7 @@ export function DesktopShell({
                   />
                 ) : (
                   <LayerPanel
+                    refresh={layerRefresh}
                     themeMode={themeMode}
                     mapControllerRef={mapControllerRef}
                     collaborationApi={collaboration}
@@ -1055,6 +1115,9 @@ export function DesktopShell({
       {/* Trust prompt for plugin URLs carried by an opened project (#1062);
           inert unless the project references an untrusted plugin URL. */}
       <ProjectPluginTrustDialog trust={projectPluginTrust} />
+      {/* Trust prompt for a `?plugin=<registry id>` link to a plugin that is
+          not installed yet; inert otherwise. */}
+      <RegistryPluginTrustDialog link={registryPluginLink} />
       <MountWhenOpened isOpen={(ui) => ui.processingOpen}>
         <Suspense fallback={null}>
           <ProcessingDialog

@@ -120,9 +120,13 @@ export_html(path=..., out_path="counties.html", title="Population by county")
 - **Remote URLs are checked.** A host resolving to a private, loopback, or
   link-local address is refused, on every redirect hop. Don't try to work around
   it — it is protecting the machine you are running on.
-- **The MCP server authors projects; it does not drive a live map.** There is no
-  "pan the map that's open on my screen" tool. That is the embed API or the
-  Python widget.
+- **File tools and `live_*` tools are different.** `create_project` and
+  `add_*_layer` write a `.geolibre.json` on disk. `live_status()`,
+  `live_fly_to()`, `live_add_geojson()`, and the other `live_*` tools move the
+  map already open in GeoLibre Desktop, through the Notebook-panel relay on
+  `127.0.0.1:8766`. Call `live_status()` first. If it reports no relay, ask
+  the user to open Processing → Jupyter Notebook once. A live edit is not on
+  disk until the user saves in the app. Web and JupyterLite have no relay.
 
 ## Verify before you claim it works
 

@@ -3292,6 +3292,9 @@
       "activate": "Kích hoạt",
       "position": "Vị trí",
       "webServices": "Dịch vụ web",
+      "installedPlugins": "Đã cài đặt",
+      "managePlugins": "Quản lý plugin…",
+      "showMenuInToolbar": "Hiển thị menu trên thanh công cụ",
       "dggs": "DGGS",
       "commandPalette": "Bảng lệnh",
       "openProjectFromUrl": "Mở dự án từ URL",
@@ -3481,6 +3484,10 @@
       "addedVectorLayers_other": "Đã thêm các lớp vectơ {{count}} vào bảng điều khiển Lớp.",
       "savePromptTitle": "Lưu dự án hiện tại?",
       "savePromptDescription": "Dự án hiện tại có thay đổi chưa lưu. Lưu trước khi mở dự án được thả vào?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Lưu thay đổi trước khi đóng?",
+      "savePromptDescription": "Dự án hiện tại có thay đổi chưa được lưu. Lưu trước khi đóng GeoLibre?"
     },
     "error": {
       "couldNotOpenOsmPbf": "Không thể mở tệp OSM PBF.",

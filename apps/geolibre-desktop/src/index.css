@@ -271,6 +271,161 @@ body,
   opacity: 0.55;
 }
 
+/*
+ * GeoAgent dark theme. The upstream stylesheet hardcodes light literal colors
+ * (and pins `color-scheme: light`) with no `.dark` / prefers-color-scheme rules,
+ * so remap the panel onto the app's design tokens under `.dark` so it tracks
+ * GeoLibre's in-app light/dark toggle. index.css is imported after the
+ * component stylesheet, so these rules win the cascade.
+ */
+.dark .geoagent-panel {
+  background: hsl(var(--background));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  color-scheme: dark;
+}
+
+.dark .geoagent-settings > summary,
+.dark .geoagent-earth-engine summary,
+.dark .geoagent-model-suggestion {
+  color: hsl(var(--foreground));
+}
+
+.dark .geoagent-panel label,
+.dark .geoagent-role,
+.dark .geoagent-earth-engine-status,
+.dark .geoagent-text.markdown blockquote {
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .geoagent-panel input,
+.dark .geoagent-panel select,
+.dark .geoagent-panel textarea {
+  background: hsl(var(--background));
+  border-color: hsl(var(--input));
+  color: hsl(var(--foreground));
+}
+
+.dark .geoagent-panel input::placeholder,
+.dark .geoagent-panel textarea::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .geoagent-settings,
+.dark .geoagent-earth-engine {
+  background: hsl(var(--muted));
+  border-color: hsl(var(--border));
+}
+
+.dark .geoagent-icon-button,
+.dark .geoagent-panel button.secondary,
+.dark .geoagent-panel .geoagent-checkbox-row,
+.dark .geoagent-panel button.geolibre-ee-sign-in {
+  background: hsl(var(--background));
+  border-color: hsl(var(--input));
+  color: hsl(var(--foreground));
+}
+
+.dark .geoagent-icon-button:hover,
+.dark .geoagent-panel button.secondary:hover:not(:disabled),
+.dark .geoagent-panel button.geolibre-ee-sign-in:hover {
+  background: hsl(var(--accent));
+}
+
+.dark .geoagent-status {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .geoagent-status.connected,
+.dark .geoagent-config-note.success {
+  background: rgb(16 185 129 / 0.16);
+  color: #6ee7b7;
+}
+
+.dark .geoagent-status.setup {
+  background: rgb(245 158 11 / 0.16);
+  color: #fcd34d;
+}
+
+.dark .geoagent-status.connecting {
+  background: rgb(59 130 246 / 0.18);
+  color: #93c5fd;
+}
+
+.dark .geoagent-status.error,
+.dark .geoagent-config-note.error {
+  background: rgb(239 68 68 / 0.16);
+  color: #fca5a5;
+}
+
+.dark .geoagent-config-note.info {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .geoagent-model-suggestions {
+  background: hsl(var(--popover));
+  border-color: hsl(var(--border));
+}
+
+.dark .geoagent-model-suggestion:hover,
+.dark .geoagent-model-suggestion.active {
+  background: hsl(var(--accent));
+}
+
+.dark .geoagent-log {
+  background: hsl(var(--muted));
+  border-color: hsl(var(--border));
+}
+
+.dark .geoagent-entry {
+  border-bottom-color: hsl(var(--border));
+}
+
+.dark .geoagent-log,
+.dark .geoagent-model-suggestions,
+.dark .geoagent-panel textarea,
+.dark .geoagent-text.markdown pre,
+.dark .geoagent-text.markdown table {
+  scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--muted));
+}
+
+.dark .geoagent-log::-webkit-scrollbar-track,
+.dark .geoagent-panel textarea::-webkit-scrollbar-track,
+.dark .geoagent-text.markdown pre::-webkit-scrollbar-track,
+.dark .geoagent-text.markdown table::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+.dark .geoagent-log::-webkit-scrollbar-thumb,
+.dark .geoagent-panel textarea::-webkit-scrollbar-thumb,
+.dark .geoagent-text.markdown pre::-webkit-scrollbar-thumb,
+.dark .geoagent-text.markdown table::-webkit-scrollbar-thumb {
+  border-color: hsl(var(--muted));
+  background: hsl(var(--muted-foreground));
+}
+
+.dark .geoagent-text.markdown a {
+  color: #5eead4;
+}
+
+.dark .geoagent-text.markdown code {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.dark .geoagent-text.markdown pre {
+  border-color: hsl(var(--border));
+  background: hsl(var(--background));
+}
+
+.dark .geoagent-text.markdown blockquote,
+.dark .geoagent-text.markdown th,
+.dark .geoagent-text.markdown td {
+  border-color: hsl(var(--border));
+}
+
 .geo-editor-control .geo-editor-tool-button {
   align-items: center;
   box-sizing: border-box;
@@ -3608,6 +3763,141 @@ html.dark .maplibregl-popup-anchor-right:has(.vector-control-popup) .maplibregl-
   box-shadow: none;
 }
 
+.geolibre-docked-map-control .usgs-lidar-control-panel {
+  position: static !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: flex !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.geolibre-docked-map-control .usgs-lidar-control-header,
+.geolibre-docked-map-control .usgs-lidar-resize-handle {
+  display: none !important;
+}
+
+.geolibre-docked-map-control .basemap-control-results {
+  max-height: none;
+}
+
+.geolibre-docked-map-control .basemap-control-header {
+  justify-content: flex-end;
+}
+
+.geolibre-docked-map-control .basemap-control-panel,
+.geolibre-docked-map-control .esri-wayback-control-panel,
+.geolibre-docked-map-control .overture-control-panel {
+  position: static !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: column;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.geolibre-docked-map-control .basemap-control-title,
+.geolibre-docked-map-control .basemap-control-close,
+.geolibre-docked-map-control .basemap-control-resize-handle,
+.geolibre-docked-map-control .esri-wayback-control-header,
+.geolibre-docked-map-control .esri-wayback-control-resize-handle,
+.geolibre-docked-map-control .overture-control-header,
+.geolibre-docked-map-control .overture-resize-handle {
+  display: none !important;
+}
+
+/* GeoAgent fills the dock: the dock's header already carries the title and the
+   close/collapse buttons, so hide the control's own and its corner resize
+   handles, and keep its status pill. The header's only icon button is the
+   close button today; recheck this selector if an upstream bump adds another
+   header action. */
+.geolibre-docked-map-control .geoagent-panel {
+  position: static !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: grid !important;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.geolibre-docked-map-control .geoagent-panel-header {
+  justify-content: flex-end;
+}
+
+/* While setup sections are open the log would otherwise shrink to a sliver;
+   keep it readable and let the panel content scroll instead. */
+.geolibre-docked-map-control .geoagent-log {
+  min-height: 160px;
+}
+
+.geolibre-docked-map-control .geoagent-panel-title,
+.geolibre-docked-map-control .geoagent-panel-header .geoagent-icon-button,
+.geolibre-docked-map-control .geoagent-panel-resize-handle {
+  display: none !important;
+}
+
+/* Layer Swipe docks only its settings panel; the slider and comparison map stay
+   on the map. The dock owns opening and closing, so the control's toolbar
+   button is hidden, and its header (title + close) duplicates the dock's. */
+.swipe-control.geolibre-swipe-control {
+  display: none !important;
+}
+
+.geolibre-docked-map-control .swipe-control-panel {
+  position: static !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: flex !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.geolibre-docked-map-control .swipe-control-header {
+  display: none !important;
+}
+
+/* The swipe control follows the in-app theme (setTheme) and draws from
+   --swipe-* variables; in dark mode point them at the app's design tokens so
+   the docked panel matches the other side panels. The select proxy, its menu
+   and the checkboxes are GeoLibre's own and are themed in swipe-style.ts. */
+.dark .swipe-control-panel.swipe-theme-dark {
+  --swipe-bg: transparent;
+  --swipe-header-bg: hsl(var(--muted));
+  --swipe-fg: hsl(var(--foreground));
+  --swipe-text: hsl(var(--foreground));
+  --swipe-label: hsl(var(--muted-foreground));
+  --swipe-muted: hsl(var(--muted-foreground));
+  --swipe-border: hsl(var(--border));
+  --swipe-border-subtle: hsl(var(--border));
+  --swipe-input-bg: hsl(var(--background));
+  --swipe-input-border: hsl(var(--border));
+  --swipe-input-border-hover: hsl(var(--ring));
+  --swipe-list-bg: hsl(var(--muted));
+  --swipe-hover: hsl(var(--accent));
+  --swipe-item-hover: hsl(var(--accent));
+  --swipe-track: hsl(var(--input));
+  --swipe-scrollbar: hsl(var(--border));
+  --swipe-scrollbar-hover: hsl(var(--muted-foreground));
+}
+
 .geolibre-docked-map-control .vantor-panel__table-container {
   max-height: none;
 }
@@ -4304,6 +4594,35 @@ html.dark .maplibregl-popup-anchor-right:has(.vector-control-popup) .maplibregl-
 
 .elevation-profile-panel--anchor-right > * {
   direction: ltr;
+}
+
+/* Docked in the side panel: the dock opens and closes it, so the toolbar
+   button is hidden and the panel fills the dock's width instead of floating.
+   The chart keeps a fixed height rather than stretching down a tall dock. */
+.maplibregl-ctrl-group.elevation-profile--docked {
+  display: none;
+}
+
+.elevation-profile-panel.elevation-profile-panel--docked {
+  position: static;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  resize: none;
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 12px;
+  z-index: auto;
+}
+
+.elevation-profile-panel--docked .elevation-profile-chart {
+  flex: 0 0 auto;
+  height: 220px;
 }
 
 .elevation-profile-header {

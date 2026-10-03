@@ -29,6 +29,7 @@ from .. import __version__, authoring
 from .. import project as _project
 from ..geolibre import render_project_html
 from ..legends import builtin_legend_names
+from . import live
 from .workspace import EXPORT_SUFFIXES, PROJECT_SUFFIXES, Workspace, WorkspaceError
 
 INSTRUCTIONS = """\
@@ -49,6 +50,13 @@ number-crunching whose output happens to be tabular.
 Typical flow: `create_project` -> one or more `add_*_layer` calls -> style and
 frame it (`style_layer`, `classify_layer`, `set_view`, `add_legend`) ->
 `export_html` if the user wants something they can open in a browser directly.
+
+When GeoLibre Desktop is open, the `live_*` tools change that map on screen.
+The user opens Processing → Jupyter Notebook once so the desktop relay is
+listening; the panel can be closed after that. Call `live_status` first. Use
+the file tools when the deliverable is a saved `.geolibre.json`, and `live_*`
+when the user is looking at the app and wants it to move now. A live edit
+stays in the open session until the user saves the project in the app.
 
 Pick the layer tool by what the data *is*, not by file extension alone:
 - `add_geojson_layer`  - vector data inlined into the project (a URL, a local
@@ -1478,6 +1486,219 @@ def build_server(workspace: Workspace) -> MCPServer:
             "sourceProject": str(file),
             "bytes": len(html.encode("utf-8")),
         }
+
+    # -- live desktop session -------------------------------------------------
+    # These talk to the Jupyter relay GeoLibre Desktop already runs. They do
+    # not write the project file; the user saves in the app when the session
+    # should persist.
+
+    @tool()
+    def live_status() -> dict[str, Any]:
+        """Report whether GeoLibre Desktop is listening for live commands.
+
+        Open Processing → Jupyter Notebook once if this reports no relay. The
+        panel can be closed afterwards; the server keeps running until the app
+        quits.
+
+        Returns:
+            ``connected``, how many windows are subscribed, and the loopback
+            relay URL with the token removed.
+        """
+        try:
+            relay = live.discover()
+        except live.LiveError as exc:
+            return {"connected": False, "listeners": 0, "hint": str(exc)}
+        if relay is None:
+            return {"connected": False, "listeners": 0, "hint": live.NOT_CONNECTED}
+        try:
+            listeners = relay.listeners()
+        except live.LiveError as exc:
+            return {
+                "connected": False,
+                "listeners": 0,
+                "url": relay.redacted_url,
+                "hint": str(exc),
+            }
+        return {
+            "connected": listeners > 0,
+            "listeners": listeners,
+            "url": relay.redacted_url,
+        }
+
+    @tool()
+    def live_list_layers() -> list[dict[str, Any]]:
+        """List the layers on the map open in GeoLibre Desktop.
+
+        Returns:
+            One dict per layer, with ``id``, ``name``, ``type``, ``visible``,
+            and ``opacity``, in draw order.
+        """
+        value = live.require().call("listLayers")
+        if not isinstance(value, list):
+            raise ValueError(f"GeoLibre returned an unexpected layer list: {value!r}")
+        return value
+
+    @tool()
+    def live_fly_to(
+        lng: float | None = None,
+        lat: float | None = None,
+        zoom: float | None = None,
+    ) -> dict[str, Any]:
+        """Animate the camera of the map open in GeoLibre Desktop.
+
+        Args:
+            lng: Longitude. Pass it together with ``lat``.
+            lat: Latitude. Pass it together with ``lng``.
+            zoom: Zoom level. ``0`` is the world, about ``14`` is a city.
+
+        Returns:
+            The center and zoom that were sent.
+        """
+        if (lng is None) != (lat is None):
+            raise ValueError("Pass both lng and lat, or neither.")
+        params: dict[str, Any] = {}
+        if lng is not None and lat is not None:
+            params["center"] = [float(lng), float(lat)]
+        if zoom is not None:
+            params["zoom"] = float(zoom)
+        if not params:
+            raise ValueError("Pass a center, a zoom, or both.")
+        live.require().call("flyTo", params)
+        return {"center": params.get("center"), "zoom": zoom}
+
+    @tool()
+    def live_fit_bounds(bounds: list[float]) -> dict[str, Any]:
+        """Fit the open map to ``[west, south, east, north]`` in degrees.
+
+        Args:
+            bounds: West, south, east, north.
+
+        Returns:
+            The bounds that were sent.
+        """
+        if len(bounds) != 4:
+            raise ValueError("bounds must be [west, south, east, north].")
+        sent = [float(value) for value in bounds]
+        live.require().call("fitBounds", {"bounds": sent})
+        return {"bounds": sent}
+
+    @tool()
+    def live_zoom_to_layer(layer_id: str) -> dict[str, Any]:
+        """Fit the open map to one layer already on it.
+
+        Args:
+            layer_id: The layer id from ``live_list_layers``.
+
+        Returns:
+            The layer id that was framed.
+        """
+        live.require().call("zoomToLayer", {"layerId": layer_id})
+        return {"layerId": layer_id}
+
+    @tool()
+    def live_set_basemap(basemap: str) -> dict[str, Any]:
+        """Switch the basemap of the map open in GeoLibre Desktop.
+
+        Args:
+            basemap: A catalog name (``liberty``, ``bright``, ``positron``,
+                ``dark``, ``fiord``) or an ``http(s)`` MapLibre style URL.
+
+        Returns:
+            The style URL applied.
+        """
+        from ..basemaps import resolve_basemap
+
+        url = resolve_basemap(basemap)
+        live.require().call("setBasemap", {"url": url})
+        return {"basemap": url}
+
+    @tool()
+    def live_add_geojson(
+        data: Any,
+        name: str = "GeoJSON",
+        style: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Add GeoJSON to the map open in GeoLibre Desktop.
+
+        A local path is confined to the MCP workspace, the same way
+        ``add_geojson_layer`` confines one. The layer is on the open map only
+        until the user saves the project in the app.
+
+        Args:
+            data: A FeatureCollection, a JSON string, a workspace path, or an
+                ``http(s)`` URL of public GeoJSON.
+            name: The layer's display name.
+            style: Style overrides such as ``fillColor`` and ``strokeColor``.
+
+        Returns:
+            The new layer id and name.
+        """
+        collection, _source = load_geojson(data)
+        layer_id = live.require().call(
+            "addGeoJsonLayer",
+            {"name": name, "geojson": collection, "style": style or {}},
+        )
+        if not isinstance(layer_id, str) or not layer_id:
+            raise ValueError(f"GeoLibre returned an unexpected layer id: {layer_id!r}")
+        return {"layerId": layer_id, "layerName": name}
+
+    @tool()
+    def live_set_visibility(layer_id: str, visible: bool) -> dict[str, Any]:
+        """Show or hide a layer on the open map.
+
+        Args:
+            layer_id: The layer id from ``live_list_layers``.
+            visible: Whether the layer is shown.
+
+        Returns:
+            The layer id and the visibility that was sent.
+        """
+        live.require().call("setVisibility", {"layerId": layer_id, "visible": bool(visible)})
+        return {"layerId": layer_id, "visible": bool(visible)}
+
+    @tool()
+    def live_set_opacity(layer_id: str, opacity: float) -> dict[str, Any]:
+        """Set a layer's opacity on the open map.
+
+        Args:
+            layer_id: The layer id from ``live_list_layers``.
+            opacity: A number from 0 (transparent) to 1 (opaque).
+
+        Returns:
+            The layer id and the opacity that was sent.
+        """
+        opacity = float(opacity)
+        if not 0 <= opacity <= 1:
+            raise ValueError(f"opacity must be between 0 and 1, got {opacity}")
+        live.require().call("setOpacity", {"layerId": layer_id, "opacity": opacity})
+        return {"layerId": layer_id, "opacity": opacity}
+
+    @tool()
+    def live_set_style(layer_id: str, style: dict[str, Any]) -> dict[str, Any]:
+        """Update a layer's style on the open map.
+
+        Args:
+            layer_id: The layer id from ``live_list_layers``.
+            style: Style keys such as ``fillColor`` and ``strokeWidth``.
+
+        Returns:
+            The layer id and the style that was sent.
+        """
+        live.require().call("setStyle", {"layerId": layer_id, "style": dict(style)})
+        return {"layerId": layer_id, "style": dict(style)}
+
+    @tool()
+    def live_remove_layer(layer_id: str) -> dict[str, Any]:
+        """Remove a layer from the open map.
+
+        Args:
+            layer_id: The layer id from ``live_list_layers``.
+
+        Returns:
+            The layer id that was removed.
+        """
+        live.require().call("removeLayer", {"layerId": layer_id})
+        return {"layerId": layer_id}
 
     return server
 

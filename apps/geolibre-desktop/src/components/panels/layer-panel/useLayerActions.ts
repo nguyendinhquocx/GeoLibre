@@ -46,6 +46,7 @@ import {
   type QuickBufferPreset,
 } from "../../../lib/quick-analysis";
 import { exportRasterLayer } from "../../../lib/raster-export";
+import type { ExtrusionModelFormat } from "../../../lib/extrusion-model";
 import {
   exportVectorLayer,
   geojsonVectorSourceId,
@@ -59,6 +60,7 @@ import {
   isGeojsonSourcePath,
   isTauri,
   openLocalDataFileWithFallback,
+  saveBinaryFileWithFallback,
   saveTextFileWithFallback,
   writeLocalGeojsonFile,
 } from "../../../lib/tauri-io";
@@ -359,6 +361,99 @@ export function useLayerActions({
           [layer.id]: { type: "error", message },
         }));
         scheduleStatusClear(layer.id);
+      }
+    },
+    [
+      clearRefreshStatusTimer,
+      commitTableDrafts,
+      mapControllerRef,
+      scheduleStatusClear,
+      setRefreshStatuses,
+      t,
+    ],
+  );
+
+  // Export a 3D-extruded polygon layer as a mesh for Blender and other 3D
+  // tools (discussion #2825), built from the height and colour the map paints.
+  const handleExportExtrusionModel = useCallback(
+    async (clickedLayer: GeoLibreLayer, format: ExtrusionModelFormat) => {
+      clearRefreshStatusTimer(clickedLayer.id);
+      const layer = commitTableDrafts(clickedLayer);
+      if (!layer) return;
+      const setStatus = (status: { type: "success" | "warning" | "error"; message: string }) => {
+        setRefreshStatuses((current) => ({ ...current, [layer.id]: status }));
+        scheduleStatusClear(layer.id);
+      };
+      try {
+        // Loaded on demand: the mesher and earcut stay out of the app chunk.
+        const { buildExtrusionModel, encodeGlb, encodeObj, encodeStl } =
+          await import("../../../lib/extrusion-model");
+        const map = mapControllerRef.current?.getMap() ?? undefined;
+        const geojson = await resolveLayerGeojson(layer, map);
+        if (!geojson) {
+          // As in handleExportLayer: an unreadable map source is not yet
+          // ready, which is not the same as a layer without features.
+          setStatus({
+            type: "error",
+            message:
+              geojsonVectorSourceId(layer) !== null
+                ? t("layers.exportStyleDataNotReady")
+                : t("layers.exportNeedsFeatures"),
+          });
+          return;
+        }
+        // Excluded fields still drive the style, so they are dropped from the
+        // model's names and attributes rather than from the features.
+        const excludedFields = new Set(
+          Object.entries(layer.fieldVisibility ?? {})
+            .filter(([, visibility]) => visibility === "excluded")
+            .map(([field]) => field),
+        );
+        const model = buildExtrusionModel(
+          geojson,
+          layer.style,
+          map?.getZoom() ?? 16,
+          excludedFields,
+        );
+        if (model.solids.length === 0) {
+          setStatus({ type: "error", message: t("layers.export3dModelNoSolids") });
+          return;
+        }
+        const baseName = sanitizeExportFileName(layer.name);
+        const label = { glb: "glTF Binary", obj: "Wavefront OBJ", stl: "STL" }[format];
+        const mimeType = {
+          glb: "model/gltf-binary",
+          obj: "model/obj",
+          stl: "model/stl",
+        }[format];
+        const fileOptions = {
+          defaultName: `${baseName}.${format}`,
+          filters: [{ name: label, extensions: [format] }],
+          browserTypes: [{ description: label, accept: { [mimeType]: [`.${format}`] } }],
+          mimeType,
+        };
+        const savedPath =
+          format === "obj"
+            ? await saveTextFileWithFallback(encodeObj(model, layer.name), fileOptions)
+            : await saveBinaryFileWithFallback(
+                format === "glb" ? encodeGlb(model, layer.name) : encodeStl(model),
+                fileOptions,
+              );
+        // A null path means the user cancelled the save dialog, so no note.
+        if (savedPath === null) return;
+        setStatus(
+          model.skipped > 0
+            ? {
+                type: "warning",
+                message: t("layers.export3dModelSkipped", { count: model.skipped }),
+              }
+            : { type: "success", message: t("layers.exported") },
+        );
+      } catch (error) {
+        setStatus({
+          type: "error",
+          message: error instanceof Error ? error.message : t("layers.exportLayerError"),
+        });
       }
     },
     [
@@ -897,6 +992,7 @@ export function useLayerActions({
     handlePasteStyle,
     handleSaveToLibrary,
     handleExportLayer,
+    handleExportExtrusionModel,
     handleExportStyle,
     handleExportGeoLibreStyle,
     handleExportSldStyle,

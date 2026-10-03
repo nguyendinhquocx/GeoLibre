@@ -58,6 +58,7 @@ const DEFAULT_OPTIONS: Required<
     "exportTextFile" | "getSelectedFeatures" | "onSelectionChange" | "nativeMap"
   >
 > = {
+  docked: false,
   collapsed: true,
   title: "Elevation Profile",
   panelWidth: 320,
@@ -180,8 +181,11 @@ export class ElevationProfileControl implements IControl, DeepLinkConsumer {
     this._mapContainer = map.getContainer();
     this._container = this._createContainer();
     this._panel = this._createPanel();
-    this._mapContainer.appendChild(this._panel);
-    this._setupPanelListeners();
+    // A docked panel waits for the host to adopt it through getPanel().
+    if (!this._options.docked) {
+      this._mapContainer.appendChild(this._panel);
+      this._setupPanelListeners();
+    }
     this._unsubscribeSelection =
       this._onSelectionChange?.(() => this._syncSelectedButton()) ?? null;
     this._syncSelectedButton();
@@ -288,6 +292,16 @@ export class ElevationProfileControl implements IControl, DeepLinkConsumer {
     } else if (newState.unitSystem) {
       this._renderProfile();
     }
+  }
+
+  /**
+   * The control's panel element, once `onAdd` has built it. A docked control
+   * never attaches it, so the host moves it into its dock.
+   *
+   * @returns The panel element, or undefined while the control is not mounted.
+   */
+  getPanel(): HTMLElement | undefined {
+    return this._panel;
   }
 
   // --- DeepLinkConsumer --------------------------------------------------
@@ -678,8 +692,8 @@ export class ElevationProfileControl implements IControl, DeepLinkConsumer {
   private _createContainer(): HTMLElement {
     const container = document.createElement("div");
     container.className = `maplibregl-ctrl maplibregl-ctrl-group elevation-profile${
-      this._options.className ? ` ${this._options.className}` : ""
-    }`;
+      this._options.docked ? " elevation-profile--docked" : ""
+    }${this._options.className ? ` ${this._options.className}` : ""}`;
 
     const toggle = document.createElement("button");
     toggle.type = "button";
@@ -715,21 +729,25 @@ export class ElevationProfileControl implements IControl, DeepLinkConsumer {
   private _createPanel(): HTMLElement {
     const panel = document.createElement("div");
     panel.className = "elevation-profile-panel";
-    panel.style.width = `${this._options.panelWidth}px`;
+    if (this._options.docked) panel.classList.add("elevation-profile-panel--docked");
+    else panel.style.width = `${this._options.panelWidth}px`;
 
-    // Header
-    const header = document.createElement("div");
-    header.className = "elevation-profile-header";
-    const title = document.createElement("span");
-    title.className = "elevation-profile-title";
-    title.textContent = this._options.title;
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "elevation-profile-close";
-    close.setAttribute("aria-label", "Close panel");
-    close.innerHTML = "&times;";
-    close.addEventListener("click", () => this.collapse());
-    header.append(title, close);
+    // Header (a docked panel shows the dock's own title and close button)
+    if (!this._options.docked) {
+      const header = document.createElement("div");
+      header.className = "elevation-profile-header";
+      const title = document.createElement("span");
+      title.className = "elevation-profile-title";
+      title.textContent = this._options.title;
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "elevation-profile-close";
+      close.setAttribute("aria-label", "Close panel");
+      close.innerHTML = "&times;";
+      close.addEventListener("click", () => this.collapse());
+      header.append(title, close);
+      panel.append(header);
+    }
 
     // Actions
     const actions = document.createElement("div");
@@ -808,7 +826,7 @@ export class ElevationProfileControl implements IControl, DeepLinkConsumer {
     exportRow.append(exportLabel, csvButton, svgButton);
     this._exportEl = exportRow;
 
-    panel.append(header, actions, status, stats, chart, readout, exportRow);
+    panel.append(actions, status, stats, chart, readout, exportRow);
 
     // Re-render the chart at the new pixel size whenever the panel is resized.
     if (typeof ResizeObserver !== "undefined") {
@@ -1222,6 +1240,7 @@ export class ElevationProfileControl implements IControl, DeepLinkConsumer {
    * than off the edge. Left docks keep the default bottom-right grip.
    */
   private _updatePanelPosition(): void {
+    if (this._options.docked) return;
     if (!this._container || !this._panel || !this._mapContainer) return;
     const button = this._container.querySelector(".elevation-profile-toggle");
     if (!button) return;

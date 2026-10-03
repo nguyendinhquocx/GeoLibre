@@ -1,4 +1,5 @@
 import { normalizeCesiumBasemap } from "./cesium-imagery";
+import { redactUrlCredentials } from "./credentials";
 import { v4 as uuidv4 } from "uuid";
 import {
   DEFAULT_BASEMAP,
@@ -1867,7 +1868,47 @@ function hasRestorableSourceUrl(layer: GeoLibreLayer): boolean {
 }
 
 function prepareLayerForSave(layer: GeoLibreLayer): GeoLibreLayer {
+  const hasGeometryEdits = layer.metadata.geometryEdited === true;
   layer = portableLayer(layer);
+  // WFS feature URLs can contain inline authentication supplied by a plugin.
+  // Persist a sanitized reference, and keep the fetched collection embedded so
+  // the saved project remains renderable without storing those credentials.
+  // The stripped flag is persisted alongside that sanitized reference: once the
+  // reference is stored credential-free, a later save of the reopened project
+  // cannot tell that the URL ever needed a secret, and would drop the embedded
+  // features the reference can no longer re-fetch without it.
+  let wfsCredentialsRedacted = layer.metadata.wfsCredentialsRedacted === true;
+  if (layer.metadata.sourceKind === "wfs-getfeature") {
+    const sourceUrl =
+      typeof layer.source.url === "string"
+        ? redactUrlCredentials(layer.source.url)
+        : layer.source.url;
+    const sourcePath =
+      typeof layer.sourcePath === "string"
+        ? redactUrlCredentials(layer.sourcePath)
+        : layer.sourcePath;
+    const originalUrl =
+      typeof layer.metadata.originalUrl === "string"
+        ? redactUrlCredentials(layer.metadata.originalUrl)
+        : layer.metadata.originalUrl;
+    const stripped =
+      sourceUrl !== layer.source.url ||
+      sourcePath !== layer.sourcePath ||
+      originalUrl !== layer.metadata.originalUrl;
+    wfsCredentialsRedacted ||= stripped;
+    if (stripped) {
+      layer = {
+        ...layer,
+        source: sourceUrl === layer.source.url ? layer.source : { ...layer.source, url: sourceUrl },
+        sourcePath,
+        metadata: {
+          ...layer.metadata,
+          ...(originalUrl === layer.metadata.originalUrl ? {} : { originalUrl }),
+          wfsCredentialsRedacted: true,
+        },
+      };
+    }
+  }
   // This flag describes unsaved changes to the live source, not persisted
   // project state. A reference-only save reloads the original geometries;
   // carrying the flag into that project would warn about nonexistent edits.
@@ -1928,6 +1969,38 @@ function prepareLayerForSave(layer: GeoLibreLayer): GeoLibreLayer {
   ) {
     const { geojson: _geojson, ...rest } = layer;
     layer = rest;
+  }
+
+  const wfsSourceUrl = layer.source.url;
+  let hasHttpWfsSource = false;
+  if (typeof wfsSourceUrl === "string") {
+    try {
+      const url = new URL(wfsSourceUrl);
+      hasHttpWfsSource = url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      hasHttpWfsSource = false;
+    }
+  }
+
+  // Host-managed WFS records reload through their persisted successful
+  // GetFeature URL. Keep unedited feature collections reference-only in saved
+  // projects. Edited geometry becomes authoritative embedded data, so omit
+  // the request URL in that saved copy; otherwise a later save/reopen could
+  // replace the edits with the service response.
+  if (
+    layer.type === "geojson" &&
+    layer.metadata.sourceKind === "wfs-getfeature" &&
+    layer.geojson &&
+    hasHttpWfsSource
+  ) {
+    if (hasGeometryEdits) {
+      const { url: _url, ...source } = layer.source;
+      layer = { ...layer, source };
+    } else if (!wfsCredentialsRedacted) {
+      const { geojson: _geojson, ...rest } = layer;
+      // Credential-bearing references are deliberately kept with their data.
+      layer = rest;
+    }
   }
 
   // An Add Vector Layer layer GeoLibre adopted (`maplibre-gl-vector-adopted`,

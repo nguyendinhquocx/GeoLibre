@@ -12,6 +12,7 @@ import {
   flightSimulatorPlugin,
   isPluginEngineSupported,
   maplibreDirectionsPlugin,
+  maplibreLayerControlPlugin,
   maplibreEffectsPlugin,
   maplibreGraticulePlugin,
   maplibreReverseGeocodePlugin,
@@ -59,6 +60,7 @@ import {
   type ToolbarMapControl,
 } from "./constants";
 import { useMapCapabilities } from "../../../hooks/useMapCapabilities";
+import { PluginMenuContributions } from "./PluginMenuContributions";
 
 /**
  * Controls-menu entries that write to the project rather than only changing
@@ -75,12 +77,14 @@ interface ControlsMenuProps {
   controlsVisible: Record<ToolbarMapControl, boolean>;
   panels: ToolbarPanels;
   effectsActive: boolean;
+  layerControlActive: boolean;
   directionsActive: boolean;
   reverseGeocodeActive: boolean;
   graticuleActive: boolean;
   cloudsActive: boolean;
   precipitationActive: boolean;
   onToggleMapControl: (control: ToolbarMapControl) => void;
+  onToggleLayerControl: () => void;
   onToggleEffects: () => void;
   getEffectsSettings: () => EffectsSettings;
   onPreviewEffectsSettings: (next: Partial<EffectsSettings>) => void;
@@ -111,12 +115,14 @@ export function ControlsMenu({
   controlsVisible,
   panels,
   effectsActive,
+  layerControlActive,
   directionsActive,
   reverseGeocodeActive,
   graticuleActive,
   cloudsActive,
   precipitationActive,
   onToggleMapControl,
+  onToggleLayerControl,
   onToggleEffects,
   getEffectsSettings,
   onPreviewEffectsSettings,
@@ -146,6 +152,7 @@ export function ControlsMenu({
   // that stays empty). One already on stays reachable so it can be turned off.
   const unsupported = (plugin: Parameters<typeof isPluginEngineSupported>[0], active: boolean) =>
     !isPluginEngineSupported(plugin, primaryRenderer) && !active;
+  const layerControlDisabled = unsupported(maplibreLayerControlPlugin, layerControlActive);
   const sunDisabled = unsupported(maplibreSunPlugin, panels.sun.visible);
   const routeAnimationDisabled = unsupported(
     maplibreRouteAnimationPlugin,
@@ -208,6 +215,7 @@ export function ControlsMenu({
   // Whether the first group (built-in controls + atmosphere/routing toggles) has
   // any visible item, so the separator below it isn't left orphaned.
   const anyTopControls =
+    show("controls.layerControl") ||
     MAP_CONTROL_ITEMS.some((control) => show(`controls.mapControl.${control.id}`)) ||
     show("controls.atmosphereEffects") ||
     show("controls.clouds") ||
@@ -250,6 +258,17 @@ export function ControlsMenu({
         <DropdownMenuContent align="start">
           <DropdownMenuLabel>{t("toolbar.item.mapControls")}</DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {show("controls.layerControl") && (
+            <DropdownMenuItem
+              disabled={layerControlDisabled}
+              className={REASON_ON_HOVER}
+              title={layerControlDisabled ? t("renderer.pluginUnsupported") : undefined}
+              onClick={onToggleLayerControl}
+            >
+              {t("toolbar.plugin.maplibre-layer-control")}
+              {layerControlActive ? " ✓" : ""}
+            </DropdownMenuItem>
+          )}
           {MAP_CONTROL_ITEMS.filter(
             (control) =>
               !LOGO_CONTROL_IDS.has(control.id) && show(`controls.mapControl.${control.id}`),
@@ -476,6 +495,9 @@ export function ControlsMenu({
               {t("toolbar.item.recordVideo")}
             </DropdownMenuItem>
           )}
+          {/* Plugins are authoring chrome, hidden from the read-only viewer
+              like plugin-registered toolbar menus. */}
+          {!viewer && <PluginMenuContributions target="controls" />}
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog

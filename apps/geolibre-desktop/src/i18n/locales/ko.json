@@ -3292,6 +3292,9 @@
       "activate": "활성화",
       "position": "위치",
       "webServices": "웹 서비스",
+      "installedPlugins": "설치됨",
+      "managePlugins": "플러그인 관리…",
+      "showMenuInToolbar": "도구 모음에 메뉴 표시",
       "dggs": "DGGS",
       "commandPalette": "명령 팔레트",
       "openProjectFromUrl": "URL에서 프로젝트 열기",
@@ -3481,6 +3484,10 @@
       "bothRasterLayers_other": "래스터 레이어 {{count}}개",
       "savePromptTitle": "현재 프로젝트를 저장할까요?",
       "savePromptDescription": "현재 프로젝트에 저장하지 않은 변경 사항이 있습니다. 드롭한 프로젝트를 열기 전에 저장할까요?"
+    },
+    "windowClose": {
+      "savePromptTitle": "닫기 전에 변경 사항을 저장하시겠습니까?",
+      "savePromptDescription": "현재 프로젝트에 저장되지 않은 변경 사항이 있습니다. GeoLibre를 닫기 전에 저장하시겠습니까?"
     },
     "error": {
       "couldNotOpenProject": "프로젝트를 열 수 없습니다.",

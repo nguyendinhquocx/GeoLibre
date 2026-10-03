@@ -3341,6 +3341,9 @@
       "activate": "सक्रिय करें",
       "position": "स्थिति",
       "webServices": "वेब सेवाएं",
+      "installedPlugins": "इंस्टॉल किए गए",
+      "managePlugins": "प्लगइन प्रबंधित करें…",
+      "showMenuInToolbar": "टूलबार में मेनू दिखाएँ",
       "dggs": "DGGS",
       "commandPalette": "कमांड पैलेट",
       "openProjectFromUrl": "URL से प्रोजेक्ट खोलें",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} रैस्टर लेयर",
       "savePromptTitle": "वर्तमान प्रोजेक्ट सहेजें?",
       "savePromptDescription": "वर्तमान प्रोजेक्ट में सहेजे नहीं गए बदलाव हैं। छोड़े गए प्रोजेक्ट को खोलने से पहले उन्हें सहेजें?"
+    },
+    "windowClose": {
+      "savePromptTitle": "बंद करने से पहले बदलाव सहेजें?",
+      "savePromptDescription": "वर्तमान प्रोजेक्ट में बिना सहेजे गए बदलाव हैं। GeoLibre बंद करने से पहले उन्हें सहेजें?"
     },
     "error": {
       "couldNotOpenProject": "प्रोजेक्ट नहीं खोला जा सका।",

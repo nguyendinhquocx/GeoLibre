@@ -17,6 +17,7 @@ import type { CesiumSceneHandle } from "@geolibre/map";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import type { IControl, Map as MapLibreMap } from "maplibre-gl";
 import type { OvertureTheme } from "maplibre-gl-overture-maps";
+import type * as Proj4 from "proj4";
 import type { TemporalLayerAdapter } from "./plugins/temporal-layers";
 import type { GeoLibreToolbarLabel } from "./toolbar-menu-label";
 
@@ -138,6 +139,22 @@ export interface GeoLibreWmsLayerOptions extends GeoLibreTileLayerOptions {
    * such a layer stays blank there. Any other value throws.
    */
   crs?: string;
+}
+
+/** Options for adding a host-managed WFS GetFeature layer. */
+export interface GeoLibreWfsLayerOptions {
+  /** WFS service endpoint. */
+  url: string;
+  /** Feature type name advertised by the WFS service. */
+  typeName: string;
+  /** WFS protocol version (default "2.0.0"). */
+  version?: string;
+  /**
+   * Optional WGS84 extent as [west, south, east, north]. A request extent is a
+   * single rectangle, so it must not cross the antimeridian: `west` greater than
+   * `east` throws instead of being read as a Pacific-spanning box.
+   */
+  bbox?: [number, number, number, number];
 }
 
 /**
@@ -514,6 +531,13 @@ export interface GeoLibreAppAPI {
    */
   addWmsLayer?: (name: string, options: GeoLibreWmsLayerOptions) => string;
   /**
+   * Fetch a WFS feature type through the host's GeoJSON/GML parser and native
+   * HTTP transport where available. The layer persists as a WFS request and
+   * reloads its features when the project is reopened. Rejects on fetch or
+   * parsing failure and when the service returns no features.
+   */
+  addWfsLayer?: (name: string, options: GeoLibreWfsLayerOptions) => Promise<string>;
+  /**
    * Add a native Cloud-Optimized GeoTIFF (COG) layer read directly from a URL
    * and rendered client-side, returning a promise for the new layer's id.
    * Unlike {@link addTileLayer} (which expects pre-rendered XYZ tiles), this
@@ -639,6 +663,19 @@ export interface GeoLibreAppAPI {
    */
   onLayersChanged?: (callback: (layerIds: string[]) => void) => () => void;
   fetchArrayBuffer?: (url: string) => Promise<ArrayBuffer>;
+  /**
+   * A `fetch` that runs through the desktop app's native HTTP client: any
+   * method, no CORS, and a cookie jar kept for the app session. Desktop only;
+   * undefined in the browser and Jupyter builds.
+   *
+   * Use it for a service that signs in with a session cookie. The webview runs
+   * at `tauri://localhost`, so a cookie set by the service is third-party and
+   * the webview drops it: the login succeeds and the next request gets a 401.
+   * Cookies stay in the native jar and Set-Cookie headers are not exposed to
+   * JavaScript; the jar is shared by every plugin and cleared on restart.
+   * Requests to link-local and cloud-metadata addresses are refused.
+   */
+  nativeFetch?: typeof globalThis.fetch;
   /**
    * Resolve a fetchable URL for an asset shipped alongside an external
    * plugin's manifest (e.g. sample data bundled in the plugin folder). The
@@ -880,6 +917,15 @@ export interface GeoLibreAppAPI {
    */
   getMaplibreGlRaster?: () => Promise<typeof import("maplibre-gl-raster")>;
   /**
+   * Resolve the host's shared proj4 module namespace instead of bundling a copy.
+   * Its `default` export is the callable library. Pass CRS definitions directly
+   * or register plugin-prefixed names through `default.defs`; do not register
+   * or redefine EPSG names. The mutable registry is shared with the host and
+   * all plugins, so conflicting definitions can corrupt later reprojections.
+   * Optional for older or variant hosts; plugins must handle its absence.
+   */
+  getProj4?: () => Promise<typeof Proj4>;
+  /**
    * Set the map projection preference (persisted in app state, so the host's
    * projection enforcement keeps it). deck.gl-backed plugins call this with
    * `"mercator"` because deck.gl's tiled rendering does not support globe view;
@@ -997,6 +1043,18 @@ export interface GeoLibreAppAPI {
   /** Remove a previously registered toolbar menu. */
   unregisterToolbarMenu?: (id: string) => void;
   /**
+   * Add items to one of the built-in toolbar menus (Add Data, Processing,
+   * Controls), the way a QGIS plugin adds itself to the Vector or Raster menu.
+   * The host nests the items under a submenu named after the plugin, after the
+   * built-in entries. Returns an unregister function (call it from
+   * `deactivate`). Re-registering the same id replaces the contribution. An
+   * unknown `menu` warns and is ignored rather than throwing. Typed optional
+   * for forward-compatibility, so call it with optional chaining.
+   */
+  registerMenuContribution?: (contribution: GeoLibreMenuContribution) => () => void;
+  /** Remove a previously registered menu contribution. */
+  unregisterMenuContribution?: (id: string) => void;
+  /**
    * Register a plugin-owned floating panel: a draggable, closeable card the
    * host overlays on the map's top-left corner. Returns an unregister function
    * (call it from `deactivate`). The panel is not shown until
@@ -1077,6 +1135,27 @@ export interface GeoLibreToolbarMenu {
   /** Optional icon: a URL or `data:` URI rendered as an image. */
   icon?: string;
   /** Top-level items (actions, separators, or submenus). */
+  items: GeoLibreToolbarMenuItem[];
+}
+
+/** The built-in toolbar menus a plugin can add items to. */
+export const GEOLIBRE_MENU_CONTRIBUTION_TARGETS = ["addData", "processing", "controls"] as const;
+
+/** A built-in toolbar menu that accepts plugin contributions. */
+export type GeoLibreMenuContributionTarget = (typeof GEOLIBRE_MENU_CONTRIBUTION_TARGETS)[number];
+
+/**
+ * Items a plugin adds to a built-in toolbar menu. The host renders them inside
+ * a submenu named after the plugin at the end of {@link menu}; contributions
+ * from the same plugin to the same menu share that submenu, separated by a
+ * divider.
+ */
+export interface GeoLibreMenuContribution {
+  /** Stable unique id used to unregister the contribution. */
+  id: string;
+  /** The built-in menu to add the items to. */
+  menu: GeoLibreMenuContributionTarget;
+  /** The items (actions, separators, or submenus), same shape as toolbar menus. */
   items: GeoLibreToolbarMenuItem[];
 }
 

@@ -3341,6 +3341,9 @@
       "activate": "Aktivləşdir",
       "position": "Mövqe",
       "webServices": "Veb xidmətləri",
+      "installedPlugins": "Quraşdırılanlar",
+      "managePlugins": "Plaginləri idarə et…",
+      "showMenuInToolbar": "Menyunu alətlər panelində göstər",
       "dggs": "DGGS",
       "commandPalette": "Əmrlər palitrası",
       "openProjectFromUrl": "Layihəni URL-dən aç",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} rastr layı",
       "savePromptTitle": "Cari layihə yadda saxlanılsın?",
       "savePromptDescription": "Cari layihədə yadda saxlanmamış dəyişikliklər var. Buraxılan layihəni açmazdan əvvəl onları yadda saxlamaq istəyirsiniz?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Bağlamazdan əvvəl dəyişikliklər yadda saxlanılsın?",
+      "savePromptDescription": "Cari layihədə yadda saxlanmamış dəyişikliklər var. GeoLibre bağlanmazdan əvvəl onlar yadda saxlanılsın?"
     },
     "error": {
       "couldNotOpenProject": "Layihəni açmaq mümkün olmadı.",

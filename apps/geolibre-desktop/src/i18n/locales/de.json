@@ -3341,6 +3341,9 @@
       "activate": "Aktivieren",
       "position": "Position",
       "webServices": "Webdienste",
+      "installedPlugins": "Installiert",
+      "managePlugins": "Plugins verwalten…",
+      "showMenuInToolbar": "Menü in der Symbolleiste anzeigen",
       "dggs": "DGGS",
       "commandPalette": "Befehlspalette",
       "openProjectFromUrl": "Projekt von URL öffnen",
@@ -3539,6 +3542,10 @@
       "bothRasterLayers_other": "{{count}} Rasterebenen",
       "savePromptTitle": "Aktuelles Projekt speichern?",
       "savePromptDescription": "Das aktuelle Projekt enthält ungespeicherte Änderungen. Möchten Sie sie speichern, bevor das abgelegte Projekt geöffnet wird?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Änderungen vor dem Schließen speichern?",
+      "savePromptDescription": "Das aktuelle Projekt enthält nicht gespeicherte Änderungen. Vor dem Schließen von GeoLibre speichern?"
     },
     "error": {
       "couldNotOpenProject": "Projekt konnte nicht geöffnet werden.",

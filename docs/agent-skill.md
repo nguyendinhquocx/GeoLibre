@@ -23,7 +23,9 @@ should produce a GeoLibre map as its output.
 | Output | Edits you can undo with Ctrl/Cmd + Z | A project file and/or a standalone HTML page |
 
 They compose: an agent authors the project, you open it in GeoLibre and keep
-working with the Assistant.
+working with the Assistant. The MCP server's `live_*` tools are a third path:
+they move the map already open in Desktop, through the Notebook relay. See
+[MCP server](mcp.md).
 
 ## What it teaches
 

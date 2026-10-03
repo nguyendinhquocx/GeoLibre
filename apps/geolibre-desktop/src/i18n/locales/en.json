@@ -130,6 +130,12 @@
       "trustButton": "Trust and load",
       "dismissButton": "Don't load"
     },
+    "registryTrust": {
+      "title_one": "Install this plugin?",
+      "title_other": "Install these plugins?",
+      "description_one": "This link opens a plugin from the official GeoLibre plugin registry that is not installed yet. Installing it adds it to your plugins and activates it.",
+      "description_other": "This link opens {{count}} plugins from the official GeoLibre plugin registry that are not installed yet. Installing them adds them to your plugins and activates them."
+    },
     "title": "Manage Plugins",
     "searchAria": "Search plugins",
     "searchPlaceholder": "Search plugins",
@@ -174,7 +180,10 @@
     "errorDirectoryPicker": "Could not open the directory picker.",
     "errorInstall": "Could not install the plugin.",
     "errorUninstall": "Could not uninstall the plugin.",
-    "description": "Browse, install, update, and remove external GeoLibre plugins. Plugins are listed in the <registryLink>GeoLibre plugin registry</registryLink>."
+    "description": "Browse, install, update, and remove external GeoLibre plugins. Plugins are listed in the <registryLink>GeoLibre plugin registry</registryLink>.",
+    "policySideloadDisabled": "Plugin sideloading is disabled by deployment policy.",
+    "policyBlocked": "Plugin '{{pluginId}}' is blocked by deployment policy.",
+    "policyNotAllowed": "Plugin '{{pluginId}}' is not allowed by deployment policy."
   },
   "viewState": {
     "panelTitle": "Info"
@@ -3344,6 +3353,9 @@
       "activate": "Activate",
       "position": "Position",
       "webServices": "Web Services",
+      "installedPlugins": "Installed",
+      "managePlugins": "Manage Plugins…",
+      "showMenuInToolbar": "Show menu in toolbar",
       "dggs": "DGGS",
       "commandPalette": "Command Palette",
       "openProjectFromUrl": "Open project from URL",
@@ -3543,6 +3555,10 @@
       "bothRasterLayers_other": "{{count}} raster layers",
       "savePromptTitle": "Save current project?",
       "savePromptDescription": "The current project has unsaved changes. Save them before opening the dropped project?"
+    },
+    "windowClose": {
+      "savePromptTitle": "Save changes before closing?",
+      "savePromptDescription": "The current project has unsaved changes. Save them before closing GeoLibre?"
     },
     "error": {
       "couldNotOpenProject": "Could not open project.",
@@ -8015,6 +8031,10 @@
     "exportedWithWarnings": "Layer exported. {{warnings}}",
     "exported": "Layer exported.",
     "exportLayerError": "Could not export this layer.",
+    "export3dModel": "3D model: {{format}}",
+    "export3dModelNoSolids": "No extruded polygons to export. Give the layer polygons with a height above the extrusion base.",
+    "export3dModelSkipped_one": "3D model exported. {{count}} feature with no height above the base or no area was left out.",
+    "export3dModelSkipped_other": "3D model exported. {{count}} features with no height above the base or no area were left out.",
     "exportPolyline": "Encoded Polyline (precision {{precision}})",
     "refreshIntervals": {
       "off": "Off",
