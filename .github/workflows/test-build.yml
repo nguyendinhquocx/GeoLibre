@@ -50,7 +50,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'test-build'
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

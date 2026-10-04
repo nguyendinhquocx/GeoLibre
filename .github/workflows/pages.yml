@@ -20,7 +20,6 @@ jobs:
   build:
     name: Build website and demo
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -97,7 +96,6 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -15,33 +15,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    # Decides which of the path-scoped jobs below a pull request needs. Lint and
-    # "Build and test" always run: the frontend tests read files all over the
-    # repo (backend/, python/, docs/, src-tauri/), so no path is safe to skip
-    # for them. Every other job runs on a PR only when a path that feeds it
-    # changed, and always on push and workflow_dispatch (this job is skipped
-    # there). Each filter includes this workflow file, so a CI edit exercises
-    # every job. When a job starts reading a new part of the repo, add that path
-    # to its filter here.
-    name: Detect changed paths
+  audit:
+    name: Dependency audit
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      web: ${{ steps.filter.outputs.web }}
-      containers: ${{ steps.filter.outputs.containers }}
-      backend: ${{ steps.filter.outputs.backend }}
-      rust: ${{ steps.filter.outputs.rust }}
-      identity: ${{ steps.filter.outputs.identity }}
-      mssql: ${{ steps.filter.outputs.mssql }}
     steps:
-      - name: Classify changed files
-        id: filter
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+      - name: Checkout repository
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -60,20 +39,9 @@ jobs:
       - name: Audit npm dependencies (high and critical)
         run: npm audit --omit=dev --audit-level=high
 
-      # tsx runs the tests without checking their types; this does, against a
-      # committed error-count baseline (`--max-errors` in the root package.json)
-      # that can only go down. See "Test type-check ratchet" in
-      # docs/maintenance.md. Runs after the step above, which built the
-      # @geolibre/embed dist/ types some tests import through the app.
-      - name: Type check tests (ratchet)
-        run: npm run typecheck:tests
-
   e2e:
     name: E2E smoke (Playwright)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -156,18 +124,8 @@ jobs:
           fi
 
   checks:
-    # The web half of `npm run ci` (`npm run ci:frontend`): i18n and gallery
-    # drift checks, the production build, the frontend unit tests with their
-    # coverage floors, the untested-module ratchet over that coverage run (see
-    # "Untested module ratchet" in docs/maintenance.md), and the worker type
-    # checks/tests. Lint runs in the "Lint
-    # and type check" job above, and the backend and Rust halves of the gate run
-    # in their own jobs below, so the three proceed in parallel instead of
-    # queueing behind each other here. Together the jobs run every step of
-    # `npm run ci`; keep them in step with that script in package.json.
     name: Build and test
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -180,52 +138,6 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: package-lock.json
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Run frontend CI gate (i18n/gallery checks, build, frontend + worker tests, untested modules)
-        run: npm run ci:frontend
-        env:
-          VITE_GEE_OAUTH_CLIENT_ID: ${{ secrets.VITE_GEE_OAUTH_CLIENT_ID }}
-
-      # Per-asset raw/gzip sizes and the boot set against its budgets (see
-      # "Boot bundle budget" in docs/maintenance.md). Runs whenever the build
-      # produced output, even if a later test in the gate failed. Diagnostic
-      # only: the build itself enforces the budgets, so a report-script failure
-      # must not fail the job.
-      - name: Bundle size report
-        if: ${{ !cancelled() && hashFiles('apps/geolibre-desktop/dist/index.html') != '' }}
-        continue-on-error: true
-        run: |
-          npm run bundle:report
-          cat bundle-report/bundle-report.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload bundle size report
-        if: ${{ !cancelled() && hashFiles('bundle-report/bundle-report.json') != '' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: bundle-report
-          path: bundle-report/
-          retention-days: 30
-
-  backend:
-    # The Python half of `npm run ci` (`npm run ci:backend`: sidecar tests with
-    # their coverage floor, plus docker/tests), and the projects-and-identity
-    # server suite. Needs no Node dependencies: `npm run` only reads the root
-    # package.json scripts, so this job deliberately skips setup-node and uses
-    # the runner image's bundled npm. Add setup-node if `ci:backend` ever gains
-    # a step that needs Node itself.
-    name: Backend tests
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true') }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -287,7 +199,7 @@ jobs:
       # pip-audit runs in a throwaway venv against a frozen snapshot of the test
       # environment (--exclude-editable drops the local geolibre_server checkout,
       # which isn't on PyPI). This keeps its own dependency resolution from
-      # mutating the environment the backend test step below runs against.
+      # mutating the environment the "Run CI gate" step below tests against.
       - name: Audit Python dependencies (advisory, non-blocking)
         continue-on-error: true
         run: |
