@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import { DEFAULT_LAYER_STYLE, type GeoLibreLayer } from "@geolibre/core";
-import { compileMapboxLayer, isInternalMapboxLayer } from "../packages/map/src/mapbox-layers";
+import { compileMapboxLayer } from "../packages/map/src/gl-style-compiler";
+import { isInternalMapboxLayer } from "../packages/map/src/mapbox-layers";
 import { geojsonLayer } from "./helpers/layer-fixtures";
 
 // The Style panel's symbology on the Mapbox renderer, compiled the way
@@ -68,7 +69,7 @@ describe("Mapbox symbology compilation", () => {
       ]),
     );
     const text = layers.find((spec) => spec.id.endsWith("-text-markers"));
-    assert.ok(text);
+    assert.ok(text && text.type === "symbol");
     assert.match(JSON.stringify(text.layout?.["text-field"]), /__gm_text/);
     const circle = layers.find((spec) => spec.type === "circle");
     assert.match(JSON.stringify(circle?.filter), /"!",\["any"/);
@@ -81,7 +82,8 @@ describe("Mapbox symbology compilation", () => {
     const fill = layers.find((spec) => spec.type === "fill");
     assert.equal(typeof fill?.paint?.["fill-pattern"], "string");
     const decoration = layers.find((spec) => spec.id.endsWith("-line-decoration"));
-    assert.equal(decoration?.layout?.["symbol-placement"], "line");
+    assert.ok(decoration?.type === "symbol");
+    assert.equal(decoration.layout?.["symbol-placement"], "line");
     assert.ok(decoration && isInternalMapboxLayer(decoration));
   });
 

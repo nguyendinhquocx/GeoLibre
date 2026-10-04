@@ -107,6 +107,15 @@ export interface GeoLibreTileLayerOptions {
   opacity?: number;
   /** Insert the new layer directly beneath the layer with this id. */
   beforeLayerId?: string;
+  /**
+   * Provenance fields merged into the new layer's `metadata`, e.g. the
+   * catalogue record id, a link to its metadata page, the publisher, or the
+   * licence. Shown in the layer's Metadata dialog and saved with the project,
+   * so the layer keeps the trace of where it was found. Must be a plain
+   * JSON-serializable object. Credential-named fields (`token`, `apiKey`, ...)
+   * are stripped when the project is shared or exported.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -139,6 +148,13 @@ export interface GeoLibreWmsLayerOptions extends GeoLibreTileLayerOptions {
    * such a layer stays blank there. Any other value throws.
    */
   crs?: string;
+  /**
+   * Pass `false` when the service's capabilities mark the requested layers
+   * `queryable="0"`: identify then sends no GetFeatureInfo for this layer and
+   * says the layer provides no feature information. Omitted or `true`, the
+   * layer is queried.
+   */
+  queryable?: boolean;
 }
 
 /** Options for adding a host-managed WFS GetFeature layer. */
@@ -155,6 +171,12 @@ export interface GeoLibreWfsLayerOptions {
    * `east` throws instead of being read as a Pacific-spanning box.
    */
   bbox?: [number, number, number, number];
+  /**
+   * Provenance fields merged into the new layer's `metadata`, as for
+   * {@link GeoLibreTileLayerOptions.metadata}. GeoLibre's own WFS request keys
+   * win over a field of the same name.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -1016,6 +1038,19 @@ export interface GeoLibreAppAPI {
     defaultValue: string,
     params?: Record<string, string | number>,
   ) => string;
+  /**
+   * Ship a plugin's own translations, so an externally installed plugin can
+   * localize without a GeoLibre catalog change. `resources` maps a locale code
+   * to flat dotted keys, e.g.
+   * `{ de: { "plugin.my-plugin.title": "Werkbank" } }`; {@link translate}
+   * then resolves those keys in that locale.
+   *
+   * Only string values under `plugin.<id>.` are accepted (anything else is
+   * dropped with a console warning), and a key the host's bundled catalogs
+   * already define keeps the host's text. Registrations last for the session;
+   * re-registering the same key is a no-op, so call it once from `activate`.
+   */
+  registerTranslations?: (resources: Record<string, Record<string, string>>) => void;
   /**
    * Save small secrets (access tokens, API keys) for this plugin. On the
    * desktop app they live in the OS credential store; on the web build, the

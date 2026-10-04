@@ -24,7 +24,9 @@ npm run build          # production web build → apps/geolibre-desktop/dist/
 npm run lite:build     # same, but DuckDB-WASM from jsDelivr — for hosts with a per-asset size cap
 npm run tauri:build    # desktop installers → apps/geolibre-desktop/src-tauri/target/release/bundle/
 npm run typecheck      # alias for the full build (tsc -b && vite build) — writes to dist/, not a pure type-check
-npm run ci             # full local gate: build + frontend + worker + backend + rust check
+npm run ci             # full local gate: lint + ci:frontend + typecheck:tests + ci:backend + check:rust
+npm run ci:frontend    # build + frontend + worker tests (CI runs the halves as parallel jobs)
+npm run ci:backend     # backend + docker/tests (needs Python and the npm CLI, no npm install)
 ```
 
 Tests:
@@ -39,6 +41,7 @@ python -m pytest backend/geolibre_server/tests/test_x.py::test_y   # a single ba
 npm run test:worker                                # typecheck workers/viewer
 npm run test:e2e                                   # Playwright smoke tests (e2e/) against the built web app
 npm run check:rust                                 # cargo check the Tauri crate
+npm run typecheck:tests                            # tsc over tests/, ratcheted on an error-count baseline (docs/maintenance.md)
 cd python && pytest                                # the geolibre Python package's own suite
 ```
 
@@ -127,9 +130,14 @@ and the server ships untested.
 ## Conventions
 
 - Never commit directly to `main`; branch and open a PR.
-- Tauri CSP allowlists tile/style hosts (OpenFreeMap, CARTO) — new external
-  map/tile hosts must be added there. Map/tile-host CORS for selected release
-  assets is handled by a dev-server raster proxy.
+- CSP: `connect-src`/`img-src` allow any `https:` (desktop also `http:`), so a
+  new map/tile/service host needs no CSP change. `script-src` is pinned: the
+  desktop (`tauri.conf.json`) and web (`docker/nginx.conf`) CSPs list
+  version-specific jsDelivr paths that `tests/tauri-csp.test.ts` re-derives, so
+  a bump that moves a CDN script URL (or a new script host) must update both
+  files — see [`docs/maintenance.md`](docs/maintenance.md#desktop-csp-script-src-allowlist).
+  Map/tile-host CORS for selected release assets is handled by a dev-server
+  raster proxy.
 - For MapLibre control styling fixes, add scoped overrides in
   `apps/geolibre-desktop/src/index.css`, never edit `node_modules`.
 - UI strings are translatable via **react-i18next**; catalogs live in

@@ -8,7 +8,58 @@
     "discard": "破棄",
     "restoreError": "このスナップショットを復元できませんでした。破損しているか、このバージョンの GeoLibre と互換性がない可能性があります。",
     "recoveryTitle": "保存されていない作業を復元しますか？",
-    "recoveryDescription": "GeoLibre が正常に終了しませんでした。「{{name}}」のより新しい自動保存が利用できます。"
+    "recoveryDescription": "GeoLibre が正常に終了しませんでした。「{{name}}」のより新しい自動保存が利用できます。",
+    "autosavePaused": "自動保存は一時停止中です: このプロジェクトは {{limit}} MB を超えているため、新しいスナップショットは保存されません。作業を失わないようにディスクに保存してください。",
+    "diff": {
+      "compare": "比較",
+      "compareAria": "{{date}} のスナップショットを比較",
+      "back": "スナップショット一覧に戻る",
+      "title": "スナップショットの比較",
+      "compareWith": "比較対象",
+      "current": "現在のプロジェクト",
+      "snapshotOption": "{{date}} のスナップショット",
+      "range": "{{before}} から {{after}} までの変更",
+      "changeCount_other": "{{count}} 件の変更",
+      "noChanges": "差分はありません。",
+      "parseError": "比較のためにこのスナップショットを読み込めませんでした。",
+      "currentError": "比較のために現在のプロジェクトを読み込めませんでした。",
+      "none": "（なし）",
+      "added": "追加",
+      "removed": "削除",
+      "changed": "変更",
+      "layers": "レイヤー",
+      "layerOrder": "レイヤーの順序が変更されました",
+      "renamed": "「{{name}}」から名前を変更",
+      "moved": "レイヤーの順序内で移動",
+      "visibility": "表示",
+      "visible": "表示",
+      "hidden": "非表示",
+      "opacity": "不透明度",
+      "style": "スタイル",
+      "labels": "ラベル",
+      "filter": "フィルター",
+      "source": "ソース",
+      "other": "その他",
+      "features": "地物: 追加 {{added}}、削除 {{removed}}、変更 {{modified}}",
+      "featuresByGeometry": "id のない地物はジオメトリで照合しました。",
+      "featureCount_other": "{{count}} 件の地物",
+      "map": "マップ",
+      "camera": "カメラ",
+      "basemap": "ベースマップ",
+      "projection": "投影法",
+      "plugins": "プラグイン",
+      "pluginEnabled": "有効",
+      "pluginDisabled": "無効",
+      "manifests": "プラグインマニフェスト",
+      "project": "プロジェクト",
+      "details": "タイトルと詳細",
+      "preferences": "設定",
+      "sections": "その他の変更されたセクション",
+      "restoreLayer": "このレイヤーを復元",
+      "restoreLayerAria": "このスナップショットからレイヤー {{name}} を復元",
+      "layerRestored": "「{{name}}」を復元しました。元に戻すには「元に戻す」を使用してください。",
+      "restoreLayerError": "スナップショットからこのレイヤーを復元できませんでした。"
+    }
   },
   "browser": {
     "title": "ブラウザ",
@@ -128,6 +179,10 @@
       "trustButton": "信頼して読み込む",
       "dismissButton": "読み込まない"
     },
+    "registryTrust": {
+      "title_other": "プラグインをインストールしますか?",
+      "description_other": "このリンクは、公式 GeoLibre プラグインレジストリにある未インストールのプラグイン {{count}} 件を開きます。インストールすると、プラグインに追加されて有効になります。"
+    },
     "title": "プラグインの管理",
     "searchAria": "プラグインを検索",
     "searchPlaceholder": "プラグインを検索",
@@ -172,7 +227,11 @@
     "errorDirectoryPicker": "ディレクトリ選択ダイアログを開けませんでした。",
     "errorInstall": "プラグインをインストールできませんでした。",
     "errorUninstall": "プラグインをアンインストールできませんでした。",
-    "description": "外部の GeoLibre プラグインを閲覧、インストール、更新、削除します。プラグインは <registryLink>GeoLibre プラグインレジストリ</registryLink>に掲載されています。"
+    "description": "外部の GeoLibre プラグインを閲覧、インストール、更新、削除します。プラグインは <registryLink>GeoLibre プラグインレジストリ</registryLink>に掲載されています。",
+    "policySideloadDisabled": "デプロイポリシーにより、プラグインのサイドロードは無効になっています。",
+    "policyBlocked": "プラグイン「{{pluginId}}」はデプロイポリシーによってブロックされています。",
+    "policyBlocklisted": "プラグイン「{{pluginId}}」はプラグインレジストリによってブロックされました: {{reason}}",
+    "policyNotAllowed": "プラグイン「{{pluginId}}」はデプロイポリシーで許可されていません。"
   },
   "viewState": {
     "panelTitle": "情報"
@@ -199,9 +258,13 @@
       "dd": "十進度",
       "dms": "度分秒",
       "ddm": "度・十進分",
-      "utm": "UTM（ゾーン、東距/北距）"
+      "utm": "UTM（ゾーン、東距/北距）",
+      "mgrs": "MGRS（軍用グリッド参照系）",
+      "usng": "USNG（米国国家グリッド）",
+      "epsg": "投影座標（EPSG:{{code}}）"
     },
-    "coordinateFormatHint": "座標形式: {{format}}。クリックで切り替え。"
+    "coordinateFormatHint": "座標形式: {{format}}。クリックで切り替え。",
+    "autosavePaused": "自動保存一時停止中"
   },
   "fileNamePrompt": {
     "title": "名前を付けて保存",
@@ -223,8 +286,15 @@
     "projectName": "プロジェクト名",
     "savedTemplates": "保存済みテンプレート",
     "deleteTemplate": "テンプレートを削除",
+    "examples": "サンプル",
+    "examplesDescription": "公開済みのデモマップから始めます。コピーを開きます（インターネット接続が必要です）。",
+    "exampleOpenFailed": "「{{title}}」を開けませんでした。",
     "basemapLabel": "ベースマップ",
     "create": "作成"
+  },
+  "cvdPreview": {
+    "badge": "色覚プレビュー：{{mode}}",
+    "turnOff": "色覚プレビューをオフにする"
   },
   "basemapPicker": {
     "title": "背景を変更",
@@ -2141,7 +2211,36 @@
     "viewshedHere": "ここからの可視領域 ({{radius}})",
     "viewshedLayerName": "可視領域 ({{radius}})",
     "viewshedToolName": "可視領域",
-    "viewshedNoResult": "ここでは可視領域を計算できませんでした。"
+    "viewshedNoResult": "ここでは可視領域を計算できませんでした。",
+    "lineOfSightHere": "ここから見通し線"
+  },
+  "lineOfSight": {
+    "title": "見通し線",
+    "close": "見通し線を閉じる",
+    "observerHeight": "観測者の高さ (m)",
+    "targetHeight": "目標の高さ (m)",
+    "curvature": "地球の曲率と大気差",
+    "pickObserver": "地図をクリックして観測者を配置します。",
+    "pickTarget": "地図をクリックして目標を配置します。",
+    "pickAgain": "地図をクリックして新しい線を開始します。",
+    "loading": "線に沿って地形を読み込んでいます…",
+    "noTerrain": "この線に沿った地形を読み込めませんでした。",
+    "tooLong": "線が {{max}} を超えています。より近い目標を選んでください。",
+    "visible": "目標は見えます",
+    "notVisible": "目標は見えません",
+    "distance": "距離",
+    "firstObstruction": "最初の障害物",
+    "obstructionValue": "{{distance}} 先、{{elevation}}",
+    "highestPoint": "最高地点",
+    "highestValue": "{{distance}} 地点で {{elevation}}",
+    "groundVisible": "見える地表",
+    "resolution": "地形の解像度",
+    "saveLayer": "レイヤーとして保存",
+    "saved": "保存済み",
+    "clear": "クリア",
+    "layerName": "見通し線 ({{distance}})",
+    "chartLabel": "見通し線に沿った標高断面",
+    "legend": "線の色は観測者から見える地表（緑）と見えない地表（赤）を示します。上の表示は目標の頂部についての判定です。"
   },
   "knowledgeCard": {
     "title": "場所の情報",
@@ -2379,7 +2478,10 @@
       "scaleUnitHint": "地図下部のスケールバーに表示する単位を選択します。",
       "errorBoundsUnavailable": "地図の表示範囲がまだ取得できていません。",
       "coordinateFormat": "座標形式",
-      "coordinateFormatHint": "ステータスバーがポインター座標を表示する表記です。 ステータスバーの座標をクリックすると表記を切り替えられます。"
+      "coordinateFormatHint": "ステータスバーがポインター座標を表示する表記です。 ステータスバーの座標をクリックすると表記を切り替えられます。",
+      "coordinateEpsg": "座標参照系（EPSG）",
+      "coordinateEpsgHint": "ステータスバーがポインター座標を投影する EPSG コードです（例: 3857 (Web Mercator)、32618 (UTM ゾーン 18N)）。",
+      "coordinateEpsgUnknown": "不明な EPSG コードです。既知のコードが入力されるまで、ステータスバーは十進度で表示します。"
     },
     "layout": {
       "title": "レイアウト",
@@ -2673,16 +2775,19 @@
       "apiKeys": {
         "title": "APIキー",
         "description": "キーはこのブラウザーにのみ保存され、プロジェクトと一緒に保存されることはありません。",
+        "descriptionKeychain": "キーはシステムのキーチェーンに保存され、プロジェクトと一緒に保存されることはありません。",
         "tomtom": "TomTom(道路交通のライブ交通流)",
         "aisstream": "AISStream(ライブAIS船舶)",
         "placeholder": "APIキーを貼り付け",
         "save": "保存",
         "clear": "クリア",
         "fromPanel": "このブラウザーに保存済み",
+        "fromPanelKeychain": "システムのキーチェーンに保存済み",
         "fromEnvironment": "環境変数のキーを使用中",
         "notSet": "未設定",
         "getKey": "無料のキーを取得",
-        "saveFailed": "このブラウザーにキーを保存できませんでした。"
+        "saveFailed": "このブラウザーにキーを保存できませんでした。",
+        "saveFailedKeychain": "キーをシステムのキーチェーンに保存できませんでした。GeoLibre を閉じるまでは使用できます。"
       }
     }
   },
@@ -2835,7 +2940,8 @@
       "view": "表示",
       "help": "ヘルプ",
       "plugins": "プラグイン",
-      "settings": "設定"
+      "settings": "設定",
+      "tools": "ツール"
     },
     "command": {
       "projectNew": "新規プロジェクト",
@@ -2874,6 +2980,7 @@
       "segmentation": "AIセグメンテーション",
       "objectDetection": "物体検出",
       "segmentEverything": "すべてをセグメント化",
+      "lineOfSight": "見通し線",
       "toggleControl": "{{name}}コントロールの表示切替",
       "toggleAtmosphereEffects": "大気効果の表示切替",
       "toggleDirections": "経路案内の表示切替",
@@ -3183,6 +3290,12 @@
       "splitViewGrid2x3": "2 × 3 グリッド",
       "splitViewGrid3x3": "3 × 3 グリッド",
       "splitViewSync": "ビューを同期",
+      "colorVisionPreview": "色覚プレビュー",
+      "cvdOff": "オフ",
+      "cvdProtanopia": "1型色覚（P型）",
+      "cvdDeuteranopia": "2型色覚（D型）",
+      "cvdTritanopia": "3型色覚（T型）",
+      "cvdAchromatopsia": "全色盲（色なし）",
       "renderingEngine": "レンダリングエンジン",
       "rendererMapLibre": "MapLibre",
       "rendererMapbox": "Mapbox",
@@ -3297,6 +3410,7 @@
       "showMenuInToolbar": "ツールバーにメニューを表示",
       "dggs": "DGGS",
       "commandPalette": "コマンドパレット",
+      "simplifyInterface": "インターフェースを簡素化...",
       "openProjectFromUrl": "URL からプロジェクトを開く",
       "importQgisProjectEllipsis": "QGIS プロジェクトをインポート…",
       "importArcgisProjectEllipsis": "ArcGIS Pro プロジェクトをインポート…",
@@ -3454,6 +3568,7 @@
       "maplibre-gl-geoagent": "GeoAgent",
       "maplibre-gl-geolens": "GeoLens",
       "maplibre-gl-vantor": "Vantor オープンデータ",
+      "maplibre-gl-usgs-dem": "USGS 3DEP",
       "maplibre-gl-graticule": "グリッド線",
       "maplibre-gl-mapillary": "Mapillary",
       "maplibre-gl-nasa-earthdata": "NASA Earthdata",
@@ -4398,6 +4513,7 @@
     "tooLargeToOpen": "このファイルは {{size}} で、ブラウザで開くには大きすぎます({{limit}} の上限)。ダウンロードするか、このデータセットの分割版を使用してください。",
     "tokenLabel": "アクセストークン",
     "tokenHint": "データセットリポジトリの作成とファイルのアップロードには、書き込み権限のある Hugging Face アクセストークンが必要です。トークンはこのブラウザにのみ保存され、huggingface.co にのみ送信されます。",
+    "tokenHintKeychain": "データセットリポジトリの作成とファイルのアップロードには、書き込み権限のある Hugging Face アクセストークンが必要です。トークンはシステムのキーチェーンに保存され、huggingface.co にのみ送信されます。",
     "tokenPlaceholder": "hf_…",
     "tokenSave": "トークンを保存",
     "tokenClear": "クリア",
@@ -4502,7 +4618,12 @@
     "cancel": "キャンセル",
     "saveElement": "要素を保存",
     "atPoint": "地点に固定",
-    "pinnedToExtent": "範囲に固定"
+    "pinnedToExtent": "範囲に固定",
+    "editorColor": "色",
+    "noElements": "まだ地図要素がありません。",
+    "moveUp": "上に移動",
+    "moveDown": "下に移動",
+    "deleteElement": "削除"
   },
   "dimensions": {
     "toolbar": "寸法ツール",
@@ -5019,6 +5140,8 @@
         "projectedHint": "対象のCRSでダウンロードフォルダに保存されます。マップにはEPSG:4326のみ表示されるため、投影された結果はレイヤーとして追加されません。"
       },
       "filterBySource": "ソースで絞り込み",
+      "filterByCategory": "カテゴリで絞り込む",
+      "layerFor": "{{name}} のレイヤー",
       "allSources": "すべてのソース",
       "geolibreTools": "GeoLibreツール",
       "whiteboxTools": "Whiteboxツール",
@@ -7869,6 +7992,9 @@
     "exportedWithWarnings": "レイヤーをエクスポートしました。{{warnings}}",
     "exported": "レイヤーをエクスポートしました。",
     "exportLayerError": "このレイヤーをエクスポートできませんでした。",
+    "export3dModel": "3D モデル: {{format}}",
+    "export3dModelNoSolids": "エクスポートする押し出しポリゴンがありません。押し出しの基準面より高いポリゴンをレイヤーに含めてください。",
+    "export3dModelSkipped_other": "3D モデルをエクスポートしました。基準面より高さがない、または面積のない {{count}} 件のフィーチャーは除外されました。",
     "exportPolyline": "エンコードポリライン（精度 {{precision}}）",
     "refreshIntervals": {
       "off": "オフ",
@@ -7926,6 +8052,11 @@
     "viewportStretchNoValues": "表示範囲内にラスター値が見つかりません。",
     "viewportStretchNoRange": "表示範囲の値から範囲を決定できません。",
     "viewportStretchMoved": "読み込みが完了する前に地図が移動しました。もう一度適用してください。",
+    "histogram": "ヒストグラム",
+    "histogramLoading": "ヒストグラムを計算中…",
+    "histogramUnavailable": "このバンドのヒストグラムはありません。",
+    "histogramMinAria": "ストレッチの最小値、{{band}}",
+    "histogramMaxAria": "ストレッチの最大値、{{band}}",
     "index": "指数",
     "opacityClasses": "不透明度クラス",
     "classifyToggle": "離散的なクラスに分類する",
@@ -8164,12 +8295,27 @@
     "copyJson": "JSON をコピー",
     "copied": "コピーしました",
     "clear": "クリア",
+    "reportIssue": "問題を報告",
     "emptyAll": "診断情報は記録されていません。",
     "emptyError": "エラーの診断情報は記録されていません。",
     "emptyWarning": "警告の診断情報は記録されていません。",
     "emptyInfo": "情報の診断情報は記録されていません。",
     "emptyNetwork": "ネットワークの診断情報は記録されていません。",
     "emptyNetworkError": "ネットワークエラーの診断情報は記録されていません。"
+  },
+  "notifications": {
+    "regionLabel": "通知",
+    "dismiss": "通知を閉じる",
+    "reportIssue": "問題を報告",
+    "repeated": "×{{count}}",
+    "layerLoadFailed": "レイヤー「{{name}}」を読み込めませんでした",
+    "layerLoadFailedHint": "URL、ネットワーク接続、必要な API キーを確認してください。詳細は診断パネルにあります。",
+    "fileReadFailed": "「{{name}}」を読み込めなかったため、スキップしました。",
+    "libraryLayerRestoreFailed": "マイデータから「{{name}}」を追加できませんでした。",
+    "localLayersDropped_other": "{{count}} 個のレイヤーを削除しました: ファイルを読み込めませんでした ({{path}})。",
+    "pluginActivateFailed": "リンクからプラグイン「{{id}}」を起動できませんでした。",
+    "pluginMenuActionFailed": "メニュー操作「{{name}}」が失敗しました。",
+    "recordingOverlaysSkipped": "マップのパネルをキャプチャできなかったため、録画にはマップのみが表示されます。"
   },
   "shell": {
     "workspaceTitle": "GeoLibre マップワークスペース",
@@ -8487,12 +8633,56 @@
     "catalogNmwdiSt": "ニューメキシコ州の水文観測地点",
     "catalogFlowlines": "NHDPlus流路"
   },
+  "usgsDem": {
+    "title": "USGS 3DEP",
+    "hint": "USGS 3DEP の数値標高モデルを検索して地図に読み込みます。",
+    "search": "DEM を検索",
+    "searching": "USGS API を検索中...",
+    "noResults": "選択した範囲に標高モデルが見つかりません。",
+    "showing": "{{total}} 件中 {{shown}} 件の標高モデルを表示",
+    "searchError": "検索に失敗しました: {{message}}",
+    "add": "地図に読み込む",
+    "adding": "読み込み中...",
+    "download": "ダウンロード",
+    "zoom": "ズーム",
+    "modeView": "現在の表示範囲",
+    "modeDraw": "BBox を描画",
+    "modeBbox": "座標",
+    "modeQuad": "24K 図郭",
+    "drawHint": "地図上でクリックしてドラッグし、検索用のバウンディングボックスを描画します。",
+    "drawStart": "ボックスを描画",
+    "drawCancel": "描画をキャンセル",
+    "drawnBox": "描画したバウンディングボックス: {{box}}",
+    "coordWest": "西",
+    "coordSouth": "南",
+    "coordEast": "東",
+    "coordNorth": "北",
+    "quadName": "図郭名 (例: Mount St. Helens)",
+    "stateName": "州 (例: WA)",
+    "quadSearchHint": "USGS の標準 1:24,000 地形図郭の範囲を検索します。",
+    "datasets": "標高データセット",
+    "format": "形式",
+    "filterRedundant": "重複する部分タイルを除外",
+    "footprintsLayer": "USGS 3DEP フットプリント",
+    "exportGeoJson": "GeoJSON をエクスポート",
+    "errorNoBounds": "現在の地図範囲を特定できませんでした。",
+    "errorNoDrawnBox": "先に地図上でバウンディングボックスを描画してください。",
+    "errorInvalidCoords": "西、南、東、北に有効な数値座標を入力してください。",
+    "errorQuadInputs": "図郭名と州の両方を入力してください。",
+    "errorQuadNotFound": "州「{{state}}」で 24K 地形図郭「{{quad}}」が見つかりませんでした。",
+    "loadError": "DEM の読み込みに失敗しました: {{message}}"
+  },
   "plugin": {
     "3d-tiles": {
       "arcgisSourceUnsupported": "この ArcGIS ビューでは 3D Tiles の tileset.json URL を使用してください。Google Photorealistic と I3S のタイルには別のレンダラーが必要です。",
       "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles を地球儀上で読み込むには、設定で Google Maps API キーを指定する必要があります。",
       "headersHint": "1 行に 1 つ、Name: Value の形式で入力します。${NAME} を使うと 設定 → 環境変数 の環境変数を挿入できます。その値はレイヤーと一緒に保存されません。",
-      "insecureHeaders": "リクエストヘッダーは HTTPS のタイルセット URL (または localhost) にのみ送信されます。"
+      "insecureHeaders": "リクエストヘッダーは HTTPS のタイルセット URL (または localhost) にのみ送信されます。",
+      "showKey": "キーを表示",
+      "hideKey": "キーを非表示",
+      "showKeyAria": "Google Maps API キーを表示",
+      "hideKeyAria": "Google Maps API キーを非表示",
+      "toggleLayerAria": "{{name}}の表示切替"
     },
     "geolibre-osm-downloader": {
       "title": "OSMダウンローダー",
@@ -8926,6 +9116,36 @@
         "17": "橋床",
         "18": "高ノイズ"
       }
+    },
+    "geolibre-elevation-profile": {
+      "title": "標高プロファイル",
+      "drawHint": "地図をクリックしてポイントを追加します。ダブルクリックするか Enter キーを押すと終了します。",
+      "drawCancelled": "描画をキャンセルしました。",
+      "needTwoPoints": "プロファイルを作成するには少なくとも 2 つのポイントが必要です。",
+      "selectLineHint": "標高プロファイルを作成するラインフィーチャーを選択してください。",
+      "sampling": "標高をサンプリング中…",
+      "loadError": "標高データを読み込めませんでした。",
+      "closePanel": "パネルを閉じる",
+      "drawLine": "ラインを描画",
+      "finish": "終了",
+      "clear": "クリア",
+      "useSelected": "選択を使用",
+      "useSelectedTitle": "選択したラインフィーチャーからプロファイルを作成",
+      "selectLineFirst": "先にラインフィーチャーを選択してください",
+      "exportLabel": "エクスポート:",
+      "exportCsv": "プロファイルを CSV としてダウンロード",
+      "exportSvg": "グラフを SVG 画像として保存",
+      "statDistance": "距離",
+      "statMin": "最小",
+      "statMax": "最大",
+      "statAscent": "累積上昇 ↑",
+      "statDescent": "累積下降 ↓",
+      "unitsTitle": "単位: {{units}}"
+    },
+    "maplibre-gl-geoagent": {
+      "signIn": "サインイン",
+      "signInOpening": "Google サインインを開いています...",
+      "signInComplete": "Earth Engine へのサインインが完了しました。"
     }
   }
 }

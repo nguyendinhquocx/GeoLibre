@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   fileOutputTargetExtension,
+  lidarOutputTargetExtension,
   manifestScalarDefaults,
   mergeWasmToolManifests,
   normalizeVectorOutputFormat,
+  outputTextFormatHint,
   type ToolManifest,
   type WhiteboxTool,
 } from "@geolibre/processing";
@@ -86,10 +88,10 @@ describe("mergeWasmToolManifests", () => {
     // greater_than_or_equal_to, less_than_or_equal_to). They run through the
     // WASM runner like any other, so dropping them left the dialog listing
     // fewer tools than the binary provides.
+    // Whitebox provenance is an unset `source` once a manifest is converted.
     const wasmOnlyWhitebox: WhiteboxTool = {
       id: "buffer_vector",
       display_name: "Buffer Vector",
-      source: "whitebox",
       params: [{ name: "input", data_kind: "vector", io_role: "input" }],
     };
     const merged = mergeWasmToolManifests(
@@ -247,6 +249,7 @@ describe("mergeWasmToolManifests", () => {
     // variogram/cokriging tools and the >=/<= comparisons, which the snapshot
     // has never listed. They execute through the WASM runner (buffer_vector
     // turns 2 points into 2 polygons), so dropping them hid working tools.
+    // Whitebox provenance is an unset `source` once a manifest is converted.
     const wasmOnlyWhitebox: WhiteboxTool = {
       id: "some_wasm_only_whitebox_tool",
       params: [{ name: "input", data_kind: "raster", io_role: "input" }],
@@ -482,5 +485,44 @@ describe("fileOutputTargetExtension", () => {
       io_role: "output",
     };
     assert.equal(fileOutputTargetExtension(decimalProse, undefined), "csv");
+  });
+});
+
+describe("outputTextFormatHint name words", () => {
+  it("reads a format named by one word of a snake/kebab/camelCase name", () => {
+    // directional_variogram's `output_json`, as the WASM manifest reports it:
+    // its description never says JSON, and `_` is a word character, so the
+    // old `\bjson\b` rule missed the name and the tool wrote an opaque `.dat`.
+    const variogram = {
+      name: "output_json",
+      description: "Output file path for directional variogram results",
+      data_kind: "file",
+      io_role: "output",
+    };
+    assert.equal(outputTextFormatHint(variogram), "json");
+    assert.equal(fileOutputTargetExtension(variogram, undefined), "json");
+    assert.equal(outputTextFormatHint({ name: "report-html" }), "html");
+    assert.equal(outputTextFormatHint({ name: "summaryCsv" }), "csv");
+    assert.equal(outputTextFormatHint({ name: "CSVOutput" }), "csv");
+  });
+
+  it("does not match a format buried inside a longer word", () => {
+    assert.equal(outputTextFormatHint({ name: "csvlike_output" }), null);
+    assert.equal(outputTextFormatHint({ name: "jsonish" }), null);
+  });
+});
+
+describe("lidarOutputTargetExtension", () => {
+  it("honours a user-typed .laz path", () => {
+    assert.equal(lidarOutputTargetExtension("classified.laz"), "laz");
+    assert.equal(lidarOutputTargetExtension(" /data/OUT.LAZ "), "laz");
+  });
+
+  it("keeps uncompressed .las for anything else", () => {
+    assert.equal(lidarOutputTargetExtension("classified.las"), "las");
+    assert.equal(lidarOutputTargetExtension("classified.laz.bak"), "las");
+    assert.equal(lidarOutputTargetExtension(""), "las");
+    assert.equal(lidarOutputTargetExtension(undefined), "las");
+    assert.equal(lidarOutputTargetExtension(42), "las");
   });
 });

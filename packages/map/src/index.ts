@@ -1,3 +1,7 @@
+// Tile large local vector layers on a worker in the app (the published
+// headless entry leaves this out and tiles inline).
+import "./geojson-vt-worker-factory";
+
 export { MapboxCanvas, type MapboxCanvasProps } from "./MapboxCanvas";
 export { ArcgisCanvas, type ArcgisCanvasProps } from "./ArcgisCanvas";
 export {
@@ -20,12 +24,13 @@ export {
 } from "./arcgis-basemap";
 export { ARCGIS_SDK_CDN, ARCGIS_SDK_HOST, ARCGIS_SDK_VERSION } from "./arcgis-sdk";
 export { MapboxEngine, MAPBOX_CAPABILITIES } from "./mapbox-engine";
+export { rendererCapabilities } from "./renderer-capabilities";
 export {
   isMapboxSupportedLayer,
   mapboxUnsupportedStyleSettings,
-  styleUsesUnsupportedSource,
   type MapboxUnsupportedStyleSetting,
 } from "./mapbox-layers";
+export { styleUsesUnsupportedSource } from "./gl-style-compiler";
 export {
   MapCanvas,
   type MapCanvasIdentifyAllLabels,
@@ -51,8 +56,13 @@ export { getPrimaryCesiumControlHost } from "./cesium-control-host";
 // `CesiumCanvas`'s dynamic import exists to keep it off.
 export type { CesiumWidgetControlLabels } from "./cesium-widget-controls";
 export { isCesiumSupportedLayerType } from "./cesium-layer-sync";
-export { classifyLayer, type LayerKind } from "./layer-kind";
-export { arcgisVectorStyle } from "./arcgis-vector-style";
+export {
+  classifyLayer,
+  type LayerKind,
+  type LayerKindSupport,
+  type SupportedLayerKinds,
+} from "./layer-kind";
+export { arcgisVectorStyle } from "./vector-style";
 export {
   CESIUM_CAPABILITIES,
   CESIUM_PANE_CAPABILITIES,
@@ -167,8 +177,8 @@ export {
   hasPMTilesArchive,
   registerPMTilesArchive,
   unregisterPMTilesArchive,
-  setExternalDeckLayerOrderHandler,
-} from "./layer-sync";
+} from "./pmtiles-archive";
+export { setExternalDeckLayerOrderHandler } from "./layer-sync";
 export {
   createPMTilesStoreLayer,
   pmtilesNativeLayerIds,
@@ -206,4 +216,10 @@ export {
 } from "./qml-export";
 export { applyQmlImport, parseQml, type QmlImportResult } from "./qml-import";
 export { loadMarkerSvgImage, markerIconSizeValue, renderMarkerCanvas } from "./markers";
-export { setWmsIdentifyFetcher, type WmsIdentifyFetcher } from "./identify-sources";
+export {
+  setWmsIdentifyFetcher,
+  setWmsIdentifyProjectionResolver,
+  type WmsIdentifyFetcher,
+  type WmsIdentifyProjection,
+  type WmsIdentifyProjectionResolver,
+} from "./identify-sources";

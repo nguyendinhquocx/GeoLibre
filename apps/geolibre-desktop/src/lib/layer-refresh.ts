@@ -684,10 +684,29 @@ export function supportsRefreshFailurePolicy(layer: GeoLibreLayer): boolean {
   );
 }
 
+/** Whether clear-on-failure applies; MSSQL recovery reads keep local features. */
+function shouldClearGeoJsonOnRefreshFailure(
+  layer: {
+    connection?: { onFailure?: string };
+    geojson?: FeatureCollection | null;
+  },
+  mssqlRecoveryRefresh: boolean,
+  hasPendingEdits: boolean,
+): boolean {
+  return (
+    !mssqlRecoveryRefresh &&
+    layer.connection?.onFailure === "clear" &&
+    Boolean(layer.geojson) &&
+    !hasPendingEdits
+  );
+}
+
 export function isRefreshableLayer(layer: GeoLibreLayer): boolean {
   return (
     Boolean(refreshSourceUrl(layer)) ||
     isVectorControlRefreshLayer(layer) ||
+    // A SQL Server write whose outcome or generated keys are unknown needs manual recovery.
+    layer.mssqlWritebackPending === true ||
     // SQL query layers refresh by re-executing their stored DuckDB statement
     // (see refreshSqlQueryLayer) rather than fetching a URL.
     isSqlQueryLayer(layer) ||
@@ -711,7 +730,7 @@ export function isRefreshableLayer(layer: GeoLibreLayer): boolean {
  * @returns Whether an automatic refresh interval may be scheduled for it.
  */
 export function supportsAutoRefresh(layer: GeoLibreLayer): boolean {
-  return !isIcebergLayer(layer);
+  return !isIcebergLayer(layer) && layer.mssqlWritebackPending !== true;
 }
 
 export function getLayerRefreshConfig(layer: GeoLibreLayer): LayerRefreshConfig {
@@ -785,6 +804,21 @@ export function setLayerConnectionResult(
       lastError: result.error === undefined ? (layer.connection?.lastError ?? null) : result.error,
       onFailure: layer.connection?.onFailure ?? "keep-last",
     },
+  };
+}
+
+/** Build the layer patch for a failed refresh, preserving recovery data when required. */
+export function getRefreshFailureLayerPatch(
+  layer: GeoLibreLayer,
+  error: string,
+  mssqlRecoveryRefresh: boolean,
+  hasPendingEdits: boolean,
+): Partial<GeoLibreLayer> {
+  return {
+    ...setLayerConnectionResult(layer, { error }),
+    ...(shouldClearGeoJsonOnRefreshFailure(layer, mssqlRecoveryRefresh, hasPendingEdits)
+      ? { geojson: { type: "FeatureCollection" as const, features: [] } }
+      : {}),
   };
 }
 

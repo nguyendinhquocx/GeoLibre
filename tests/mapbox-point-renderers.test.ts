@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Feature, FeatureCollection } from "geojson";
-import {
-  compileMapboxLayer,
-  mapboxUnsupportedStyleSettings,
-} from "../packages/map/src/mapbox-layers";
+import type { HeatmapLayerSpecification } from "mapbox-gl";
+import { compileMapboxLayer } from "../packages/map/src/gl-style-compiler";
+import { mapboxUnsupportedStyleSettings } from "../packages/map/src/mapbox-layers";
 import { geojsonLayer } from "./helpers/layer-fixtures";
 import { DEFAULT_LAYER_STYLE, type GeoLibreLayer } from "@geolibre/core";
 
@@ -32,7 +31,7 @@ describe("Mapbox point renderers", () => {
       plan.layers.map((spec) => spec.type),
       ["heatmap"],
     );
-    const [heatmap] = plan.layers;
+    const heatmap = plan.layers[0] as HeatmapLayerSpecification;
     assert.equal(heatmap.paint?.["heatmap-radius"], 25);
     assert.equal(heatmap.paint?.["heatmap-opacity"], 0.5);
     assert.match(JSON.stringify(heatmap.paint?.["heatmap-color"]), /heatmap-density/);

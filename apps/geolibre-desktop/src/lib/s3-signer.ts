@@ -243,8 +243,8 @@ async function regionFor(
   request: S3PresignRequest,
   signal?: AbortSignal,
 ): Promise<string> {
-  if (connection.region) return connection.region;
   if (request.region) return request.region;
+  if (connection.region) return connection.region;
   // ListBuckets is answered by the global endpoint, signed for us-east-1.
   if (!request.bucket) return DEFAULT_REGION;
   const known = bucketRegions.get(regionKey(connection, request.bucket));
@@ -262,7 +262,8 @@ async function regionFor(
 function cacheKey(connection: S3Connection, request: S3PresignRequest): string | null {
   // Listings carry continuation tokens and are signed per call.
   if (!request.bucket || (request.query && Object.keys(request.query).length > 0)) return null;
-  return `${connection.id}\u0000${request.bucket}\u0000${request.key}`;
+  // The request's region wins over the connection's, so it is part of the URL.
+  return `${connection.id}\u0000${request.bucket}\u0000${request.key}\u0000${request.region ?? ""}`;
 }
 
 function rememberSignedUrl(key: string, signed: S3SignedUrl): void {
@@ -303,7 +304,7 @@ export function createS3Signer(
         const href = s3ObjectHttpsUrl(
           { bucket: request.bucket, key: request.key },
           {
-            region: connection.region || request.region,
+            region: request.region || connection.region,
             endpoint: connection.endpoint,
             pathStyle: connection.pathStyle,
           },

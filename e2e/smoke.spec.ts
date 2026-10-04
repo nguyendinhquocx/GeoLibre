@@ -1,10 +1,28 @@
 import { expect, test } from "@playwright/test";
-import { dropGeoJson, layerRow, readFixture, waitForMap } from "./helpers";
+import {
+  bindMapLibreMap,
+  collectPageProblems,
+  dropGeoJson,
+  layerRow,
+  readFixture,
+  waitForMap,
+  waitForMapLoaded,
+} from "./helpers";
 
 const FIXTURE_TEXT = readFixture("smoke.geojson");
 // Derived from the fixture so the expected row count can't drift if a feature
 // is added or removed.
 const FIXTURE_FEATURE_COUNT = (JSON.parse(FIXTURE_TEXT) as { features: unknown[] }).features.length;
+
+// The per-commit half of the deployed-preview smoke test
+// (e2e/preview/preview-smoke.spec.ts): a fresh boot of the built app renders
+// the map without a single console error or failed same-origin request.
+test("boots and renders the map with a clean console", async ({ page }) => {
+  const { problems } = collectPageProblems(page);
+  await waitForMap(page);
+  await waitForMapLoaded(page);
+  expect(problems, "console errors or failed same-origin requests").toEqual([]);
+});
 
 test("loads a GeoJSON layer, opens the attribute table, and toggles visibility", async ({
   page,
@@ -43,6 +61,14 @@ test("Identify owns the MapLibre cursor across the whole interactive surface", a
   const canvasContainer = page.locator(".maplibregl-canvas-container");
   await row.getByRole("button", { name: "Identify features", exact: true }).click();
   await expect(canvas).toHaveCSS("cursor", "crosshair");
+  await expect(canvasContainer).toHaveCSS("cursor", "crosshair");
+
+  // Every camera move stops MapLibre's gesture handlers, and BoxZoom's reset
+  // strips `maplibregl-crosshair` from the map container. The drop's own
+  // zoom-to-layer can land after Identify turns on, so a camera move must not
+  // hand the container back its grab cursor (#2879).
+  await bindMapLibreMap(page);
+  await page.evaluate(() => window.__geolibreTestMap?.jumpTo({ zoom: 3 }));
   await expect(canvasContainer).toHaveCSS("cursor", "crosshair");
 
   await row.locator('button[aria-label="Layer actions"]').click();

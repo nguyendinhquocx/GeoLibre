@@ -27,6 +27,7 @@ from geolibre_server_api.auth import (
 )
 from geolibre_server_api.auth_models import Account
 from geolibre_server_api.enterprise_models import (
+    FederatedIdentity,
     OrganizationIdentityProvider,
     OrganizationSecurityPolicy,
     ScimToken,
@@ -201,12 +202,26 @@ def identity_provider_json(
     }
 
 
-def _provider_for(session: Session, organization_id: str) -> OrganizationIdentityProvider | None:
-    return session.scalar(
-        select(OrganizationIdentityProvider).where(
-            OrganizationIdentityProvider.organization_id == organization_id
-        )
+def _provider_for(
+    session: Session, organization_id: str, *, lock: bool = False
+) -> OrganizationIdentityProvider | None:
+    query = select(OrganizationIdentityProvider).where(
+        OrganizationIdentityProvider.organization_id == organization_id
     )
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    return session.scalar(query)
+
+
+def _require_no_linked_identities(session: Session, provider: OrganizationIdentityProvider) -> None:
+    """Refuse a new issuer or key set while accounts are linked by `sub` to this provider."""
+    linked = session.scalar(
+        select(FederatedIdentity.id).where(FederatedIdentity.provider_id == provider.id).limit(1)
+    )
+    if linked is not None:
+        raise HTTPException(
+            409, "issuer or JWKS endpoint cannot change while federated identities are linked"
+        )
 
 
 class ScimTokenBody(BaseModel):
@@ -316,6 +331,13 @@ def build_enterprise_admin_router() -> APIRouter:
         # The issuer is compared exactly with the ID token's iss; never normalize it.
         if not _is_https_url(body.issuer) or "?" in body.issuer or "#" in body.issuer:
             raise HTTPException(422, "issuer must be an https URL without query or fragment")
+        provider = _provider_for(session, organization_id)
+        original_provider_id = provider.id if provider is not None else None
+        if provider is not None and (
+            provider.issuer != body.issuer
+            or (body.jwks_uri is not None and provider.jwks_uri != body.jwks_uri)
+        ):
+            _require_no_linked_identities(session, provider)
         given = [
             value
             for value in (body.authorization_endpoint, body.token_endpoint, body.jwks_uri)
@@ -329,7 +351,6 @@ def build_enterprise_admin_router() -> APIRouter:
             SCOPE_TOKEN_RE.fullmatch(scope) for scope in body.scopes
         ):
             raise HTTPException(422, "scopes must include openid and use simple scope tokens")
-        provider = _provider_for(session, organization_id)
         if provider is None and body.client_secret is None:
             raise HTTPException(422, "clientSecret is required")
         group_ids = {mapping.group_id for mapping in body.group_mappings}
@@ -367,6 +388,13 @@ def build_enterprise_admin_router() -> APIRouter:
             )
 
         now_ts = get_clock(request)()
+        if original_provider_id is not None:
+            # Lock the row an SSO callback locks while linking an identity, so
+            # no identity links between the guard below and this commit. Taken
+            # only now: discovery above must not hold it across a network call.
+            provider = _provider_for(session, organization_id, lock=True)
+            if provider is None or provider.id != original_provider_id:
+                raise HTTPException(409, "identity provider was removed or replaced; try again")
         if provider is None:
             provider = OrganizationIdentityProvider(
                 id=str(uuid.uuid4()),
@@ -376,6 +404,8 @@ def build_enterprise_admin_router() -> APIRouter:
             )
             session.add(provider)
         elif provider.issuer != body.issuer or provider.jwks_uri != jwks_uri:
+            # Discovery can name a different JWKS endpoint than the one stored.
+            _require_no_linked_identities(session, provider)
             # Keys cached from another issuer or key set must never verify tokens.
             provider.jwks_json = None
             provider.jwks_fetched_at = None

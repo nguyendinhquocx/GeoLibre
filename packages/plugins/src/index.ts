@@ -78,6 +78,15 @@ export {
   resolveToolbarLabel,
   type GeoLibreToolbarLabel,
 } from "./toolbar-menu-label";
+// The translator plugins use to resolve `plugin.<id>.*` keys through the app
+// API with an interpolated English fallback (see docs/plugin-api.md).
+export {
+  createPluginTranslator,
+  interpolatePluginText,
+  pluginDisplayTitle,
+  type PluginTranslate,
+  type PluginTranslateParams,
+} from "./plugin-i18n";
 export { LAYER_CONTROL_PLUGIN_ID, maplibreLayerControlPlugin } from "./plugins/layer-control";
 export { getStyleMap } from "./plugins/style-map";
 export {
@@ -211,6 +220,7 @@ export {
   buildInlineZarrStore,
   composeColormappedImage,
   composeRgbImage,
+  crossesAntimeridian,
   gridBounds,
   gridPixelAt,
   gridValueAt,
@@ -227,9 +237,11 @@ export {
   type LocalNetcdfImage,
   type LocalNetcdfVariable,
   type LocalNetcdfLayerRefs,
+  type LocalNetcdfLayerRefsOptions,
   type LocalNetcdfRgbImage,
   type LocalNetcdfRgbOptions,
   type LocalNetcdfWindow,
+  type InlineZarrAxis,
   type InlineZarrGrid,
 } from "./plugins/local-netcdf";
 export {

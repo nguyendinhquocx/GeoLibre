@@ -15,6 +15,8 @@ The **New project** dialog names the project and picks its starting basemap: the
 
 ![The New project dialog, with a project name field and the basemap gallery](https://assets.geolibre.app/images/geolibre-new-project.webp)
 
+The collapsible **Examples** section lists a few curated starter projects from the [Gallery](../gallery.md). Clicking one downloads it from `assets.geolibre.app` and opens it as an unsaved copy, the same way **Open From → URL** would. It needs an internet connection; if the download fails, the dialog stays open on your current project and says which example could not be opened.
+
 ## Open
 
 **Project → Open From** has two sources:
@@ -44,6 +46,8 @@ Both capture the current map view, basemap, layers, styles, preferences, and plu
 GeoLibre autosaves the project as you work. Three seconds after a change settles — a layer added, a style edited, the camera moved — it writes a snapshot to your browser's local IndexedDB storage. Autosaves never touch your `.geolibre.json` file; only **Save** does that.
 
 **Project → History...** lists the snapshots for the current project, newest first, each summarized by its layer count and zoom level. **Restore** loads a snapshot back into the workspace, as an undoable step so you can back out of it. There is no manual delete here — snapshots age out on their own once a cap is hit.
+
+**Compare** shows what changed between a snapshot and the current project, or between two snapshots (pick one under **Compare with**). Changes are grouped into collapsible sections: layers added, removed, renamed, reordered or restyled (each changed style, label, filter and source setting with its before and after value, plus counts of embedded features added, removed and modified), the camera, basemap and projection, plugins, and the project title, details and preferences. When comparing against the current project, **Restore this layer** brings back the snapshot's version of a single layer — or re-adds one you deleted — without touching the rest of the project; **Undo** reverts it.
 
 The store is capped, so history stays bounded: at most 20 snapshots per project, 10 MB per snapshot, and 50 MB in total. The oldest snapshots are dropped once a cap is hit, and a project too large to fit in a single snapshot is not autosaved.
 
@@ -115,7 +119,7 @@ The dialog warns even before a share token is configured, because uploading a sa
 
 ![The Print Layout composer, with the page settings on the left and a live preview on the right](https://assets.geolibre.app/images/geolibre-print-layout.webp)
 
-**Project → Print Layout...** opens the layout composer, which exports the current map to PNG or PDF. It carries a title block with an editable title and footer, a user-editable legend, an explicit map-scale input, page-size controls, a custom print extent, attribute-table and chart blocks, Atlas / map series generation (one page per feature, or a uniform series along a line), and Copy to Clipboard. The composer is backed by the MapLibre components plugin.
+**Project → Print Layout...** opens the layout composer, which exports the current map to PNG, PDF, or SVG. It carries an editable title and footer, an info (title) block with project metadata, a user-editable legend, an explicit map-scale input, page-size controls, a custom print extent, attribute-table and chart blocks, Atlas / map series generation (one page per feature, or a uniform series along a line), SVG export for editing in a vector editor, and Copy to Clipboard. See [Print Layout](print-layout.md) for the full guide.
 
 ## Story maps
 

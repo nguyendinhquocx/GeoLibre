@@ -25,10 +25,20 @@ import {
   restoreVectorLayers,
   REVERSE_GEOCODE_PLUGIN_ID,
 } from "@geolibre/plugins";
+import i18next from "i18next";
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { notify } from "../../lib/notify";
 import { restoreLocalFileLayers } from "../../lib/restore-local-layers";
 import { hasReverseGeocodeConsent } from "../../lib/reverse-geocode-consent";
 import { createAppAPI, getPluginManager } from "../usePlugins";
+
+/** Saved point clouds that could not be reloaded vanish from the map otherwise. */
+function notifyLidarRestoreFailed(error: unknown): void {
+  console.warn("[lidar] failed to restore saved point clouds", error);
+  notify.warning(i18next.t("notifications.lidarRestoreFailed"), {
+    dedupeKey: "restore-lidar",
+  });
+}
 
 interface PluginStateRestoreOptions {
   mapControllerRef: RefObject<MapEngine | null>;
@@ -110,6 +120,9 @@ export function usePluginStateRestore({
           state.setProjectPlugins(next, false);
         } catch (error) {
           console.warn("[GeoLibre] Could not snapshot plugin state for the renderer swap", error);
+          notify.warning(i18next.t("notifications.pluginSnapshotFailed"), {
+            dedupeKey: "plugin-state-snapshot",
+          });
         }
       }),
     [],
@@ -175,9 +188,11 @@ export function usePluginStateRestore({
     reattachFlightSimulator(appAPI);
     // VectorControl has a Cesium bridge and must restore on either engine.
     restoreVectorLayers(appAPI);
-    if (engine.kind === "mapbox" || (engine.kind === "arcgis" && engine.capabilities.deckOverlay)) {
+    // Engines that host the deck.gl overlay without a MapLibre map restore these
+    // here; MapLibre restores them on the native path below.
+    if (engine.capabilities.deckOverlay && !engine.capabilities.nativeMapInstance) {
       restoreThreeDTilesLayers(appAPI);
-      void restoreLidarLayers(appAPI).catch(console.error);
+      void restoreLidarLayers(appAPI).catch(notifyLidarRestoreFailed);
     }
     // Same contract for the shared deck.gl overlay: re-attach it to the current
     // map and re-render any deckgl-viz layers a restored project carries. It
@@ -198,10 +213,11 @@ export function usePluginStateRestore({
     // Reattach only — the per-feed toggles come from its applyProjectState.
     reattachGodsEyeView(appAPI);
     if (!engine.capabilities.nativeMapInstance) {
+      // eslint-disable-next-line local/no-renderer-kind-checks -- the globe draws COGs from the record; the 2D engines restore through the raster plugin's own per-engine path
       if (engine.kind === "mapbox" || engine.kind === "arcgis") restoreRasterLayers(appAPI);
       // Both draw Zarr from the layer record, so only the Time Slider binding
       // needs restoring (opengeos/GeoLibre#2261).
-      if (engine.kind === "arcgis" || engine.kind === "cesium") restoreArcgisZarrLayers();
+      if (engine.capabilities.nativeZarr) restoreArcgisZarrLayers();
       void restoreLocalFileLayers();
       // Same cleanup as the native path: this branch also starts an async
       // handleUrlParameters above, so an older completion must not publish its
@@ -220,13 +236,14 @@ export function usePluginStateRestore({
     // into the store as inert metadata; the point cloud is loaded by the LiDAR
     // control, not the store, so without this the layer shows in the panel but
     // renders nothing.
-    void restoreLidarLayers(appAPI).catch((error: unknown) => {
-      console.warn("[lidar] failed to restore saved point clouds", error);
-    });
+    void restoreLidarLayers(appAPI).catch(notifyLidarRestoreFailed);
     // Same for saved Gaussian splats and 3D models (`splatting-url`): the
     // splatting control draws them, so reload them through it.
     void restoreSplattingLayers(appAPI).catch((error: unknown) => {
       console.warn("[splatting] failed to restore saved layers", error);
+      notify.warning(i18next.t("notifications.splattingRestoreFailed"), {
+        dedupeKey: "restore-splatting",
+      });
     });
     // Re-read drag-dropped / Add Data local-file GeoJSON layers from disk
     // (their data was saved as a path, not embedded).

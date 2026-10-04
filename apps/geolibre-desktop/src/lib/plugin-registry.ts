@@ -6,6 +6,7 @@
 
 import { isAllowedPluginManifestUrl, setRegistryPublishableSettings } from "@geolibre/core";
 import { getDeploymentPolicy } from "./deployment-env";
+import { pinPluginBundle } from "./plugin-integrity";
 
 /** A single curated plugin in the marketplace registry. */
 export interface PluginRegistryEntry {
@@ -25,6 +26,12 @@ export interface PluginRegistryEntry {
    * `null` keeps the plugin's whole state. Absent means nothing is kept.
    */
   publishableSettings?: string[] | null;
+  /**
+   * SHA-256 of the published bundle, in the form `computePluginBundleHash`
+   * produces. When present, installing and updating check the downloaded code
+   * against it instead of trusting whatever the URL serves first.
+   */
+  bundleSha256?: string;
 }
 
 export interface PluginRegistry {
@@ -130,12 +137,26 @@ export async function fetchPluginRegistry(
  * Read a response body as text, enforcing a hard byte ceiling. The
  * Content-Length header is a fast-fail; the streaming reader is the real
  * enforcement for responses that omit it (chunked/compressed). Mirrors the
- * cap in fetchPluginText for plugin assets.
+ * cap in fetchPluginText for plugin assets. Also used for the registry's
+ * blocklist (plugin-blocklist.ts).
+ *
+ * @param response - The response to read.
+ * @param maxBytes - The byte ceiling.
+ * @param label - What is being fetched, for the error message.
+ * @returns The body as text.
  */
-async function readBodyWithCap(response: Response, maxBytes: number): Promise<string> {
+export async function readBodyWithCap(
+  response: Response,
+  maxBytes: number,
+  label = "plugin registry",
+): Promise<string> {
+  const tooLarge = () =>
+    new Error(
+      `Could not fetch ${label}: response exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB size limit.`,
+    );
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-    throw new Error("Could not fetch plugin registry: response exceeds the 5 MB size limit.");
+    throw tooLarge();
   }
   const reader = response.body?.getReader();
   if (!reader) {
@@ -144,7 +165,7 @@ async function readBodyWithCap(response: Response, maxBytes: number): Promise<st
     // without first building the full string.
     const buffer = await response.arrayBuffer();
     if (buffer.byteLength > maxBytes) {
-      throw new Error("Could not fetch plugin registry: response exceeds the 5 MB size limit.");
+      throw tooLarge();
     }
     return new TextDecoder().decode(buffer);
   }
@@ -156,7 +177,7 @@ async function readBodyWithCap(response: Response, maxBytes: number): Promise<st
       if (done) break;
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes) {
-        throw new Error("Could not fetch plugin registry: response exceeds the 5 MB size limit.");
+        throw tooLarge();
       }
       chunks.push(value);
     }
@@ -262,7 +283,36 @@ function normalizeEntry(value: unknown, registryUrl: string): PluginRegistryEntr
     categories: stringArray(record.categories),
     minGeoLibreVersion: trimmedString(record.minGeoLibreVersion, 64) || undefined,
     publishableSettings: normalizePublishableSettings(record.publishableSettings),
+    bundleSha256: bundleHashOrUndefined(record.bundleSha256, id),
   };
+}
+
+// A bundle hash is a lowercase hex SHA-256. Anything else is ignored, so the
+// entry falls back to trust-on-first-use rather than pinning a value no bundle
+// can ever match. That silently weakens the check, so say so in the console.
+// `null` is how a registry generator commonly writes "no hash", so it means the
+// same as an absent field and is not worth a warning.
+function bundleHashOrUndefined(value: unknown, id: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string" && /^[0-9a-f]{64}$/.test(value)) return value;
+  console.warn(
+    `[GeoLibre] Ignoring the registry's bundleSha256 for "${id}": expected 64 lowercase hex characters. Installing it falls back to trust-on-first-use.`,
+  );
+  return undefined;
+}
+
+/**
+ * Pin the bundle hash a registry entry announces, before its manifest URL is
+ * installed. The first load then checks the downloaded code against the
+ * reviewed hash instead of trusting whatever the URL serves first: a mismatch
+ * is held back like any other changed bundle.
+ *
+ * @param entry - The registry entry being installed.
+ */
+export function pinRegistryEntryBundle(entry: PluginRegistryEntry): void {
+  if (entry.bundleSha256) {
+    pinPluginBundle(entry.manifestUrl, entry.bundleSha256, entry.version);
+  }
 }
 
 // Trim and, when a cap is given, bound the length so untrusted registry data

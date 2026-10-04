@@ -63,6 +63,7 @@ import { DEFAULT_LAYER_GROUP_OPACITY, normalizeGroupContiguity } from "./layer-g
 import { normalizeStyleLibraryEntries } from "./style-library";
 import { normalizeLayerCapabilities } from "./capabilities";
 import { validateMapExpression } from "./expressions";
+import { normalizeLayerDescriptiveMetadata } from "./layer-descriptive-metadata";
 import {
   createDefaultPrintLayout,
   isDefaultPrintLayout,
@@ -1043,6 +1044,7 @@ export function normalizeSecondaryMapViews(value: unknown): SecondaryMapView[] |
     const label = normalizeString(candidate.label);
     // Only the known engine ids survive; an absent/unknown value is omitted so
     // the pane defaults to the 2D map (back-compat with pre-globe projects).
+    /* eslint-disable local/no-renderer-kind-checks -- validates a renderer name */
     const viewKind =
       candidate.viewKind === "cesium" ||
       candidate.viewKind === "maplibre" ||
@@ -1050,6 +1052,7 @@ export function normalizeSecondaryMapViews(value: unknown): SecondaryMapView[] |
       candidate.viewKind === "arcgis"
         ? candidate.viewKind
         : undefined;
+    /* eslint-enable local/no-renderer-kind-checks */
     views.push({
       id,
       view: normalizeMapViewState(candidate.view),
@@ -1372,6 +1375,11 @@ function normalizeProjectPreferences(preferences: unknown): ProjectPreferences {
         typeof (map as Partial<ProjectPreferences["map"]>).coordinateFormat === "string"
           ? ((map as Partial<ProjectPreferences["map"]>).coordinateFormat as string)
           : DEFAULT_PROJECT_PREFERENCES.map.coordinateFormat,
+      // Absent in projects written before the EPSG readout existed; only a
+      // positive integer survives, so a hand-edited value cannot reach proj4.
+      coordinateEpsgCode: normalizeEpsgCode(
+        (map as Partial<ProjectPreferences["map"]>).coordinateEpsgCode,
+      ),
       // Older projects omit this field and keep fitting to newly added data.
       zoomToNewLayers: normalizeBoolean(
         (map as Partial<ProjectPreferences["map"]>).zoomToNewLayers,
@@ -1385,6 +1393,19 @@ function normalizeProjectPreferences(preferences: unknown): ProjectPreferences {
       : [],
     geocoding: normalizeGeocodingPreferences(candidate.geocoding),
   };
+}
+
+/**
+ * Keep a stored EPSG code only when it is a positive integer.
+ *
+ * Args:
+ *   value: The stored value, of unknown shape.
+ *
+ * Returns:
+ *   The code, or undefined for anything else.
+ */
+function normalizeEpsgCode(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function normalizeGeocodingPreferences(geocoding: unknown): ProjectPreferences["geocoding"] {
@@ -1623,8 +1644,16 @@ function normalizeLayer(layer: GeoLibreLayer): GeoLibreLayer {
   // that normalizes to nothing (`{}`, an array, a string, an object with no
   // boolean flag) must not survive into the normalized layer and be written
   // back out on the next save.
-  const { capabilities: rawCapabilities, filterExpression: rawFilterExpression, ...rest } = layer;
+  const {
+    capabilities: rawCapabilities,
+    filterExpression: rawFilterExpression,
+    descriptiveMetadata: rawDescriptiveMetadata,
+    ...rest
+  } = layer;
   const capabilities = normalizeLayerCapabilities(rawCapabilities);
+  // Same split for the user-authored catalog metadata: a block that cleans to
+  // nothing (every field blank) is dropped rather than round-tripped.
+  const descriptiveMetadata = normalizeLayerDescriptiveMetadata(rawDescriptiveMetadata);
   const filterExpression =
     Array.isArray(rawFilterExpression) &&
     rawFilterExpression.length > 0 &&
@@ -1640,6 +1669,7 @@ function normalizeLayer(layer: GeoLibreLayer): GeoLibreLayer {
     source: layer.source ?? {},
     ...(capabilities ? { capabilities } : {}),
     ...(filterExpression ? { filterExpression } : {}),
+    ...(descriptiveMetadata ? { descriptiveMetadata } : {}),
   };
 }
 
@@ -1929,6 +1959,14 @@ function prepareLayerForSave(layer: GeoLibreLayer): GeoLibreLayer {
     const { embedFilter: _embedFilter, ...rest } = layer;
     layer = rest;
   }
+  // Catalog metadata is written only when it says something: a record a
+  // plugin (or an older build) left blank, or with blank fields, is cleaned or
+  // dropped so an empty `descriptiveMetadata` block never reaches the file.
+  if (layer.descriptiveMetadata !== undefined) {
+    const { descriptiveMetadata: rawDescriptiveMetadata, ...rest } = layer;
+    const descriptiveMetadata = normalizeLayerDescriptiveMetadata(rawDescriptiveMetadata);
+    layer = descriptiveMetadata ? { ...rest, descriptiveMetadata } : rest;
+  }
 
   // Some live plugin layers publish a large in-memory row model solely for
   // the Attribute Table and rebuild it from their feed on activation. Keeping
@@ -2093,6 +2131,32 @@ export function portableWmsTileUrl(tile: unknown): unknown {
   }
 }
 
+/**
+ * The store form of one project layer: its style completed from
+ * {@link DEFAULT_LAYER_STYLE} and the project's top-level `styles` entry.
+ *
+ * Legacy and externally-authored projects can carry a partial top-level style
+ * alongside newer fields on the layer itself. Those layer fields are kept,
+ * while the top-level copy stays authoritative where it explicitly supplies a
+ * value.
+ *
+ * @param project - The project the layer belongs to (for its `styles` map).
+ * @param layer - One of `project.layers`.
+ * @returns A new layer record ready for the store.
+ */
+export function hydrateProjectLayer(
+  project: Pick<GeoLibreProject, "styles">,
+  layer: GeoLibreLayer,
+): GeoLibreLayer {
+  const topLevel = project.styles?.[layer.id];
+  return {
+    ...layer,
+    style: topLevel
+      ? { ...DEFAULT_LAYER_STYLE, ...layer.style, ...topLevel }
+      : { ...DEFAULT_LAYER_STYLE, ...layer.style },
+  };
+}
+
 export function applyProjectToStore(project: GeoLibreProject): {
   projectName: string;
   mapView: MapViewState;
@@ -2120,16 +2184,7 @@ export function applyProjectToStore(project: GeoLibreProject): {
   projectInteraction: ProjectInteraction | null;
   metadata: Record<string, unknown>;
 } {
-  // Legacy and externally-authored projects can carry a partial top-level
-  // style alongside newer fields on the layer itself. Preserve those layer
-  // fields while keeping the top-level copy authoritative where it explicitly
-  // supplies a value.
-  const layers = project.layers.map((layer) => ({
-    ...layer,
-    style: project.styles[layer.id]
-      ? { ...DEFAULT_LAYER_STYLE, ...layer.style, ...project.styles[layer.id] }
-      : { ...DEFAULT_LAYER_STYLE, ...layer.style },
-  }));
+  const layers = project.layers.map((layer) => hydrateProjectLayer(project, layer));
   // Re-normalize here (even though `parseProject` already did) because
   // `applyProjectToStore` is a public entry point also reached directly by
   // programmatic/newProject loads that never passed through `parseProject`, so

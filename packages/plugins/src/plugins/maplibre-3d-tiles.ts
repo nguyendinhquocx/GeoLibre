@@ -25,6 +25,7 @@ import type {
   ThreeDTilesItemState,
   ThreeDTilesLayer,
 } from "maplibre-gl-3d-tiles";
+import { createPluginTranslator } from "../plugin-i18n";
 import type { GeoLibreAppAPI, GeoLibreDeckGL, GeoLibreMapControlPosition } from "../types";
 import {
   acquireMercatorProjectionLock,
@@ -145,7 +146,11 @@ let threeDTilesPanelPinned = false;
 let threeDTilesStoreUnsubscribe: (() => void) | null = null;
 let threeDTilesStoreSyncSuspended = 0;
 let threeDTilesRuntimeEnvUnsubscribe: (() => void) | null = null;
+/** Stops re-labelling the panel's own controls on a language change. */
+let threeDTilesLocaleUnsubscribe: (() => void) | null = null;
 let activeThreeDTilesApp: GeoLibreAppAPI | null = null;
+/** Resolves `plugin.3d-tiles.*` keys through the active app, falling back to English. */
+const tr = createPluginTranslator(() => activeThreeDTilesApp, "3d-tiles");
 const pendingThreeDTilesStyleRestores = new WeakSet<MapLibreMap>();
 
 // The Google tiles render through the shared interleaved deck overlay
@@ -260,7 +265,10 @@ export function restoreThreeDTilesLayers(app: GeoLibreAppAPI): void {
   // Google and I3S alike, so there is nothing to bind to a renderer here, and
   // the control's facade map has neither the style layers the MapLibre restore
   // queries nor the deck overlay the Google/I3S restores need (issue #2505).
+  // Each engine restores 3D Tiles through its own path.
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
   if (renderer === "cesium") return;
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
   if (renderer === "arcgis") {
     if (useAppStore.getState().layers.some(isMapboxTilesLayer))
       void restoreMapboxTiles(app).catch(console.error);
@@ -268,6 +276,7 @@ export function restoreThreeDTilesLayers(app: GeoLibreAppAPI): void {
   }
   restoreGooglePhotorealisticTilesLayers(app);
   restoreArcgisI3sTilesLayers(app);
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
   if (renderer === "mapbox") {
     if (useAppStore.getState().layers.some(isMapboxTilesLayer))
       void restoreMapboxTiles(app).catch(console.error);
@@ -376,6 +385,7 @@ function ensureThreeDTilesControl(app: GeoLibreAppAPI): ThreeDTilesControl | nul
     }
     threeDTilesControlMounted = true;
   }
+  threeDTilesLocaleUnsubscribe ??= app.onLocaleChange?.(relabelThreeDTilesPanel) ?? null;
 
   return threeDTilesControl;
 }
@@ -790,6 +800,8 @@ function resetThreeDTilesControl(control: ThreeDTilesControl | null): void {
   threeDTilesStoreUnsubscribe = null;
   threeDTilesRuntimeEnvUnsubscribe?.();
   threeDTilesRuntimeEnvUnsubscribe = null;
+  threeDTilesLocaleUnsubscribe?.();
+  threeDTilesLocaleUnsubscribe = null;
   threeDTilesPanelPinned = false;
   threeDTilesControlMounted = false;
   threeDTilesControl = null;
@@ -816,6 +828,7 @@ function activeThreeDTilesRenderer(): string {
  * out of the way and let the store record reach the globe (issue #2505).
  */
 function isGlobeThreeDTilesRenderer(): boolean {
+  // eslint-disable-next-line local/no-renderer-kind-checks -- the globe's facade map has no style layers
   return activeThreeDTilesRenderer() === "cesium";
 }
 
@@ -825,6 +838,7 @@ function isGlobeThreeDTilesRenderer(): boolean {
  * through deck.gl, Cesium through its own tileset primitives.
  */
 function isStoreDrivenThreeDTilesRenderer(): boolean {
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
   return ["mapbox", "arcgis", "cesium"].includes(activeThreeDTilesRenderer());
 }
 
@@ -955,6 +969,7 @@ function installGooglePhotorealisticTilesPanelHandlers(
         return;
       }
       if (
+        // eslint-disable-next-line local/no-renderer-kind-checks -- the ArcGIS deck bridge has no Google or I3S tiles
         activeThreeDTilesRenderer() === "arcgis" &&
         (isGooglePhotorealisticTilesetUrl(url) || isArcgisI3sSceneLayerUrl(url))
       ) {
@@ -972,6 +987,7 @@ function installGooglePhotorealisticTilesPanelHandlers(
       if (
         url &&
         activeThreeDTilesApp &&
+        // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
         ["mapbox", "arcgis"].includes(activeThreeDTilesRenderer()) &&
         !isGooglePhotorealisticTilesetUrl(url) &&
         !isArcgisI3sSceneLayerUrl(url)
@@ -1298,9 +1314,8 @@ function installGooglePhotorealisticHeadersToggle(
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "geolibre-google-tiles-key-toggle three-d-tiles-small-button";
-  toggle.textContent = "Show key";
-  toggle.setAttribute("aria-label", "Show Google Maps API key");
   toggle.setAttribute("aria-pressed", "false");
+  updateGooglePhotorealisticHeadersToggle(toggle, false);
   toggle.hidden = true;
 
   toggle.addEventListener("click", () => {
@@ -1327,14 +1342,47 @@ function setGooglePhotorealisticHeadersToggleVisible(panel: HTMLElement, visible
   if (toggle) toggle.hidden = !visible;
 }
 
+/** Labels a layer row's visibility checkbox from its `data-geolibre-toggle-name`. */
+function labelThreeDTilesVisibilityToggle(input: HTMLInputElement): void {
+  input.setAttribute(
+    "aria-label",
+    tr("toggleLayerAria", "Toggle {{name}}", { name: input.dataset.geolibreToggleName ?? "" }),
+  );
+}
+
+/**
+ * Re-applies the text GeoLibre adds to the 3D Tiles panel (the API-key toggle
+ * and the layer rows' visibility checkboxes) after the app language changes.
+ * The rest of the panel is the upstream control's own DOM.
+ */
+function relabelThreeDTilesPanel(): void {
+  if (typeof document === "undefined") return;
+  for (const toggle of document.querySelectorAll<HTMLButtonElement>(
+    ".geolibre-google-tiles-key-toggle",
+  )) {
+    const panel = toggle.closest<HTMLElement>("[data-geolibre-google-maps-api-key-visible]");
+    updateGooglePhotorealisticHeadersToggle(
+      toggle,
+      panel?.dataset.geolibreGoogleMapsApiKeyVisible === "true",
+    );
+  }
+  for (const input of document.querySelectorAll<HTMLInputElement>(
+    "input[data-geolibre-toggle-name]",
+  )) {
+    labelThreeDTilesVisibilityToggle(input);
+  }
+}
+
 function updateGooglePhotorealisticHeadersToggle(
   toggle: HTMLButtonElement,
   visible: boolean,
 ): void {
-  toggle.textContent = visible ? "Hide key" : "Show key";
+  toggle.textContent = visible ? tr("hideKey", "Hide key") : tr("showKey", "Show key");
   toggle.setAttribute(
     "aria-label",
-    visible ? "Hide Google Maps API key" : "Show Google Maps API key",
+    visible
+      ? tr("hideKeyAria", "Hide Google Maps API key")
+      : tr("showKeyAria", "Show Google Maps API key"),
   );
   toggle.setAttribute("aria-pressed", visible ? "true" : "false");
 }
@@ -1683,7 +1731,8 @@ function createDeckTilesPanelListItem(layer: GeoLibreLayer): HTMLElement {
   const visible = document.createElement("input");
   visible.type = "checkbox";
   visible.checked = layer.visible;
-  visible.setAttribute("aria-label", `Toggle ${layer.name || GOOGLE_PHOTOREALISTIC_TILES_LABEL}`);
+  visible.dataset.geolibreToggleName = layer.name || GOOGLE_PHOTOREALISTIC_TILES_LABEL;
+  labelThreeDTilesVisibilityToggle(visible);
   visible.addEventListener("change", () => {
     useAppStore.getState().updateLayer(layer.id, { visible: visible.checked });
   });

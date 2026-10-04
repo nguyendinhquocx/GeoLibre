@@ -65,7 +65,11 @@ const zarrControlPosition: GeoLibreMapControlPosition = "top-left";
  * (opengeos/GeoLibre#2261). Neither mounts the control, so their layers are
  * added, restored, and time-stepped through the record alone.
  */
-function isNativeZarrRenderer(renderer: string | undefined): boolean {
+export function isNativeZarrRenderer(renderer: string | undefined): boolean {
+  // This package's components load in node tests that cannot import the
+  // @geolibre/map index, so these are the renderers whose `nativeZarr` is set;
+  // tests/renderer-capabilities.test.ts keeps the two in step.
+  // eslint-disable-next-line local/no-renderer-kind-checks -- see above
   return renderer === "arcgis" || renderer === "cesium";
 }
 
@@ -341,7 +345,12 @@ export async function addCloudNetcdfLayer(
       await control.addLayer(options.url, options.variable, {
         store,
         zarrVersion: 2,
-        selector: options.selector,
+        // Never undefined. The control reads a missing selector as "use mine",
+        // and its own is the CarbonPlan sample's `{ band, month }` (or whatever
+        // the panel last used), which a NetCDF cube does not have: the renderer
+        // then throws "selector 'band', 'month' does not name a dimension" and
+        // the layer never draws.
+        selector: options.selector ?? {},
         clim: options.clim,
         colormap: resolveZarrColormap(options.colormap),
         opacity: options.opacity,
@@ -639,7 +648,8 @@ async function addZarrLayerExclusively(
     // emitting "error" rather than rejecting, so both outcomes are already
     // recorded above by the time this returns.
     await control.addLayer(url, variable, {
-      selector: options.selector,
+      // Never undefined: see addCloudNetcdfLayer.
+      selector: options.selector ?? {},
       clim: options.clim,
       colormap: resolveZarrColormap(options.colormap),
       opacity: options.opacity,

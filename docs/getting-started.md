@@ -171,10 +171,13 @@ docker run --rm -p 8080:80 ghcr.io/opengeos/geolibre:latest
 
 #### Bundled conversion sidecar
 
-The image also bundles the Python sidecar (uvicorn) and reverse-proxies it at
-`/sidecar`, so the browser reaches it same-origin with no CORS or separate
-process to manage. `/conversion/status` is reachable at
-`http://localhost:8080/sidecar/conversion/status`.
+The image bundles the Python sidecar (uvicorn) and reverse-proxies it at
+`/sidecar` when the final deployment policy grants `processing:run` or
+`data:add` and `GEOLIBRE_DISABLE_SIDECAR` is not `1`. Otherwise uvicorn does
+not start and sidecar routes are denied. When available, the browser reaches it
+same-origin with no CORS:
+`http://localhost:8080/sidecar/conversion/status`. See the exact route grants
+in [Self-Hosting](self-hosting.md#container-policy-enforcement).
 
 The browser build does **not** need the sidecar for the **Conversion** tools or
 the **Whitebox** toolbox — both run client-side on DuckDB-WASM and
@@ -200,6 +203,26 @@ a caller reaching the image cannot aim them at hosts only the container can
 reach. Pass `-e GEOLIBRE_POSTGIS_HOSTS='db.internal:5432'` (or `*` to accept any
 connection string) to enable them. The desktop app is not affected: its sidecar
 is loopback-bound and started for a single user, so it defaults to unrestricted.
+
+The image does **not** ship with pyodbc or Microsoft ODBC Driver 18. To enable
+SQL Server / Azure SQL, build a derived image that installs the driver and the
+sidecar's `mssql` extra:
+
+```dockerfile
+FROM ghcr.io/opengeos/geolibre:latest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl gpg \
+ && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+ && echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft-prod.list \
+ && apt-get update \
+ && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc \
+ && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir "/opt/geolibre_server[mssql]"
+```
+
+Then allow only the database host at runtime, for example
+`-e GEOLIBRE_MSSQL_HOSTS='sql.internal:1433'`. Do not expose the SQL Server
+endpoints without an explicit allowlist.
 
 `freestiler` and `whitebox-workflows` publish no linux/arm64 wheels, so they are
 installed on **amd64 only**; on arm64 the sidecar reports those tools
@@ -440,20 +463,23 @@ Individual links can also opt out at runtime with `?welcome=0`. See
 
 #### Limiting what the deployment can do
 
-For a kiosk, an exhibit terminal, or a classroom instance, name the
-capabilities the interface may offer. Unset (the default) grants everything, so
-existing deployments are unchanged:
+For a kiosk, exhibit terminal, or classroom, configure the runtime policy
+capabilities rather than rebuilding the client:
 
 ```bash
-docker build \
-  --build-arg VITE_GEOLIBRE_CAPABILITIES="project:edit,data:add,processing:run,export:data" \
-  -t geolibre-classroom .
+docker run --rm -p 8080:80 \
+  -e GEOLIBRE_CAPABILITIES=project:edit,data:add,processing:run,export:data \
+  geolibre-policy:local
 ```
 
-That example drops plugin installs and Settings. `none` grants nothing at all.
-This removes the affordances — menus, command palette entries, shortcuts,
-drag-and-drop, embed commands — but does **not** restrict the server, so keep
-the protections above in place too. See
+Build the local image from merged `main` as described in
+[Deployment Policy](deployment-policy.md#docker). The legacy
+`VITE_GEOLIBRE_CAPABILITIES` build input is still honoured as a client fallback.
+`none` grants no capabilities. Client gates remove menus, command palette
+entries, shortcuts, drag-and-drop, and embed commands; Docker nginx enforces
+selected sidecar and AI routes only. It does not restrict desktop processing,
+browser WASM, separately exposed services, or plugin execution. Keep the
+server-side protections above in place. See
 [Deployment Capabilities](deployment-capabilities.md).
 
 #### Custom app name

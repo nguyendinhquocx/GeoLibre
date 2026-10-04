@@ -11,7 +11,10 @@ import {
   serializeProject,
   useAppStore,
 } from "@geolibre/core";
-import { compileMapboxLayer, styleUsesUnsupportedSource } from "../packages/map/src/mapbox-layers";
+import {
+  compileMapboxLayer,
+  styleUsesUnsupportedSource,
+} from "../packages/map/src/gl-style-compiler";
 import { proxyWmsTiles } from "../packages/map/src/wms-proxy";
 import { resolveTextFontFromStyleLayers } from "../packages/map/src/text-font";
 import { MAPBOX_CAPABILITIES, redactMapboxError } from "../packages/map/src/mapbox-engine";
@@ -22,6 +25,7 @@ import { isPluginEngineSupported } from "../packages/plugins/src/types";
 import { maplibreLayerControlPlugin } from "../packages/plugins/src/plugins/layer-control";
 import { maplibreDeckGlVizPlugin } from "../packages/plugins/src/plugins/maplibre-deckgl-viz";
 import { geojsonLayer } from "./helpers/layer-fixtures";
+import { NULL_GEOMETRY } from "./helpers/null-geometry";
 
 describe("Mapbox project and plugin boundaries", () => {
   it("round trips the primary renderer independently of the grid", () => {
@@ -166,7 +170,7 @@ describe("Mapbox native layer compilation", () => {
       id: "table",
       geojson: {
         type: "FeatureCollection",
-        features: [{ type: "Feature", properties: { name: "a" }, geometry: null }],
+        features: [{ type: "Feature", properties: { name: "a" }, geometry: NULL_GEOMETRY }],
       },
     });
     assert.deepEqual(types(table), []);

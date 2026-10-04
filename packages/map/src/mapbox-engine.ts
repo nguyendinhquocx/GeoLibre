@@ -36,11 +36,14 @@ import {
 } from "./map-engine";
 import {
   compileMapboxLayer,
-  isInternalMapboxLayer,
-  isMapboxPluginLayer,
   DEFAULT_MAPBOX_TEXT_FONT,
   type MapboxLayerPlan,
   mapboxPaint,
+} from "./gl-style-compiler";
+import {
+  isInternalMapboxLayer,
+  isMapboxPluginLayer,
+  MAPBOX_SUPPORTED_LAYER_KINDS,
 } from "./mapbox-layers";
 import {
   BASEMAP_LABEL_KEY,
@@ -63,7 +66,7 @@ import {
   STANDARD_OPACITY,
   STANDARD_BLANK_COLOR,
 } from "./mapbox-standard-style";
-import { arcgisOpacity } from "./arcgis-vector-style";
+import { arcgisOpacity } from "./vector-style";
 import { LayerControlHost, normalizeLayerBounds } from "./layer-control-host";
 import { ResetBearingControl } from "./reset-bearing-control";
 import { MapboxGlobeControl } from "./mapbox-globe-control";
@@ -85,6 +88,13 @@ export const MAPBOX_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   // mapbox-gl has no `raster-dem` source a COG can back, so the terrain
   // source controls stay hidden here (#2475).
   terrainSource: false,
+  nativeZarr: false,
+  nativeDataSources: false,
+  // The engine is published after the initial style loads.
+  deferredEngineReady: true,
+  measureTool: true,
+  controlLayerPanels: true,
+  supportedLayerKinds: MAPBOX_SUPPORTED_LAYER_KINDS,
 });
 
 const BLANK_BACKGROUND_LAYER_ID = "geolibre-blank-background";
@@ -154,6 +164,25 @@ function diagnosticResourceKey(url: string | undefined, message: string): string
 }
 
 /** Mapbox owns its own native objects; getMap deliberately remains MapLibre-only. */
+
+/**
+ * Camera options for a story chapter location, leaving out an absent pitch or
+ * bearing. mapbox-gl tests `"bearing" in options`, so an own `undefined` key
+ * would be read as a target (NaN) instead of "keep the current value".
+ *
+ * @param location The chapter's camera target.
+ * @returns Options for `flyTo`/`easeTo`/`jumpTo`.
+ */
+function storyCameraOptions(location: StoryChapterLocation): mapboxgl.CameraOptions {
+  const { center, zoom, pitch, bearing } = location;
+  return {
+    center,
+    zoom,
+    ...(pitch === undefined ? {} : { pitch }),
+    ...(bearing === undefined ? {} : { bearing }),
+  };
+}
+
 export class MapboxEngine implements MapEngine {
   readonly kind = "mapbox" as const;
   readonly capabilities = MAPBOX_CAPABILITIES;
@@ -535,7 +564,7 @@ export class MapboxEngine implements MapEngine {
       map.off("moveend", this.pendingStoryRotate);
       this.pendingStoryRotate = null;
     }
-    map.flyTo(location, { storyCameraToken: token });
+    map.flyTo(storyCameraOptions(location), { storyCameraToken: token });
   }
   applyStoryChapterCamera(
     location: StoryChapterLocation,
@@ -550,7 +579,10 @@ export class MapboxEngine implements MapEngine {
       this.pendingStoryRotate = null;
     }
     if (!rotate) {
-      map[animation]({ ...location, duration: 800 }, { storyCameraToken: token });
+      map[animation](
+        { ...storyCameraOptions(location), duration: 800 },
+        { storyCameraToken: token },
+      );
       return;
     }
     const onMoveEnd = (event: mapboxgl.MapEventOf<"moveend"> & { storyCameraToken?: number }) => {
@@ -566,7 +598,7 @@ export class MapboxEngine implements MapEngine {
     // Listen before moving: jumpTo fires its moveend synchronously.
     this.pendingStoryRotate = onMoveEnd;
     map.on("moveend", onMoveEnd);
-    map[animation]({ ...location, duration: 800 }, { storyCameraToken: token });
+    map[animation]({ ...storyCameraOptions(location), duration: 800 }, { storyCameraToken: token });
   }
   zoomIn(): void {
     this.map?.zoomIn();

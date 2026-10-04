@@ -257,6 +257,9 @@ export interface GeoLibreAppAPI {
     defaultValue: string,
     params?: Record<string, string | number>
   ) => string;
+  registerTranslations?: (
+    resources: Record<string, Record<string, string>>
+  ) => void;
   // Credential storage (see "Saving credentials" below).
   credentials?: GeoLibrePluginCredentials;
   // Top toolbar menus (see "Toolbar menus" below).
@@ -716,6 +719,7 @@ export interface GeoLibreTileLayerOptions {
   visible?: boolean; // default true
   opacity?: number; // default 1
   beforeLayerId?: string; // insert beneath this layer
+  metadata?: Record<string, unknown>; // provenance merged into layer.metadata
 }
 
 export interface GeoLibreWmsLayerOptions extends GeoLibreTileLayerOptions {
@@ -726,6 +730,7 @@ export interface GeoLibreWmsLayerOptions extends GeoLibreTileLayerOptions {
   transparent?: boolean; // default true
   version?: string; // "1.1.1" (default) or "1.3.0" (sends CRS instead of SRS)
   crs?: string; // "EPSG:3857" (default), "EPSG:4326", "CRS:84" (1.3.0 only), any "EPSG:<code>"
+  queryable?: boolean; // false when the capabilities mark the layers queryable="0": identify skips it
 }
 
 export interface GeoLibreWfsLayerOptions {
@@ -733,6 +738,7 @@ export interface GeoLibreWfsLayerOptions {
   typeName: string; // advertised feature type
   version?: string; // defaults to "2.0.0"
   bbox?: [number, number, number, number]; // [west, south, east, north] in WGS84
+  metadata?: Record<string, unknown>; // provenance merged into layer.metadata
 }
 
 export interface GeoLibreCogLayerOptions {
@@ -780,6 +786,25 @@ app.addWmsLayer?.("Cadastral parcels", {
   crs: "EPSG:6706",
 });
 
+// The capabilities mark the layer queryable="0": identify skips it.
+app.addWmsLayer?.("Buildings", {
+  url: "https://wms.example.it/wms",
+  layers: "buildings",
+  queryable: false,
+});
+
+// A layer found in a catalogue: keep its provenance with it.
+app.addWmsLayer?.("Bathymetry", {
+  url: "https://wms.example.org/wms",
+  layers: "bathymetry",
+  metadata: {
+    catalogRecordId: "rndt:abc-123",
+    catalogRecordUrl: "https://catalog.example.org/records/abc-123",
+    publisher: "Example Hydrographic Office",
+    license: "CC BY 4.0",
+  },
+});
+
 // COG — read the GeoTIFF directly (client-side), with raster controls.
 const cogId = await app.addCogLayer?.(
   "LINZ DEM",
@@ -787,6 +812,8 @@ const cogId = await app.addCogLayer?.(
   { colormap: "terrain", nodata: -9999 }
 );
 ```
+
+`addTileLayer`, `addWmtsLayer`, `addWmsLayer`, and `addWfsLayer` take an optional `metadata` object, merged into the new layer's `metadata`. Use it to leave a catalogue layer's provenance with it (the record id, a link to its metadata page, the publisher, the licence): it is shown in the layer's Metadata dialog and saved with the project. It must be a plain, JSON-serializable object, or the call throws (`addWfsLayer` rejects). GeoLibre's own keys win over a field of the same name, and credential-named fields (`token`, `apiKey`, ...) are stripped when the project is shared or exported. The Metadata dialog also shows the service address and request fields GeoLibre keeps on a service or tile layer's `source` (for WMS: `url`, `layers`, `styles`, `format`, `version`, `crs`, and `queryable` when false), with credentials removed.
 
 WFS layers use the host's GetFeature loader, including GeoJSON/GML fallback, reprojection, desktop native HTTP, and refresh. `addWfsLayer` resolves with the new layer id and rejects if loading fails or the service returns no features. Saved projects normally keep the request URL rather than embedding the downloaded collection, and reopening fetches it again. Exception: if saving strips credentials from the URL, the fetched collection is embedded so the layer remains visible without storing the secret; it is not refetched from the sanitized URL. The optional bbox is WGS84 `[west, south, east, north]` and must not cross the antimeridian (`west` must not exceed `east` — a Pacific-spanning box throws); the host applies the existing 1,000-feature limit.
 
@@ -810,7 +837,7 @@ const layerId = await app.addWfsLayer?.("Roads", {
 
 The helpers are typed optional for forward-compatibility with host variants, so call them with optional chaining (`app.addTileLayer?.(...)`).
 
-> **Desktop (Tauri) note:** The desktop app enforces a Content Security Policy that restricts which tile hosts the WebView can reach. If your plugin registers tiles from a host not already in the GeoLibre CSP allowlist, the layer is created but its tiles silently fail to load. For bundled (first-party) plugins, add the host to `connect-src` / `img-src` in `apps/geolibre-desktop/src-tauri/tauri.conf.json`; external plugins can only reach already-permitted hosts. The web build is unaffected.
+> **Desktop (Tauri) note:** The desktop app enforces a Content Security Policy. Its `connect-src` allows any `https:` or `http:` host, so tile and data requests from a plugin reach their server, but `script-src` only allows the app itself, `blob:` URLs and a short list of version-pinned CDN paths. A plugin that injects a `<script>` or `import()`s a module from another host is blocked; bundle that code into the plugin instead. A bundled (first-party) plugin can add the path to `script-src` in `apps/geolibre-desktop/src-tauri/tauri.conf.json` (see [Desktop CSP `script-src` allowlist](maintenance.md#desktop-csp-script-src-allowlist)). The web build is unaffected.
 
 ## Zarr layers
 
@@ -1159,7 +1186,7 @@ Items use the same shape as [toolbar menus](#toolbar-menus): actions, submenus a
 
 ## Following the app language
 
-The GeoLibre UI is translated with react-i18next, but a plugin renders its panels as plain DOM and cannot use the host's React hooks. Three methods bridge that gap:
+The GeoLibre UI is translated with react-i18next, but a plugin renders its panels as plain DOM and cannot use the host's React hooks. Four methods bridge that gap:
 
 ```typescript
 // The active catalog code ("en", "zh", "pt-BR", ...).
@@ -1176,14 +1203,36 @@ const label = app.translate?.("plugin.my-plugin.count", "{{n}} features", {
 // call it from `deactivate`, or the listener keeps re-rendering DOM you no
 // longer own.
 const stop = app.onLocaleChange?.((next) => renderPanel(container, next));
+
+// Ship your own translations (call once, from `activate`). Flat dotted keys per
+// locale; `translate` then resolves them in that language.
+app.registerTranslations?.({
+  de: {
+    "plugin.my-plugin.title": "Werkbank",
+    "plugin.my-plugin.count": "{{n}} Objekte",
+  },
+  fr: {
+    "plugin.my-plugin.title": "Atelier",
+    "plugin.my-plugin.count": "{{n}} entités",
+  },
+});
 ```
 
 Conventions:
 
-- **Always pass your own English text as `defaultValue`.** GeoLibre's catalogs do not ship your plugin's strings, so the fallback is what makes your UI read correctly today; translations are an upgrade, not a prerequisite.
-- **Namespace your keys by plugin id** (`plugin.<your-id>.<something>`) so they cannot collide with the host's own keys.
+- **Always pass your own English text as `defaultValue`.** It is what renders in a language you ship no translation for, and on a host that predates these methods, so translations are an upgrade, not a prerequisite.
+- **Namespace your keys by plugin id** (`plugin.<your-id>.<something>`) so they cannot collide with the host's own keys. `registerTranslations` enforces this: it accepts only string values under `plugin.<id>.` and drops (with a console warning) anything else.
+- **The host's catalogs win.** A key GeoLibre's bundled catalogs already define keeps the host's text, and `registerTranslations` never overwrites an existing entry. Registrations last for the session; registering the same key again is a no-op, so do it once rather than on every activation.
+- Plural keys work as they do in the host: register `plugin.my-plugin.items_one` / `plugin.my-plugin.items_other` (and the extra forms languages such as Russian or Arabic need) and pass `{ count }` in `params`.
 - These methods are typed optional like the rest of the API, so call them with optional chaining and keep a literal fallback.
-- Panel titles and toolbar labels take getters precisely so they can call `app.translate?.()` and stay current; use those rather than re-registering on every language change.
+- Panel titles and toolbar labels take getters precisely so they can call `app.translate?.()` and stay current; use those rather than re-registering on every language change. DOM you build once (buttons, hints, status lines) should be re-labelled from an `onLocaleChange` listener.
+
+Built-in plugins (in `packages/plugins`) follow the same contract with two helpers exported from `@geolibre/plugins`:
+
+- `createPluginTranslator(app, pluginId)` returns `tr(key, english, params?)`, which resolves `plugin.<pluginId>.<key>` and interpolates the English fallback itself when the host has no `translate`. A key starting with `@` is absolute, for reusing a host key (`tr("@common.cancel", "Cancel")`). `app` may be a getter, for plugins that keep the API in a module-level variable.
+- `pluginDisplayTitle(app, pluginId, name)` returns a panel-title getter that reads `toolbar.plugin.<pluginId>`, the plugin's name as the Plugins menu shows it, so the dock header and the menu entry stay in the same language.
+
+Their strings live in GeoLibre's bundled catalogs (`apps/geolibre-desktop/src/i18n/locales/*.json`) rather than in `registerTranslations`, and the catalog test requires every locale to carry them (see `docs/i18n.md`).
 
 ## Saving credentials
 
@@ -1200,6 +1249,7 @@ const where = app.credentials?.location(); // "keychain" | "browser", for UI cop
 - **Reads are synchronous.** The desktop app loads every saved value at startup, before any plugin runs.
 - **`set` returns `true`** when the value is persisted and `false` when it lasts only for this session (a failed `localStorage` write, or an unavailable keychain on desktop). Desktop keychain write failures also raise the app's credential-storage warning, so you do not need your own.
 - **This is storage, not isolation.** Plugins run as trusted code in the app window, so a plugin can still read another plugin's values from memory or by wrapping `fetch`. The id prefix keeps well-behaved plugins apart; it is not a security boundary.
+- **The desktop credential store cannot be read from a plugin.** The app reads every saved credential in one native call during startup, before any external plugin loads, and the store then refuses further reads until the window reloads (the loader also closes reads before importing a plugin, in case that read never ran). A plugin calling the store's Tauri command directly gets an error instead of the saved tokens. This narrows what a plugin can reach; it does not isolate plugins. Values the app has already loaded into memory (Settings tokens, other plugins' `app.credentials` values) remain reachable from the shared JavaScript realm, writes to the store are not restricted, and on the web, Jupyter and mobile builds the values sit in `localStorage`. Install only plugins you trust.
 - **Never put secrets in `getProjectState`.** Plugin settings are saved in project files and shared or exported with them.
 - **Built-in plugins use it too.** The Hugging Face, Mapillary and God's Eye View tokens moved from their own `localStorage` keys to `app.credentials`; the host migrates an existing plaintext value on first launch and removes it only after the new write succeeds.
 
@@ -1249,7 +1299,11 @@ Use a right panel for a primary, persistent workspace and a floating panel for a
 
 Use the [GeoLibre plugin template](https://github.com/opengeos/geolibre-plugin-template) as the recommended starting point for external plugin development. The template includes a MapLibre control wrapper, a `plugin.json` manifest, a GeoLibre plugin entry point, and a `package:geolibre` script that builds the zip layout GeoLibre Desktop expects.
 
-GeoLibre Desktop loads external plugins from the app data `plugins/` directory at startup. External plugins are trusted code and can be installed as:
+GeoLibre Desktop loads external plugins from the app data `plugins/` directory
+at startup. External plugins are trusted code; whether they load is also
+controlled by the client-side [deployment plugin policy](deployment-policy.md#plugin-precedence).
+The policy is bypassable and provides neither signing nor sandboxing. External
+plugins can be installed as:
 
 - A `.zip` file with a root `plugin.json`.
 - An unpacked directory with a root `plugin.json`.
@@ -1277,11 +1331,22 @@ apps/geolibre-desktop/public/plugins/example-plugin/
 
 This is the **same content a manifest URL would serve**. A drop-in is all that is required — no source edits per plugin. The `bundledPlugins()` Vite plugin (`apps/geolibre-desktop/vite-plugins/bundled-plugins.ts`) scans `public/plugins/` at build and dev-server start, exposes the discovered manifest paths through the `virtual:bundled-plugins` module, and `usePlugins.ts` loads them through the normal external-plugin path (fetch → blob import → register). Discovery happens at build time, so restart the dev server or rebuild after adding, updating, or removing a plugin folder.
 
-The same folder serves **both** the web and desktop builds: the desktop app bundles the identical frontend (`frontendDist` in `tauri.conf.json`) and serves it from `tauri://localhost`, which is same-origin and allowed by the desktop CSP (`connect-src 'self'`, `script-src ... blob:`). Bundled manifest URLs are injected at load time rather than stored in Settings, so a baked-in plugin always loads and cannot be removed by a user; they are deduplicated by plugin id against any user/project plugin of the same id.
+The same folder serves **both** the web and desktop builds: the desktop app
+bundles the identical frontend (`frontendDist` in `tauri.conf.json`) and serves
+it from `tauri://localhost`, which is same-origin and allowed by the desktop
+CSP (`connect-src 'self'`, `script-src ... blob:`). Bundled manifest URLs are
+injected at load time rather than stored in Settings. Bundled plugins are
+eligible to load without being listed in `allowed` or permitting sideload, but
+an id in `blocked` still prevents loading. They are deduplicated by plugin id
+against any user/project plugin of the same id.
 
 Private plugins should be git-ignored under `public/plugins/` (see that folder's `.gitignore`) and copied in at build/deploy time (for example in CI before `npm run build`, or by a plugin repo's own install script) so their code stays out of GeoLibre's history. The discovery code is generic and committed; only the plugin payload is excluded.
 
-A bundled drop-in's `plugin.json` may additionally set `"activeByDefault": true` to activate the plugin on startup, so its control appears without a trip to the Plugins menu. Saved plugin state still wins: a loaded project (or the user's persisted plugin state) that carries `activePluginIds` overrides the default. The flag is honored **only** for bundled drop-ins, since a deployer who bakes a plugin into the build is trusted like a built-in author; it is silently ignored on manifests installed at runtime from URLs or zips.
+A bundled drop-in's `plugin.json` may additionally set `"activeByDefault": true`
+to activate the plugin on startup. Saved plugin state still wins: a loaded
+project or persisted state carrying `activePluginIds` overrides the default.
+The flag is honored **only** for bundled drop-ins; it does not bypass a blocked
+plugin policy.
 
 If instead you want a plugin compiled into the main JS bundle (no `plugin.json`, no fetch), register it as a built-in plugin (see "Add a plugin" in the repository README).
 
@@ -1323,7 +1388,12 @@ When using the template, update `geolibre-plugin/plugin.json` and `src/geolibre.
 
 The Settings menu's **Manage Plugins** entry opens a standalone dialog (modeled on QGIS's plugin manager) with **All**, **Installed**, **Not installed**, **Upgradeable**, and **Settings** sections. The first four list curated registry plugins so users can install, update, and uninstall them without hand-entering manifest URLs; the Settings section installs a plugin from a local `.zip` and manages additional local plugin directories and manual manifest URLs. Actions apply immediately (install/uninstall/update are live; uninstall asks for confirmation). It is a thin layer over the manifest-URL loader above: installing an entry records its manifest URL in the plugin manifest URL list, and the existing loader fetches and registers it. It introduces no new trust path.
 
-The registry is JSON, fetched from `VITE_GEOLIBRE_PLUGIN_REGISTRY_URL` or, by default, the hosted registry at `https://plugins.geolibre.app/plugin-registry.json` (the [opengeos/geolibre-plugins](https://github.com/opengeos/geolibre-plugins) repo, published to GitHub Pages with CORS enabled). It is an array, or an object with a `plugins` array, of entries:
+The registry is JSON, fetched from the primary policy's `plugins.registryUrl`,
+then the legacy `VITE_GEOLIBRE_PLUGIN_REGISTRY_URL` setting, or by default the
+hosted registry at `https://plugins.geolibre.app/plugin-registry.json` (the
+[opengeos/geolibre-plugins](https://github.com/opengeos/geolibre-plugins) repo,
+published to GitHub Pages with CORS enabled). It is an array, or an object with
+a `plugins` array, of entries:
 
 ```json
 {
@@ -1339,13 +1409,18 @@ The registry is JSON, fetched from `VITE_GEOLIBRE_PLUGIN_REGISTRY_URL` or, by de
       "manifestUrl": "https://example.com/example-plugin/plugin.json",
       "categories": ["Example"],
       "minGeoLibreVersion": "1.0.0",
-      "publishableSettings": ["search"]
+      "publishableSettings": ["search"],
+      "bundleSha256": "3f5c…(64 hex characters)"
     }
   ]
 }
 ```
 
 `id`, `name`, `version`, and `manifestUrl` are required; the rest are optional. A relative `manifestUrl` is resolved against the registry location, so a plugin hosted alongside the registry (e.g. `sample/plugin.json`) can be listed with a relative path. `minGeoLibreVersion` gates installation against the running app version. `publishableSettings` is optional and lets a plugin's project state (`getProjectState()`) survive "Strip credentials" and shared or exported projects. By default an external plugin's whole state is dropped there and counted as credential-bearing, because it can hold anything. List the top-level state keys that are safe to publish (`["search", "filters"]`), or use `true` to keep the whole state. The declaration is reviewed with the registry entry and is never read from a project file. What is kept is still scrubbed for credential-named fields and credentialed URLs, and a registry entry cannot widen a built-in plugin's list. Keep secrets out of those keys; use `app.credentials` for them.
+
+`bundleSha256` is optional: the lowercase hex SHA-256 of the published bundle, computed the way `computePluginBundleHash` in `plugin-integrity.ts` does (SHA-256 of the entry, SHA-256 of the style or of an empty string, then SHA-256 of the two digests). The hosted registry generates it for every plugin it serves. When an entry has one, installing it from the marketplace or a `?plugin=` deep link pins that hash before the URL is installed, so the first load checks the downloaded code against the reviewed hash instead of trusting whatever the URL serves first; a mismatch is held back like any changed bundle. The Update action likewise refuses a download that doesn't match, before evaluating it. An entry without `bundleSha256` keeps the trust-on-first-use pin.
+
+The registry's maintainers can also pull plugins through `blocklist.json`, published next to the registry (`https://plugins.geolibre.app/blocklist.json` for the hosted one, or `blocklist.json` beside a configured `registryUrl`). GeoLibre fetches it once per session before loading external plugins and caches it for offline starts. An entry with only an `id` blocks every version of that plugin from every external source (registry, manifest URL, zip, plugin directory): installing and loading are refused through the same policy gate as deployment-policy `blocked`, with the entry's `reason` shown. An entry that also has a `bundleSha256` blocks just that bundle, from every external source: a URL plugin, zip archive or plugin directory with exactly that code isn't loaded or installed, and an Update to it is refused, all before the code runs. Bundled drop-ins are never blocked. If the blocklist can't be fetched (or returns 404 after a list was cached), the cached copy applies; a registry that has never published one blocks nothing.
 
 Curate the registry and host plugin bundles in the [opengeos/geolibre-plugins](https://github.com/opengeos/geolibre-plugins) repo, which ships a `sample/` template.
 

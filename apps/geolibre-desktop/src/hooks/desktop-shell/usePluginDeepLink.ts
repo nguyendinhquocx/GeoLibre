@@ -1,4 +1,5 @@
 import type { MapEngine } from "@geolibre/map";
+import i18next from "i18next";
 import { VIEWER_BLOCKED_PLUGIN_IDS } from "@geolibre/plugins";
 import {
   useCallback,
@@ -15,8 +16,11 @@ import {
   pluginDeepLinkNames,
 } from "../../lib/plugin-deep-link";
 import { pluginManifestUrlsForIds } from "../../lib/external-plugins";
+import { notify } from "../../lib/notify";
+import { scrubForIssueReport } from "../../lib/issue-report";
 import {
   fetchPluginRegistry,
+  pinRegistryEntryBundle,
   satisfiesMinVersion,
   type PluginRegistryEntry,
 } from "../../lib/plugin-registry";
@@ -75,6 +79,22 @@ const subscribeToPluginManager = (listener: () => void) => getPluginManager().su
 const getPluginManagerVersion = () => getPluginManager().getVersion();
 
 /**
+ * Logs and surfaces a deep-linked plugin that threw while activating. The link
+ * asked for it by name, so failing silently would leave the user guessing.
+ *
+ * @param id - The plugin id from the `?plugin=` link.
+ * @param error - What activation threw.
+ */
+function reportActivationFailure(id: string, error: unknown): void {
+  console.error(`[GeoLibre] Could not activate the plugin "${id}"`, error);
+  notify.error(i18next.t("notifications.pluginActivateFailed", { id }), {
+    // A plugin error can embed a keyed URL; never show a token on screen.
+    description: error instanceof Error ? scrubForIssueReport(error.message) : undefined,
+    error,
+  });
+}
+
+/**
  * Activates the built-in plugins a `?plugin=<id>` deep link names, once per
  * page load, e.g. `…/?plugin=swipe` or `…/?plugin=maplibre-gl-time-slider`.
  *
@@ -90,8 +110,9 @@ const getPluginManagerVersion = () => getPluginManager().getVersion();
  * by id. A registry plugin that is already installed is activated like a
  * built-in one; one that is not is never loaded silently: it is returned in
  * `pending` for a trust prompt, and only "Trust and load" installs and
- * activates it. Registry plugins are skipped in the read-only viewer, which
- * has no place to prompt.
+ * activates it. In the read-only viewer an installed registry plugin still
+ * activates, but one that is not installed is skipped with a warning: the
+ * viewer has no place to prompt and never installs plugins.
  *
  * @param options - The map engine, the viewer guard, and the readiness signals.
  * @returns The registry plugins awaiting the user's decision.
@@ -147,7 +168,7 @@ export function usePluginDeepLink({
             console.warn(`[GeoLibre] The plugin "${id}" from the ?plugin= link did not activate.`);
           }
         } catch (error) {
-          console.error(`[GeoLibre] Could not activate the plugin "${id}"`, error);
+          reportActivationFailure(id, error);
         }
       }
       await resolveRegistryNames(targets.unknown);
@@ -161,14 +182,6 @@ export function usePluginDeepLink({
     async function resolveRegistryNames(names: string[]): Promise<void> {
       if (names.length === 0) return;
       let unknown = names;
-      if (viewer) {
-        // Registry plugins are never installed here, so a name that might be one
-        // is not reported as unknown.
-        console.warn(
-          `[GeoLibre] Ignoring ${names.join(", ")} in the ?plugin= link: only built-in plugins open in layout=viewer.`,
-        );
-        return;
-      }
       try {
         const registry = await fetchPluginRegistry();
         const matches = matchRegistryDeepLinkNames(names, registry.entries);
@@ -196,12 +209,17 @@ export function usePluginDeepLink({
                 `[GeoLibre] The plugin "${entry.id}" from the ?plugin= link did not activate.`,
               );
             } catch (error) {
-              console.error(`[GeoLibre] Could not activate the plugin "${entry.id}"`, error);
+              reportActivationFailure(entry.id, error);
             }
           } else if (loaded) {
             // The id belongs to a plugin this entry would not replace.
             console.warn(
               `[GeoLibre] Ignoring "${entry.id}" in the ?plugin= link: a plugin with that id is already loaded.`,
+            );
+          } else if (viewer) {
+            // The read-only viewer has nowhere to ask, so it never installs plugins.
+            console.warn(
+              `[GeoLibre] Ignoring "${entry.id}" in the ?plugin= link: it is not installed, and layout=viewer never installs plugins.`,
             );
           } else if (!satisfiesMinVersion(__GEOLIBRE_VERSION__, entry.minGeoLibreVersion)) {
             console.warn(
@@ -267,7 +285,7 @@ export function usePluginDeepLink({
             console.warn(`[GeoLibre] The plugin "${id}" from the ?plugin= link did not activate.`);
           }
         } catch (error) {
-          console.error(`[GeoLibre] Could not activate the plugin "${id}"`, error);
+          reportActivationFailure(id, error);
         }
       }
     })();
@@ -275,6 +293,8 @@ export function usePluginDeepLink({
 
   const trust = useCallback(() => {
     if (pending.length === 0) return;
+    // Pin each reviewed hash before the URLs are installed and loaded.
+    pending.forEach(pinRegistryEntryBundle);
     const current = useDesktopSettingsStore.getState().desktopSettings;
     useDesktopSettingsStore.getState().setDesktopSettings({
       ...current,

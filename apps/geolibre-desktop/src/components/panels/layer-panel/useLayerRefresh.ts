@@ -6,6 +6,7 @@ import type { GeoLibreLayer } from "@geolibre/core";
 import { reloadVectorControlLayer, replayVectorControlLayerById } from "@geolibre/plugins";
 import {
   getLayerRefreshConfig,
+  getRefreshFailureLayerPatch,
   isRefreshableLayer,
   isVectorControlRefreshLayer,
   refreshGeoJsonLayer,
@@ -28,6 +29,9 @@ import {
   type LayerRefreshStatus,
   type LayerRefreshTimer,
 } from "./layer-panel-utils";
+import { readMssqlTable } from "@geolibre/processing";
+import { MssqlReconnectRequiredError, withMssqlSession } from "../../../lib/mssql-sessions";
+import { reconcileMssqlWritebackMetadata } from "../../../lib/mssql-writeback";
 
 interface UseLayerRefreshOptions {
   /** The project's layers, in store order. */
@@ -51,6 +55,12 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
   const projectGeneration = useAppStore((s) => s.projectGeneration);
   const updateLayer = useAppStore((s) => s.updateLayer);
   const [refreshStatuses, setRefreshStatuses] = useState<Record<string, LayerRefreshStatus>>({});
+  const markMssqlRefreshRequired = useCallback(
+    (layerId: string) => {
+      updateLayer(layerId, { mssqlWritebackPending: true });
+    },
+    [updateLayer],
+  );
   // "Last synced <relative time>" is derived from the clock, not from store
   // state, so without a tick the label would keep reading "a few seconds ago"
   // until an unrelated re-render happened to recompute it. Tick once a minute
@@ -107,6 +117,7 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
     async (layer: GeoLibreLayer, automatic = false) => {
       const requestGeneration = projectGeneration;
       const requestSourceUrl = layer.source.url;
+      const mssqlRecoveryRefresh = layer.mssqlWritebackPending === true;
       const getCurrentRequestLayer = (): GeoLibreLayer | undefined => {
         const state = useAppStore.getState();
         if (state.projectGeneration !== requestGeneration) return undefined;
@@ -134,6 +145,58 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
       }));
 
       try {
+        if (mssqlRecoveryRefresh) {
+          const connectionId =
+            typeof layer.metadata.mssqlConnectionId === "string"
+              ? layer.metadata.mssqlConnectionId
+              : "";
+          const table =
+            typeof layer.metadata.mssqlTable === "string" ? layer.metadata.mssqlTable : "";
+          if (!connectionId || !table) {
+            throw new Error(t("layers.saveEditsMssqlNoConnection"));
+          }
+          const schema =
+            typeof layer.metadata.mssqlSchema === "string" ? layer.metadata.mssqlSchema : "dbo";
+          const geometryColumn =
+            typeof layer.metadata.mssqlGeometryColumn === "string"
+              ? layer.metadata.mssqlGeometryColumn
+              : undefined;
+          const refreshed = await withMssqlSession(connectionId, (sessionId) =>
+            readMssqlTable({
+              session_id: sessionId,
+              schema_name: schema,
+              table,
+              geometry_column: geometryColumn,
+              excluded_fields: layer.fieldVisibility
+                ? Object.keys(layer.fieldVisibility).filter(
+                    (key) => layer.fieldVisibility![key] === "excluded",
+                  )
+                : undefined,
+            }),
+          );
+          const latest = getCurrentRequestLayer();
+          if (!latest) return;
+          updateLayer(layer.id, {
+            geojson: refreshed.geojson,
+            mssqlWritebackPending: undefined,
+            ...setLayerConnectionResult(latest, {
+              syncedAt: new Date().toISOString(),
+              error: null,
+            }),
+            metadata: reconcileMssqlWritebackMetadata(latest.metadata, refreshed),
+          });
+          setRefreshStatuses((current) => ({
+            ...current,
+            [layer.id]: {
+              type: "success",
+              message: t("layers.refreshedCount", {
+                count: refreshed.feature_count.toLocaleString(),
+              }),
+            },
+          }));
+          scheduleStatusClear(layer.id);
+          return;
+        }
         if (isSqlQueryLayer(layer)) {
           // SQL query layers refresh by re-executing their stored DuckDB
           // statement against the current layers (the query layer itself is
@@ -333,19 +396,21 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
       } catch (error) {
         const latest = getCurrentRequestLayer();
         if (!latest) return;
-        const message = error instanceof Error ? error.message : t("layers.refreshError");
-        if (latest) {
-          updateLayer(layer.id, {
-            ...setLayerConnectionResult(latest, { error: message }),
-            ...(latest.connection?.onFailure === "clear" &&
-            latest.geojson &&
-            !arcGISLayerHasPendingEdits(latest.id)
-              ? {
-                  geojson: { type: "FeatureCollection" as const, features: [] },
-                }
-              : {}),
-          });
-        }
+        const message =
+          error instanceof MssqlReconnectRequiredError
+            ? t("layers.saveEditsMssqlNoConnection")
+            : error instanceof Error
+              ? error.message
+              : t("layers.refreshError");
+        updateLayer(
+          layer.id,
+          getRefreshFailureLayerPatch(
+            latest,
+            message,
+            mssqlRecoveryRefresh,
+            arcGISLayerHasPendingEdits(latest.id),
+          ),
+        );
         setRefreshStatuses((current) => ({
           ...current,
           [layer.id]: {
@@ -656,6 +721,7 @@ export function useLayerRefresh({ layers, isCollapsed }: UseLayerRefreshOptions)
     setRefreshInterval,
     setRefreshFailurePolicy,
     toggleWatchLayer,
+    markMssqlRefreshRequired,
   };
 }
 

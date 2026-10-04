@@ -1,7 +1,7 @@
 // @refresh reset
 import { useAppStore } from "@geolibre/core";
 import type { MapDiagnosticEvent, MapEngine } from "@geolibre/map";
-import { MapCanvas } from "@geolibre/map";
+import { MapCanvas, rendererCapabilities } from "@geolibre/map";
 import { useTranslation } from "react-i18next";
 import {
   addRasterToMap,
@@ -21,7 +21,6 @@ import {
 import { createPortal } from "react-dom";
 import { BROWSER_PANEL_ID, useRegisterBrowserPanel } from "../../hooks/useRegisterBrowserPanel";
 import { COMMENTS_PANEL_ID, useRegisterCommentsPanel } from "../../hooks/useRegisterCommentsPanel";
-import { UrlLoadErrorBanner } from "./UrlLoadErrorBanner";
 import { MountWhenOpened } from "./MountWhenOpened";
 import { CommentsPanel } from "../comments/CommentsPanel";
 import { CommentMapOverlay } from "../comments/CommentMapOverlay";
@@ -42,6 +41,7 @@ import {
 } from "../../hooks/usePlugins";
 import type { DataUrlLoadState } from "../../hooks/useDataUrlLoader";
 import { wikipediaLang } from "../../lib/knowledge";
+import { useLineOfSightTool } from "../../lib/line-of-sight-store";
 import { projectUrlFromLocation } from "../../lib/project-url";
 import { useEmbedBridge } from "../../hooks/useEmbedBridge";
 import { useRasterIdentify } from "../../hooks/useRasterIdentify";
@@ -73,9 +73,11 @@ import { MapLegendPanel } from "../legend/MapLegendPanel";
 import { RasterSubsetPanel } from "./RasterSubsetPanel";
 import { BasemapExtractPanel } from "./BasemapExtractPanel";
 import { TerrainSettingsDialog } from "./TerrainSettingsDialog";
+import { LineOfSightPanel } from "./LineOfSightPanel";
 import { MapContextMenu } from "./MapContextMenu";
 import { KnowledgeCardPanel } from "./KnowledgeCardPanel";
 import { KnowledgeCardConsentDialog } from "./KnowledgeCardConsentDialog";
+import { CvdPreview } from "./CvdPreview";
 import { MapGrid } from "./MapGrid";
 import { PrimaryMapboxCanvas } from "./PrimaryMapboxCanvas";
 import { PrimaryArcgisCanvas } from "./PrimaryArcgisCanvas";
@@ -84,7 +86,12 @@ import { RemoteCursorsOverlay } from "./RemoteCursorsOverlay";
 import { useCommandBridge } from "../../hooks/useCommandBridge";
 import { useEmbedApi } from "../../hooks/useEmbedApi";
 import { useJupyterRelay } from "../../hooks/useJupyterRelay";
-import { appendDiagnostic, useDiagnosticsSnapshot } from "../../lib/diagnostics";
+import {
+  appendDiagnostic,
+  observeNetworkResponses,
+  useDiagnosticsSnapshot,
+} from "../../lib/diagnostics";
+import { createLayerFailureNotifier } from "../../lib/layer-failure-notifier";
 import { useCredentialStorageStatus } from "../../lib/credential-store";
 import { SectionErrorBoundary, SilentErrorBoundary } from "../common/error-boundaries";
 import { AttributeTable } from "../panels/AttributeTable";
@@ -141,6 +148,7 @@ import {
 import { useCollabShareLinkAutoOpen } from "../../hooks/desktop-shell/useCollabShareLinkAutoOpen";
 import { useDataUrlFit } from "../../hooks/desktop-shell/useDataUrlFit";
 import { useDropStatus } from "../../hooks/desktop-shell/useDropStatus";
+import { useUrlLoadErrorNotices } from "../../hooks/desktop-shell/useUrlLoadErrorNotices";
 import { useFileDrop } from "../../hooks/desktop-shell/useFileDrop";
 import { useKnowledgeCard } from "../../hooks/desktop-shell/useKnowledgeCard";
 import { useLayerEditActions } from "../../hooks/desktop-shell/useLayerEditActions";
@@ -198,6 +206,7 @@ export function DesktopShell({
       noData: t("map.identifyAll.noData"),
       pixelReadFailed: t("map.identifyAll.pixelReadFailed"),
       wmsFailed: t("map.identifyAll.wmsFailed"),
+      wmsNotQueryable: t("map.identifyAll.wmsNotQueryable"),
       photo: {
         photo: t("map.identifyAll.photo"),
         noPreview: t("map.identifyAll.photoNoPreview"),
@@ -228,6 +237,15 @@ export function DesktopShell({
     confirmKnowledgeConsent,
     handleKnowledgeFlyTo,
   } = useKnowledgeCard(mapControllerRef);
+  // The Line of Sight panel and the knowledge card share the map's bottom
+  // corner, so opening either closes the other rather than stacking them.
+  const lineOfSightRequest = useLineOfSightTool((s) => s.request);
+  useEffect(() => {
+    if (lineOfSightRequest > 0) setKnowledgePlace(null);
+  }, [lineOfSightRequest, setKnowledgePlace]);
+  useEffect(() => {
+    if (knowledgePlace) useLineOfSightTool.getState().closeLineOfSight();
+  }, [knowledgePlace]);
   const [rasterSubsetLayer, setRasterSubsetLayer] = useRasterSubsetLayer();
   // The Offline Basemap Extract panel is a non-modal floating panel over the
   // map (so the map stays interactive for drawing a bbox), mounted here beside
@@ -291,15 +309,8 @@ export function DesktopShell({
     getGeometryEditTargetLayerId,
   );
   const [mapReadyGeneration, setMapReadyGeneration] = useState(0);
-  const {
-    clearDropMessageLater,
-    crsWarning,
-    dropError,
-    dropMessage,
-    setCrsWarning,
-    setDropError,
-    setDropMessage,
-  } = useDropStatus();
+  const { clearDropMessageLater, setCrsWarning, setDropError, setDropMessage } = useDropStatus();
+  useUrlLoadErrorNotices(projectUrlLoadState?.error, dataUrlLoadState?.error);
   const credentialStorageError = useCredentialStorageStatus((s) => s.error);
   const credentialStorageRevision = useCredentialStorageStatus((s) => s.revision);
   // A new failure bumps the revision, which re-shows a dismissed warning.
@@ -437,14 +448,20 @@ export function DesktopShell({
    * selected.
    */
   const primaryRenderer = useAppStore((s) => s.primaryRenderer);
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks which engine's canvas to mount
   const cesiumPrimary = primaryRenderer === "cesium";
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks which engine's canvas to mount
+  const mapboxPrimary = primaryRenderer === "mapbox";
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks which engine's canvas to mount
+  const arcgisPrimary = primaryRenderer === "arcgis";
   useScreenshotReadiness(
     mapControllerRef,
     mapReadyGeneration,
     externalPluginsReady,
     projectUrlLoadState?.status === "loading" || dataUrlLoadState?.status === "loading",
     projectUrlLoadState?.error ?? dataUrlLoadState?.error ?? null,
-    primaryRenderer !== "maplibre",
+    // No MapLibre map to poll for loaded tiles; readiness waits on the engine.
+    !rendererCapabilities(primaryRenderer).nativeMapInstance,
   );
   useRendererHandoff({
     primaryRenderer,
@@ -454,17 +471,39 @@ export function DesktopShell({
   });
   useMapControlLabels(mapControllerRef, mapReadyGeneration, t);
 
-  const handleMapDiagnosticEvent = useCallback((event: MapDiagnosticEvent) => {
-    appendDiagnostic({
-      category: "map",
-      level: "error",
-      message: event.message,
-      detail: event.detail,
-      source: event.source,
-      status: event.status,
-      url: event.url,
-    });
-  }, []);
+  // One toast per layer per session: a broken tile source errors on every pan,
+  // and the first notice is enough (the rest stay in Diagnostics). Created once
+  // so the "already told" record survives re-renders and renderer swaps.
+  const translateRef = useRef(t);
+  translateRef.current = t;
+  const [layerFailureNotifier] = useState(() =>
+    createLayerFailureNotifier({
+      getLayers: () => useAppStore.getState().layers,
+      t: (key, options) => String(translateRef.current(key as never, options as never)),
+    }),
+  );
+  // MapLibre drops a 404 tile as "empty" before it becomes an error event, so
+  // a layer whose every tile is missing is only visible in the responses.
+  useEffect(
+    () =>
+      observeNetworkResponses((response) => layerFailureNotifier.handleNetworkResponse(response)),
+    [layerFailureNotifier],
+  );
+  const handleMapDiagnosticEvent = useCallback(
+    (event: MapDiagnosticEvent) => {
+      const record = appendDiagnostic({
+        category: "map",
+        level: "error",
+        message: event.message,
+        detail: event.detail,
+        source: event.source,
+        status: event.status,
+        url: event.url,
+      });
+      layerFailureNotifier.handleMapEvent(event, record ?? undefined);
+    },
+    [layerFailureNotifier],
+  );
 
   const { addDroppedPhotos, addDroppedRasters, addFilePath, finishDrop } = useLayerImport({
     mapControllerRef,
@@ -695,138 +734,148 @@ export function DesktopShell({
             displayName={t("shell.section.map")}
             fallbackClassName="h-full w-full"
           >
-            <MapGrid>
-              {/* The primary map area is one renderer or the other (#2217).
+            {/* Color vision preview filters the map canvases in every pane. */}
+            <CvdPreview>
+              <MapGrid>
+                {/* The primary map area is one renderer or the other (#2217).
                   Everything below that takes `mapControllerRef` is MapLibre-only
                   — it drives a `MapController` that the globe does not have — so
                   it mounts with the 2D map and stays unmounted on the globe,
                   where `PrimaryCesiumCanvas` explains the absence. Renderer-
                   neutral, store-driven overlays sit outside the branch and are
                   available under either engine. */}
-              {primaryRenderer === "mapbox" ? (
-                <PrimaryMapboxCanvas
-                  canUseRemoteElevation={hasElevationConsent}
-                  engineRef={mapControllerRef}
-                  identifyAllLabels={identifyAllLabels}
-                  identifyRasterLayerAt={identifyRasterLayerAt}
-                  onEngineReady={handleMapControllerReady}
-                  onMapDiagnosticEvent={handleMapDiagnosticEvent}
-                />
-              ) : primaryRenderer === "arcgis" ? (
-                <PrimaryArcgisCanvas
-                  canUseRemoteElevation={hasElevationConsent}
-                  engineRef={mapControllerRef}
-                  identifyAllLabels={identifyAllLabels}
-                  identifyRasterLayerAt={identifyRasterLayerAt}
-                  onEngineReady={handleMapControllerReady}
-                  onMapDiagnosticEvent={handleMapDiagnosticEvent}
-                />
-              ) : cesiumPrimary ? (
-                <PrimaryCesiumCanvas
-                  engineRef={mapControllerRef}
-                  onEngineReady={handleMapControllerReady}
-                  onMapDiagnosticEvent={handleMapDiagnosticEvent}
-                />
-              ) : (
-                <>
-                  <MapCanvas
+                {mapboxPrimary ? (
+                  <PrimaryMapboxCanvas
                     canUseRemoteElevation={hasElevationConsent}
-                    controllerRef={mapControllerRef}
+                    engineRef={mapControllerRef}
                     identifyAllLabels={identifyAllLabels}
                     identifyRasterLayerAt={identifyRasterLayerAt}
+                    onEngineReady={handleMapControllerReady}
                     onMapDiagnosticEvent={handleMapDiagnosticEvent}
-                    onControllerReady={handleMapControllerReady}
                   />
-                  <MountWhenOpened isOpen={(ui) => ui.objectDetectionOpen}>
-                    <Suspense fallback={null}>
-                      <ObjectDetectionDialog mapControllerRef={mapControllerRef} />
-                    </Suspense>
-                  </MountWhenOpened>
-                  <MountWhenOpened isOpen={(ui) => ui.segmentEverythingOpen}>
-                    <Suspense fallback={null}>
-                      <SegmentEverythingPanel mapControllerRef={mapControllerRef} />
-                    </Suspense>
-                  </MountWhenOpened>
-                </>
-              )}
-              {/* Renderer-neutral: these use the store or `MapEngine`, so they
+                ) : arcgisPrimary ? (
+                  <PrimaryArcgisCanvas
+                    canUseRemoteElevation={hasElevationConsent}
+                    engineRef={mapControllerRef}
+                    identifyAllLabels={identifyAllLabels}
+                    identifyRasterLayerAt={identifyRasterLayerAt}
+                    onEngineReady={handleMapControllerReady}
+                    onMapDiagnosticEvent={handleMapDiagnosticEvent}
+                  />
+                ) : cesiumPrimary ? (
+                  <PrimaryCesiumCanvas
+                    engineRef={mapControllerRef}
+                    onEngineReady={handleMapControllerReady}
+                    onMapDiagnosticEvent={handleMapDiagnosticEvent}
+                  />
+                ) : (
+                  <>
+                    <MapCanvas
+                      canUseRemoteElevation={hasElevationConsent}
+                      controllerRef={mapControllerRef}
+                      identifyAllLabels={identifyAllLabels}
+                      identifyRasterLayerAt={identifyRasterLayerAt}
+                      onMapDiagnosticEvent={handleMapDiagnosticEvent}
+                      onControllerReady={handleMapControllerReady}
+                    />
+                    <MountWhenOpened isOpen={(ui) => ui.objectDetectionOpen}>
+                      <Suspense fallback={null}>
+                        <ObjectDetectionDialog mapControllerRef={mapControllerRef} />
+                      </Suspense>
+                    </MountWhenOpened>
+                    <MountWhenOpened isOpen={(ui) => ui.segmentEverythingOpen}>
+                      <Suspense fallback={null}>
+                        <SegmentEverythingPanel mapControllerRef={mapControllerRef} />
+                      </Suspense>
+                    </MountWhenOpened>
+                  </>
+                )}
+                {/* Renderer-neutral: these use the store or `MapEngine`, so they
                   stay available on every renderer. */}
-              <MapModeBanner mapControllerRef={mapControllerRef} />
-              <PixelTimeSeriesControl
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              <NetcdfSampleMarkers
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              {/* Its own boundary: the cube window builds a `WebGLRenderer`,
+                <MapModeBanner mapControllerRef={mapControllerRef} />
+                <PixelTimeSeriesControl
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <NetcdfSampleMarkers
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                {/* Its own boundary: the cube window builds a `WebGLRenderer`,
                   whose constructor throws outright when the browser or driver
                   gives it no context. Sharing the map's boundary would turn a
                   failure to draw one panel into the loss of the whole map. */}
-              <SilentErrorBoundary label="NetCDF 3D cube">
-                <NetcdfCubeWindow mapControllerRef={mapControllerRef} />
-              </SilentErrorBoundary>
-              <NetcdfCubeSetupDialog mapControllerRef={mapControllerRef} />
-              <RemoteCursorsOverlay
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              <CommentMapOverlay
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-                onSelectComment={(commentId) => {
-                  setSelectedCommentId(commentId);
-                  openRightPanel(COMMENTS_PANEL_ID);
-                }}
-                showResolved={showResolvedComments}
-              />
-              {/* Isolate the collaboration badge in its own boundary: it renders
+                <SilentErrorBoundary label="NetCDF 3D cube">
+                  <NetcdfCubeWindow mapControllerRef={mapControllerRef} />
+                </SilentErrorBoundary>
+                <NetcdfCubeSetupDialog mapControllerRef={mapControllerRef} />
+                <RemoteCursorsOverlay
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <CommentMapOverlay
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                  onSelectComment={(commentId) => {
+                    setSelectedCommentId(commentId);
+                    openRightPanel(COMMENTS_PANEL_ID);
+                  }}
+                  showResolved={showResolvedComments}
+                />
+                {/* Isolate the collaboration badge in its own boundary: it renders
                   over the map, so a fault here must never take down the map. */}
-              <SilentErrorBoundary label="Collaboration status">
-                <CollaborationStatusBadge api={collaboration} mapControllerRef={mapControllerRef} />
-              </SilentErrorBoundary>
-              <MapLegendPanel
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              <MapContextMenu
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-                onExplorePlace={handleExplorePlace}
-              />
-              <KnowledgeCardPanel
-                place={knowledgePlace}
-                lang={wikipediaLang(i18n.language)}
-                onClose={() => setKnowledgePlace(null)}
-                onFlyTo={handleKnowledgeFlyTo}
-              />
-              <StoryMapComposeBar
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              <TerrainSettingsDialog mapControllerRef={mapControllerRef} />
-              <RasterSubsetPanel
-                layer={rasterSubsetLayer}
-                onClose={() => setRasterSubsetLayer(null)}
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              <BasemapExtractPanel
-                open={basemapExtractOpen}
-                onClose={() => setBasemapExtractOpen(false)}
-                mapControllerRef={mapControllerRef}
-                mapReadyGeneration={mapReadyGeneration}
-              />
-              <BoundsRestrictionIndicator />
-              <QuickAnalysisBanner />
-              <NetcdfProfileWindow />
-              <MountWhenOpened isOpen={(ui) => ui.styleManagerOpen}>
-                <Suspense fallback={null}>
-                  <StyleManagerPanel />
-                </Suspense>
-              </MountWhenOpened>
-            </MapGrid>
+                <SilentErrorBoundary label="Collaboration status">
+                  <CollaborationStatusBadge
+                    api={collaboration}
+                    mapControllerRef={mapControllerRef}
+                  />
+                </SilentErrorBoundary>
+                <MapLegendPanel
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <MapContextMenu
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                  onExplorePlace={handleExplorePlace}
+                />
+                <LineOfSightPanel
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <KnowledgeCardPanel
+                  place={knowledgePlace}
+                  lang={wikipediaLang(i18n.language)}
+                  onClose={() => setKnowledgePlace(null)}
+                  onFlyTo={handleKnowledgeFlyTo}
+                />
+                <StoryMapComposeBar
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <TerrainSettingsDialog mapControllerRef={mapControllerRef} />
+                <RasterSubsetPanel
+                  layer={rasterSubsetLayer}
+                  onClose={() => setRasterSubsetLayer(null)}
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <BasemapExtractPanel
+                  open={basemapExtractOpen}
+                  onClose={() => setBasemapExtractOpen(false)}
+                  mapControllerRef={mapControllerRef}
+                  mapReadyGeneration={mapReadyGeneration}
+                />
+                <BoundsRestrictionIndicator />
+                <QuickAnalysisBanner />
+                <NetcdfProfileWindow />
+                <MountWhenOpened isOpen={(ui) => ui.styleManagerOpen}>
+                  <Suspense fallback={null}>
+                    <StyleManagerPanel />
+                  </Suspense>
+                </MountWhenOpened>
+              </MapGrid>
+            </CvdPreview>
           </SectionErrorBoundary>
           <SectionErrorBoundary
             label="Plugin floating panels"
@@ -1074,6 +1123,8 @@ export function DesktopShell({
       {layoutOptions.statusBarVisible ? (
         <SectionErrorBoundary label="Status bar" displayName={t("shell.section.statusBar")}>
           <StatusBar
+            autosavePaused={projectHistory.autosavePaused}
+            autosaveUnavailable={projectHistory.autosaveUnavailable}
             compact={layoutOptions.compact}
             diagnosticsErrorCount={diagnostics.errorCount}
             diagnosticsWarningCount={diagnostics.warningCount}
@@ -1092,9 +1143,12 @@ export function DesktopShell({
           setProjectHistoryOpen(open);
           if (!open) projectHistory.clearRestoreError();
         }}
+        autosavePaused={projectHistory.autosavePaused}
         snapshots={projectHistory.snapshots}
         restoreError={projectHistory.restoreError}
         onRestore={projectHistory.restore}
+        onRestoreLayer={projectHistory.restoreLayer}
+        getCurrentProject={projectHistory.currentProject}
       />
       <ProjectRecoveryDialog
         snapshot={projectHistory.recoverySnapshot}
@@ -1205,37 +1259,6 @@ export function DesktopShell({
           </div>
         </div>
       ) : null}
-      <div className="pointer-events-none absolute left-1/2 top-14 z-50 flex w-max max-w-[min(90vw,32rem)] -translate-x-1/2 flex-col gap-2">
-        {projectUrlLoadState?.error ? (
-          <UrlLoadErrorBanner
-            key={`project:${projectUrlLoadState.error}`}
-            message={projectUrlLoadState.error}
-          />
-        ) : null}
-        {dataUrlLoadState?.error ? (
-          <UrlLoadErrorBanner
-            key={`data:${dataUrlLoadState.error}`}
-            message={dataUrlLoadState.error}
-          />
-        ) : null}
-      </div>
-      {crsWarning ? (
-        <div
-          data-testid="crs-warning"
-          role="status"
-          aria-live="polite"
-          className="absolute bottom-24 left-1/2 z-50 max-w-[min(90vw,36rem)] -translate-x-1/2 rounded-md border border-destructive/40 bg-background px-3 py-2 text-center text-sm text-destructive shadow-lg"
-        >
-          {crsWarning}
-          <button
-            type="button"
-            onClick={() => setCrsWarning(null)}
-            className="ms-2 underline underline-offset-2"
-          >
-            {t("common.close")}
-          </button>
-        </div>
-      ) : null}
       {credentialStorageError && credentialStorageRevision !== dismissedCredentialRevision ? (
         <div
           data-testid="credential-storage-warning"
@@ -1250,18 +1273,6 @@ export function DesktopShell({
           >
             {t("common.close")}
           </button>
-        </div>
-      ) : null}
-      {dropMessage || dropError ? (
-        <div
-          data-testid="drop-status"
-          data-drop-error={dropError ? "true" : undefined}
-          aria-live="polite"
-          className={`pointer-events-none absolute bottom-10 left-1/2 z-50 -translate-x-1/2 rounded-md border bg-background px-3 py-2 text-sm shadow-lg ${
-            dropError ? "text-destructive" : "text-foreground"
-          }`}
-        >
-          {dropError ?? dropMessage}
         </div>
       ) : null}
       {commentTool.pendingComment && (

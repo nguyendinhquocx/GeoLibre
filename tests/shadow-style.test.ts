@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { LayerSpecification } from "maplibre-gl";
+import type { RasterLayerSpecification } from "maplibre-gl";
 import { createShadowStyle } from "../packages/map/src/shadow-style";
 
 function setup() {
@@ -13,7 +13,7 @@ function setup() {
   return { style, events, self };
 }
 
-const raster = (id: string, source: string): LayerSpecification => ({
+const raster = (id: string, source: string): RasterLayerSpecification => ({
   id,
   type: "raster",
   source,
@@ -96,7 +96,7 @@ describe("shadow style", () => {
     const { style } = setup();
     style.addSource("s", { type: "raster", tiles: ["a"] });
     style.addLayer({ ...raster("l", "s"), paint: { "raster-opacity": 1 } });
-    (style.getLayer("l") as { paint: Record<string, number> }).paint["raster-opacity"] = 0;
+    (style.getLayer("l") as RasterLayerSpecification).paint!["raster-opacity"] = 0;
     style.getStyle().layers.pop();
     assert.equal(style.getPaintProperty("l", "raster-opacity"), 1);
     assert.deepEqual(style.getLayersOrder(), ["l"]);

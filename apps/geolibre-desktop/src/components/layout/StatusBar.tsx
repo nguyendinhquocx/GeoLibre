@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FEET_PER_METER,
   formatCameraAltitude,
@@ -6,14 +6,18 @@ import {
   type MapScaleUnit,
 } from "@geolibre/core";
 import {
+  createProjectedReadout,
   formatCoordinate,
   nextCoordinateFormat,
+  normalizeCoordinateEpsgCode,
   normalizeCoordinateFormat,
+  type ProjectedReadout,
 } from "../../lib/coordinate-format";
 import { cn } from "@geolibre/ui";
-import { Bug } from "lucide-react";
+import { Bug, DatabaseZap, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { formatAccuracy, formatSpeedKmh } from "../../lib/gps-tracking";
+import { autosavePausedMessage } from "../../lib/autosave-status";
 
 /**
  * Ground elevation for the readout, in the scale bar's unit family: feet for
@@ -29,6 +33,13 @@ export function formatPointerElevation(meters: number, unit: MapScaleUnit): stri
 }
 
 interface StatusBarProps {
+  /** True while autosave is skipping snapshots because the project is too large. */
+  autosavePaused?: boolean;
+  /**
+   * True when the browser refuses IndexedDB, so autosave cannot keep any
+   * snapshot at all. Takes precedence over `autosavePaused`.
+   */
+  autosaveUnavailable?: boolean;
   compact?: boolean;
   diagnosticsErrorCount: number;
   diagnosticsWarningCount: number;
@@ -36,12 +47,14 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
+  autosavePaused = false,
+  autosaveUnavailable = false,
   compact = false,
   diagnosticsErrorCount,
   diagnosticsWarningCount,
   onOpenDiagnostics,
 }: StatusBarProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const pointerCoords = useAppStore((s) => s.pointerCoords);
   const pointerElevation = useAppStore((s) => s.pointerElevation);
   const cameraAltitude = useAppStore((s) => s.cameraAltitude);
@@ -49,10 +62,32 @@ export function StatusBar({
   const coordinateFormat = normalizeCoordinateFormat(
     useAppStore((s) => s.preferences.map.coordinateFormat),
   );
+  const coordinateEpsgCode = normalizeCoordinateEpsgCode(
+    useAppStore((s) => s.preferences.map.coordinateEpsgCode),
+  );
   const setPreferences = useAppStore((s) => s.setPreferences);
   const gpsStatus = useAppStore((s) => s.gpsStatus);
   const mapView = useAppStore((s) => s.mapView);
   const diagnosticsCount = diagnosticsErrorCount + diagnosticsWarningCount;
+  // The pointer readout re-renders this bar on every mouse move; build the
+  // autosave notice only when its inputs change (#2860).
+  const autosaveNotice = useMemo(() => {
+    if (autosaveUnavailable) {
+      return {
+        label: t("statusBar.autosaveUnavailable"),
+        detail: t("statusBar.autosaveUnavailableDetail"),
+        unavailable: true,
+      };
+    }
+    if (autosavePaused) {
+      return {
+        label: t("statusBar.autosavePaused"),
+        detail: autosavePausedMessage(t, i18n.language),
+        unavailable: false,
+      };
+    }
+    return null;
+  }, [autosaveUnavailable, autosavePaused, t, i18n.language]);
 
   // Re-render every few seconds while a GPS fix is shown so its age stays live.
   const [, setGpsTick] = useState(0);
@@ -80,8 +115,27 @@ export function StatusBar({
         (gpsAgeS >= 10 ? ` (${gpsAgeS}s)` : "")
     : null;
 
+  // The EPSG readout's projection loads the EPSG tables and proj4 on first use,
+  // so it resolves here, off the pointer-move path, and only while that format
+  // is selected. Until it lands (or for a code the tables do not know) the
+  // readout shows decimal degrees.
+  const [projected, setProjected] = useState<ProjectedReadout | null>(null);
+  useEffect(() => {
+    if (coordinateFormat !== "epsg") return;
+    let cancelled = false;
+    void createProjectedReadout(coordinateEpsgCode).then((readout) => {
+      if (!cancelled) setProjected(readout);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [coordinateFormat, coordinateEpsgCode]);
+
   const coordText = pointerCoords
-    ? formatCoordinate(pointerCoords[0], pointerCoords[1], coordinateFormat)
+    ? formatCoordinate(pointerCoords[0], pointerCoords[1], coordinateFormat, {
+        // Ignore a readout left over from a previously chosen code.
+        projected: projected?.code === coordinateEpsgCode ? projected : null,
+      })
     : "—";
 
   // Only shown once a value resolves: an "Elev: —" that is empty most of the
@@ -89,7 +143,7 @@ export function StatusBar({
   // as "not applicable here".
   const elevationText =
     pointerElevation !== null ? formatPointerElevation(pointerElevation, scaleUnit) : null;
-  // Clicking the readout cycles DD -> DMS -> DDM -> UTM. The same choice lives
+  // Clicking the readout cycles DD -> DMS -> DDM -> UTM -> MGRS -> USNG -> EPSG. The same choice lives
   // in Settings; this is the shortcut for someone switching notations while
   // reading a map, which is when it actually comes up. Read live state at click
   // time so a concurrent preference change is not clobbered.
@@ -119,7 +173,9 @@ export function StatusBar({
         className="shrink-0 rounded px-1 hover:bg-accent hover:text-accent-foreground"
         onClick={cycleCoordinateFormat}
         title={t("statusBar.coordinateFormatHint", {
-          format: t(`statusBar.coordinateFormat.${coordinateFormat}`),
+          format: t(`statusBar.coordinateFormat.${coordinateFormat}`, {
+            code: coordinateEpsgCode,
+          }),
         })}
       >
         {compact ? "XY" : "Coords"}: {coordText}
@@ -139,11 +195,32 @@ export function StatusBar({
       <span className="shrink-0">Bearing: {mapView.bearing.toFixed(1)}°</span>
       <span className="shrink-0">Pitch: {mapView.pitch.toFixed(1)}°</span>
       {compact ? null : <span className="min-w-0 flex-1 truncate">BBox: {bboxText}</span>}
+      {/* Always mounted so screen readers announce the pause when it starts,
+          with the full explanation (the visible label's tooltip is not
+          keyboard-reachable). */}
+      <span role="status" className="sr-only">
+        {autosaveNotice?.detail ?? ""}
+      </span>
+      {autosaveNotice ? (
+        <span
+          aria-hidden="true"
+          className="ms-auto inline-flex shrink-0 items-center gap-1 text-amber-700 dark:text-amber-300"
+          title={autosaveNotice.detail}
+          data-testid={autosaveNotice.unavailable ? "autosave-unavailable" : "autosave-paused"}
+        >
+          {autosaveNotice.unavailable ? (
+            <DatabaseZap className="h-3 w-3" />
+          ) : (
+            <TriangleAlert className="h-3 w-3" />
+          )}
+          {autosaveNotice.label}
+        </span>
+      ) : null}
       <button
         type="button"
         className={cn(
           "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground",
-          "ms-auto",
+          !autosaveNotice && "ms-auto",
           diagnosticsErrorCount > 0 && "text-red-700 dark:text-red-300",
           diagnosticsErrorCount === 0 &&
             diagnosticsWarningCount > 0 &&

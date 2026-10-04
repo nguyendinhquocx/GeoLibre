@@ -159,6 +159,26 @@ falls back to "all properties" while that list is empty — so `tooltip="name"`
 on its own narrows the click popup to `name`. Pass `popup=` with the fields you
 want on click whenever you pass `tooltip=`.
 
+### Layer metadata
+
+`m.set_layer_metadata(layer, ...)` records the catalog description the app's
+Metadata dialog shows, exports as a STAC Item, and writes into GeoParquet
+exports. Emails, ISO 8601 dates and link URLs are validated; `merge=True` keeps
+fields you do not pass, and `m.clear_layer_metadata(layer)` drops the block.
+
+```python
+m.set_layer_metadata(
+    "Rivers",
+    title="Rivers of Tennessee",
+    abstract="Major rivers digitized from 1:24k topographic maps.",
+    keywords=["hydrology", "rivers"],
+    license="CC-BY-4.0",
+    contact={"name": "Ada", "email": "ada@example.org", "organization": "TN GIS"},
+    temporal_extent=("2019-01-01", "2019-12-31"),
+    links=[{"href": "https://example.org/rivers", "rel": "about"}],
+)
+```
+
 ### In-memory xarray rasters
 
 `add_raster` also accepts an `xarray.DataArray` or `xarray.Dataset`, which needs
@@ -247,6 +267,29 @@ m.add_legend(title="Population", legend_dict={"Low": "#eff6ff", "High": "#1e3a8a
 m.add_colorbar(colormap="terrain", vmin=0, vmax=3000, label="Elevation", units="m")
 m.split_map(left_layers=["Before"], right_layers=["After"], orientation="vertical")
 ```
+
+## Labels, filters, plugin state, story maps
+
+These write the project, so they work headless too:
+
+```python
+m.set_labels("Cities", "name", size=14, halo_width=2, anchor="top")
+m.set_layer_filter("Cities", [">=", ["get", "pop"], 100000])   # None clears
+m.set_plugin_state("maplibre-gl-graticule", {...})  # a plugin's own saved state
+
+m.set_story_map(title="A tour", theme="light", start_slide="global")
+m.set_center(-84, 36, zoom=5)
+m.add_story_chapter("Overview", description="...")   # captures the saved view
+m.add_story_chapter("Downtown", center=(-83.92, 35.96), zoom=14,
+                    on_enter=[{"layer": "Cities", "opacity": 1}])
+m.move_story_chapter("Downtown", 0); m.remove_story_chapter("Overview")
+```
+
+`set_plugin_state` accepts the built-in ids in
+`geolibre.project.PLUGIN_STATE_IDS` (`allow_unknown=True` for an external
+plugin); the blob's shape is the plugin's own. Bookmarks are not part of a
+project (the app keeps them in browser storage), so there is no API for them;
+story chapters are the saved equivalent.
 
 ## Live interaction (notebook only)
 

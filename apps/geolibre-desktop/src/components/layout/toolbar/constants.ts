@@ -113,6 +113,7 @@ export const ADD_DATA_KIND_COMMANDS: Array<{
   { kind: "video", titleKey: "toolbar.layerType.video" },
   { kind: "deckgl-viz", titleKey: "toolbar.layerType.deckglViz" },
   { kind: "postgres", titleKey: "toolbar.layerType.postgres" },
+  { kind: "mssql", titleKey: "toolbar.layerType.mssql" },
   { kind: "iceberg", titleKey: "toolbar.layerType.iceberg" },
 ];
 
@@ -224,11 +225,39 @@ export function formatRecentProjectTime(openedAt: string): string {
   }).format(openedDate);
 }
 
-/** Initial toolbar control visibility map applied when a new project is created. */
-export function newProjectToolbarControlVisibility(): Record<ToolbarMapControl, boolean> {
+/**
+ * Whether a built-in map control starts visible in a new project.
+ *
+ * The Maptoolkit logo is attribution, required whenever a Maptoolkit basemap
+ * is in use, so it follows the new project's basemap rather than a fixed
+ * default: hiding it would leave a Maptoolkit basemap unattributed, since the
+ * logo's own sync only reacts when that basemap's active state flips.
+ *
+ * @param control - The built-in control.
+ * @param maptoolkitBasemapActive - Whether the new project shows a Maptoolkit basemap.
+ * @returns `true` when the control should be shown.
+ */
+export function newProjectBuiltInControlVisible(
+  control: BuiltInMapControl,
+  maptoolkitBasemapActive: boolean,
+): boolean {
+  return control === "maptoolkit-logo"
+    ? maptoolkitBasemapActive
+    : NEW_PROJECT_VISIBLE_BUILT_IN_CONTROLS.has(control);
+}
+
+/**
+ * Initial toolbar control visibility map applied when a new project is created.
+ *
+ * @param maptoolkitBasemapActive - Whether the new project shows a Maptoolkit basemap.
+ * @returns The Controls menu's checkmarks.
+ */
+export function newProjectToolbarControlVisibility(
+  maptoolkitBasemapActive = false,
+): Record<ToolbarMapControl, boolean> {
   return MAP_CONTROL_ITEMS.reduce(
     (acc, { id }) => {
-      acc[id] = NEW_PROJECT_VISIBLE_BUILT_IN_CONTROLS.has(id);
+      acc[id] = newProjectBuiltInControlVisible(id, maptoolkitBasemapActive);
       return acc;
     },
     {} as Record<ToolbarMapControl, boolean>,

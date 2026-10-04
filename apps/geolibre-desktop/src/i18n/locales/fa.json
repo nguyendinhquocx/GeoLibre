@@ -8,7 +8,60 @@
     "discard": "صرف‌نظر کردن",
     "restoreError": "بازیابی این ذخیرهٔ خودکار ممکن نشد. ممکن است آسیب دیده باشد یا با این نسخهٔ GeoLibre سازگار نباشد.",
     "recoveryTitle": "کار ذخیره‌نشده بازیابی شود؟",
-    "recoveryDescription": "GeoLibre به‌درستی بسته نشد. ذخیرهٔ خودکار جدیدتری برای «{{name}}» در دسترس است."
+    "recoveryDescription": "GeoLibre به‌درستی بسته نشد. ذخیرهٔ خودکار جدیدتری برای «{{name}}» در دسترس است.",
+    "autosavePaused": "ذخیرهٔ خودکار متوقف شده است: این پروژه از {{limit}} مگابایت بزرگ‌تر است، بنابراین نسخهٔ جدیدی نگهداری نمی‌شود. برای حفظ کارتان آن را روی دیسک ذخیره کنید.",
+    "diff": {
+      "compare": "مقایسه",
+      "compareAria": "مقایسهٔ اسنپ‌شات {{date}}",
+      "back": "بازگشت به اسنپ‌شات‌ها",
+      "title": "مقایسهٔ اسنپ‌شات‌ها",
+      "compareWith": "مقایسه با",
+      "current": "پروژهٔ فعلی",
+      "snapshotOption": "اسنپ‌شات {{date}}",
+      "range": "تغییرات از {{before}} تا {{after}}",
+      "changeCount_one": "{{count}} تغییر",
+      "changeCount_other": "{{count}} تغییر",
+      "noChanges": "تفاوتی وجود ندارد.",
+      "parseError": "خواندن این اسنپ‌شات برای مقایسه ممکن نشد.",
+      "currentError": "خواندن پروژهٔ فعلی برای مقایسه ممکن نشد.",
+      "none": "(هیچ)",
+      "added": "افزوده‌شده",
+      "removed": "حذف‌شده",
+      "changed": "تغییریافته",
+      "layers": "لایه‌ها",
+      "layerOrder": "ترتیب لایه‌ها تغییر کرد",
+      "renamed": "تغییر نام از «{{name}}»",
+      "moved": "در ترتیب لایه‌ها جابه‌جا شد",
+      "visibility": "نمایانی",
+      "visible": "نمایان",
+      "hidden": "پنهان",
+      "opacity": "کدری",
+      "style": "سبک",
+      "labels": "برچسب‌ها",
+      "filter": "فیلتر",
+      "source": "منبع",
+      "other": "سایر",
+      "features": "عارضه‌ها: {{added}} افزوده، {{removed}} حذف، {{modified}} تغییر",
+      "featuresByGeometry": "عارضه‌های بدون شناسه بر اساس هندسه تطبیق داده شدند.",
+      "featureCount_one": "{{count}} عارضه",
+      "featureCount_other": "{{count}} عارضه",
+      "map": "نقشه",
+      "camera": "دوربین",
+      "basemap": "نقشهٔ پایه",
+      "projection": "تصویرگر",
+      "plugins": "افزونه‌ها",
+      "pluginEnabled": "فعال",
+      "pluginDisabled": "غیرفعال",
+      "manifests": "مانیفست‌های افزونه",
+      "project": "پروژه",
+      "details": "عنوان و جزئیات",
+      "preferences": "ترجیحات",
+      "sections": "سایر بخش‌های تغییریافته",
+      "restoreLayer": "بازیابی این لایه",
+      "restoreLayerAria": "بازیابی لایهٔ {{name}} از این اسنپ‌شات",
+      "layerRestored": "«{{name}}» بازیابی شد. برای برگرداندن از واگرد استفاده کنید.",
+      "restoreLayerError": "بازیابی این لایه از اسنپ‌شات ممکن نشد."
+    }
   },
   "browser": {
     "title": "مرورگر",
@@ -130,6 +183,12 @@
       "trustButton": "اعتماد و بارگیری",
       "dismissButton": "بارگیری نکن"
     },
+    "registryTrust": {
+      "title_one": "این افزونه نصب شود؟",
+      "title_other": "این افزونه‌ها نصب شوند؟",
+      "description_one": "این پیوند یک افزونه از فهرست رسمی افزونه‌های GeoLibre را باز می‌کند که هنوز نصب نشده است. با نصب، به افزونه‌های شما افزوده و فعال می‌شود.",
+      "description_other": "این پیوند {{count}} افزونه از فهرست رسمی افزونه‌های GeoLibre را باز می‌کند که هنوز نصب نشده‌اند. با نصب، به افزونه‌های شما افزوده و فعال می‌شوند."
+    },
     "title": "مدیریت افزونه‌ها",
     "searchAria": "جستجوی افزونه‌ها",
     "searchPlaceholder": "جستجوی افزونه‌ها",
@@ -174,7 +233,11 @@
     "errorDirectoryPicker": "باز کردن انتخابگر پوشه ممکن نشد.",
     "errorInstall": "نصب افزونه ممکن نشد.",
     "errorUninstall": "حذف نصب افزونه ممکن نشد.",
-    "description": "افزونه‌های خارجی GeoLibre را مرور، نصب، به‌روز و حذف کنید. افزونه‌ها در <registryLink>فهرست افزونه‌های GeoLibre</registryLink> سیاهه شده‌اند."
+    "description": "افزونه‌های خارجی GeoLibre را مرور، نصب، به‌روز و حذف کنید. افزونه‌ها در <registryLink>فهرست افزونه‌های GeoLibre</registryLink> سیاهه شده‌اند.",
+    "policySideloadDisabled": "نصب افزونه از بیرون فهرست رسمی با سیاست استقرار غیرفعال شده است.",
+    "policyBlocked": "افزونهٔ «{{pluginId}}» با سیاست استقرار مسدود شده است.",
+    "policyBlocklisted": "افزونه «{{pluginId}}» توسط رجیستری افزونه‌ها مسدود شد: {{reason}}",
+    "policyNotAllowed": "افزونهٔ «{{pluginId}}» طبق سیاست استقرار مجاز نیست."
   },
   "viewState": {
     "panelTitle": "اطلاعات"
@@ -201,9 +264,13 @@
       "dd": "درجه اعشاری",
       "dms": "درجه، دقیقه، ثانیه",
       "ddm": "درجه، دقیقه اعشاری",
-      "utm": "UTM (زون، شرق/شمال)"
+      "utm": "UTM (زون، شرق/شمال)",
+      "mgrs": "MGRS (سامانه مرجع شبکه نظامی)",
+      "usng": "USNG (شبکه ملی ایالات متحده)",
+      "epsg": "تصویرشده (EPSG:{{code}})"
     },
-    "coordinateFormatHint": "قالب مختصات: {{format}}. برای تغییر کلیک کنید."
+    "coordinateFormatHint": "قالب مختصات: {{format}}. برای تغییر کلیک کنید.",
+    "autosavePaused": "ذخیرهٔ خودکار متوقف شد"
   },
   "fileNamePrompt": {
     "title": "ذخیرهٔ فایل با نام",
@@ -225,8 +292,15 @@
     "projectName": "نام پروژه",
     "savedTemplates": "الگوهای ذخیره‌شده",
     "deleteTemplate": "حذف الگو",
+    "examples": "نمونه‌ها",
+    "examplesDescription": "از یک نقشهٔ نمایشی منتشرشده شروع کنید. یک رونوشت باز می‌شود و به اتصال اینترنت نیاز دارد.",
+    "exampleOpenFailed": "باز کردن «{{title}}» ممکن نشد.",
     "basemapLabel": "نقشهٔ پایه",
     "create": "ساختن"
+  },
+  "cvdPreview": {
+    "badge": "پیش‌نمایش دید رنگی: {{mode}}",
+    "turnOff": "خاموش کردن پیش‌نمایش دید رنگی"
   },
   "basemapPicker": {
     "title": "تغییر پس‌زمینه",
@@ -2187,7 +2261,36 @@
     "viewshedHere": "حوزه دید از اینجا ({{radius}})",
     "viewshedLayerName": "حوزه دید ({{radius}})",
     "viewshedToolName": "حوزه دید",
-    "viewshedNoResult": "محاسبه ناحیه قابل مشاهده در اینجا ممکن نشد."
+    "viewshedNoResult": "محاسبه ناحیه قابل مشاهده در اینجا ممکن نشد.",
+    "lineOfSightHere": "خط دید از اینجا"
+  },
+  "lineOfSight": {
+    "title": "خط دید",
+    "close": "بستن خط دید",
+    "observerHeight": "ارتفاع ناظر (متر)",
+    "targetHeight": "ارتفاع هدف (متر)",
+    "curvature": "انحنای زمین و شکست جوی",
+    "pickObserver": "برای قرار دادن ناظر روی نقشه کلیک کنید.",
+    "pickTarget": "برای قرار دادن هدف روی نقشه کلیک کنید.",
+    "pickAgain": "برای شروع خط جدید روی نقشه کلیک کنید.",
+    "loading": "در حال خواندن عوارض زمین در طول خط…",
+    "noTerrain": "عوارض زمین در طول این خط خوانده نشد.",
+    "tooLong": "طول خط بیش از {{max}} است. هدف نزدیک‌تری انتخاب کنید.",
+    "visible": "هدف قابل مشاهده است",
+    "notVisible": "هدف قابل مشاهده نیست",
+    "distance": "فاصله",
+    "firstObstruction": "نخستین مانع",
+    "obstructionValue": "در فاصلهٔ {{distance}}، {{elevation}}",
+    "highestPoint": "بلندترین نقطه",
+    "highestValue": "{{elevation}} در {{distance}}",
+    "groundVisible": "زمین قابل مشاهده",
+    "resolution": "تفکیک‌پذیری عوارض زمین",
+    "saveLayer": "ذخیره به‌عنوان لایه",
+    "saved": "ذخیره شد",
+    "clear": "پاک کردن",
+    "layerName": "خط دید ({{distance}})",
+    "chartLabel": "نیمرخ ارتفاعی در طول خط دید",
+    "legend": "رنگ‌های خط زمینی را نشان می‌دهد که ناظر می‌بیند (سبز) یا نمی‌بیند (قرمز)؛ نشان بالا مربوط به نوک هدف است."
   },
   "knowledgeCard": {
     "title": "اطلاعات مکان",
@@ -2426,7 +2529,10 @@
       "scaleUnitHint": "یکاهای نمایش‌یافته روی مقیاس‌نمای پایین نقشه را برگزینید.",
       "errorBoundsUnavailable": "کران‌های نقشه هنوز در دسترس نیستند.",
       "coordinateFormat": "قالب مختصات",
-      "coordinateFormatHint": "نمادگذاری که نوار وضعیت مختصات نشانگر را با آن نمایش می‌دهد. برای تغییر نمادگذاری روی مختصات در نوار وضعیت کلیک کنید."
+      "coordinateFormatHint": "نمادگذاری که نوار وضعیت مختصات نشانگر را با آن نمایش می‌دهد. برای تغییر نمادگذاری روی مختصات در نوار وضعیت کلیک کنید.",
+      "coordinateEpsg": "سامانه مرجع مختصات (EPSG)",
+      "coordinateEpsgHint": "کد EPSG که نوار وضعیت مختصات نشانگر را به آن تصویر می‌کند، مثلاً 3857 (Web Mercator) یا 32618 (UTM ناحیه 18N).",
+      "coordinateEpsgUnknown": "کد EPSG ناشناخته است. تا وارد کردن یک کد شناخته‌شده، نوار وضعیت درجه اعشاری نشان می‌دهد."
     },
     "layout": {
       "title": "چیدمان",
@@ -2722,16 +2828,19 @@
       "apiKeys": {
         "title": "کلیدهای API",
         "description": "کلیدها فقط در این مرورگر نگه داشته می‌شوند و هرگز همراه پروژه ذخیره نمی‌شوند.",
+        "descriptionKeychain": "کلیدها در جاکلیدی سیستم شما نگه داشته می‌شوند و هرگز همراه پروژه ذخیره نمی‌شوند.",
         "tomtom": "TomTom (جریان زنده ترافیک خیابان)",
         "aisstream": "AISStream (کشتی‌های زنده AIS)",
         "placeholder": "کلید API را جای‌گذاری کنید",
         "save": "ذخیره",
         "clear": "پاک کردن",
         "fromPanel": "در این مرورگر ذخیره شده",
+        "fromPanelKeychain": "ذخیره‌شده در جاکلیدی سیستم شما",
         "fromEnvironment": "استفاده از کلید متغیرهای محیطی",
         "notSet": "تنظیم نشده",
         "getKey": "دریافت کلید رایگان",
-        "saveFailed": "ذخیره کلید در این مرورگر ممکن نشد."
+        "saveFailed": "ذخیره کلید در این مرورگر ممکن نشد.",
+        "saveFailedKeychain": "ذخیرهٔ کلید در جاکلیدی سیستم شما ممکن نشد. تا زمانی که GeoLibre بسته نشود کار می‌کند."
       }
     }
   },
@@ -2884,7 +2993,8 @@
       "view": "نما",
       "help": "راهنما",
       "plugins": "افزونه‌ها",
-      "settings": "تنظیمات"
+      "settings": "تنظیمات",
+      "tools": "ابزارها"
     },
     "command": {
       "projectNew": "پروژهٔ جدید",
@@ -2923,6 +3033,7 @@
       "segmentation": "قطعه‌بندی هوش مصنوعی",
       "objectDetection": "تشخیص شیء",
       "segmentEverything": "قطعه‌بندی همه‌چیز",
+      "lineOfSight": "خط دید",
       "toggleControl": "روشن/خاموش کردن کنترل {{name}}",
       "toggleAtmosphereEffects": "روشن/خاموش کردن جلوه‌های جوّی",
       "toggleDirections": "روشن/خاموش کردن مسیریابی",
@@ -3232,6 +3343,12 @@
       "splitViewGrid2x3": "شبکهٔ ۲ × ۳",
       "splitViewGrid3x3": "شبکهٔ ۳ × ۳",
       "splitViewSync": "هم‌گام‌سازی نماها",
+      "colorVisionPreview": "پیش‌نمایش دید رنگی",
+      "cvdOff": "خاموش",
+      "cvdProtanopia": "پروتانوپیا (کوررنگی قرمز)",
+      "cvdDeuteranopia": "دوترانوپیا (کوررنگی سبز)",
+      "cvdTritanopia": "تریتانوپیا (کوررنگی آبی)",
+      "cvdAchromatopsia": "آکروماتوپسیا (بدون رنگ)",
       "renderingEngine": "موتور ترسیم",
       "rendererMapLibre": "MapLibre",
       "rendererMapbox": "Mapbox",
@@ -3346,6 +3463,7 @@
       "showMenuInToolbar": "نمایش منو در نوار ابزار",
       "dggs": "DGGS",
       "commandPalette": "پالت فرمان",
+      "simplifyInterface": "ساده‌سازی رابط کاربری...",
       "openProjectFromUrl": "باز کردن پروژه از نشانی",
       "importQgisProjectEllipsis": "وارد کردن پروژهٔ QGIS…",
       "importArcgisProjectEllipsis": "وارد کردن پروژهٔ ArcGIS Pro…",
@@ -3508,6 +3626,7 @@
       "maplibre-gl-geoagent": "GeoAgent",
       "maplibre-gl-geolens": "GeoLens",
       "maplibre-gl-vantor": "داده‌های باز Vantor",
+      "maplibre-gl-usgs-dem": "USGS 3DEP",
       "maplibre-gl-graticule": "خطوط شبکه",
       "maplibre-gl-mapillary": "Mapillary",
       "maplibre-gl-nasa-earthdata": "NASA Earthdata",
@@ -4462,6 +4581,7 @@
     "tooLargeToOpen": "این فایل {{size}} است — برای باز شدن در مرورگر بسیار بزرگ است (حد {{limit}}). آن را دانلود کنید، یا از نسخهٔ پاره‌بندی‌شدهٔ این مجموعه‌داده استفاده کنید.",
     "tokenLabel": "توکن دسترسی",
     "tokenHint": "ساختن یک مخزن مجموعه‌داده و بارگذاری فایل‌ها به یک توکن دسترسی Hugging Face با اجازهٔ نوشتن نیاز دارد. تنها در همین مرورگر نگهداری می‌شود و تنها به huggingface.co فرستاده می‌گردد.",
+    "tokenHintKeychain": "ساختن مخزن مجموعه‌داده و بارگذاری فایل‌ها به یک توکن دسترسی Hugging Face با اجازهٔ نوشتن نیاز دارد. این توکن در جاکلیدی سیستم شما ذخیره می‌شود و تنها به huggingface.co فرستاده می‌شود.",
     "tokenPlaceholder": "hf_…",
     "tokenSave": "ذخیرهٔ توکن",
     "tokenClear": "پاک کردن",
@@ -4570,7 +4690,12 @@
     "cancel": "لغو",
     "saveElement": "ذخیرهٔ عنصر",
     "atPoint": "در نقطه",
-    "pinnedToExtent": "سنجاق‌شده به گستره"
+    "pinnedToExtent": "سنجاق‌شده به گستره",
+    "editorColor": "رنگ",
+    "noElements": "هنوز هیچ عنصر نقشه‌ای وجود ندارد.",
+    "moveUp": "بردن به بالا",
+    "moveDown": "بردن به پایین",
+    "deleteElement": "حذف"
   },
   "dimensions": {
     "toolbar": "ابزارهای اندازه‌گذاری",
@@ -5094,6 +5219,8 @@
         "projectedHint": "در پوشهٔ دانلودهای شما با سیستم مختصات مقصد ذخیره شد. نقشه تنها EPSG:4326 را نمایش می‌دهد، پس نتیجهٔ تصویرشده به‌عنوان لایه افزوده نمی‌شود."
       },
       "filterBySource": "فیلتر بر پایهٔ منبع",
+      "filterByCategory": "فیلتر بر اساس دسته",
+      "layerFor": "لایه برای {{name}}",
       "allSources": "همهٔ منابع",
       "geolibreTools": "ابزارهای GeoLibre",
       "whiteboxTools": "ابزارهای Whitebox",
@@ -7953,6 +8080,10 @@
     "exportedWithWarnings": "لایه ایجاد شد. {{warnings}}",
     "exported": "لایه ایجاد شد.",
     "exportLayerError": "خروجی این لایه ممکن نشد.",
+    "export3dModel": "مدل سه‌بعدی: {{format}}",
+    "export3dModelNoSolids": "هیچ چندضلعی برجسته‌شده‌ای برای خروجی وجود ندارد. به چندضلعی‌های لایه ارتفاعی بالاتر از پایهٔ برجسته‌سازی بدهید.",
+    "export3dModelSkipped_one": "مدل سه‌بعدی خروجی گرفته شد. {{count}} عارضه که ارتفاعی بالاتر از پایه یا مساحتی نداشت کنار گذاشته شد.",
+    "export3dModelSkipped_other": "مدل سه‌بعدی خروجی گرفته شد. {{count}} عارضه که ارتفاعی بالاتر از پایه یا مساحتی نداشتند کنار گذاشته شدند.",
     "exportPolyline": "چندخطی کدگذاری‌شده (دقت {{precision}})",
     "refreshIntervals": {
       "off": "خاموش",
@@ -8010,6 +8141,11 @@
     "viewportStretchNoValues": "هیچ مقدار رستری در نمای فعلی یافت نشد.",
     "viewportStretchNoRange": "مقادیر نمای فعلی بازه‌ای تعریف نمی‌کنند.",
     "viewportStretchMoved": "نقشه پیش از پایان خواندن جابه‌جا شد. دوباره اعمال کنید.",
+    "histogram": "هیستوگرام",
+    "histogramLoading": "در حال محاسبه هیستوگرام…",
+    "histogramUnavailable": "هیستوگرامی برای این باند در دسترس نیست.",
+    "histogramMinAria": "کمینه کشش، {{band}}",
+    "histogramMaxAria": "بیشینه کشش، {{band}}",
     "index": "شاخص",
     "opacityClasses": "کلاس‌های کدری",
     "classifyToggle": "طبقه‌بندی به کلاس‌های گسسته",
@@ -8253,12 +8389,28 @@
     "copyJson": "رونوشت JSON",
     "copied": "رونوشت شد",
     "clear": "پاک کردن",
+    "reportIssue": "گزارش مشکل",
     "emptyAll": "هیچ عیب‌یابی‌ای ثبت نشد.",
     "emptyError": "هیچ عیب‌یابی خطایی ثبت نشد.",
     "emptyWarning": "هیچ عیب‌یابی هشداری ثبت نشد.",
     "emptyInfo": "هیچ عیب‌یابی اطلاعاتی ثبت نشد.",
     "emptyNetwork": "هیچ عیب‌یابی شبکه‌ای ثبت نشد.",
     "emptyNetworkError": "هیچ عیب‌یابی خطای شبکه‌ای ثبت نشد."
+  },
+  "notifications": {
+    "regionLabel": "اعلان‌ها",
+    "dismiss": "بستن اعلان",
+    "reportIssue": "گزارش مشکل",
+    "repeated": "×{{count}}",
+    "layerLoadFailed": "لایه «{{name}}» بارگذاری نشد",
+    "layerLoadFailedHint": "نشانی URL، اتصال شبکه و هر کلید API لازم را بررسی کنید. جزئیات در پنل عیب‌یابی است.",
+    "fileReadFailed": "«{{name}}» خوانده نشد، بنابراین از آن صرف‌نظر شد.",
+    "libraryLayerRestoreFailed": "افزودن «{{name}}» از داده‌های من ممکن نشد.",
+    "localLayersDropped_one": "{{count}} لایه حذف شد: فایل آن خوانده نشد ({{path}}).",
+    "localLayersDropped_other": "{{count}} لایه حذف شد: فایل آن‌ها خوانده نشد ({{path}}).",
+    "pluginActivateFailed": "افزونه «{{id}}» از پیوند اجرا نشد.",
+    "pluginMenuActionFailed": "عملیات منوی «{{name}}» ناموفق بود.",
+    "recordingOverlaysSkipped": "پنل‌های نقشه ضبط نشدند، بنابراین ضبط فقط نقشه را نشان می‌دهد."
   },
   "shell": {
     "workspaceTitle": "فضای کاری نقشهٔ GeoLibre",
@@ -8577,12 +8729,56 @@
     "catalogNmwdiSt": "ایستگاه‌های آبی نیومکزیکو",
     "catalogFlowlines": "خطوط جریان NHDPlus"
   },
+  "usgsDem": {
+    "title": "USGS 3DEP",
+    "hint": "مدل‌های رقومی ارتفاع USGS 3DEP را جستجو و روی نقشه بارگذاری کنید.",
+    "search": "جستجوی DEM",
+    "searching": "در حال جستجو در USGS API...",
+    "noResults": "هیچ مدل ارتفاعی برای ناحیهٔ انتخاب‌شده یافت نشد.",
+    "showing": "نمایش {{shown}} از {{total}} مدل ارتفاعی",
+    "searchError": "جستجو ناموفق بود: {{message}}",
+    "add": "بارگذاری روی نقشه",
+    "adding": "در حال بارگذاری...",
+    "download": "دانلود",
+    "zoom": "بزرگ‌نمایی",
+    "modeView": "نمای کنونی",
+    "modeDraw": "ترسیم کادر",
+    "modeBbox": "مختصات",
+    "modeQuad": "برگهٔ 24K",
+    "drawHint": "روی نقشه کلیک کنید و بکشید تا یک کادر محدوده برای جستجو ترسیم شود.",
+    "drawStart": "ترسیم کادر",
+    "drawCancel": "لغو ترسیم",
+    "drawnBox": "کادر ترسیم‌شده: {{box}}",
+    "coordWest": "غرب",
+    "coordSouth": "جنوب",
+    "coordEast": "شرق",
+    "coordNorth": "شمال",
+    "quadName": "نام برگه (مثلاً Mount St. Helens)",
+    "stateName": "ایالت (مثلاً WA)",
+    "quadSearchHint": "گسترهٔ یک برگهٔ توپوگرافی استاندارد USGS با مقیاس 1:24,000 را پیدا کنید.",
+    "datasets": "مجموعه‌داده‌های ارتفاعی",
+    "format": "قالب",
+    "filterRedundant": "کنار گذاشتن کاشی‌های ناقص تکراری",
+    "footprintsLayer": "ردپاهای USGS 3DEP",
+    "exportGeoJson": "خروجی GeoJSON",
+    "errorNoBounds": "تعیین محدودهٔ کنونی نقشه ممکن نشد.",
+    "errorNoDrawnBox": "لطفاً ابتدا یک کادر محدوده روی نقشه ترسیم کنید.",
+    "errorInvalidCoords": "لطفاً مختصات عددی معتبر برای غرب، جنوب، شرق و شمال وارد کنید.",
+    "errorQuadInputs": "لطفاً هم نام برگه و هم ایالت را وارد کنید.",
+    "errorQuadNotFound": "برگهٔ توپوگرافی 24K «{{quad}}» در ایالت «{{state}}» یافت نشد.",
+    "loadError": "بارگذاری DEM ناموفق بود: {{message}}"
+  },
   "plugin": {
     "3d-tiles": {
       "arcgisSourceUnsupported": "در این نمای ArcGIS از نشانی tileset.json مربوط به 3D Tiles استفاده کنید. کاشی‌های Google Photorealistic و I3S به موتور نمایش دیگری نیاز دارند.",
       "globeGoogleKeyRequired": "برای بارگذاری کاشی‌های Google Photorealistic 3D Tiles روی کره، به کلید API گوگل مپس در تنظیمات نیاز است.",
       "headersHint": "هر سرآیند در یک خط به‌صورت Name: Value. برای درج یک متغیر محیطی از تنظیمات ← محیط، از ${NAME} استفاده کنید؛ مقدار آن همراه لایه ذخیره نمی‌شود.",
-      "insecureHeaders": "سرآیندهای درخواست تنها به نشانی HTTPS مجموعه‌کاشی (یا localhost) فرستاده می‌شوند."
+      "insecureHeaders": "سرآیندهای درخواست تنها به نشانی HTTPS مجموعه‌کاشی (یا localhost) فرستاده می‌شوند.",
+      "showKey": "نمایش کلید",
+      "hideKey": "پنهان کردن کلید",
+      "showKeyAria": "نمایش کلید Google Maps API",
+      "hideKeyAria": "پنهان کردن کلید Google Maps API",
+      "toggleLayerAria": "تغییر وضعیت {{name}}"
     },
     "geolibre-osm-downloader": {
       "title": "بارگیر OSM",
@@ -9016,6 +9212,36 @@
         "17": "عرشهٔ پل",
         "18": "نویز زیاد"
       }
+    },
+    "geolibre-elevation-profile": {
+      "title": "نیم‌رخ ارتفاعی",
+      "drawHint": "برای افزودن نقطه روی نقشه کلیک کنید. برای پایان دوبار کلیک کنید یا Enter را بزنید.",
+      "drawCancelled": "ترسیم لغو شد.",
+      "needTwoPoints": "برای ساختن نیم‌رخ دست‌کم دو نقطه لازم است.",
+      "selectLineHint": "یک عارضهٔ خطی انتخاب کنید تا نیم‌رخ ارتفاعی آن ساخته شود.",
+      "sampling": "در حال نمونه‌برداری ارتفاع…",
+      "loadError": "بارگذاری داده‌های ارتفاعی ممکن نشد.",
+      "closePanel": "بستن پنل",
+      "drawLine": "ترسیم خط",
+      "finish": "پایان",
+      "clear": "پاک کردن",
+      "useSelected": "استفاده از انتخاب‌شده",
+      "useSelectedTitle": "ساختن نیم‌رخ از عارضهٔ خطی انتخاب‌شده",
+      "selectLineFirst": "ابتدا یک عارضهٔ خطی انتخاب کنید",
+      "exportLabel": "خروجی:",
+      "exportCsv": "دانلود نیم‌رخ به‌صورت CSV",
+      "exportSvg": "ذخیرهٔ نمودار به‌صورت تصویر SVG",
+      "statDistance": "فاصله",
+      "statMin": "کمینه",
+      "statMax": "بیشینه",
+      "statAscent": "فراز ↑",
+      "statDescent": "فرود ↓",
+      "unitsTitle": "یکاها: {{units}}"
+    },
+    "maplibre-gl-geoagent": {
+      "signIn": "ورود",
+      "signInOpening": "در حال باز کردن ورود با Google...",
+      "signInComplete": "ورود به Earth Engine کامل شد."
     }
   }
 }

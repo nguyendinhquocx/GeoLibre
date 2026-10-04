@@ -189,6 +189,12 @@ export const DATA_SOURCE_CATALOG: readonly DataSourceCatalogEntry[] = [
     tier: "advanced",
   },
   {
+    id: "mssql",
+    section: "databases",
+    labelKey: "toolbar.layerType.mssql",
+    tier: "advanced",
+  },
+  {
     id: "iceberg",
     section: "databases",
     labelKey: "toolbar.layerType.iceberg",
@@ -438,6 +444,12 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     id: "view.splitView",
     menuId: "view",
     labelKey: "toolbar.item.splitView",
+    tier: "intermediate",
+  },
+  {
+    id: "view.colorVision",
+    menuId: "view",
+    labelKey: "toolbar.item.colorVisionPreview",
     tier: "intermediate",
   },
   {

@@ -5,14 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import time
+from uuid import uuid4
 
 import httpx
 import pytest
 from conftest import PUBLIC_URL, WEB_REDIRECT
 from fake_idp import FakeIdp
 from fastapi.testclient import TestClient
-from geolibre_server_api import oidc
-from geolibre_server_api.enterprise_models import FederatedIdentity
+from geolibre_server_api import enterprise_admin, oidc
+from geolibre_server_api.enterprise_models import FederatedIdentity, OrganizationIdentityProvider
 from helpers import (
     account,
     add_member,
@@ -89,6 +90,110 @@ def test_discovery_stores_endpoints_and_secret_is_never_returned(oauth_client, f
         assert FakeIdp.CLIENT_SECRET not in response.text
     callback, verifier = sso_sign_in(oauth_client, fake_idp, "acme", fake_idp.base_claims("u1"))
     _signed_in(oauth_client, callback, verifier)
+
+
+def test_linked_identities_block_issuer_and_jwks_changes(oauth_client, fake_idp):
+    token, org_id = _org_with_idp(oauth_client)
+    callback, verifier = sso_sign_in(
+        oauth_client, fake_idp, "acme", fake_idp.base_claims("stable-subject")
+    )
+    _signed_in(oauth_client, callback, verifier)
+
+    changed_issuer = configure_idp(
+        oauth_client,
+        token,
+        org_id,
+        issuer="https://replacement-idp.example",
+        authorizationEndpoint="https://replacement-idp.example/authorize",
+        tokenEndpoint="https://replacement-idp.example/token",
+        jwksUri="https://replacement-idp.example/jwks",
+    )
+    assert changed_issuer.status_code == 409
+
+    changed_jwks = configure_idp(
+        oauth_client,
+        token,
+        org_id,
+        jwksUri=f"{FakeIdp.ISSUER}/replacement-jwks",
+    )
+    assert changed_jwks.status_code == 409
+
+    current = oauth_client.get(
+        f"/api/organizations/{org_id}/identity-provider",
+        headers=auth(token),
+    )
+    assert current.status_code == 200
+    assert current.json()["identityProvider"]["issuer"] == FakeIdp.ISSUER
+    assert current.json()["identityProvider"]["jwksUri"] == f"{FakeIdp.ISSUER}/jwks"
+
+
+def test_sign_in_is_refused_when_the_provider_moves_while_it_validates(
+    oauth_client, fake_idp, monkeypatch, caplog
+):
+    _org_with_idp(oauth_client)
+    validate = oidc.validate_id_token
+
+    def validate_then_repoint(session, http, provider, *args, **kwargs):
+        claims = validate(session, http, provider, *args, **kwargs)
+        # An administrator's PUT commits while the sign-in is still validating:
+        # no identity is linked yet, so its guard lets the change through.
+        with oauth_client.app.state.session_factory() as admin:
+            moved = admin.get(OrganizationIdentityProvider, provider.id)
+            moved.jwks_uri = "https://replacement-idp.example/jwks"
+            admin.commit()
+        return claims
+
+    monkeypatch.setattr(oidc, "validate_id_token", validate_then_repoint)
+    callback, _ = sso_sign_in(oauth_client, fake_idp, "acme", fake_idp.base_claims("u1"))
+    _assert_rejected(callback, caplog, "identity provider changed during sign-in")
+    with oauth_client.app.state.session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(FederatedIdentity)) == 0
+
+
+def test_put_rejects_provider_replaced_during_discovery(oauth_client, monkeypatch):
+    token, org_id = _org_with_idp(oauth_client)
+    lookup = enterprise_admin._provider_for
+    discovery_complete = False
+
+    def finish_discovery(_http, _issuer):
+        nonlocal discovery_complete
+        discovery_complete = True
+        return (
+            f"{FakeIdp.ISSUER}/authorize",
+            f"{FakeIdp.ISSUER}/token",
+            f"{FakeIdp.ISSUER}/jwks",
+        )
+
+    def lookup_provider(session, organization_id, *, lock=False):
+        provider = lookup(session, organization_id, lock=lock)
+        if not lock or not discovery_complete:
+            return provider
+        replacement = {
+            column.name: getattr(provider, column.name)
+            for column in OrganizationIdentityProvider.__table__.columns
+        }
+        session.delete(provider)
+        session.flush()
+        replacement["id"] = str(uuid4())
+        replacement["issuer"] = "https://replacement-idp.example"
+        replacement["jwks_uri"] = "https://replacement-idp.example/jwks"
+        recreated = OrganizationIdentityProvider(**replacement)
+        session.add(recreated)
+        session.flush()
+        return recreated
+
+    monkeypatch.setattr(enterprise_admin, "discover_endpoints", finish_discovery)
+    monkeypatch.setattr(enterprise_admin, "_provider_for", lookup_provider)
+    response = configure_idp(oauth_client, token, org_id)
+
+    assert response.status_code == 409
+    assert response.json()["error"] == "identity provider was removed or replaced; try again"
+    current = oauth_client.get(
+        f"/api/organizations/{org_id}/identity-provider",
+        headers=auth(token),
+    )
+    assert current.status_code == 200
+    assert current.json()["identityProvider"]["issuer"] == FakeIdp.ISSUER
 
 
 def test_identity_provider_validation(oauth_client):

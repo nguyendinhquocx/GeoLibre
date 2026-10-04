@@ -36,7 +36,7 @@ These are interactive panels provided by the MapLibre components plugin:
 | **Minimap** | Show an overview map of the current extent. |
 | **View State** | Read and edit the exact center, zoom, bearing, and pitch. |
 
-The **Print Layout** composer lives under the [Project menu](projects.md#print).
+The **Print Layout** composer lives under the Project menu; see [Print Layout](print-layout.md).
 
 !!! note "Control position"
     Plugin-backed controls can be positioned in any map corner. For plugins that support it, set the corner from the [Plugins menu](plugins.md) (top left, top right, bottom left, or bottom right).
@@ -109,7 +109,7 @@ The Controls menu also carries tools that move the camera, drape live data over 
 | --- | --- |
 | **Sun** | Simulate the sun's position and the day/night terminator for any date and time. |
 | **Weather** | Overlay near-realtime **Clouds** (NASA satellite imagery, animated day by day) and **Precipitation** (RainViewer radar, animated over roughly the last two hours). |
-| **Gridlines** | Draw a coordinate grid with edge labels, including a UTM easting/northing mode. |
+| **Gridlines** | Draw a coordinate grid with edge labels, including a UTM easting/northing mode and an MGRS/USNG mode (grid zones with the Norway and Svalbard exceptions, lettered 100 km squares, then 10 km and 1 km lines as you zoom in). |
 | **Spinning Globe** | Slowly rotate the globe, optionally bounded to a region. |
 | **Route Animation** | Animate a marker along a line layer with play/pause, speed, a trail, and camera follow. |
 | **Flight Simulator** | Fly over terrain and 3D layers with continuous keyboard controls. |
@@ -149,7 +149,7 @@ Comments are stored in the `.geolibre.json` file, so they travel with a shared o
 !!! note "NMEA needs a Chromium browser"
     Reading a receiver uses the Web Serial and Web Bluetooth APIs, which Chromium browsers such as Chrome and Edge provide but Firefox and Safari do not. Most Bluetooth GPS receivers speak *classic* Bluetooth rather than Bluetooth Low Energy: pair those in your operating system's settings and they appear here as a serial port. Use **Connect Bluetooth** only for Bluetooth Low Energy receivers.
 
-**Controls → Field Collection...** is the related tool for capturing observations against a custom form. See [Features](../features.md#field-data-collection).
+Start GPS to follow your position, record a track log and save it as a layer or export it as GPX or GeoJSON, and capture points where you stand. **Controls → Field Collection...** is the related tool for capturing point, line, and polygon observations against a custom form. See [GPS Tracking & Field Collection](field-collection.md) for both.
 
 ## Map navigation basics
 

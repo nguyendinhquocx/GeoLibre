@@ -10,6 +10,8 @@ import { setDeploymentPolicy } from "../apps/geolibre-desktop/src/lib/deployment
 // lazily in `before`, after the shims below are installed.
 type ExternalPlugins = typeof import("../apps/geolibre-desktop/src/lib/external-plugins");
 type PluginIntegrity = typeof import("../apps/geolibre-desktop/src/lib/plugin-integrity");
+type PluginRegistry = typeof import("../apps/geolibre-desktop/src/lib/plugin-registry");
+type PluginBlocklist = typeof import("../apps/geolibre-desktop/src/lib/plugin-blocklist");
 
 const app = {} as GeoLibreAppAPI;
 const MANIFEST_URL = "http://localhost:7777/pin-demo/plugin.json";
@@ -91,6 +93,8 @@ function installBrowserShims(): void {
 describe("recovering a URL plugin blocked by its integrity pin", () => {
   let externalPlugins: ExternalPlugins;
   let integrity: PluginIntegrity;
+  let registry: PluginRegistry;
+  let blocklist: PluginBlocklist;
   let PluginManagerCtor: typeof PluginManager;
   let manager: PluginManager;
 
@@ -98,6 +102,8 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
     installBrowserShims();
     externalPlugins = await import("../apps/geolibre-desktop/src/lib/external-plugins");
     integrity = await import("../apps/geolibre-desktop/src/lib/plugin-integrity");
+    registry = await import("../apps/geolibre-desktop/src/lib/plugin-registry");
+    blocklist = await import("../apps/geolibre-desktop/src/lib/plugin-blocklist");
     ({ PluginManager: PluginManagerCtor } = await import("../packages/plugins/src/plugin-manager"));
   });
 
@@ -113,6 +119,7 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
     // left registered by one test would be skipped as "already loaded" by the
     // next. Uninstalling every URL is the same teardown the app performs.
     externalPlugins.unloadRemovedUrlPlugins(manager, [], app);
+    blocklist.setPluginBlocklist([]);
   });
 
   it("reports a blocked ID before fetching entry or style, even when allowed", async () => {
@@ -421,5 +428,157 @@ describe("recovering a URL plugin blocked by its integrity pin", () => {
     externalPlugins.unloadRemovedUrlPlugins(manager, [MANIFEST_URL], app);
     assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), pinned);
     assert.equal(manager.list().length, 1);
+  });
+
+  // The hash of the bundle `pluginBundle()` serves, as the registry publishes it.
+  async function servedBundleHash(): Promise<string> {
+    return integrity.computePluginBundleHash({ entrySource: served.get(ENTRY_URL) ?? "" });
+  }
+
+  function registryEntry(bundleSha256: string) {
+    return {
+      id: "pin-demo",
+      name: "Pin Demo",
+      version: "1.0.0",
+      manifestUrl: MANIFEST_URL,
+      bundleSha256,
+    };
+  }
+
+  it("a registry install loads a bundle that matches the announced hash", async () => {
+    registry.pinRegistryEntryBundle(registryEntry(await servedBundleHash()));
+
+    const loaded = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    assert.deepEqual(loaded.issues, []);
+    assert.deepEqual(loaded.loadedPluginIds, ["pin-demo"]);
+  });
+
+  it("a registry install holds back a bundle that differs from the announced hash", async () => {
+    registry.pinRegistryEntryBundle(registryEntry("0".repeat(64)));
+
+    const loaded = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    assert.deepEqual(loaded.loadedPluginIds, []);
+    assert.equal(loaded.issues[0]?.integrityStatus, "changed");
+    assert.deepEqual(manager.list(), []);
+  });
+
+  it("an update refuses, without evaluating it, a bundle that differs from the registry hash", async () => {
+    // Held back at 0.9.0; the URL now serves code the registry did not review.
+    integrity.pinPluginBundle(MANIFEST_URL, "0".repeat(64), "0.9.0");
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    const flag = "__pinDemoEvaluated";
+    served.set(ENTRY_URL, `globalThis.${flag} = true;\n${served.get(ENTRY_URL) ?? ""}`);
+    const registryHash = "1".repeat(64);
+
+    await assert.rejects(
+      externalPlugins.reloadExternalUrlPlugin(manager, MANIFEST_URL, app, {
+        expectedHash: registryHash,
+      }),
+      /does not match the version the registry lists/,
+    );
+    assert.equal((globalThis as Record<string, unknown>)[flag], undefined);
+    assert.deepEqual(manager.list(), []);
+    // The old pin stands, so the rejected code stays held back.
+    assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), "0".repeat(64));
+  });
+
+  it("an update accepts a bundle that matches the registry hash and pins it", async () => {
+    integrity.pinPluginBundle(MANIFEST_URL, "0".repeat(64), "0.9.0");
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    const registryHash = await servedBundleHash();
+
+    const plugin = await externalPlugins.reloadExternalUrlPlugin(manager, MANIFEST_URL, app, {
+      expectedHash: registryHash,
+    });
+    assert.equal(plugin.id, "pin-demo");
+    assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), registryHash);
+    assert.equal(integrity.getPluginBundlePinVersion(MANIFEST_URL), "1.0.0");
+  });
+
+  it("concurrent updates share a reload only when they expect the same hash", async () => {
+    integrity.pinPluginBundle(MANIFEST_URL, "0".repeat(64), "0.9.0");
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    const registryHash = await servedBundleHash();
+    requests = [];
+
+    const reload = (expectedHash: string) =>
+      externalPlugins.reloadExternalUrlPlugin(manager, MANIFEST_URL, app, { expectedHash });
+    const first = reload(registryHash);
+    const same = reload(registryHash);
+    // Started while the first reload is in flight, but announcing other code:
+    // it must be checked against its own download, not handed the first result.
+    const other = reload("1".repeat(64));
+
+    assert.equal(await same, await first);
+    await assert.rejects(other, /does not match the version the registry lists/);
+    // One download for the two matching calls, a second for the other hash.
+    assert.equal(requests.filter((url) => url === MANIFEST_URL).length, 2);
+    assert.equal(integrity.getPluginBundlePin(MANIFEST_URL), registryHash);
+  });
+
+  it("never loads a bundle the registry blocklist names", async () => {
+    blocklist.setPluginBlocklist([
+      { id: "pin-demo", bundleSha256: await servedBundleHash(), reason: "Bad release." },
+    ]);
+
+    const loaded = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    assert.deepEqual(loaded.loadedPluginIds, []);
+    assert.match(loaded.issues[0]?.message ?? "", /blocked by the plugin registry.*Bad release/);
+    // Same translated denial as a whole-plugin block.
+    assert.equal(loaded.issues[0]?.policyDenial?.kind, "blocklisted");
+    assert.deepEqual(manager.list(), []);
+  });
+
+  it("refuses, without evaluating it, an update to a blocklisted bundle", async () => {
+    integrity.pinPluginBundle(MANIFEST_URL, "0".repeat(64), "0.9.0");
+    await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    const flag = "__pinDemoBlocklistEvaluated";
+    served.set(ENTRY_URL, `globalThis.${flag} = true;\n${served.get(ENTRY_URL) ?? ""}`);
+    blocklist.setPluginBlocklist([
+      { id: "pin-demo", bundleSha256: await servedBundleHash(), reason: "Bad release." },
+    ]);
+
+    await assert.rejects(
+      externalPlugins.reloadExternalUrlPlugin(manager, MANIFEST_URL, app),
+      /blocked by the plugin registry: Bad release/,
+    );
+    assert.equal((globalThis as Record<string, unknown>)[flag], undefined);
+    assert.deepEqual(manager.list(), []);
+  });
+
+  it("refuses a whole-plugin block through the policy gate", async () => {
+    blocklist.setPluginBlocklist([{ id: "pin-demo", reason: "Malware." }]);
+
+    const loaded = await externalPlugins.loadExternalPlugins(manager, [], [MANIFEST_URL]);
+    assert.deepEqual(loaded.loadedPluginIds, []);
+    assert.match(JSON.stringify(loaded.issues), /blocked by the plugin registry: Malware/);
+  });
+
+  it("refuses, without evaluating it, a zip whose bundle is blocklisted", async () => {
+    const flag = "__zipBlocklistEvaluated";
+    const entrySource = `globalThis.${flag} = true;\n${served.get(ENTRY_URL) ?? ""}`;
+    const bytes = zipSync({
+      "plugin.json": strToU8(served.get(MANIFEST_URL)!),
+      "entry.js": strToU8(entrySource),
+    });
+    blocklist.setPluginBlocklist([
+      {
+        id: "pin-demo",
+        bundleSha256: await integrity.computePluginBundleHash({ entrySource }),
+        reason: "Bad release.",
+      },
+    ]);
+
+    await assert.rejects(
+      externalPlugins.installWebPluginArchive(manager, "bad.zip", bytes, app, null),
+      (error: unknown) => {
+        assert.ok(error instanceof externalPlugins.PluginPolicyError);
+        assert.equal(error.policyDenial.kind, "blocklisted");
+        assert.match(error.message, /blocked by the plugin registry: Bad release/);
+        return true;
+      },
+    );
+    assert.equal((globalThis as Record<string, unknown>)[flag], undefined);
+    assert.deepEqual(manager.list(), []);
   });
 });

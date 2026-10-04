@@ -18,6 +18,7 @@ export * from "./document-locale";
 export * from "./label-number-format";
 export * from "./external-native-paint";
 export * from "./attribute-form";
+export * from "./layer-descriptive-metadata";
 export * from "./popup";
 export * from "./joins";
 export * from "./virtual-fields";
@@ -31,6 +32,7 @@ export * from "./scale-units";
 export * from "./elevation";
 export * from "./camera-altitude";
 export * from "./project";
+export * from "./project-diff";
 export * from "./style-library";
 export * from "./layer-library";
 export * from "./layer-defaults";
@@ -45,6 +47,7 @@ export {
   applyStoryLayerOpacity,
   isStoryHiddenLayer,
   storyLayerOpacityFactor,
+  storyLocationView,
   storyVisibleLayers,
 } from "./storymap-playback";
 export {
@@ -225,6 +228,7 @@ export {
   MAX_REDACT_DEPTH,
   PROJECT_CREDENTIAL_FIELDS,
   PUBLISHABLE_PLUGIN_SETTINGS,
+  redactConfigurationCredentials,
   redactCredentials,
   redactProjectCredentials,
   redactUrlCredentials,

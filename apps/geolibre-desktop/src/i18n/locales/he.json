@@ -8,7 +8,62 @@
     "discard": "מחק",
     "restoreError": "לא ניתן לשחזר את תמונת המצב הזו. ייתכן שהיא פגומה או אינה תואמת לגרסת GeoLibre הזו.",
     "recoveryTitle": "לשחזר עבודה שלא נשמרה?",
-    "recoveryDescription": "GeoLibre לא נסגר כראוי. קיימת שמירה אוטומטית חדשה יותר של „{{name}}”."
+    "recoveryDescription": "GeoLibre לא נסגר כראוי. קיימת שמירה אוטומטית חדשה יותר של „{{name}}”.",
+    "autosavePaused": "השמירה האוטומטית מושהית: הפרויקט הזה גדול מ-{{limit}} MB, ולכן לא נשמרות תמונות מצב חדשות. יש לשמור אותו בדיסק כדי לשמור על העבודה שלך.",
+    "diff": {
+      "compare": "השווה",
+      "compareAria": "השוואת תמונת המצב מ־{{date}}",
+      "back": "חזרה לתמונות המצב",
+      "title": "השוואת תמונות מצב",
+      "compareWith": "השווה עם",
+      "current": "הפרויקט הנוכחי",
+      "snapshotOption": "תמונת מצב מ־{{date}}",
+      "range": "שינויים מ־{{before}} עד {{after}}",
+      "changeCount_one": "{{count}} שינוי",
+      "changeCount_two": "{{count}} שינויים",
+      "changeCount_other": "{{count}} שינויים",
+      "noChanges": "אין הבדלים.",
+      "parseError": "לא ניתן לקרוא את תמונת המצב הזו לצורך השוואה.",
+      "currentError": "לא ניתן לקרוא את הפרויקט הנוכחי לצורך השוואה.",
+      "none": "(אין)",
+      "added": "נוספה",
+      "removed": "הוסרה",
+      "changed": "שונתה",
+      "layers": "שכבות",
+      "layerOrder": "סדר השכבות השתנה",
+      "renamed": "שם שונה מ־„{{name}}”",
+      "moved": "הוזזה בסדר השכבות",
+      "visibility": "נראוּת",
+      "visible": "גלויה",
+      "hidden": "מוסתרת",
+      "opacity": "אטימות",
+      "style": "סגנון",
+      "labels": "תוויות",
+      "filter": "מסנן",
+      "source": "מקור",
+      "other": "אחר",
+      "features": "ישויות: {{added}} נוספו, {{removed}} הוסרו, {{modified}} שונו",
+      "featuresByGeometry": "ישויות ללא מזהה הותאמו לפי הגאומטריה.",
+      "featureCount_one": "{{count}} ישות",
+      "featureCount_two": "{{count}} ישויות",
+      "featureCount_other": "{{count}} ישויות",
+      "map": "מפה",
+      "camera": "מצלמה",
+      "basemap": "מפת בסיס",
+      "projection": "היטל",
+      "plugins": "תוספים",
+      "pluginEnabled": "מופעל",
+      "pluginDisabled": "מושבת",
+      "manifests": "מניפסטים של תוספים",
+      "project": "פרויקט",
+      "details": "כותרת ופרטים",
+      "preferences": "העדפות",
+      "sections": "מקטעים אחרים שהשתנו",
+      "restoreLayer": "שחזר שכבה זו",
+      "restoreLayerAria": "שחזור השכבה {{name}} מתמונת מצב זו",
+      "layerRestored": "„{{name}}” שוחזרה. השתמשו בביטול כדי לבטל זאת.",
+      "restoreLayerError": "לא ניתן לשחזר שכבה זו מתמונת המצב."
+    }
   },
   "browser": {
     "title": "דפדפן",
@@ -132,6 +187,14 @@
       "dismissButton": "אל תטען",
       "description_two": "הפרויקט הזה מבקש לטעון {{count}} תוספים חיצוניים מכתובות URL שלא התקנת. תוספים מריצים קוד עם גישה מלאה לאפליקציה."
     },
+    "registryTrust": {
+      "title_one": "להתקין את התוסף הזה?",
+      "title_two": "להתקין את התוספים האלה?",
+      "title_other": "להתקין את התוספים האלה?",
+      "description_one": "קישור זה פותח תוסף ממרשם התוספים הרשמי של GeoLibre שעדיין לא הותקן. התקנתו תוסיף אותו לתוספים שלך ותפעיל אותו.",
+      "description_two": "קישור זה פותח {{count}} תוספים ממרשם התוספים הרשמי של GeoLibre שעדיין לא הותקנו. התקנתם תוסיף אותם לתוספים שלך ותפעיל אותם.",
+      "description_other": "קישור זה פותח {{count}} תוספים ממרשם התוספים הרשמי של GeoLibre שעדיין לא הותקנו. התקנתם תוסיף אותם לתוספים שלך ותפעיל אותם."
+    },
     "title": "ניהול תוספים",
     "searchAria": "חיפוש תוספים",
     "searchPlaceholder": "חיפוש תוספים",
@@ -176,7 +239,11 @@
     "errorDirectoryPicker": "לא ניתן לפתוח את בורר התיקיות.",
     "errorInstall": "לא ניתן להתקין את התוסף.",
     "errorUninstall": "לא ניתן להסיר את התקנת התוסף.",
-    "description": "עיון, התקנה, עדכון והסרה של תוספים חיצוניים של GeoLibre. התוספים מופיעים ב<registryLink>מרשם התוספים של GeoLibre</registryLink>."
+    "description": "עיון, התקנה, עדכון והסרה של תוספים חיצוניים של GeoLibre. התוספים מופיעים ב<registryLink>מרשם התוספים של GeoLibre</registryLink>.",
+    "policySideloadDisabled": "התקנת תוספים שלא מהמרשם מושבתת על ידי מדיניות הפריסה.",
+    "policyBlocked": "התוסף „{{pluginId}}” חסום על ידי מדיניות הפריסה.",
+    "policyBlocklisted": "התוסף „{{pluginId}}” נחסם על ידי מאגר התוספים: {{reason}}",
+    "policyNotAllowed": "התוסף „{{pluginId}}” אינו מותר לפי מדיניות הפריסה."
   },
   "viewState": {
     "panelTitle": "מידע"
@@ -203,9 +270,13 @@
       "dd": "מעלות עשרוניות",
       "dms": "מעלות, דקות, שניות",
       "ddm": "מעלות, דקות עשרוניות",
-      "utm": "UTM (אזור, מזרוח/צפון)"
+      "utm": "UTM (אזור, מזרוח/צפון)",
+      "mgrs": "MGRS (מערכת ייחוס רשת צבאית)",
+      "usng": "USNG (הרשת הלאומית של ארה\"ב)",
+      "epsg": "מוטל (EPSG:{{code}})"
     },
-    "coordinateFormatHint": "פורמט קואורדינטות: {{format}}. לחץ כדי להחליף."
+    "coordinateFormatHint": "פורמט קואורדינטות: {{format}}. לחץ כדי להחליף.",
+    "autosavePaused": "השמירה האוטומטית מושהית"
   },
   "fileNamePrompt": {
     "title": "שמירת קובץ בשם",
@@ -227,8 +298,15 @@
     "projectName": "שם הפרויקט",
     "savedTemplates": "תבניות שמורות",
     "deleteTemplate": "מחק תבנית",
+    "examples": "דוגמאות",
+    "examplesDescription": "התחילו ממפת הדגמה שפורסמה. נפתח עותק ונדרש חיבור לאינטרנט.",
+    "exampleOpenFailed": "לא ניתן לפתוח את „{{title}}”.",
     "basemapLabel": "מפת בסיס",
     "create": "צור"
+  },
+  "cvdPreview": {
+    "badge": "תצוגה מקדימה של ראיית צבעים: {{mode}}",
+    "turnOff": "כיבוי התצוגה המקדימה של ראיית צבעים"
   },
   "basemapPicker": {
     "title": "החלפת רקע",
@@ -2233,7 +2311,36 @@
     "viewshedHere": "אזור נראות מכאן ({{radius}})",
     "viewshedLayerName": "אזור נראות ({{radius}})",
     "viewshedToolName": "אזור נראות",
-    "viewshedNoResult": "לא ניתן לחשב אזור נראה במיקום הזה."
+    "viewshedNoResult": "לא ניתן לחשב אזור נראה במיקום הזה.",
+    "lineOfSightHere": "קו ראייה מכאן"
+  },
+  "lineOfSight": {
+    "title": "קו ראייה",
+    "close": "סגירת קו הראייה",
+    "observerHeight": "גובה הצופה (מ׳)",
+    "targetHeight": "גובה המטרה (מ׳)",
+    "curvature": "עקמומיות כדור הארץ ושבירה",
+    "pickObserver": "לחצו על המפה כדי למקם את הצופה.",
+    "pickTarget": "לחצו על המפה כדי למקם את המטרה.",
+    "pickAgain": "לחצו על המפה כדי להתחיל קו חדש.",
+    "loading": "קורא את פני השטח לאורך הקו…",
+    "noTerrain": "לא ניתן היה לקרוא את פני השטח לאורך הקו הזה.",
+    "tooLong": "הקו ארוך מ-{{max}}. בחרו מטרה קרובה יותר.",
+    "visible": "המטרה נראית",
+    "notVisible": "המטרה אינה נראית",
+    "distance": "מרחק",
+    "firstObstruction": "המכשול הראשון",
+    "obstructionValue": "במרחק {{distance}}, {{elevation}}",
+    "highestPoint": "הנקודה הגבוהה ביותר",
+    "highestValue": "{{elevation}} במרחק {{distance}}",
+    "groundVisible": "קרקע בטווח הראייה",
+    "resolution": "רזולוציית פני השטח",
+    "saveLayer": "שמירה כשכבה",
+    "saved": "נשמר",
+    "clear": "ניקוי",
+    "layerName": "קו ראייה ({{distance}})",
+    "chartLabel": "חתך גבהים לאורך קו הראייה",
+    "legend": "צבעי הקו מראים את הקרקע שהצופה רואה (ירוק) או לא רואה (אדום); הסימון למעלה מתייחס לראש המטרה."
   },
   "knowledgeCard": {
     "title": "מידע על המקום",
@@ -2473,7 +2580,10 @@
       "scaleUnitHint": "יש לבחור את היחידות המוצגות בסרגל קנה המידה בתחתית המפה.",
       "errorBoundsUnavailable": "גבולות המפה אינם זמינים עדיין.",
       "coordinateFormat": "תבנית קואורדינטות",
-      "coordinateFormatHint": "הסימון שבו שורת המצב מציגה את קואורדינטת הסמן. לחיצה על הקואורדינטות בשורת המצב מחליפה סימון."
+      "coordinateFormatHint": "הסימון שבו שורת המצב מציגה את קואורדינטת הסמן. לחיצה על הקואורדינטות בשורת המצב מחליפה סימון.",
+      "coordinateEpsg": "מערכת ייחוס קואורדינטות (EPSG)",
+      "coordinateEpsgHint": "קוד EPSG ששורת המצב מטילה אליו את קואורדינטת הסמן, למשל 3857 (Web Mercator) או 32618 (UTM אזור 18N).",
+      "coordinateEpsgUnknown": "קוד EPSG לא מוכר. שורת המצב מציגה מעלות עשרוניות עד להזנת קוד מוכר."
     },
     "layout": {
       "title": "פריסה",
@@ -2771,16 +2881,19 @@
       "apiKeys": {
         "title": "מפתחות API",
         "description": "המפתחות נשמרים בדפדפן זה בלבד ולעולם אינם נשמרים עם הפרויקט.",
+        "descriptionKeychain": "המפתחות נשמרים במחזיק המפתחות של המערכת ולעולם אינם נשמרים עם הפרויקט.",
         "tomtom": "TomTom (זרימה חיה של תנועת רחוב)",
         "aisstream": "AISStream (כלי שיט AIS חיים)",
         "placeholder": "הדבק מפתח API",
         "save": "שמור",
         "clear": "נקה",
         "fromPanel": "נשמר בדפדפן זה",
+        "fromPanelKeychain": "נשמר במחזיק המפתחות של המערכת",
         "fromEnvironment": "משתמש במפתח מהסביבה",
         "notSet": "לא מוגדר",
         "getKey": "קבל מפתח חינם",
-        "saveFailed": "לא ניתן היה לשמור את המפתח בדפדפן זה."
+        "saveFailed": "לא ניתן היה לשמור את המפתח בדפדפן זה.",
+        "saveFailedKeychain": "לא ניתן היה לשמור את המפתח במחזיק המפתחות של המערכת. הוא יפעל עד ש-GeoLibre ייסגר."
       }
     }
   },
@@ -2933,7 +3046,8 @@
       "view": "תצוגה",
       "help": "עזרה",
       "plugins": "תוספים",
-      "settings": "הגדרות"
+      "settings": "הגדרות",
+      "tools": "כלים"
     },
     "command": {
       "projectNew": "פרויקט חדש",
@@ -2972,6 +3086,7 @@
       "segmentation": "סגמנטציית AI",
       "objectDetection": "זיהוי אובייקטים",
       "segmentEverything": "סגמנטציה של הכול",
+      "lineOfSight": "קו ראייה",
       "toggleControl": "הצג/הסתר פקד {{name}}",
       "toggleAtmosphereEffects": "הצג/הסתר אפקטים אטמוספריים",
       "toggleDirections": "הצג/הסתר הוראות הגעה",
@@ -3281,6 +3396,12 @@
       "splitViewGrid2x3": "רשת 2 × 3",
       "splitViewGrid3x3": "רשת 3 × 3",
       "splitViewSync": "סנכרון תצוגות",
+      "colorVisionPreview": "תצוגה מקדימה של ראיית צבעים",
+      "cvdOff": "כבוי",
+      "cvdProtanopia": "פרוטנופיה (עיוורון לאדום)",
+      "cvdDeuteranopia": "דויטרנופיה (עיוורון לירוק)",
+      "cvdTritanopia": "טריטנופיה (עיוורון לכחול)",
+      "cvdAchromatopsia": "אכרומטופסיה (ללא צבע)",
       "renderingEngine": "מנוע רינדור",
       "rendererMapLibre": "MapLibre",
       "rendererMapbox": "Mapbox",
@@ -3395,6 +3516,7 @@
       "showMenuInToolbar": "הצג את התפריט בסרגל הכלים",
       "dggs": "DGGS",
       "commandPalette": "לוח הפקודות",
+      "simplifyInterface": "פישוט הממשק...",
       "openProjectFromUrl": "פתיחת פרויקט מכתובת URL",
       "importQgisProjectEllipsis": "ייבוא פרויקט QGIS…",
       "importArcgisProjectEllipsis": "ייבוא פרויקט ArcGIS Pro…",
@@ -3562,6 +3684,7 @@
       "maplibre-gl-geoagent": "GeoAgent",
       "maplibre-gl-geolens": "GeoLens",
       "maplibre-gl-vantor": "Vantor Open Data",
+      "maplibre-gl-usgs-dem": "USGS 3DEP",
       "maplibre-gl-graticule": "קווי רשת",
       "maplibre-gl-mapillary": "Mapillary",
       "maplibre-gl-nasa-earthdata": "NASA Earthdata",
@@ -4589,6 +4712,7 @@
     "tooLargeToOpen": "גודל הקובץ הוא {{size}} — גדול מדי לפתיחה בדפדפן (מגבלה של {{limit}}). יש להוריד אותו, או להשתמש בגרסה מחולקת של מערך נתונים זה.",
     "tokenLabel": "אסימון גישה",
     "tokenHint": "יצירת מאגר מערך נתונים והעלאת קבצים דורשות אסימון גישה של Hugging Face עם הרשאות כתיבה. הוא נשמר בדפדפן זה בלבד ונשלח אל huggingface.co בלבד.",
+    "tokenHintKeychain": "יצירת מאגר מערך נתונים והעלאת קבצים דורשות אסימון גישה של Hugging Face עם הרשאת כתיבה. האסימון נשמר במחזיק המפתחות של המערכת ונשלח אל huggingface.co בלבד.",
     "tokenPlaceholder": "hf_…",
     "tokenSave": "שמור אסימון",
     "tokenClear": "נקה",
@@ -4702,7 +4826,12 @@
     "cancel": "ביטול",
     "saveElement": "שמור רכיב",
     "atPoint": "בנקודה",
-    "pinnedToExtent": "מוצמד לתיחום"
+    "pinnedToExtent": "מוצמד לתיחום",
+    "editorColor": "צבע",
+    "noElements": "אין עדיין רכיבי מפה.",
+    "moveUp": "הזז למעלה",
+    "moveDown": "הזז למטה",
+    "deleteElement": "מחק"
   },
   "dimensions": {
     "toolbar": "כלי מידות",
@@ -5233,6 +5362,8 @@
         "projectedHint": "נשמר בתיקיית ההורדות במערכת הקואורדינטות של היעד. המפה מציגה רק EPSG:4326, ולכן תוצאה מוטלת אינה מתווספת כשכבה."
       },
       "filterBySource": "סינון לפי מקור",
+      "filterByCategory": "סינון לפי קטגוריה",
+      "layerFor": "שכבה עבור {{name}}",
       "allSources": "כל המקורות",
       "geolibreTools": "כלי GeoLibre",
       "whiteboxTools": "כלי Whitebox",
@@ -8101,6 +8232,11 @@
     "exportedWithWarnings": "השכבה יוצאה. {{warnings}}",
     "exported": "השכבה יוצאה.",
     "exportLayerError": "לא ניתן לייצא את השכבה הזו.",
+    "export3dModel": "מודל תלת-ממדי: {{format}}",
+    "export3dModelNoSolids": "אין פוליגונים מובלטים לייצוא. יש לתת לפוליגונים של השכבה גובה מעל בסיס ההבלטה.",
+    "export3dModelSkipped_one": "המודל התלת-ממדי יוצא. {{count}} ישות ללא גובה מעל הבסיס או ללא שטח הושמטה.",
+    "export3dModelSkipped_two": "המודל התלת-ממדי יוצא. {{count}} ישויות ללא גובה מעל הבסיס או ללא שטח הושמטו.",
+    "export3dModelSkipped_other": "המודל התלת-ממדי יוצא. {{count}} ישויות ללא גובה מעל הבסיס או ללא שטח הושמטו.",
     "exportPolyline": "Encoded Polyline (דיוק {{precision}})",
     "refreshIntervals": {
       "off": "כבוי",
@@ -8158,6 +8294,11 @@
     "viewportStretchNoValues": "לא נמצאו ערכי רסטר בתצוגה.",
     "viewportStretchNoRange": "ערכי התצוגה אינם מגדירים טווח.",
     "viewportStretchMoved": "המפה זזה לפני שהקריאה הסתיימה. יש להחיל שוב.",
+    "histogram": "היסטוגרמה",
+    "histogramLoading": "מחשב היסטוגרמה…",
+    "histogramUnavailable": "אין היסטוגרמה זמינה עבור ערוץ זה.",
+    "histogramMinAria": "מינימום המתיחה, {{band}}",
+    "histogramMaxAria": "מקסימום המתיחה, {{band}}",
     "index": "אינדקס",
     "opacityClasses": "מחלקות אטימות",
     "classifyToggle": "סווג למחלקות בדידות",
@@ -8401,6 +8542,7 @@
     "copyJson": "העתק JSON",
     "copied": "הועתק",
     "clear": "נקה",
+    "reportIssue": "דיווח על בעיה",
     "emptyAll": "לא נאספו נתוני אבחון.",
     "emptyError": "לא נאספו נתוני אבחון של שגיאות.",
     "emptyWarning": "לא נאספו נתוני אבחון של אזהרות.",
@@ -8412,6 +8554,22 @@
     "countWarnings_two": "{{count}} אזהרות",
     "countNetwork_two": "{{count}} בקשות רשת",
     "countNetworkErrors_two": "{{count}} שגיאות רשת"
+  },
+  "notifications": {
+    "regionLabel": "התראות",
+    "dismiss": "סגירת ההתראה",
+    "reportIssue": "דיווח על בעיה",
+    "repeated": "×{{count}}",
+    "layerLoadFailed": "טעינת השכבה \"{{name}}\" נכשלה",
+    "layerLoadFailedHint": "בדקו את כתובת ה-URL, את חיבור הרשת ואת מפתח ה-API הנדרש, אם יש. הפרטים נמצאים בחלונית האבחון.",
+    "fileReadFailed": "לא ניתן היה לקרוא את \"{{name}}\", ולכן הוא דולג.",
+    "libraryLayerRestoreFailed": "לא ניתן היה להוסיף את \"{{name}}\" מהנתונים שלי.",
+    "localLayersDropped_one": "שכבה אחת ({{count}}) הוסרה: לא ניתן היה לקרוא את הקובץ שלה ({{path}}).",
+    "localLayersDropped_two": "{{count}} שכבות הוסרו: לא ניתן היה לקרוא את הקובץ שלהן ({{path}}).",
+    "localLayersDropped_other": "{{count}} שכבות הוסרו: לא ניתן היה לקרוא את הקובץ שלהן ({{path}}).",
+    "pluginActivateFailed": "לא ניתן היה להפעיל את התוסף \"{{id}}\" מהקישור.",
+    "pluginMenuActionFailed": "פעולת התפריט \"{{name}}\" נכשלה.",
+    "recordingOverlaysSkipped": "לא ניתן היה ללכוד את חלוניות המפה, ולכן ההקלטה מציגה את המפה בלבד."
   },
   "shell": {
     "workspaceTitle": "סביבת עבודת המפה של GeoLibre",
@@ -8667,12 +8825,56 @@
     "catalogFlowlines": "קווי זרימה של NHDPlus",
     "layersAdded_two": "נוספו {{count}} שכבות NLDI לקבוצה אחת “תוצאות USGS NLDI”."
   },
+  "usgsDem": {
+    "title": "USGS 3DEP",
+    "hint": "חיפוש וטעינה של מודלי גובה דיגיטליים של USGS 3DEP על המפה.",
+    "search": "חפש DEM",
+    "searching": "מחפש ב-USGS API...",
+    "noResults": "לא נמצאו מודלי גובה עבור האזור שנבחר.",
+    "showing": "מוצגים {{shown}} מתוך {{total}} מודלי גובה",
+    "searchError": "החיפוש נכשל: {{message}}",
+    "add": "טען על המפה",
+    "adding": "טוען...",
+    "download": "הורד",
+    "zoom": "זום",
+    "modeView": "תצוגה נוכחית",
+    "modeDraw": "שרטוט תיבה",
+    "modeBbox": "קואורדינטות",
+    "modeQuad": "גיליון 24K",
+    "drawHint": "יש ללחוץ ולגרור על המפה כדי לשרטט תיבה תוחמת לחיפוש.",
+    "drawStart": "שרטט תיבה",
+    "drawCancel": "בטל שרטוט",
+    "drawnBox": "תיבה משורטטת: {{box}}",
+    "coordWest": "מערב",
+    "coordSouth": "דרום",
+    "coordEast": "מזרח",
+    "coordNorth": "צפון",
+    "quadName": "שם הגיליון (למשל Mount St. Helens)",
+    "stateName": "מדינה (למשל WA)",
+    "quadSearchHint": "איתור התיחום של גיליון טופוגרפי סטנדרטי של USGS בקנה מידה 1:24,000.",
+    "datasets": "מערכי נתוני גובה",
+    "format": "פורמט",
+    "filterRedundant": "החרג אריחים חלקיים מיותרים",
+    "footprintsLayer": "טביעות רגל של USGS 3DEP",
+    "exportGeoJson": "ייצא GeoJSON",
+    "errorNoBounds": "לא ניתן לקבוע את גבולות המפה הנוכחיים.",
+    "errorNoDrawnBox": "יש לשרטט תחילה תיבה תוחמת על המפה.",
+    "errorInvalidCoords": "יש להזין קואורדינטות מספריות תקינות עבור מערב, דרום, מזרח וצפון.",
+    "errorQuadInputs": "יש להזין גם את שם הגיליון וגם את המדינה.",
+    "errorQuadNotFound": "לא נמצא הגיליון הטופוגרפי 24K „{{quad}}” במדינה „{{state}}”.",
+    "loadError": "טעינת ה-DEM נכשלה: {{message}}"
+  },
   "plugin": {
     "3d-tiles": {
       "arcgisSourceUnsupported": "יש להשתמש בכתובת URL של tileset.json של 3D Tiles בתצוגת ArcGIS זו. אריחי Google Photorealistic ו-I3S דורשים מנוע רינדור אחר.",
       "globeGoogleKeyRequired": "אריחי Google Photorealistic 3D Tiles דורשים מפתח API של Google Maps בהגדרות כדי להיטען בגלובוס.",
       "headersHint": "כותרת אחת בכל שורה בתבנית Name: Value. השתמש ב-${NAME} כדי להוסיף משתנה סביבה מהגדרות ← סביבה; הערך אינו נשמר עם השכבה.",
-      "insecureHeaders": "כותרות הבקשה נשלחות רק לכתובת URL של ערכת אריחים ב-HTTPS (או localhost)."
+      "insecureHeaders": "כותרות הבקשה נשלחות רק לכתובת URL של ערכת אריחים ב-HTTPS (או localhost).",
+      "showKey": "הצג מפתח",
+      "hideKey": "הסתר מפתח",
+      "showKeyAria": "הצג את מפתח ה-API של Google Maps",
+      "hideKeyAria": "הסתר את מפתח ה-API של Google Maps",
+      "toggleLayerAria": "החלף מצב {{name}}"
     },
     "geolibre-osm-downloader": {
       "title": "מוריד OSM",
@@ -9106,6 +9308,36 @@
         "17": "משטח גשר",
         "18": "רעש גבוה"
       }
+    },
+    "geolibre-elevation-profile": {
+      "title": "חתך גבהים",
+      "drawHint": "יש ללחוץ על המפה כדי להוסיף נקודות. לחיצה כפולה או Enter לסיום.",
+      "drawCancelled": "השרטוט בוטל.",
+      "needTwoPoints": "נדרשות לפחות שתי נקודות כדי לבנות חתך.",
+      "selectLineHint": "יש לבחור ישות קו כדי לבנות את חתך הגבהים שלה.",
+      "sampling": "דוגם גבהים…",
+      "loadError": "לא ניתן היה לטעון נתוני גובה.",
+      "closePanel": "סגור חלונית",
+      "drawLine": "שרטט קו",
+      "finish": "סיים",
+      "clear": "נקה",
+      "useSelected": "השתמש בנבחר",
+      "useSelectedTitle": "בנה חתך מישות הקו שנבחרה",
+      "selectLineFirst": "יש לבחור תחילה ישות קו",
+      "exportLabel": "ייצוא:",
+      "exportCsv": "הורד את החתך כ-CSV",
+      "exportSvg": "שמור את התרשים כתמונת SVG",
+      "statDistance": "מרחק",
+      "statMin": "מינימום",
+      "statMax": "מקסימום",
+      "statAscent": "עלייה ↑",
+      "statDescent": "ירידה ↓",
+      "unitsTitle": "יחידות: {{units}}"
+    },
+    "maplibre-gl-geoagent": {
+      "signIn": "התחבר",
+      "signInOpening": "פותח התחברות עם Google...",
+      "signInComplete": "ההתחברות ל-Earth Engine הושלמה."
     }
   }
 }

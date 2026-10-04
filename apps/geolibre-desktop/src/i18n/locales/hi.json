@@ -8,7 +8,60 @@
     "discard": "त्यागें",
     "restoreError": "यह स्नैपशॉट पुनर्स्थापित नहीं किया जा सका। यह क्षतिग्रस्त हो सकता है या GeoLibre के इस संस्करण के साथ असंगत हो सकता है।",
     "recoveryTitle": "बिना सहेजा गया कार्य पुनर्प्राप्त करें?",
-    "recoveryDescription": "GeoLibre ठीक से बंद नहीं हुआ था। \"{{name}}\" का एक नया स्वतः सहेजा गया संस्करण उपलब्ध है।"
+    "recoveryDescription": "GeoLibre ठीक से बंद नहीं हुआ था। \"{{name}}\" का एक नया स्वतः सहेजा गया संस्करण उपलब्ध है।",
+    "autosavePaused": "स्वतः सहेजना रुका हुआ है: यह प्रोजेक्ट {{limit}} MB से बड़ा है, इसलिए नए स्नैपशॉट नहीं रखे जा रहे हैं। अपना काम सुरक्षित रखने के लिए इसे डिस्क पर सहेजें।",
+    "diff": {
+      "compare": "तुलना करें",
+      "compareAria": "{{date}} के स्नैपशॉट की तुलना करें",
+      "back": "स्नैपशॉट पर वापस जाएँ",
+      "title": "स्नैपशॉट की तुलना करें",
+      "compareWith": "इससे तुलना करें",
+      "current": "वर्तमान प्रोजेक्ट",
+      "snapshotOption": "{{date}} का स्नैपशॉट",
+      "range": "{{before}} से {{after}} तक के बदलाव",
+      "changeCount_one": "{{count}} बदलाव",
+      "changeCount_other": "{{count}} बदलाव",
+      "noChanges": "कोई अंतर नहीं।",
+      "parseError": "तुलना के लिए यह स्नैपशॉट पढ़ा नहीं जा सका।",
+      "currentError": "तुलना के लिए वर्तमान प्रोजेक्ट पढ़ा नहीं जा सका।",
+      "none": "(कोई नहीं)",
+      "added": "जोड़ी गई",
+      "removed": "हटाई गई",
+      "changed": "बदली गई",
+      "layers": "लेयर",
+      "layerOrder": "लेयर का क्रम बदला",
+      "renamed": "“{{name}}” से नाम बदला गया",
+      "moved": "लेयर क्रम में स्थानांतरित",
+      "visibility": "दृश्यता",
+      "visible": "दृश्यमान",
+      "hidden": "छिपी हुई",
+      "opacity": "अपारदर्शिता",
+      "style": "शैली",
+      "labels": "लेबल",
+      "filter": "फ़िल्टर",
+      "source": "स्रोत",
+      "other": "अन्य",
+      "features": "फ़ीचर: {{added}} जोड़े गए, {{removed}} हटाए गए, {{modified}} बदले गए",
+      "featuresByGeometry": "बिना id वाले फ़ीचर ज्यामिति के आधार पर मिलाए गए।",
+      "featureCount_one": "{{count}} फ़ीचर",
+      "featureCount_other": "{{count}} फ़ीचर",
+      "map": "मानचित्र",
+      "camera": "कैमरा",
+      "basemap": "बेसमैप",
+      "projection": "प्रक्षेपण",
+      "plugins": "प्लगइन",
+      "pluginEnabled": "सक्षम",
+      "pluginDisabled": "अक्षम",
+      "manifests": "प्लगइन मैनिफ़ेस्ट",
+      "project": "प्रोजेक्ट",
+      "details": "शीर्षक और विवरण",
+      "preferences": "प्राथमिकताएँ",
+      "sections": "बदले गए अन्य अनुभाग",
+      "restoreLayer": "यह लेयर पुनर्स्थापित करें",
+      "restoreLayerAria": "इस स्नैपशॉट से लेयर {{name}} पुनर्स्थापित करें",
+      "layerRestored": "“{{name}}” पुनर्स्थापित की गई। वापस लेने के लिए पूर्ववत करें का उपयोग करें।",
+      "restoreLayerError": "स्नैपशॉट से यह लेयर पुनर्स्थापित नहीं की जा सकी।"
+    }
   },
   "browser": {
     "title": "ब्राउज़र",
@@ -130,6 +183,12 @@
       "trustButton": "भरोसा करें और लोड करें",
       "dismissButton": "लोड न करें"
     },
+    "registryTrust": {
+      "title_one": "यह प्लगइन इंस्टॉल करें?",
+      "title_other": "ये प्लगइन इंस्टॉल करें?",
+      "description_one": "यह लिंक आधिकारिक GeoLibre प्लगइन रजिस्ट्री से एक ऐसा प्लगइन खोलता है जो अभी इंस्टॉल नहीं है। इसे इंस्टॉल करने पर यह आपके प्लगइन में जुड़ जाएगा और सक्रिय हो जाएगा।",
+      "description_other": "यह लिंक आधिकारिक GeoLibre प्लगइन रजिस्ट्री से {{count}} ऐसे प्लगइन खोलता है जो अभी इंस्टॉल नहीं हैं। इन्हें इंस्टॉल करने पर ये आपके प्लगइन में जुड़ जाएंगे और सक्रिय हो जाएंगे।"
+    },
     "title": "प्लगइन प्रबंधित करें",
     "searchAria": "प्लगइन खोजें",
     "searchPlaceholder": "प्लगइन खोजें",
@@ -174,7 +233,11 @@
     "errorDirectoryPicker": "डायरेक्टरी चयनकर्ता नहीं खोला जा सका।",
     "errorInstall": "प्लगइन इंस्टॉल नहीं किया जा सका।",
     "errorUninstall": "प्लगइन अनइंस्टॉल नहीं किया जा सका।",
-    "description": "बाहरी GeoLibre प्लगइन ब्राउज़ करें, इंस्टॉल करें, अपडेट करें और हटाएँ। प्लगइन <registryLink>GeoLibre प्लगइन रजिस्ट्री</registryLink> में सूचीबद्ध हैं।"
+    "description": "बाहरी GeoLibre प्लगइन ब्राउज़ करें, इंस्टॉल करें, अपडेट करें और हटाएँ। प्लगइन <registryLink>GeoLibre प्लगइन रजिस्ट्री</registryLink> में सूचीबद्ध हैं।",
+    "policySideloadDisabled": "डिप्लॉयमेंट नीति के कारण प्लगइन साइडलोडिंग अक्षम है।",
+    "policyBlocked": "प्लगइन “{{pluginId}}” डिप्लॉयमेंट नीति द्वारा ब्लॉक किया गया है।",
+    "policyBlocklisted": "प्लगइन रजिस्ट्री ने प्लगइन “{{pluginId}}” को ब्लॉक कर दिया: {{reason}}",
+    "policyNotAllowed": "डिप्लॉयमेंट नीति प्लगइन “{{pluginId}}” की अनुमति नहीं देती।"
   },
   "viewState": {
     "panelTitle": "जानकारी"
@@ -201,9 +264,13 @@
       "dd": "दशमलव डिग्री",
       "dms": "अंश, मिनट, सेकंड",
       "ddm": "अंश, दशमलव मिनट",
-      "utm": "UTM (ज़ोन, पूर्वी/उत्तरी)"
+      "utm": "UTM (ज़ोन, पूर्वी/उत्तरी)",
+      "mgrs": "MGRS (सैन्य ग्रिड संदर्भ प्रणाली)",
+      "usng": "USNG (अमेरिकी राष्ट्रीय ग्रिड)",
+      "epsg": "प्रक्षेपित (EPSG:{{code}})"
     },
-    "coordinateFormatHint": "निर्देशांक प्रारूप: {{format}}। बदलने के लिए क्लिक करें।"
+    "coordinateFormatHint": "निर्देशांक प्रारूप: {{format}}। बदलने के लिए क्लिक करें।",
+    "autosavePaused": "स्वतः सहेजना रुका हुआ"
   },
   "fileNamePrompt": {
     "title": "फ़ाइल को इस रूप में सहेजें",
@@ -225,8 +292,15 @@
     "projectName": "परियोजना का नाम",
     "savedTemplates": "सहेजे गए टेम्पलेट",
     "deleteTemplate": "टेम्पलेट हटाएं",
+    "examples": "उदाहरण",
+    "examplesDescription": "किसी प्रकाशित डेमो मानचित्र से शुरू करें। एक प्रति खुलती है और इंटरनेट कनेक्शन आवश्यक है।",
+    "exampleOpenFailed": "“{{title}}” नहीं खोला जा सका।",
     "basemapLabel": "बेसमैप",
     "create": "बनाएँ"
+  },
+  "cvdPreview": {
+    "badge": "रंग दृष्टि पूर्वावलोकन: {{mode}}",
+    "turnOff": "रंग दृष्टि पूर्वावलोकन बंद करें"
   },
   "basemapPicker": {
     "title": "पृष्ठभूमि बदलें",
@@ -2187,7 +2261,36 @@
     "viewshedHere": "यहाँ से दृश्यक्षेत्र ({{radius}})",
     "viewshedLayerName": "दृश्यक्षेत्र ({{radius}})",
     "viewshedToolName": "दृश्यक्षेत्र",
-    "viewshedNoResult": "यहाँ कोई दृश्य क्षेत्र नहीं निकाला जा सका।"
+    "viewshedNoResult": "यहाँ कोई दृश्य क्षेत्र नहीं निकाला जा सका।",
+    "lineOfSightHere": "यहाँ से दृष्टि रेखा"
+  },
+  "lineOfSight": {
+    "title": "दृष्टि रेखा",
+    "close": "दृष्टि रेखा बंद करें",
+    "observerHeight": "प्रेक्षक की ऊँचाई (मी)",
+    "targetHeight": "लक्ष्य की ऊँचाई (मी)",
+    "curvature": "पृथ्वी की वक्रता और अपवर्तन",
+    "pickObserver": "प्रेक्षक रखने के लिए मानचित्र पर क्लिक करें।",
+    "pickTarget": "लक्ष्य रखने के लिए मानचित्र पर क्लिक करें।",
+    "pickAgain": "नई रेखा शुरू करने के लिए मानचित्र पर क्लिक करें।",
+    "loading": "रेखा के साथ भू-भाग पढ़ा जा रहा है…",
+    "noTerrain": "इस रेखा के साथ कोई भू-भाग नहीं पढ़ा जा सका।",
+    "tooLong": "रेखा {{max}} से लंबी है। कोई निकट का लक्ष्य चुनें।",
+    "visible": "लक्ष्य दिखाई देता है",
+    "notVisible": "लक्ष्य दिखाई नहीं देता",
+    "distance": "दूरी",
+    "firstObstruction": "पहली रुकावट",
+    "obstructionValue": "{{distance}} दूर, {{elevation}}",
+    "highestPoint": "सबसे ऊँचा बिंदु",
+    "highestValue": "{{distance}} पर {{elevation}}",
+    "groundVisible": "दिखाई देने वाली ज़मीन",
+    "resolution": "भू-भाग विभेदन",
+    "saveLayer": "परत के रूप में सहेजें",
+    "saved": "सहेजा गया",
+    "clear": "साफ़ करें",
+    "layerName": "दृष्टि रेखा ({{distance}})",
+    "chartLabel": "दृष्टि रेखा के साथ ऊँचाई प्रोफ़ाइल",
+    "legend": "रेखा के रंग दिखाते हैं कि प्रेक्षक कौन-सी ज़मीन देख सकता है (हरा) या नहीं (लाल); ऊपर का संकेत लक्ष्य के शीर्ष के बारे में है।"
   },
   "knowledgeCard": {
     "title": "स्थान जानकारी",
@@ -2426,7 +2529,10 @@
       "scaleUnitHint": "मानचित्र के नीचे स्केल बार पर दिखाई जाने वाली इकाइयाँ चुनें।",
       "errorBoundsUnavailable": "मानचित्र सीमाएँ अभी उपलब्ध नहीं हैं।",
       "coordinateFormat": "निर्देशांक प्रारूप",
-      "coordinateFormatHint": "स्टेटस बार पॉइंटर निर्देशांक किस नोटेशन में दिखाता है। नोटेशन बदलने के लिए स्टेटस बार में निर्देशांक पर क्लिक करें।"
+      "coordinateFormatHint": "स्टेटस बार पॉइंटर निर्देशांक किस नोटेशन में दिखाता है। नोटेशन बदलने के लिए स्टेटस बार में निर्देशांक पर क्लिक करें।",
+      "coordinateEpsg": "निर्देशांक संदर्भ प्रणाली (EPSG)",
+      "coordinateEpsgHint": "वह EPSG कोड जिसमें स्टेटस बार पॉइंटर निर्देशांक को प्रक्षेपित करता है, जैसे 3857 (Web Mercator) या 32618 (UTM ज़ोन 18N)।",
+      "coordinateEpsgUnknown": "अज्ञात EPSG कोड। कोई ज्ञात कोड दर्ज होने तक स्टेटस बार दशमलव डिग्री दिखाता है।"
     },
     "layout": {
       "title": "लेआउट",
@@ -2722,16 +2828,19 @@
       "apiKeys": {
         "title": "API कुंजियाँ",
         "description": "कुंजियाँ केवल इसी ब्राउज़र में रखी जाती हैं और कभी भी प्रोजेक्ट के साथ सहेजी नहीं जातीं।",
+        "descriptionKeychain": "कुंजियाँ आपके सिस्टम कीचेन में रखी जाती हैं और कभी भी प्रोजेक्ट के साथ सहेजी नहीं जातीं।",
         "tomtom": "TomTom (सड़क ट्रैफ़िक का लाइव प्रवाह)",
         "aisstream": "AISStream (लाइव AIS जहाज़)",
         "placeholder": "API कुंजी चिपकाएँ",
         "save": "सहेजें",
         "clear": "साफ़ करें",
         "fromPanel": "इस ब्राउज़र में सहेजी गई",
+        "fromPanelKeychain": "आपके सिस्टम कीचेन में सहेजी गई",
         "fromEnvironment": "परिवेश की कुंजी का उपयोग हो रहा है",
         "notSet": "सेट नहीं है",
         "getKey": "मुफ़्त कुंजी प्राप्त करें",
-        "saveFailed": "इस ब्राउज़र में कुंजी सहेजी नहीं जा सकी।"
+        "saveFailed": "इस ब्राउज़र में कुंजी सहेजी नहीं जा सकी।",
+        "saveFailedKeychain": "कुंजी को आपके सिस्टम कीचेन में सहेजा नहीं जा सका। यह GeoLibre बंद होने तक काम करेगी।"
       }
     }
   },
@@ -2884,7 +2993,8 @@
       "view": "दृश्य",
       "help": "सहायता",
       "plugins": "प्लगइन",
-      "settings": "सेटिंग्स"
+      "settings": "सेटिंग्स",
+      "tools": "टूल्स"
     },
     "command": {
       "projectNew": "नया प्रोजेक्ट",
@@ -2923,6 +3033,7 @@
       "segmentation": "AI सेगमेंटेशन",
       "objectDetection": "ऑब्जेक्ट डिटेक्शन",
       "segmentEverything": "सब कुछ सेगमेंट करें",
+      "lineOfSight": "दृष्टि रेखा",
       "toggleControl": "{{name}} नियंत्रण टॉगल करें",
       "toggleAtmosphereEffects": "वायुमंडलीय प्रभाव टॉगल करें",
       "toggleDirections": "दिशा-निर्देश टॉगल करें",
@@ -3232,6 +3343,12 @@
       "splitViewGrid2x3": "2 × 3 ग्रिड",
       "splitViewGrid3x3": "3 × 3 ग्रिड",
       "splitViewSync": "दृश्य सिंक करें",
+      "colorVisionPreview": "रंग दृष्टि पूर्वावलोकन",
+      "cvdOff": "बंद",
+      "cvdProtanopia": "प्रोटैनोपिया (लाल-अंधता)",
+      "cvdDeuteranopia": "ड्यूटेरानोपिया (हरा-अंधता)",
+      "cvdTritanopia": "ट्राइटैनोपिया (नीला-अंधता)",
+      "cvdAchromatopsia": "एक्रोमैटोप्सिया (कोई रंग नहीं)",
       "renderingEngine": "रेंडरिंग इंजन",
       "rendererMapLibre": "MapLibre",
       "rendererMapbox": "Mapbox",
@@ -3346,6 +3463,7 @@
       "showMenuInToolbar": "टूलबार में मेनू दिखाएँ",
       "dggs": "DGGS",
       "commandPalette": "कमांड पैलेट",
+      "simplifyInterface": "इंटरफ़ेस सरल करें...",
       "openProjectFromUrl": "URL से प्रोजेक्ट खोलें",
       "importQgisProjectEllipsis": "QGIS प्रोजेक्ट आयात करें…",
       "importArcgisProjectEllipsis": "ArcGIS Pro प्रोजेक्ट आयात करें…",
@@ -3508,6 +3626,7 @@
       "maplibre-gl-geoagent": "GeoAgent",
       "maplibre-gl-geolens": "GeoLens",
       "maplibre-gl-vantor": "Vantor खुला डेटा",
+      "maplibre-gl-usgs-dem": "USGS 3DEP",
       "maplibre-gl-graticule": "ग्रिडलाइन्स",
       "maplibre-gl-mapillary": "Mapillary",
       "maplibre-gl-nasa-earthdata": "NASA Earthdata",
@@ -4462,6 +4581,7 @@
     "tooLargeToOpen": "यह फ़ाइल {{size}} है — ब्राउज़र में खोलने के लिए बहुत बड़ी ({{limit}} सीमा)। इसे डाउनलोड करें, या इस डेटासेट का विभाजित संस्करण उपयोग करें।",
     "tokenLabel": "एक्सेस टोकन",
     "tokenHint": "डेटासेट रेपो बनाने और फ़ाइलें अपलोड करने के लिए लेखन अनुमति वाला Hugging Face एक्सेस टोकन चाहिए। यह केवल इसी ब्राउज़र में संग्रहीत होता है और सिर्फ़ huggingface.co को भेजा जाता है।",
+    "tokenHintKeychain": "डेटासेट रेपो बनाने और फ़ाइलें अपलोड करने के लिए लिखने की अनुमति वाले Hugging Face एक्सेस टोकन की आवश्यकता है। यह आपके सिस्टम कीचेन में संग्रहीत होता है और केवल huggingface.co को भेजा जाता है।",
     "tokenPlaceholder": "hf_…",
     "tokenSave": "टोकन सहेजें",
     "tokenClear": "साफ़ करें",
@@ -4570,7 +4690,12 @@
     "cancel": "रद्द करें",
     "saveElement": "तत्व सहेजें",
     "atPoint": "बिंदु पर",
-    "pinnedToExtent": "विस्तार से संलग्न"
+    "pinnedToExtent": "विस्तार से संलग्न",
+    "editorColor": "रंग",
+    "noElements": "अभी तक कोई मानचित्र तत्व नहीं।",
+    "moveUp": "ऊपर ले जाएं",
+    "moveDown": "नीचे ले जाएं",
+    "deleteElement": "हटाएँ"
   },
   "dimensions": {
     "toolbar": "विमांकन टूल्स",
@@ -5094,6 +5219,8 @@
         "projectedHint": "लक्ष्य CRS में आपके डाउनलोड में सहेजा गया। मानचित्र केवल EPSG:4326 प्रदर्शित करता है, इसलिए प्रोजेक्टेड परिणाम को लेयर के रूप में नहीं जोड़ा जाता।"
       },
       "filterBySource": "स्रोत के अनुसार फ़िल्टर करें",
+      "filterByCategory": "श्रेणी के अनुसार फ़िल्टर करें",
+      "layerFor": "{{name}} के लिए लेयर",
       "allSources": "सभी स्रोत",
       "geolibreTools": "GeoLibre टूल",
       "whiteboxTools": "Whitebox टूल",
@@ -7953,6 +8080,10 @@
     "exportedWithWarnings": "लेयर निर्यात की गई। {{warnings}}",
     "exported": "लेयर निर्यात की गई।",
     "exportLayerError": "इस लेयर को निर्यात नहीं किया जा सका।",
+    "export3dModel": "3D मॉडल: {{format}}",
+    "export3dModelNoSolids": "निर्यात करने के लिए कोई एक्सट्रूडेड पॉलीगॉन नहीं है। लेयर में ऐसे पॉलीगॉन रखें जिनकी ऊँचाई एक्सट्रूज़न आधार से अधिक हो।",
+    "export3dModelSkipped_one": "3D मॉडल निर्यात किया गया। आधार से ऊपर ऊँचाई या क्षेत्रफल न होने वाला {{count}} फ़ीचर छोड़ दिया गया।",
+    "export3dModelSkipped_other": "3D मॉडल निर्यात किया गया। आधार से ऊपर ऊँचाई या क्षेत्रफल न होने वाले {{count}} फ़ीचर छोड़ दिए गए।",
     "exportPolyline": "एन्कोडेड पॉलीलाइन (परिशुद्धता {{precision}})",
     "refreshIntervals": {
       "off": "बंद",
@@ -8010,6 +8141,11 @@
     "viewportStretchNoValues": "व्यूपोर्ट में कोई रास्टर मान नहीं मिला।",
     "viewportStretchNoRange": "व्यूपोर्ट के मान कोई रेंज परिभाषित नहीं करते।",
     "viewportStretchMoved": "पढ़ना पूरा होने से पहले मानचित्र हिल गया। फिर से लागू करें।",
+    "histogram": "हिस्टोग्राम",
+    "histogramLoading": "हिस्टोग्राम की गणना हो रही है…",
+    "histogramUnavailable": "इस बैंड के लिए कोई हिस्टोग्राम उपलब्ध नहीं है।",
+    "histogramMinAria": "स्ट्रेच न्यूनतम, {{band}}",
+    "histogramMaxAria": "स्ट्रेच अधिकतम, {{band}}",
     "index": "सूचकांक",
     "opacityClasses": "अपारदर्शिता वर्ग",
     "classifyToggle": "असतत वर्गों में वर्गीकृत करें",
@@ -8253,12 +8389,28 @@
     "copyJson": "JSON कॉपी करें",
     "copied": "कॉपी हो गया",
     "clear": "साफ़ करें",
+    "reportIssue": "समस्या की रिपोर्ट करें",
     "emptyAll": "कोई डायग्नोस्टिक्स दर्ज नहीं हुए।",
     "emptyError": "कोई त्रुटि डायग्नोस्टिक्स दर्ज नहीं हुए।",
     "emptyWarning": "कोई चेतावनी डायग्नोस्टिक्स दर्ज नहीं हुए।",
     "emptyInfo": "कोई सूचना डायग्नोस्टिक्स दर्ज नहीं हुए।",
     "emptyNetwork": "कोई नेटवर्क डायग्नोस्टिक्स दर्ज नहीं हुए।",
     "emptyNetworkError": "कोई नेटवर्क त्रुटि डायग्नोस्टिक्स दर्ज नहीं हुए।"
+  },
+  "notifications": {
+    "regionLabel": "सूचनाएँ",
+    "dismiss": "सूचना हटाएँ",
+    "reportIssue": "समस्या की रिपोर्ट करें",
+    "repeated": "×{{count}}",
+    "layerLoadFailed": "लेयर \"{{name}}\" लोड नहीं हो सकी",
+    "layerLoadFailedHint": "URL, अपना नेटवर्क कनेक्शन और कोई भी आवश्यक API कुंजी जाँचें। विवरण डायग्नोस्टिक्स पैनल में हैं।",
+    "fileReadFailed": "\"{{name}}\" पढ़ी नहीं जा सकी, इसलिए उसे छोड़ दिया गया।",
+    "libraryLayerRestoreFailed": "मेरा डेटा से \"{{name}}\" नहीं जोड़ी जा सकी।",
+    "localLayersDropped_one": "{{count}} लेयर हटा दी गई: उसकी फ़ाइल पढ़ी नहीं जा सकी ({{path}})।",
+    "localLayersDropped_other": "{{count}} लेयर हटा दी गईं: उनकी फ़ाइल पढ़ी नहीं जा सकी ({{path}})।",
+    "pluginActivateFailed": "लिंक से प्लगइन \"{{id}}\" शुरू नहीं किया जा सका।",
+    "pluginMenuActionFailed": "मेनू क्रिया \"{{name}}\" विफल रही।",
+    "recordingOverlaysSkipped": "मानचित्र पैनल कैप्चर नहीं किए जा सके, इसलिए रिकॉर्डिंग में केवल मानचित्र दिखता है।"
   },
   "shell": {
     "workspaceTitle": "GeoLibre मानचित्र कार्यक्षेत्र",
@@ -8577,12 +8729,56 @@
     "catalogNmwdiSt": "न्यू मैक्सिको जल स्थल",
     "catalogFlowlines": "NHDPlus प्रवाह-रेखाएँ"
   },
+  "usgsDem": {
+    "title": "USGS 3DEP",
+    "hint": "USGS 3DEP डिजिटल एलिवेशन मॉडल खोजें और उन्हें मानचित्र पर लोड करें।",
+    "search": "DEM खोजें",
+    "searching": "USGS API में खोजा जा रहा है...",
+    "noResults": "चयनित क्षेत्र के लिए कोई एलिवेशन मॉडल नहीं मिला।",
+    "showing": "{{total}} में से {{shown}} एलिवेशन मॉडल दिखाए जा रहे हैं",
+    "searchError": "खोज विफल: {{message}}",
+    "add": "मानचित्र पर लोड करें",
+    "adding": "लोड हो रहा है...",
+    "download": "डाउनलोड करें",
+    "zoom": "ज़ूम",
+    "modeView": "वर्तमान दृश्य",
+    "modeDraw": "BBox खींचें",
+    "modeBbox": "निर्देशांक",
+    "modeQuad": "24K क्वाड",
+    "drawHint": "खोज के लिए बाउंडिंग बॉक्स खींचने हेतु मानचित्र पर क्लिक करके ड्रैग करें।",
+    "drawStart": "बॉक्स खींचें",
+    "drawCancel": "खींचना रद्द करें",
+    "drawnBox": "खींचा गया bbox: {{box}}",
+    "coordWest": "पश्चिम",
+    "coordSouth": "दक्षिण",
+    "coordEast": "पूर्व",
+    "coordNorth": "उत्तर",
+    "quadName": "क्वाड का नाम (जैसे Mount St. Helens)",
+    "stateName": "राज्य (जैसे WA)",
+    "quadSearchHint": "किसी मानक USGS 1:24,000 स्थलाकृतिक क्वाड्रैंगल का विस्तार खोजें।",
+    "datasets": "एलिवेशन डेटासेट",
+    "format": "फ़ॉर्मेट",
+    "filterRedundant": "अनावश्यक आंशिक टाइलें बाहर रखें",
+    "footprintsLayer": "USGS 3DEP फ़ुटप्रिंट",
+    "exportGeoJson": "GeoJSON निर्यात करें",
+    "errorNoBounds": "वर्तमान मानचित्र की सीमाएँ निर्धारित नहीं की जा सकीं।",
+    "errorNoDrawnBox": "कृपया पहले मानचित्र पर एक बाउंडिंग बॉक्स खींचें।",
+    "errorInvalidCoords": "कृपया पश्चिम, दक्षिण, पूर्व और उत्तर के लिए मान्य संख्यात्मक निर्देशांक दर्ज करें।",
+    "errorQuadInputs": "कृपया क्वाड का नाम और राज्य दोनों दर्ज करें।",
+    "errorQuadNotFound": "राज्य “{{state}}” में 24K टोपो क्वाड “{{quad}}” नहीं मिला।",
+    "loadError": "DEM लोड करने में विफल: {{message}}"
+  },
   "plugin": {
     "3d-tiles": {
       "arcgisSourceUnsupported": "इस ArcGIS दृश्य में 3D Tiles की tileset.json URL का उपयोग करें। Google Photorealistic और I3S टाइलों के लिए दूसरा रेंडरिंग इंजन आवश्यक है।",
       "globeGoogleKeyRequired": "ग्लोब पर Google Photorealistic 3D Tiles लोड करने के लिए सेटिंग्स में Google Maps API कुंजी आवश्यक है।",
       "headersHint": "प्रति पंक्ति एक, Name: Value के रूप में। सेटिंग्स → एनवायरनमेंट से एनवायरनमेंट वेरिएबल डालने के लिए ${NAME} का उपयोग करें; मान लेयर के साथ सहेजा नहीं जाता।",
-      "insecureHeaders": "अनुरोध हेडर केवल HTTPS टाइलसेट URL (या localhost) पर भेजे जाते हैं।"
+      "insecureHeaders": "अनुरोध हेडर केवल HTTPS टाइलसेट URL (या localhost) पर भेजे जाते हैं।",
+      "showKey": "कुंजी दिखाएँ",
+      "hideKey": "कुंजी छिपाएँ",
+      "showKeyAria": "Google Maps API कुंजी दिखाएँ",
+      "hideKeyAria": "Google Maps API कुंजी छिपाएँ",
+      "toggleLayerAria": "{{name}} टॉगल करें"
     },
     "geolibre-osm-downloader": {
       "title": "ओएसएम डाउनलोडर",
@@ -9016,6 +9212,36 @@
         "17": "पुल का डेक",
         "18": "उच्च शोर"
       }
+    },
+    "geolibre-elevation-profile": {
+      "title": "ऊँचाई प्रोफ़ाइल",
+      "drawHint": "बिंदु जोड़ने के लिए मानचित्र पर क्लिक करें। समाप्त करने के लिए डबल-क्लिक करें या Enter दबाएँ।",
+      "drawCancelled": "ड्रॉइंग रद्द की गई।",
+      "needTwoPoints": "प्रोफ़ाइल बनाने के लिए कम से कम दो बिंदु चाहिए।",
+      "selectLineHint": "ऊँचाई प्रोफ़ाइल बनाने के लिए एक लाइन फ़ीचर चुनें।",
+      "sampling": "ऊँचाई का नमूना लिया जा रहा है…",
+      "loadError": "ऊँचाई डेटा लोड नहीं किया जा सका।",
+      "closePanel": "पैनल बंद करें",
+      "drawLine": "लाइन खींचें",
+      "finish": "समाप्त करें",
+      "clear": "साफ़ करें",
+      "useSelected": "चयनित का उपयोग करें",
+      "useSelectedTitle": "चयनित लाइन फ़ीचर से प्रोफ़ाइल बनाएँ",
+      "selectLineFirst": "पहले एक लाइन फ़ीचर चुनें",
+      "exportLabel": "निर्यात:",
+      "exportCsv": "प्रोफ़ाइल को CSV के रूप में डाउनलोड करें",
+      "exportSvg": "चार्ट को SVG छवि के रूप में सहेजें",
+      "statDistance": "दूरी",
+      "statMin": "न्यूनतम",
+      "statMax": "अधिकतम",
+      "statAscent": "चढ़ाई ↑",
+      "statDescent": "उतराई ↓",
+      "unitsTitle": "इकाइयाँ: {{units}}"
+    },
+    "maplibre-gl-geoagent": {
+      "signIn": "साइन इन करें",
+      "signInOpening": "Google साइन-इन खोला जा रहा है...",
+      "signInComplete": "Earth Engine साइन-इन पूरा हुआ।"
     }
   }
 }

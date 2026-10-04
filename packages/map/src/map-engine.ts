@@ -9,6 +9,8 @@ import type {
 } from "@geolibre/core";
 import type { FeatureCollection, Geometry, Point, Polygon } from "geojson";
 import type * as maplibregl from "maplibre-gl";
+import type { SupportedLayerKinds } from "./layer-kind";
+import { MAPLIBRE_SUPPORTED_LAYER_KINDS } from "./maplibre-layer-kinds";
 
 /** Shared search highlight color across rendering engines. */
 export const SEARCH_HIGHLIGHT_COLOR = "#ef4444";
@@ -314,10 +316,54 @@ export interface MapEngineCapabilities {
    * Terrain source controls are hidden rather than left to fail quietly.
    */
   readonly terrainSource: boolean;
+  /**
+   * The engine draws Zarr layers itself from the store record, so the
+   * `maplibre-gl-zarr` control is never mounted: Zarr layers are added through
+   * the Add Data form and restored, styled, and time-stepped through the record
+   * alone (opengeos/GeoLibre#2261).
+   */
+  readonly nativeZarr: boolean;
+  /**
+   * The engine loads KML/KMZ, CZML and Cesium ion assets through its own data
+   * source loaders. Without it KML is converted to map layers by the host
+   * importer, and CZML and ion assets are not offered.
+   */
+  readonly nativeDataSources: boolean;
+  /**
+   * The engine publishes itself only once its map has finished its first load
+   * (the initial style, or a ready view), so UI that hands work to plugin panels
+   * must wait for the engine rather than for the renderer switch.
+   */
+  readonly deferredEngineReady: boolean;
+  /** The built-in measure control can draw its sketch on this engine. */
+  readonly measureTool: boolean;
+  /**
+   * The raster and PMTiles add-layer panels (`IControl`s the plugins mount on
+   * the map) work here. Without it those formats, and Zarr, are added through
+   * the Add Data dialog's forms instead.
+   */
+  readonly controlLayerPanels: boolean;
+  /**
+   * What the engine's per-kind layer dispatch does with each
+   * layer kind (`classifyLayer`): draws it from the store record (`"native"`), leaves it
+   * to a plugin control (`"plugin"`), or never draws it (`"unsupported"`).
+   * MapLibre's layer sync and the Cesium and ArcGIS kind checks read this
+   * same object; Mapbox's kind switch is separate, and
+   * tests/layer-support-matrix.test.ts holds every table to its engine's
+   * dispatch. It describes kinds, not records: whether one record
+   * draws still depends on its data, which the per-record support checks
+   * (`isCesiumSupportedLayerType`, `isMapboxSupportedLayer`,
+   * `isArcgisSupportedLayer`) answer. ArcGIS's `"plugin"` kinds draw on its
+   * deck.gl overlay, so they also need {@link deckOverlay}.
+   */
+  readonly supportedLayerKinds: SupportedLayerKinds;
 }
 
 /**
- * Capabilities of the MapLibre engine: everything, by construction.
+ * Capabilities of the MapLibre engine: everything, by construction, except the
+ * flags that describe another engine's own loaders or lifecycle (`nativeZarr`,
+ * `nativeDataSources`, `deferredEngineReady`) — MapLibre reaches those through
+ * its controls and publishes itself synchronously.
  *
  * Frozen, not merely `readonly`. Every `MapController` — the primary map and
  * each split-view pane — exposes this one object, and `readonly` is erased at
@@ -337,6 +383,12 @@ export const MAPLIBRE_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   screenOverlays: true,
   flatProjection: true,
   terrainSource: true,
+  nativeZarr: false,
+  nativeDataSources: false,
+  deferredEngineReady: false,
+  measureTool: true,
+  controlLayerPanels: true,
+  supportedLayerKinds: MAPLIBRE_SUPPORTED_LAYER_KINDS,
 });
 
 /** One feature returned by {@link MapEngine.identifyFeatures}. */
