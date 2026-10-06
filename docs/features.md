@@ -170,6 +170,10 @@ kepler.gl, see the [Comparison](comparison.md).
     - An in-browser PostGIS SQL engine via PGlite and an Apache Sedona spatial SQL engine
 - Multiple DuckDB SQL query-result layers with identify, selection, and attribute table support
 - **SQL Server write-back** in GeoLibre Desktop: save attribute and geometry edits, inserts, and deletions to the loaded table, scoped by its read baseline. Deleting every loaded feature preserves rows added outside that baseline.
+    - Geometry type and SRID metadata use a sample of at most 1,000 rows; a failed probe remains
+      unknown. Composite-primary-key tables are read-only. Non-null geometry inserts or changes
+      are refused when the sample shows mixed SRIDs or SRID 0; attribute-only edits remain
+      available. A successfully probed empty geometry table defaults new geometries to EPSG:4326.
     - Saves for one layer cannot overlap. A committed write with a failed reread, or a write whose result cannot be confirmed, blocks another save until manual Refresh restores database-assigned keys and the baseline. This recovery requirement survives project save and reopen.
     - Failed recovery reads retain local features, including when the saved refresh-failure policy says to clear them. A layer without a read baseline must be loaded again before saving.
     - Saved project metadata is not authenticated write authority: review the connection, table, and edits before saving a shared or hand-edited project; database permissions remain the authorization boundary.
@@ -188,6 +192,9 @@ kepler.gl, see the [Comparison](comparison.md).
     - Persistent mode banners for the Directions and Reverse Geocode tools
     - A Camera Tour recorder that captures an animated keyframe tour to video, with per-keyframe recapture, per-keyframe hold and transition duration controls, and saving or loading a named tour setup as JSON
     - A Dashboard panel of configurable chart widgets that summarize the loaded layers: histogram, scatter, bar, line, box, and pie charts, plus big-number indicator tiles with count, sum, mean, min, max, or median aggregation and a custom prefix and suffix
+- **Line of sight** between two map points, with an interactive terrain profile
+- **MGRS/USNG** and any-EPSG coordinate readouts, grid-reference search, and an MGRS/USNG grid overlay with grid references in Set View
+- Export 3D-extruded layers as glTF, OBJ, or STL models
 - Print Layout composer (**Project → Print Layout...**) that exports the map to PNG, PDF, or, for a single page, editable SVG (titles, legends, colorbars, scale bars, and north arrows stay vectors for Inkscape or Illustrator): a user-editable legend, an explicit map-scale input, a title block with editable title and footer, page-size controls, a custom print extent drawn with the mouse or by touch, attribute-table and chart blocks (filterable to all features, only those contained by the page, or every feature the page intersects), Atlas / map series generation that produces one page per feature or a uniform series of pages along a line, and Copy to Clipboard
 - Record the map canvas, or a drawn bounding box, to a video file straight from the browser (with an optional title/source caption and on-map panel capture for HTML, legend, and colorbar overlays), and animate a marker along any line layer with 3D track-follow camera controls and MP4 export
 - Bookmarks that capture the active layers alongside the camera, organized into folders, with selectable export, a resizable and reorderable panel, and a save-as name prompt
@@ -285,6 +292,7 @@ kepler.gl, see the [Comparison](comparison.md).
 
 - Project menu to create, open, save, and Save As `.geolibre` projects, with legacy `.geolibre.json` support, desktop file association (double-clicking a project in the file manager opens it, using native project events on macOS) and drag-and-drop of a project file onto the map, which switches projects while keeping the unsaved-work prompt and reports a bad file as a project error rather than a failed layer, standalone interactive HTML export that runs offline with no server, and a project gallery for browsing and opening shared projects with one click
 - Share-readiness check in the Share dialog: before the upload, every data source the project references is classified and probed anonymously from the browser, and the ones a recipient could not load are listed with a plain-language reason and a fix, covering credential-gated services, hosts with no cross-origin headers, expired or moved links, and local or private-network sources. It informs rather than blocks, and calls out layers read from a local file up front, since they will be missing from the shared map. See [Projects](user-guide/projects.md#share-readiness-check)
+- Compare project snapshots and restore a single layer from history; editable layer metadata with STAC Item export
 - Autosave with a browsable project history. See [Projects](user-guide/projects.md#project-history-and-crash-recovery)
     - Snapshots are written to local device storage a few seconds after each change settles, and listed newest first with their layer count and zoom
     - Restoring a snapshot is an undoable step

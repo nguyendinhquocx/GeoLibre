@@ -12,7 +12,15 @@ const WEB_MERCATOR_WORLD_SIZE = 2 * Math.PI * WEB_MERCATOR_EARTH_RADIUS;
 const MAPLIBRE_TILE_SIZE = 512;
 const WMS_IDENTIFY_QUERY_SIZE = 101;
 const WMS_IDENTIFY_QUERY_CENTER = Math.floor(WMS_IDENTIFY_QUERY_SIZE / 2);
-const WMS_IDENTIFY_INFO_FORMATS = ["application/json", "text/html", "text/plain"];
+// application/geojson is what ArcGIS (and some MapServer) WMS servers answer in
+// JSON; it follows application/json so a server offering only that one, like
+// GeoServer, is not charged an extra round trip on every click (#2945).
+const WMS_IDENTIFY_INFO_FORMATS = [
+  "application/json",
+  "application/geojson",
+  "text/html",
+  "text/plain",
+];
 
 export interface DuckDBIdentifyBridgeResult {
   coordinate: [number, number] | null;
@@ -496,6 +504,42 @@ function wmsExceptionMessage(value: string): string {
   return normalizeText(inner ?? "") || normalizeText(value);
 }
 
+/**
+ * An error page title as plain text: any tags dropped, then every character
+ * reference decoded by the HTML parser, so a named one such as `&agrave;` on an
+ * Italian server reads as the letter.
+ */
+function htmlTitleText(title: string): string {
+  const markupFree = title.replace(/<[^>]*>/g, "");
+  if (typeof DOMParser === "undefined") return markupFree;
+  const document = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${markupFree}</body></html>`,
+    "text/html",
+  );
+  return document.body.textContent ?? markupFree;
+}
+
+/**
+ * A short reason for a failed GetFeatureInfo request: the status, plus the
+ * error page's title or a plain-text body. A markup page without a title adds
+ * nothing, since its body text would carry its markup and styles along.
+ */
+function wmsHttpErrorMessage(response: Response, text: string): string {
+  const status = normalizeText(`HTTP ${response.status} ${response.statusText}`);
+  const title = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(text)?.[1];
+  // Markup by its header, or by its first character for the desktop's
+  // headerless responses; a plain-text body may still mention "<value>".
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  const isMarkup = /html|xml/.test(contentType) || text.trimStart().startsWith("<");
+  const characters = Array.from(
+    normalizeText(title !== undefined ? htmlTitleText(title) : isMarkup ? "" : text),
+  );
+  // Truncated by code point, so a character outside the BMP is never split.
+  const detail =
+    characters.length > 200 ? `${characters.slice(0, 200).join("")}…` : characters.join("");
+  return detail ? `${status} (${detail})` : status;
+}
+
 function parseWmsJsonProperties(value: unknown): {
   featureId?: string | number;
   properties: Record<string, unknown>;
@@ -558,7 +602,8 @@ function parseWmsJsonProperties(value: unknown): {
  * @param signal Aborts the request when a newer click supersedes it.
  * @returns The first feature's id and properties, a text result, or null
  *   (also, without a request, for a layer that is not queryable).
- * @throws Error when every format probed came back as a WMS exception.
+ * @throws Error when every format probed came back as a WMS exception or an
+ *   HTTP error, naming the exception text or the status.
  */
 export async function fetchWmsIdentifyProperties(
   layer: GeoLibreLayer,
@@ -574,6 +619,9 @@ export async function fetchWmsIdentifyProperties(
   // A WMS exception is the server refusing the request, not the feature's data:
   // kept apart so it surfaces as an error when no format gave anything else.
   let exceptionText = "";
+  // Likewise a failed request (often an HTML error page), so the page is
+  // reported as an error rather than shown as a `result` attribute (#2945).
+  let httpErrorText = "";
 
   // Honor an explicitly configured INFO_FORMAT so we issue a single request
   // instead of probing JSON/HTML/plain-text in sequence.
@@ -593,11 +641,9 @@ export async function fetchWmsIdentifyProperties(
     const text = await response.text();
     if (signal.aborted) return null;
     if (!response.ok) {
-      // HTTP/2 drops the reason phrase, so statusText is often "". Fall back to
-      // the status code so a failed request never surfaces as "No attributes".
       // Some servers send their exception report with an error status too.
       if (isWmsExceptionResponse(text)) exceptionText = wmsExceptionMessage(text);
-      else fallbackText = normalizeText(text) || response.statusText || `HTTP ${response.status}`;
+      else httpErrorText = wmsHttpErrorMessage(response, text);
       continue;
     }
 
@@ -665,6 +711,8 @@ export async function fetchWmsIdentifyProperties(
 
   if (fallbackText) return { properties: { result: fallbackText } };
   if (exceptionText) throw new Error(`WMS GetFeatureInfo returned an error: ${exceptionText}`);
+  // Never "No attributes" for a request that failed: name the status instead.
+  if (httpErrorText) throw new Error(`WMS GetFeatureInfo failed: ${httpErrorText}`);
   return null;
 }
 

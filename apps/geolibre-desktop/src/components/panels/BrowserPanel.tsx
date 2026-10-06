@@ -16,7 +16,7 @@ import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type RefObj
 import { useTranslation } from "react-i18next";
 import { isDesktopRuntime } from "../../lib/is-mobile";
 import { startGeoLibreSidecar } from "../../lib/sidecar";
-import { fetchMssqlBrowserTables } from "../../lib/mssql-browser";
+import { fetchMssqlBrowserTables, forgetMssqlBrowserConnection } from "../../lib/mssql-browser";
 import {
   isLoadableFilePath,
   listDirectory,
@@ -838,6 +838,15 @@ export function BrowserPanel({
     deleteLayerLibraryEntry(node.libraryLayerId);
     if (fallbackRowId) requestAnimationFrame(() => focusRow(fallbackRowId));
   };
+  const forgetMssqlConnectionNode = (node: BrowserNode) => {
+    const profileId = node.mssqlConnectionId;
+    if (node.kind !== "connection" || !profileId) return;
+    if (!window.confirm(t("addData.mssql.forgetConnectionConfirm", { name: node.label }))) return;
+    if (favoriteIds.has(node.id)) removeFavorite(node.id);
+    forgetMssqlBrowserConnection(profileId, mssqlFetchedRef.current, setMssqlLoads);
+    const fallbackRowId = visibleRows.find((row) => row.id === node.id)?.parentId;
+    if (fallbackRowId) requestAnimationFrame(() => focusRow(fallbackRowId));
+  };
 
   // Import/export the whole library as a JSON bundle, matching how the Style
   // Manager shares its presets. Ids collide on purpose so re-importing an
@@ -957,6 +966,7 @@ export function BrowserPanel({
                 onCommitRename={commitRename}
                 onCancelRename={endRename}
                 onDeleteLibraryLayer={deleteLibraryLayer}
+                onForgetMssqlConnection={forgetMssqlConnectionNode}
                 onImportLibrary={() => void importLibrary()}
                 onExportLibrary={() => void exportLibrary()}
               />

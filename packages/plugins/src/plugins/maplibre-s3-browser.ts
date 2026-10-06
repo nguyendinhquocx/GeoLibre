@@ -60,6 +60,11 @@ export interface S3BrowserLabels {
   setDefault: string;
   isDefault: string;
   pointCloud: string;
+  project: string;
+  openProject: string;
+  openingProject: string;
+  openProjectUnsupported: string;
+  openProjectFailed: (name: string, message: string) => string;
   select: string;
   selectAll: string;
   addSelected: (count: number) => string;
@@ -69,7 +74,7 @@ export interface S3BrowserLabels {
 }
 
 export const DEFAULT_S3_BROWSER_LABELS: S3BrowserLabels = {
-  hint: "Browse an S3 bucket and add GeoTIFF/COG, GeoParquet, GeoJSON, FlatGeobuf, GeoPackage, CSV, PMTiles, or COPC/LAZ point cloud files to the map. Enter s3://bucket/prefix/.",
+  hint: "Browse an S3 bucket, add GeoTIFF/COG, GeoParquet, GeoJSON, FlatGeobuf, GeoPackage, CSV, PMTiles, or COPC/LAZ point cloud files to the map, or open a .geolibre or .geolibre.json project. Enter s3://bucket/prefix/.",
   noConnections:
     "No S3 connections are configured, so only public buckets can be read. Add credentials in Settings > Cloud Storage.",
   connection: "Connection",
@@ -92,6 +97,11 @@ export const DEFAULT_S3_BROWSER_LABELS: S3BrowserLabels = {
   setDefault: "Set as default",
   isDefault: "Default",
   pointCloud: "point cloud",
+  project: "project",
+  openProject: "Open project",
+  openingProject: "Opening…",
+  openProjectUnsupported: "This app cannot open projects from here.",
+  openProjectFailed: (name, message) => `Could not open ${name}: ${message}`,
   select: "Select",
   selectAll: "Select all",
   addSelected: (count) => `Add selected (${count})`,
@@ -342,11 +352,17 @@ function buildPanel(container: HTMLElement, app: GeoLibreAppAPI | null): () => v
   }
   const addable: AddableEntry[] = [];
 
+  // Open project buttons of the folder shown; at most one open runs at a time.
+  const openProjects: HTMLButtonElement[] = [];
+  let openingProject = false;
+  let projectAbort: AbortController | null = null;
+
   function syncEntry(entry: AddableEntry): void {
     const onMap = isOnMap(entry.object, entry.location.bucket);
     entry.add.textContent = entry.pending ? labels.adding : onMap ? labels.added : labels.add;
-    entry.add.disabled = entry.pending || onMap;
-    entry.select.disabled = entry.pending || onMap;
+    // No adds while a project opens: they would land in the project it replaces.
+    entry.add.disabled = entry.pending || onMap || openingProject;
+    entry.select.disabled = entry.pending || onMap || openingProject;
     if (entry.select.disabled) entry.select.checked = false;
   }
 
@@ -359,11 +375,11 @@ function buildPanel(container: HTMLElement, app: GeoLibreAppAPI | null): () => v
     const selectable = selectableEntries();
     const selected = selectable.filter((entry) => entry.select.checked);
     selectionBar.style.display = addable.length > 0 ? "flex" : "none";
-    selectAll.disabled = selectable.length === 0 || batchRunning;
+    selectAll.disabled = selectable.length === 0 || batchRunning || openingProject;
     selectAll.checked = selectable.length > 0 && selected.length === selectable.length;
     selectAll.indeterminate = selected.length > 0 && selected.length < selectable.length;
     addSelected.textContent = labels.addSelected(selected.length);
-    addSelected.disabled = selected.length === 0 || batchRunning;
+    addSelected.disabled = selected.length === 0 || batchRunning || openingProject;
   }
 
   function syncAll(): void {
@@ -495,14 +511,57 @@ function buildPanel(container: HTMLElement, app: GeoLibreAppAPI | null): () => v
     card.dataset.key = object.key;
     const titleRow = el("div", CSS.row);
     titleRow.append(el("span", CSS.title, object.name));
-    if (object.pointCloud) titleRow.append(el("span", CSS.badge, labels.pointCloud));
+    if (object.project) titleRow.append(el("span", CSS.badge, labels.project));
+    else if (object.pointCloud) titleRow.append(el("span", CSS.badge, labels.pointCloud));
     else if (object.format !== "other") titleRow.append(el("span", CSS.badge, object.format));
     card.append(titleRow);
     const date = object.lastModified ? ` · ${object.lastModified.slice(0, 10)}` : "";
     card.append(el("div", CSS.sub, `${formatBytes(object.size)}${date}`));
 
     const actions = el("div", CSS.actions);
-    if (app && canAdd(object)) {
+    if (object.project) {
+      // A project replaces the whole map, so it opens rather than joining the
+      // batch of layers.
+      if (app?.openProjectFromUrl) {
+        const openProject = button(labels.openProject, CSS.action);
+        openProjects.push(openProject);
+        openProject.disabled = openingProject;
+        openProject.addEventListener("click", () => {
+          const openProjectFromUrl = app.openProjectFromUrl;
+          if (!openProjectFromUrl || openingProject) return;
+          // One open at a time, cancelled with the panel: a project replaces
+          // the whole map, so a slower second open must not overwrite the first.
+          const abort = new AbortController();
+          projectAbort = abort;
+          openingProject = true;
+          for (const other of openProjects) other.disabled = true;
+          syncAll();
+          openProject.textContent = labels.openingProject;
+          setStatus("");
+          // Let adds already queued finish first, so none lands in the new
+          // project (the queue never rejects).
+          void addQueue
+            .then(() =>
+              abort.signal.aborted ? undefined : openProjectFromUrl(object.uri, abort.signal),
+            )
+            .catch((error: unknown) => {
+              if (!abort.signal.aborted) {
+                showFailures([labels.openProjectFailed(object.name, errorMessage(error))]);
+              }
+            })
+            .finally(() => {
+              if (projectAbort === abort) projectAbort = null;
+              openingProject = false;
+              openProject.textContent = labels.openProject;
+              for (const other of openProjects) other.disabled = false;
+              syncAll();
+            });
+        });
+        actions.append(openProject);
+      } else {
+        card.append(el("div", CSS.sub, labels.openProjectUnsupported));
+      }
+    } else if (app && canAdd(object)) {
       if (!object.pointCloud && isTooLargeToOpen(object.format, object.size)) {
         card.append(el("div", CSS.sub, labels.tooLarge));
       } else {
@@ -551,6 +610,7 @@ function buildPanel(container: HTMLElement, app: GeoLibreAppAPI | null): () => v
     more.style.display = "none";
     list.replaceChildren();
     addable.length = 0;
+    openProjects.length = 0;
     syncSelectionBar();
     accessLine.textContent = "";
     setStatus(labels.loading);
@@ -575,6 +635,7 @@ function buildPanel(container: HTMLElement, app: GeoLibreAppAPI | null): () => v
       continuationToken = undefined;
       list.replaceChildren();
       addable.length = 0;
+      openProjects.length = 0;
       input.value = formatS3BrowseLocation(location);
       writeLastLocation(input.value);
       describeAccess(location.bucket);
@@ -642,6 +703,7 @@ function buildPanel(container: HTMLElement, app: GeoLibreAppAPI | null): () => v
 
   return () => {
     controller?.abort();
+    projectAbort?.abort();
     unsubscribeLayers();
     root.remove();
   };
@@ -670,6 +732,8 @@ function createS3BrowserPlugin(): GeoLibrePlugin {
     name: "S3 Browser",
     version: "0.1.0",
     engines: ["maplibre", "cesium", "mapbox", "arcgis"],
+    // Opening a project from the panel must not close it.
+    sessionScoped: true,
     activate: (app: GeoLibreAppAPI) => {
       appRef = app;
       mountedPanels.add(remount);

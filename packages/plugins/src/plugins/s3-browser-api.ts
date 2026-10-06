@@ -49,8 +49,17 @@ export interface S3BrowserObject {
    * streams it.
    */
   pointCloud: boolean;
+  /** A `.geolibre.json` project, which the panel opens rather than adds as a layer. */
+  project: boolean;
   /** `s3://bucket/key`, which layers keep as their source. */
   uri: string;
+}
+
+const PROJECT_KEY = /\.geolibre(?:\.json)?$/i;
+
+/** Whether a key names a GeoLibre project (`.geolibre` or `.geolibre.json`). */
+export function isProjectKey(key: string): boolean {
+  return PROJECT_KEY.test(key);
 }
 
 const POINT_CLOUD_KEY = /\.(?:copc\.laz|laz|las)$/i;
@@ -97,6 +106,20 @@ export interface S3BrowserClient {
   ): Promise<S3ListPage>;
 }
 
+/** S3 error codes that mean the credentials in the signed URL are no longer valid. */
+const EXPIRED_CREDENTIAL_CODES = new Set([
+  "ExpiredToken",
+  "ExpiredTokenException",
+  "InvalidToken",
+  "RequestExpired",
+]);
+
+function isExpiredCredentialError(status: number, body: string): boolean {
+  if (status === 200) return false;
+  const code = parseS3Error(body)?.code;
+  return code !== undefined && EXPIRED_CREDENTIAL_CODES.has(code);
+}
+
 function errorFrom(status: number, body: string): Error {
   const parsed = parseS3Error(body);
   return new Error(
@@ -139,12 +162,37 @@ export function createS3BrowserClient(
     return url.href;
   }
 
+  /**
+   * Signs and fetches; when S3 says the credentials expired (a cached presigned
+   * URL or token outlived them), drops the signer's caches and signs once more.
+   */
+  async function fetchSigned(
+    sign: () => Promise<string>,
+    target: { bucket?: string; connectionId?: string },
+    signal?: AbortSignal,
+  ): Promise<{ status: number; body: string }> {
+    const response = await fetchText(await sign(), signal);
+    if (signer?.invalidateCredentials && isExpiredCredentialError(response.status, response.body)) {
+      // The native fetch ignores the signal, so a cancelled listing stops here.
+      signal?.throwIfAborted();
+      signer.invalidateCredentials(target);
+      return fetchText(await sign(), signal);
+    }
+    return response;
+  }
+
   return {
     async listBuckets(connectionId, signal) {
       if (!signer) throw new Error("No S3 connection is configured.");
-      const signed = await signer.presign({ bucket: "", key: "", connectionId }, signal);
-      if (!signed) throw new Error("No S3 connection is configured.");
-      const response = await fetchText(signed.href, signal);
+      const response = await fetchSigned(
+        async () => {
+          const signed = await signer.presign({ bucket: "", key: "", connectionId }, signal);
+          if (!signed) throw new Error("No S3 connection is configured.");
+          return signed.href;
+        },
+        { connectionId },
+        signal,
+      );
       if (response.status !== 200) throw errorFrom(response.status, response.body);
       return parseS3BucketList(response.body).sort((a, b) => a.localeCompare(b));
     },
@@ -157,7 +205,11 @@ export function createS3BrowserClient(
         prefix: location.prefix,
         ...(continuationToken ? { "continuation-token": continuationToken } : {}),
       };
-      let response = await fetchText(await listUrl(location, query, signal), signal);
+      let response = await fetchSigned(
+        () => listUrl(location, query, signal),
+        { bucket: location.bucket },
+        signal,
+      );
       if (response.status !== 200 && !signer?.covers(location.bucket)) {
         // An anonymous request to the wrong regional endpoint is answered with
         // the right one; retry there once.
@@ -186,6 +238,7 @@ export function describeObjects(location: S3BrowseLocation, page: S3ListPage): S
         ...(object.lastModified ? { lastModified: object.lastModified } : {}),
         format: classifyPath(object.key),
         pointCloud: isPointCloudKey(object.key),
+        project: isProjectKey(object.key),
         uri: `s3://${location.bucket}/${object.key}`,
       };
     });

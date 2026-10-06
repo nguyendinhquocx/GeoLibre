@@ -40,6 +40,17 @@ let unregisterPanel: (() => void) | null = null;
 /** Stops re-labelling the control on language changes. */
 let stopLocaleSync: (() => void) | null = null;
 
+/** True when a cached state is absent or equals the untouched defaults. */
+function isDefaultState(state: Partial<ElevationProfileState> | null): boolean {
+  if (!state) return true;
+  return (
+    !state.collapsed &&
+    (state.unitSystem ?? "metric") === "metric" &&
+    !state.line &&
+    !state.elevations
+  );
+}
+
 function createControl(app: GeoLibreAppAPI): ElevationProfileControl {
   const globe = app.getCesiumScene?.();
   const next = new ElevationProfileControl({
@@ -223,8 +234,14 @@ export const maplibreElevationProfilePlugin: GeoLibrePlugin = {
   },
 
   getProjectState() {
-    if (control) return { ...control.getState(), collapsed: isDockCollapsed() };
-    return pendingState ?? undefined;
+    const current = control
+      ? { ...control.getState(), collapsed: isDockCollapsed() }
+      : pendingState;
+    // A default state (the New Project reset, a plugin never opened, or one
+    // opened but untouched) carries nothing worth saving; omitting it keeps
+    // empty projects free of plugin state, so the credential-strip prompt has
+    // nothing to count.
+    return isDefaultState(current) ? undefined : (current ?? undefined);
   },
 
   applyProjectState(app, state) {

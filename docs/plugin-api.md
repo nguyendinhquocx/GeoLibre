@@ -56,6 +56,12 @@ export interface GeoLibrePlugin {
   ) => boolean | void;
   getProjectState?: () => unknown;
   applyProjectState?: (app: GeoLibreAppAPI, state: unknown) => boolean | void;
+  /**
+   * A workspace tool, not part of a project (e.g. the S3 Browser panel):
+   * project loads and map swaps leave it running, and it is never saved in
+   * the project's active plugins. Only for plugins with no map controls.
+   */
+  sessionScoped?: boolean;
 }
 
 // Resolved by app.getDeckGL(): GeoLibre's own deck.gl modules, so a plugin
@@ -89,6 +95,8 @@ export interface GeoLibreSelection {
   layerId: string | null;
   features: Feature<Geometry | null>[];
 }
+
+export type GeoLibreActiveMapTool = "identify" | "feature-selection" | null;
 
 export interface GeoLibreRasterWindowOptions {
   bounds: [number, number, number, number]; // WGS84 [west, south, east, north]
@@ -132,6 +140,10 @@ export interface GeoLibreAppAPI {
   getDrawnFeatures?: () => Feature<Geometry | null>[];
   onSelectionChange?: (
     callback: (selection: GeoLibreSelection) => void
+  ) => () => void;
+  getActiveMapTool?: () => GeoLibreActiveMapTool;
+  onActiveMapToolChange?: (
+    callback: (tool: GeoLibreActiveMapTool) => void
   ) => () => void;
   // Native raster/tile layers (see "Raster and tile layers" below). Each
   // returns the new layer's id and the layer appears in the Layers panel and
@@ -648,6 +660,47 @@ These methods are a read-only query surface: calling them does not change the
 GeoLibre store. Plugins must also treat returned GeoJSON features as read-only
 and use host APIs such as `addGeoJsonLayer` when they need to add data.
 
+## Active map click tool
+
+Plugins that handle map clicks or hover can avoid presenting their own
+interaction while a GeoLibre map tool owns the pointer. The optional live
+getter and subscription cover Identify and feature selection across map
+renderers; they do not depend on the cursor style or saved project snapshot.
+
+```typescript
+const currentTool = app.getActiveMapTool?.() ?? null;
+if (currentTool !== null) closePluginPopup();
+const unsubscribe = app.onActiveMapToolChange?.((tool) => {
+  if (tool !== null) closePluginPopup();
+});
+
+function handleMapClick(event: unknown) {
+  if ((app.getActiveMapTool?.() ?? null) !== null) return;
+  openPluginPopup(event);
+}
+
+function handleMapHover(event: unknown) {
+  if ((app.getActiveMapTool?.() ?? null) !== null) return;
+  showPluginTooltip(event);
+}
+
+// In deactivate or another cleanup path:
+unsubscribe?.();
+```
+
+`getActiveMapTool` returns `"identify"` while Identify is enabled,
+`"feature-selection"` while a selection gesture owns map clicks, and `null`
+otherwise. Feature selection takes precedence if both states briefly overlap.
+Changing the Identify target does not emit a tool change. Subscribers receive
+only changes after registration, not an initial callback; read the getter to
+initialize plugin state. Keep and call the returned unsubscribe function on
+deactivation.
+Replacing one active selection gesture with another keeps
+`"feature-selection"` active without an intermediate `null`.
+
+Both methods are optional so plugins remain compatible with older hosts.
+
+
 ## Layer groups
 
 A plugin that adds several related layers can put them in a Layers-panel group (a folder) instead of leaving them loose at the panel root, and can nest one group inside another the same way a user can by hand.
@@ -738,6 +791,7 @@ export interface GeoLibreWfsLayerOptions {
   typeName: string; // advertised feature type
   version?: string; // defaults to "2.0.0"
   bbox?: [number, number, number, number]; // [west, south, east, north] in WGS84
+  maxFeatures?: number; // positive integer, default 1000; sent as count (WFS 2.x) or maxFeatures
   metadata?: Record<string, unknown>; // provenance merged into layer.metadata
 }
 
@@ -815,7 +869,7 @@ const cogId = await app.addCogLayer?.(
 
 `addTileLayer`, `addWmtsLayer`, `addWmsLayer`, and `addWfsLayer` take an optional `metadata` object, merged into the new layer's `metadata`. Use it to leave a catalogue layer's provenance with it (the record id, a link to its metadata page, the publisher, the licence): it is shown in the layer's Metadata dialog and saved with the project. It must be a plain, JSON-serializable object, or the call throws (`addWfsLayer` rejects). GeoLibre's own keys win over a field of the same name, and credential-named fields (`token`, `apiKey`, ...) are stripped when the project is shared or exported. The Metadata dialog also shows the service address and request fields GeoLibre keeps on a service or tile layer's `source` (for WMS: `url`, `layers`, `styles`, `format`, `version`, `crs`, and `queryable` when false), with credentials removed.
 
-WFS layers use the host's GetFeature loader, including GeoJSON/GML fallback, reprojection, desktop native HTTP, and refresh. `addWfsLayer` resolves with the new layer id and rejects if loading fails or the service returns no features. Saved projects normally keep the request URL rather than embedding the downloaded collection, and reopening fetches it again. Exception: if saving strips credentials from the URL, the fetched collection is embedded so the layer remains visible without storing the secret; it is not refetched from the sanitized URL. The optional bbox is WGS84 `[west, south, east, north]` and must not cross the antimeridian (`west` must not exceed `east` — a Pacific-spanning box throws); the host applies the existing 1,000-feature limit.
+WFS layers use the host's GetFeature loader, including GeoJSON/GML fallback, reprojection, desktop native HTTP, and refresh. `addWfsLayer` resolves with the new layer id and rejects if loading fails or the service returns no features. Saved projects normally keep the request URL rather than embedding the downloaded collection, and reopening fetches it again. Exception: if saving strips credentials from the URL, the fetched collection is embedded so the layer remains visible without storing the secret; it is not refetched from the sanitized URL. The optional bbox is WGS84 `[west, south, east, north]` and must not cross the antimeridian (`west` must not exceed `east` — a Pacific-spanning box throws); `maxFeatures` (default 1,000) caps the request and is stored in the GetFeature URL, so refreshes and projects that retain the URL use the same limit.
 
 `addWfsLayer` requires an absolute HTTP(S) URL and sends its request through the same host-managed WFS path Add Data uses: the desktop app fetches through the native HTTP client (bypassing CORS) and the web build through its development proxy. Credentials in the URL are never written to diagnostics or a saved project: the native diagnostics log records userinfo and credential query values (including AWS `x-amz-*` parameters) as `[redacted]`, and a save strips the URL's userinfo and credential parameters while keeping the fetched collection embedded so it stays visible without persisting the secret.
 
@@ -826,6 +880,7 @@ const layerId = await app.addWfsLayer?.("Roads", {
   url: "https://services.example.org/geoserver/wfs",
   typeName: "transport:roads",
   bbox: [10, 40, 12, 42],
+  maxFeatures: 5000,
 });
 ```
 

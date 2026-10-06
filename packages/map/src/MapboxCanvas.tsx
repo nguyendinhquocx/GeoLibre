@@ -56,6 +56,10 @@ import {
   type MapCanvasIdentifyAllLabels,
 } from "./identify-all-popup";
 import {
+  createIdentifyEditActionsElement,
+  type MapCanvasIdentifyEditActions,
+} from "./identify-edit-actions";
+import {
   duckDBBridge,
   fetchWmsIdentifyProperties,
   isAbortError,
@@ -78,6 +82,8 @@ export interface MapboxCanvasProps {
   identifyAllLabels?: MapCanvasIdentifyAllLabels;
   /** The app's COG / NetCDF pixel reader for "Identify visible layers". */
   identifyRasterLayerAt?: MapCanvasRasterIdentify;
+  /** Edit geometry / Edit attributes actions on vector Identify results (#2932). */
+  identifyEditActions?: MapCanvasIdentifyEditActions;
 }
 
 /** The namespace and its CSS load only when a Mapbox pane is mounted. */
@@ -90,6 +96,7 @@ export function MapboxCanvas({
   canUseRemoteElevation,
   identifyAllLabels = DEFAULT_IDENTIFY_ALL_LABELS,
   identifyRasterLayerAt,
+  identifyEditActions,
 }: MapboxCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const readyCallback = useRef(onEngineReady);
@@ -102,6 +109,8 @@ export function MapboxCanvas({
   identifyAllLabelsRef.current = identifyAllLabels;
   const identifyRasterLayerAtRef = useRef(identifyRasterLayerAt);
   identifyRasterLayerAtRef.current = identifyRasterLayerAt;
+  const identifyEditActionsRef = useRef(identifyEditActions);
+  identifyEditActionsRef.current = identifyEditActions;
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -736,7 +745,16 @@ export function MapboxCanvas({
             }, undefined);
             showPopupAt(
               lngLat,
-              createGlobalIdentifyPopupElement(allHits, map.getZoom(), activate, labels, widest),
+              createGlobalIdentifyPopupElement(
+                allHits,
+                map.getZoom(),
+                activate,
+                labels,
+                widest,
+                identifyEditActionsRef.current,
+                // Programmatic: the edit action owns the selection from here.
+                () => removeIdentifyPopup({ restore: false }),
+              ),
               identifyPopupShellMaxWidth(widest ? { maxWidth: widest } : undefined),
             );
           };
@@ -907,15 +925,27 @@ export function MapboxCanvas({
               return true;
             }
             store.selectFeature(result.featureId);
-            showPopupAt(
-              lngLat,
-              createIdentifyPopupElement(layer.name, result.properties, result.featureId, {
+            const content = createIdentifyPopupElement(
+              layer.name,
+              result.properties,
+              result.featureId,
+              {
                 popup: layer.popup,
                 fieldVisibility: layer.fieldVisibility,
                 zoom: map.getZoom(),
-              }),
-              maxWidth,
+              },
             );
+            // DuckDB rows are editable in the attribute table too, as in the
+            // grouped popup.
+            const editRow = createIdentifyEditActionsElement(
+              layer,
+              result.featureId,
+              identifyEditActionsRef.current,
+              labels,
+              () => removeIdentifyPopup({ restore: false }),
+            );
+            if (editRow) content.firstElementChild?.after(editRow);
+            showPopupAt(lngLat, content, maxWidth);
             return true;
           }
           return false;
@@ -1000,6 +1030,16 @@ export function MapboxCanvas({
               zoom: map.getZoom(),
             },
           );
+          const editRow = createIdentifyEditActionsElement(
+            layer,
+            match.featureId,
+            identifyEditActionsRef.current,
+            identifyAllLabelsRef.current,
+            // Programmatic: the edit action owns the selection from here.
+            () => removeIdentifyPopup({ restore: false }),
+          );
+          // Under the title, above the attribute rows.
+          if (editRow) content.firstElementChild?.after(editRow);
           const nextPopup = new gl.Popup({
             className: "geolibre-identify-popup",
             closeButton: true,

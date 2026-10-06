@@ -135,7 +135,12 @@ describe("native WMS identify fetcher", () => {
       5,
       new AbortController().signal,
     );
-    assert.deepEqual(formats, ["application/json", "text/html", "text/plain"]);
+    assert.deepEqual(formats, [
+      "application/json",
+      "application/geojson",
+      "text/html",
+      "text/plain",
+    ]);
     assert.deepEqual(result, { properties: { result: "value 12" } });
   });
 
@@ -146,13 +151,15 @@ describe("native WMS identify fetcher", () => {
     const response = await fetcher("https://wms.example/x", new AbortController().signal);
     assert.equal(response.status, 404);
     setWmsIdentifyFetcher(fetcher);
-    const result = await fetchWmsIdentifyProperties(
-      wmsLayer({ infoFormat: "text/plain" }),
-      [0, 0],
-      5,
-      new AbortController().signal,
+    await assert.rejects(
+      fetchWmsIdentifyProperties(
+        wmsLayer({ infoFormat: "text/plain" }),
+        [0, 0],
+        5,
+        new AbortController().signal,
+      ),
+      /^Error: WMS GetFeatureInfo failed: HTTP 404$/,
     );
-    assert.deepEqual(result, { properties: { result: "HTTP 404" } });
   });
 
   it("rethrows transport errors", async () => {

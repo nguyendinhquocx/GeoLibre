@@ -171,6 +171,14 @@ export interface GeoLibreWfsLayerOptions {
    * `east` throws instead of being read as a Pacific-spanning box.
    */
   bbox?: [number, number, number, number];
+
+  /**
+   * Maximum number of features to request, sent as `count` (WFS 2.x) or
+   * `maxFeatures` (earlier versions). A positive integer; defaults to 1000.
+   * Stored in the layer's request URL, so refresh and reopened projects use it.
+   */
+  maxFeatures?: number;
+
   /**
    * Provenance fields merged into the new layer's `metadata`, as for
    * {@link GeoLibreTileLayerOptions.metadata}. GeoLibre's own WFS request keys
@@ -456,6 +464,9 @@ export interface GeoLibreSelection {
   features: Feature<Geometry | null>[];
 }
 
+/** The host tool currently owning map clicks, or null for ordinary map interaction. */
+export type GeoLibreActiveMapTool = "identify" | "feature-selection" | null;
+
 /** A lightweight assistant tool for standalone plugins. No runtime SDK import is needed.
  * JSON Schema describes input to the model but does NOT validate it at runtime.
  * The callback must validate its own input. Return JSON-serializable data;
@@ -525,6 +536,18 @@ export interface GeoLibreAppAPI {
   ) => Promise<GeoLibreRasterWindowReading | null>;
   getDrawnFeatures?: () => Feature<Geometry | null>[];
   onSelectionChange?: (callback: (selection: GeoLibreSelection) => void) => () => void;
+  /**
+   * Live, renderer-independent click-tool state, not a project snapshot.
+   * Feature selection takes precedence while its gesture owns map clicks.
+   * Plugins can skip their own click/hover handling while a tool is active.
+   */
+  getActiveMapTool?: () => GeoLibreActiveMapTool;
+  /**
+   * Subscribe to changes of the effective tool (not Identify target changes).
+   * Does not call back immediately; read {@link getActiveMapTool} for the
+   * initial value. Call the returned unsubscribe function on deactivation.
+   */
+  onActiveMapToolChange?: (callback: (tool: GeoLibreActiveMapTool) => void) => () => void;
   /**
    * Add a native XYZ raster tile layer from a tile URL template (with
    * `{x}`/`{y}`/`{z}` placeholders) and return its layer id. Unlike calling
@@ -838,6 +861,14 @@ export interface GeoLibreAppAPI {
    * are ignored. Plugins should call this rather than `window.open` directly.
    */
   openExternalUrl?: (url: string) => void;
+  /**
+   * Open a `.geolibre.json` project from an `http(s)://` or `s3://` URL,
+   * replacing the current project. An S3 object in a bucket a configured
+   * connection covers is read with its credentials. Rejects with an
+   * explanatory error when the file cannot be read or is not a valid project;
+   * resolves quietly when `signal` aborts.
+   */
+  openProjectFromUrl?: (url: string, signal?: AbortSignal) => Promise<void>;
   pickLocalDirectoryFiles?: () => Promise<File[] | null>;
   /**
    * Prompt the user (desktop only) to pick one or more vector files via the
@@ -1416,6 +1447,19 @@ export interface GeoLibrePlugin {
    * (and re-saved) into one that never had it.
    */
   clearsStateOnProjectLoad?: boolean;
+  /**
+   * Set when the plugin is a workspace tool rather than part of a project
+   * (e.g. the S3 Browser panel). Its activation belongs to the session: a
+   * project load or a map swap leaves it running when the project does not
+   * list it, and it is left out of the saved `activePluginIds`, so opening a
+   * project from its panel does not close the panel, and sharing a project
+   * does not open the panel for whoever opens it.
+   *
+   * Only for plugins that add no map controls or map layers of their own (they
+   * may still add layers through the store): the plugin is not re-activated
+   * when the map is replaced.
+   */
+  sessionScoped?: boolean;
 }
 
 export interface GeoLibreExternalPluginManifest {

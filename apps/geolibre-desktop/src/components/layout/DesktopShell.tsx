@@ -152,12 +152,14 @@ import { useUrlLoadErrorNotices } from "../../hooks/desktop-shell/useUrlLoadErro
 import { useFileDrop } from "../../hooks/desktop-shell/useFileDrop";
 import { useKnowledgeCard } from "../../hooks/desktop-shell/useKnowledgeCard";
 import { useLayerEditActions } from "../../hooks/desktop-shell/useLayerEditActions";
+import { useIdentifyEditActions } from "../../hooks/desktop-shell/useIdentifyEditActions";
 import { useLayerImport } from "../../hooks/desktop-shell/useLayerImport";
 import { useMapControlLabels } from "../../hooks/desktop-shell/useMapControlLabels";
 import { useMapFullscreenAttribute } from "../../hooks/desktop-shell/useMapFullscreenAttribute";
 import { useNativeProjectOpenListener } from "../../hooks/desktop-shell/useNativeProjectOpenListener";
 import { usePanelResize } from "../../hooks/desktop-shell/usePanelResize";
 import { usePluginStateRestore } from "../../hooks/desktop-shell/usePluginStateRestore";
+import { useStartupPanels } from "../../hooks/desktop-shell/useStartupPanels";
 import { fetchPluginRegistry } from "../../lib/plugin-registry";
 import { usePluginDeepLink } from "../../hooks/desktop-shell/usePluginDeepLink";
 import { useRasterFileHandlers } from "../../hooks/desktop-shell/useRasterFileHandlers";
@@ -207,6 +209,8 @@ export function DesktopShell({
       pixelReadFailed: t("map.identifyAll.pixelReadFailed"),
       wmsFailed: t("map.identifyAll.wmsFailed"),
       wmsNotQueryable: t("map.identifyAll.wmsNotQueryable"),
+      editGeometry: t("map.identifyAll.editGeometry"),
+      editAttributes: t("map.identifyAll.editAttributes"),
       photo: {
         photo: t("map.identifyAll.photo"),
         noPreview: t("map.identifyAll.photoNoPreview"),
@@ -370,14 +374,22 @@ export function DesktopShell({
   }, []);
   const { shellStyle, startLayerPanelResize, startNotebookPanelResize, startStylePanelResize } =
     usePanelResize({ shellRef, verticalResizeGuideRef, layoutOptions, notebookOpen });
-  const { handleCancelGeometryEdit, handleMaterializeDuckDBLayer, handleToggleGeometryEdit } =
-    useLayerEditActions({
-      mapControllerRef,
-      setDropError,
-      setDropMessage,
-      clearDropMessageLater,
-      t,
-    });
+  const {
+    handleCancelGeometryEdit,
+    handleEditFeatureGeometry,
+    handleMaterializeDuckDBLayer,
+    handleToggleGeometryEdit,
+  } = useLayerEditActions({
+    mapControllerRef,
+    setDropError,
+    setDropMessage,
+    clearDropMessageLater,
+    t,
+  });
+  const identifyEditActions = useIdentifyEditActions({
+    canEditLayer: collaboration.canEditLayer,
+    editFeatureGeometry: handleEditFeatureGeometry,
+  });
   useTileProtocols();
   useRasterFileHandlers(mapControllerRef, t);
   // Fetching the registry also tells the credential redaction which external
@@ -435,6 +447,12 @@ export function DesktopShell({
       !hasProjectUrl ||
       projectUrlLoadState?.status === "loaded" ||
       projectUrlLoadState?.status === "error",
+  });
+  useStartupPanels({
+    mapControllerRef,
+    viewer: layoutOptions.viewer,
+    externalPluginsReady,
+    mapReadyGeneration,
   });
 
   const handleMapControllerReady = useCallback(() => {
@@ -750,6 +768,7 @@ export function DesktopShell({
                     engineRef={mapControllerRef}
                     identifyAllLabels={identifyAllLabels}
                     identifyRasterLayerAt={identifyRasterLayerAt}
+                    identifyEditActions={identifyEditActions}
                     onEngineReady={handleMapControllerReady}
                     onMapDiagnosticEvent={handleMapDiagnosticEvent}
                   />
@@ -775,6 +794,7 @@ export function DesktopShell({
                       controllerRef={mapControllerRef}
                       identifyAllLabels={identifyAllLabels}
                       identifyRasterLayerAt={identifyRasterLayerAt}
+                      identifyEditActions={identifyEditActions}
                       onMapDiagnosticEvent={handleMapDiagnosticEvent}
                       onControllerReady={handleMapControllerReady}
                     />

@@ -5,6 +5,7 @@ import {
   createS3BrowserClient,
   describeObjects,
   formatS3BrowseLocation,
+  isProjectKey,
   parentPrefix,
   parseS3BrowseLocation,
   prefixLabel,
@@ -39,6 +40,42 @@ describe("S3 browser locations", () => {
 });
 
 describe("S3 browser client", () => {
+  it("re-signs once after S3 reports expired credentials", async () => {
+    let invalidated = 0;
+    let signs = 0;
+    let cachedHref: string | null = null;
+    const signer: S3UrlSigner = {
+      covers: () => true,
+      connections: () => [],
+      invalidateCredentials: () => {
+        invalidated += 1;
+        cachedHref = null;
+      },
+      // Like the real signer, hands back the same URL until it is invalidated.
+      presign: async () => {
+        if (!cachedHref) {
+          signs += 1;
+          cachedHref = `https://b.s3.amazonaws.com/?sig=${signs}`;
+        }
+        return { href: cachedHref, expiresAt: Infinity };
+      },
+      fetchText: async (url) =>
+        url.endsWith("sig=1")
+          ? {
+              status: 400,
+              body: "<Error><Code>ExpiredToken</Code><Message>The provided token has expired.</Message></Error>",
+            }
+          : { status: 200, body: LISTING },
+    };
+    const client = createS3BrowserClient(signer, async () => {
+      throw new Error("fallback fetch must not be used");
+    });
+    const page = await client.list({ bucket: "b", prefix: "data/" });
+    assert.equal(invalidated, 1);
+    assert.equal(signs, 2);
+    assert.ok(page.objects.length > 0);
+  });
+
   it("signs listings of covered buckets", async () => {
     const requests: string[] = [];
     const signer: S3UrlSigner = {
@@ -69,6 +106,20 @@ describe("S3 browser client", () => {
         ["autzen.copc.laz", "other", true, "s3://b/data/autzen.copc.laz"],
       ],
     );
+  });
+
+  it("recognizes GeoLibre projects, which are not mosaic indexes", () => {
+    assert.equal(isProjectKey("maps/demo.geolibre.json"), true);
+    assert.equal(isProjectKey("maps/DEMO.GEOLIBRE.JSON"), true);
+    assert.equal(isProjectKey("maps/demo.geolibre"), true);
+    assert.equal(isProjectKey("maps/mosaic.json"), false);
+    assert.equal(isProjectKey("maps/demo.geolibrary"), false);
+    const [object] = describeObjects(
+      { bucket: "b", prefix: "maps/" },
+      { prefixes: [], objects: [{ key: "maps/demo.geolibre.json", size: 10 }] },
+    );
+    assert.equal(object.project, true);
+    assert.equal(object.uri, "s3://b/maps/demo.geolibre.json");
   });
 
   it("follows an anonymous listing to the bucket's region once", async () => {
