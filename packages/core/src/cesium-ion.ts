@@ -76,7 +76,7 @@ export const CESIUM_ION_QUICK_PICKS: ReadonlyArray<CesiumIonQuickPick> = [
 /** Parse an Ion asset id the way the Add Data form and the project file carry it. */
 export function parseCesiumIonAssetId(value: unknown): number | null {
   const id = typeof value === "string" ? Number(value.trim()) : value;
-  return typeof id === "number" && Number.isInteger(id) && id > 0 ? id : null;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 /**

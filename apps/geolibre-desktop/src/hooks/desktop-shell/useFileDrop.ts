@@ -13,6 +13,13 @@ import {
   useState,
 } from "react";
 import { importGeoPackageDrops } from "../../lib/geopackage-drop";
+import {
+  type DroppedPointCloud,
+  dropErrorMessage,
+  importPointCloudDrops,
+  isPointCloudFileName,
+  readDroppedPointClouds,
+} from "../../lib/lidar-drop";
 import type { GeotaggedPhotoResult } from "../../lib/geotagged-photos";
 import { isPhotoDropFileName } from "../../lib/photo-file-names";
 import {
@@ -98,6 +105,18 @@ export function useFileDrop({
   const deploymentCapabilities = useAppStore((s) => s.deploymentCapabilities);
   const dropDisabled = layoutOptions.viewer || !deploymentCapabilities.has("data:add");
 
+  // LAS/LAZ/COPC files load into the LiDAR control, not the vector/raster pipeline.
+  const addPointClouds = useCallback(
+    (clouds: DroppedPointCloud[]) =>
+      importPointCloudDrops(clouds, {
+        app: createAppAPI(mapControllerRef),
+        setMessage: setDropMessage,
+        setError: setDropError,
+        t,
+      }),
+    [mapControllerRef, setDropError, setDropMessage, t],
+  );
+
   useEffect(() => {
     if (!isTauri() || dropDisabled) return;
 
@@ -157,7 +176,16 @@ export function useFileDrop({
             // single-FeatureCollection pipeline (which would otherwise route a
             // .pbf to DuckDB ST_Read and merge it).
             const pbfPaths = paths.filter((path) => isOsmPbfFileName(path));
-            const otherPaths = paths.filter((path) => !isOsmPbfFileName(path));
+            const cloudPaths = paths.filter((path) => isPointCloudFileName(path));
+            const otherPaths = paths.filter(
+              (path) => !isOsmPbfFileName(path) && !isPointCloudFileName(path),
+            );
+            const onReadError = (name: string, error: unknown) =>
+              setDropError(dropErrorMessage(name, error));
+            await addPointClouds(
+              await readDroppedPointClouds(cloudPaths, readLocalFileBytes, onReadError),
+            );
+            const handledElsewhere = pbfPaths.length + cloudPaths.length > 0;
 
             if (pbfPaths.length > 0) {
               const { readFile, stat } = await import("@tauri-apps/plugin-fs");
@@ -257,10 +285,10 @@ export function useFileDrop({
                 importedLayers.length > 0 ||
                 rasterCount > 0 ||
                 containers.layerCount > 0 ||
-                (pbfPaths.length === 0 && photoResult === null && containers.count === 0)
+                (!handledElsewhere && photoResult === null && containers.count === 0)
               ) {
                 finishDrop(importedLayers, rasterCount, containers.layerCount);
-              } else if (pbfPaths.length === 0 && photoResult === null) {
+              } else if (!handledElsewhere && photoResult === null) {
                 setDropMessage(null);
               }
             }
@@ -288,6 +316,7 @@ export function useFileDrop({
       unlisten?.();
     };
   }, [
+    addPointClouds,
     clearDropMessageLater,
     finishDrop,
     addDroppedRasters,
@@ -376,7 +405,12 @@ export function useFileDrop({
         // finishDrop throws on an empty list, so only call it when non-PBF
         // files were dropped.
         const pbfFiles = allFiles.filter((file) => isOsmPbfFileName(file.name));
-        const otherFiles = allFiles.filter((file) => !isOsmPbfFileName(file.name));
+        const cloudFiles = allFiles.filter((file) => isPointCloudFileName(file.name));
+        const otherFiles = allFiles.filter(
+          (file) => !isOsmPbfFileName(file.name) && !isPointCloudFileName(file.name),
+        );
+        await addPointClouds(cloudFiles.map((file) => ({ name: file.name, data: file })));
+        const handledElsewhere = pbfFiles.length + cloudFiles.length > 0;
 
         for (const file of pbfFiles) {
           // Mirror the file-picker path's large-file guard (parsing a huge
@@ -465,10 +499,10 @@ export function useFileDrop({
             importedLayers.length > 0 ||
             rasterCount > 0 ||
             containers.layerCount > 0 ||
-            (pbfFiles.length === 0 && photoResult === null && containers.count === 0)
+            (!handledElsewhere && photoResult === null && containers.count === 0)
           ) {
             finishDrop(importedLayers, rasterCount, containers.layerCount);
-          } else if (pbfFiles.length === 0 && photoResult === null) {
+          } else if (!handledElsewhere && photoResult === null) {
             setDropMessage(null);
           }
         }
@@ -480,6 +514,7 @@ export function useFileDrop({
       }
     },
     [
+      addPointClouds,
       clearDropMessageLater,
       finishDrop,
       addDroppedRasters,

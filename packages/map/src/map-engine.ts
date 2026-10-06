@@ -90,8 +90,12 @@ export interface MapEngine {
   resetPitch(): void;
   /** Frame `bounds` (`[west, south, east, north]`) with the standard padding. */
   fitBounds(bounds: [number, number, number, number]): void;
-  /** Frame a layer's extent. No-op for a layer whose extent is unknown. */
-  fitLayer(layer: GeoLibreLayer): void;
+  /**
+   * Frame a layer's extent. Returns false, without moving the camera, when the
+   * layer's extent is unknown, so a caller can tell the user why nothing moved.
+   * An engine that hands the fit to an asynchronous loader returns true.
+   */
+  fitLayer(layer: GeoLibreLayer): boolean;
   /** The projection the map is currently drawing in. */
   readProjection(): MapProjection;
   /** Apply min/max zoom, max pitch, and bounds constraints from the project. */
@@ -217,6 +221,10 @@ export interface MapEngine {
   getTerrainCogSource(): string | null;
   hasCustomTerrainSource(): boolean;
   setTerrainCogSource(source: string | Blob | null, band?: number): Promise<boolean>;
+  /** Cesium-only Ion terrain asset, or `null` when the normal global source is used. */
+  getTerrainIonAssetId?(): number | null;
+  /** Select or clear the Cesium-only Ion terrain source. */
+  setTerrainIonAssetId?(assetId: number | null): Promise<boolean>;
   /** Translated tooltip for the on-map terrain control. */
   setTerrainLabel(label: string): void;
 
@@ -317,6 +325,11 @@ export interface MapEngineCapabilities {
    */
   readonly terrainSource: boolean;
   /**
+   * {@link MapEngine.setTerrainIonAssetId} can use a Cesium Ion terrain asset
+   * as the elevation source, so the Terrain dialog offers the Ion asset field.
+   */
+  readonly ionTerrain: boolean;
+  /**
    * The engine draws Zarr layers itself from the store record, so the
    * `maplibre-gl-zarr` control is never mounted: Zarr layers are added through
    * the Add Data form and restored, styled, and time-stepped through the record
@@ -383,6 +396,7 @@ export const MAPLIBRE_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   screenOverlays: true,
   flatProjection: true,
   terrainSource: true,
+  ionTerrain: false,
   nativeZarr: false,
   nativeDataSources: false,
   deferredEngineReady: false,

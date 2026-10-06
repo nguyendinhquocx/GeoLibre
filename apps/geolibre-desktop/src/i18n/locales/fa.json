@@ -69,7 +69,6 @@
     "recent": "موارد اخیر",
     "databases": "پایگاه‌های داده",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "اتصال جدید به پایگاه داده",
     "searchPlaceholder": "جستجوی منابع داده",
     "empty": "هنوز هیچ سرویس ذخیره‌شده یا پروژهٔ اخیری وجود ندارد.",
     "emptyGroup": "خالی",
@@ -7554,7 +7553,7 @@
       "markerShape": "شکل نشانگر",
       "markerColor": "رنگ نشانگر",
       "markerSize": "اندازهٔ نشانگر (پیکسل)",
-      "markerSvg": "SVG نشانگر",
+      "markerSvg": "تصویر نشانگر",
       "markerShapes": {
         "circle": "دایره",
         "square": "مربع",
@@ -7563,7 +7562,7 @@
         "star": "ستاره",
         "cross": "صلیب",
         "pin": "سنجاق",
-        "custom": "SVG سفارشی"
+        "custom": "تصویر سفارشی"
       },
       "fillPatterns": {
         "none": "هیچ‌کدام (پرشدگی یکدست)",

@@ -87,6 +87,12 @@ export {
   type PluginTranslate,
   type PluginTranslateParams,
 } from "./plugin-i18n";
+export {
+  LocalizedError,
+  localizedMessage,
+  setLocalizedErrorTranslator,
+  type LocalizedErrorTranslator,
+} from "./localized-error";
 export { LAYER_CONTROL_PLUGIN_ID, maplibreLayerControlPlugin } from "./plugins/layer-control";
 export { getStyleMap } from "./plugins/style-map";
 export {
@@ -131,6 +137,7 @@ export {
   closeBookmarkPanel,
   closeColorbarPanel,
   closeHtmlPanel,
+  closeImagePanel,
   closeLegendPanel,
   closeMaplibreComponentControls,
   closeMeasurePanel,
@@ -142,6 +149,7 @@ export {
   isBookmarkPanelVisible,
   isColorbarPanelVisible,
   isHtmlPanelVisible,
+  isImagePanelVisible,
   isLegendPanelVisible,
   isMeasurePanelVisible,
   isMinimapPanelVisible,
@@ -157,10 +165,29 @@ export {
   openColorbarPanel,
   openHtmlPanel,
   openHtmlPanelWithEntry,
+  setImageControl,
+  setImageLabels,
+  removeImageControl,
+  getImageControlStates,
+  MAX_IMAGE_CONTROLS,
+  subscribeImagePanel,
+  DEFAULT_IMAGE_STATE,
+  IMAGE_RATIO_MAX,
+  IMAGE_RATIO_MIN,
+  IMAGE_SIZE_MAX,
+  IMAGE_SIZE_MIN,
+  formatAspectRatio,
+  normalizeImageUrl,
+  isRatioHeightInRange,
+  ratioHeight,
+  parseAspectRatio,
+  type ComponentImageState,
+  type ImageSizeMode,
   openLegendPanel,
   openLegendPanelWithItems,
   LIDAR_SOURCE_KIND,
   openLidarLayerPanel,
+  addLidarLayerFromBytes,
   addLidarLayerFromUrl,
   restoreLidarLayers,
   openMeasurePanel,
@@ -570,6 +597,11 @@ export {
   type FieldsOfTheWorldFileSaver,
 } from "./plugins/maplibre-fields-of-the-world";
 export {
+  SENTINEL2_EXPLORER_PLUGIN_ID,
+  maplibreSentinel2ExplorerPlugin,
+} from "./plugins/maplibre-sentinel2-explorer";
+export { registerSentinel2CompositeProtocol } from "./plugins/sentinel2-composite";
+export {
   OCEAN_DATA_PLATFORM_PLUGIN_ID,
   maplibreOceanDataPlatformPlugin,
   setOceanDataPlatformFileSaver,
@@ -625,6 +657,13 @@ export {
   type ArcGisHubPluginConfig,
   type ArcGisHubPluginInstance,
 } from "./plugins/maplibre-arcgis-hub";
+export {
+  ARCGIS_PORTAL_PLUGIN_ID,
+  maplibreArcGisPortalPlugin,
+  setArcGisPortalAuth,
+  type ArcGisPortalAuth,
+  type ArcGisPortalConnection,
+} from "./plugins/maplibre-arcgis-portal";
 export {
   DEFAULT_TENNESSEE_GIS_LABELS,
   maplibreTennesseeGisPlugin,

@@ -67,7 +67,6 @@
     "recent": "Gần đây",
     "databases": "Cơ sở dữ liệu",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "Kết nối cơ sở dữ liệu mới",
     "searchPlaceholder": "Tìm kiếm nguồn dữ liệu",
     "empty": "Chưa có dịch vụ nào được lưu hoặc dự án gần đây.",
     "emptyGroup": "Trống",
@@ -7466,7 +7465,7 @@
       "markerShape": "Hình dạng điểm đánh dấu",
       "markerColor": "Màu đánh dấu",
       "markerSize": "Kích thước điểm đánh dấu (px)",
-      "markerSvg": "Điểm đánh dấu SVG",
+      "markerSvg": "Hình ảnh điểm đánh dấu",
       "markerShapes": {
         "circle": "Vòng tròn",
         "square": "Quảng trường",
@@ -7475,7 +7474,7 @@
         "star": "Ngôi sao",
         "cross": "Minh bạch",
         "pin": "Ghim",
-        "custom": "SVG tùy chỉnh"
+        "custom": "Hình ảnh tùy chỉnh"
       },
       "clusterRadius": "Gợi ý phong cách",
       "clusterMaxZoom": "Thu phóng tối đa cụm",

@@ -22,6 +22,8 @@
       "changeCount_one": "{{count}} change",
       "changeCount_other": "{{count}} changes",
       "noChanges": "No differences.",
+      "comparing": "Comparing…",
+      "updating": "Updating…",
       "parseError": "Could not read this snapshot to compare it.",
       "currentError": "Could not read the current project to compare it.",
       "none": "(none)",
@@ -68,8 +70,8 @@
     "services": "Services",
     "recent": "Recent",
     "databases": "Databases",
+    "postgresql": "PostgreSQL",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "New database connection",
     "searchPlaceholder": "Search data sources",
     "empty": "No saved services or recent projects yet.",
     "emptyGroup": "Empty",
@@ -86,6 +88,9 @@
     "loadFolderFailed": "Could not read this folder.",
     "unpinFolder": "Remove “{{name}}” from the list",
     "forgetMssqlConnection": "Forget SQL Server connection “{{name}}”",
+    "forgetPostgresConnection": "Forget PostgreSQL connection “{{name}}”",
+    "forgetPostgresConnectionFailed": "Could not forget the PostgreSQL connection because saved-connection storage is unavailable. Nothing was removed.",
+    "forgetPostgresCredentialFailed": "The PostgreSQL connection was removed, but your system keychain did not delete its saved credential. GeoLibre will try again the next time it starts.",
     "loadingFolder": "Loading…",
     "loadingSublayers": "Loading sublayers…",
     "allSublayers": "All layers",
@@ -388,6 +393,10 @@
       "georss": {
         "label": "Add GeoRSS Layer",
         "description": "Add a GeoRSS feed (RSS, Atom, or RDF) from a URL or file as a vector layer."
+      },
+      "geoBoundaries": {
+        "label": "Add Administrative Boundaries",
+        "description": "Add country, state, and district boundaries (admin levels 0 to 5) from geoBoundaries as a vector layer."
       },
       "delimitedText": {
         "label": "Add Delimited Text Layer",
@@ -710,7 +719,28 @@
       "maxFeaturesPlaceholder": "All",
       "pagingHint": "Feature layers download in pages. Lower the records per request if the service times out.",
       "loadingProgress": "Loaded {{loaded}} of {{total}} features…",
-      "loadingProgressUnknown": "Loaded {{loaded}} features…"
+      "loadingProgressUnknown": "Loaded {{loaded}} features…",
+      "authentication": "Authentication",
+      "authNone": "Public / anonymous",
+      "authSignIn": "Sign in with ArcGIS",
+      "authToken": "Access token (advanced)",
+      "clientId": "OAuth client ID",
+      "clientIdPlaceholder": "Client ID of an app registered on your portal",
+      "clientIdHint": "Register an application on your ArcGIS portal and add this app's redirect URI to it. The portal URL above selects ArcGIS Online (blank) or your Enterprise portal.",
+      "signIn": "Sign in",
+      "signOut": "Sign out",
+      "signedInAs": "Signed in as {{user}} ({{portal}})",
+      "signInError": "Sign-in failed. Check the portal URL and client ID, then try again.",
+      "signInErrorPortal": "Enter an https portal URL, or leave it blank for ArcGIS Online.",
+      "signInErrorClientId": "Enter the OAuth client ID registered on the portal.",
+      "signInErrorPending": "A sign-in is already in progress.",
+      "signInErrorPopup": "The sign-in window was blocked. Allow pop-ups for this site and try again.",
+      "signInErrorCancelled": "Sign-in was cancelled.",
+      "signInErrorTimeout": "Sign-in timed out. Try again.",
+      "signInErrorExpired": "The ArcGIS session expired. Sign in again.",
+      "signInErrorNetwork": "Could not reach the ArcGIS portal. Check the connection and try again.",
+      "signInErrorRestart": "GeoLibre is still starting. Try signing in again in a moment.",
+      "cancelSignIn": "Cancel"
     },
     "gpx": {
       "defaultName": "GPX Layer",
@@ -765,6 +795,29 @@
       "url": "GeoRSS URL",
       "file": "GeoRSS file",
       "urlPlaceholder": "https://example.com/feed.atom"
+    },
+    "geoBoundaries": {
+      "defaultName": "Administrative Boundaries",
+      "intro": "Boundaries come from geoBoundaries under open licenses. The available admin levels vary by country.",
+      "country": "Country",
+      "countryPlaceholder": "Select a country",
+      "countriesUnavailable": "Country list unavailable",
+      "retry": "Retry",
+      "level": "Admin level",
+      "levelPlaceholder": "Select a country first",
+      "levelNamed": "{{level}} ({{name}})",
+      "levelUnits_one": "{{label}}: {{formattedCount}} unit",
+      "levelUnits_other": "{{label}}: {{formattedCount}} units",
+      "noLevels": "No boundaries are available for this country.",
+      "simplified": "Use simplified geometry (smaller and faster to load)",
+      "fullGeometryNote": "Full geometry can be several MB per level, and the boundaries are saved inside the project file.",
+      "license": "License: {{license}}",
+      "errorCountries": "Could not load the list of countries.",
+      "errorLevels": "Could not load the admin levels for this country.",
+      "errorDownload": "Could not download the boundaries.",
+      "errorCountry": "Select a country.",
+      "errorLevel": "Select an admin level.",
+      "errorInvalid": "The boundary file is not a valid GeoJSON feature collection."
     },
     "cad": {
       "defaultName": "CAD Layer",
@@ -948,6 +1001,7 @@
     },
     "postgres": {
       "defaultName": "PostgreSQL Layer",
+      "forgetConnectionConfirm": "Forget the saved PostgreSQL connection {{name}}? Its saved credential will also be removed from this device.",
       "errorDesktopOnly": "PostgreSQL layers require GeoLibre Desktop.",
       "errorConnectionString": "Enter a PostgreSQL connection string.",
       "statusCheckingBinary": "Checking Martin binary...",
@@ -1164,7 +1218,88 @@
       "modelFileHint": "Choose a GLB or self-contained glTF file. Local models are embedded in saved projects, increasing the project size.",
       "modelExternalResources": "This model references separate files. Export it as a GLB with embedded textures and buffers, then try again.",
       "modelTooLarge": "This model is larger than the {{limit}} MB limit for embedding in a project. Host it and add it by URL instead.",
-      "modelFileError": "Could not read this model. Choose a valid glTF 2.0 or GLB file."
+      "modelFileError": "Could not read this model. Choose a valid glTF 2.0 or GLB file.",
+      "kinds": {
+        "scatterplot": {
+          "label": "Scatterplot",
+          "description": "Circles at each point. CSV/JSON with longitude & latitude."
+        },
+        "heatmap": {
+          "label": "Heatmap",
+          "description": "Smooth density heatmap from weighted points."
+        },
+        "hexagon": {
+          "label": "Hexagon (3D)",
+          "description": "Aggregates points into extruded hexagonal bins."
+        },
+        "grid": {
+          "label": "Grid (3D)",
+          "description": "Aggregates points into extruded square bins."
+        },
+        "screen-grid": {
+          "label": "Screen grid",
+          "description": "Aggregates points into fixed-pixel screen cells."
+        },
+        "contour": {
+          "label": "Contour",
+          "description": "Isoline bands over point density."
+        },
+        "arc": {
+          "label": "Arc",
+          "description": "Curved arcs between source and target points."
+        },
+        "line": {
+          "label": "Line",
+          "description": "Straight lines between source and target points."
+        },
+        "great-circle": {
+          "label": "Great circle",
+          "description": "Geodesic great-circle paths between points."
+        },
+        "geojson": {
+          "label": "GeoJSON (with extrusion)",
+          "description": "Render a GeoJSON file; optionally extrude polygons by a property."
+        },
+        "icon": {
+          "label": "Icon markers",
+          "description": "A marker icon at each point. CSV/JSON with longitude & latitude."
+        },
+        "text": {
+          "label": "Text labels",
+          "description": "A text label at each point. CSV/JSON with a label column."
+        },
+        "trips": {
+          "label": "Trips (animated)",
+          "description": "Animated trails along paths. JSON array of objects with path & timestamps."
+        },
+        "scenegraph": {
+          "label": "3D model (glTF)",
+          "description": "Place a glTF/GLB 3D model at each point. CSV/JSON with longitude & latitude, plus a model URL."
+        }
+      },
+      "categories": {
+        "point": "Point & aggregation",
+        "flow": "Flow / origin-destination",
+        "geojson": "GeoJSON",
+        "advanced": "Advanced / animated",
+        "models": "3D models"
+      },
+      "roles": {
+        "lng": "Longitude",
+        "lat": "Latitude",
+        "weight": "Weight (optional)",
+        "sourceLng": "Source longitude",
+        "sourceLat": "Source latitude",
+        "targetLng": "Target longitude",
+        "targetLat": "Target latitude",
+        "elevation": "Extrusion height property (optional)",
+        "text": "Label text",
+        "path": "Path property",
+        "timestamps": "Timestamps property",
+        "altitude": "Altitude (optional)",
+        "bearing": "Bearing / heading (optional)",
+        "scale": "Scale factor (optional)"
+      }
     },
     "nonGeographicCoordinates": "Coordinates in {{names}} are not longitude/latitude, so nothing will be drawn on the map. The CRS is mislabelled — reproject the data (or fix its .prj) and load it again.",
     "pmtiles": {
@@ -1172,6 +1307,9 @@
       "errorMlt": "ArcGIS requires MVT vector tiles, not MLT."
     },
     "lidar": {
+      "dropAdded_one": "Added {{count}} point cloud layer.",
+      "dropAdded_other": "Added {{count}} point cloud layers.",
+      "dropLoading": "Loading point clouds…",
       "errorUrl": "Enter a valid HTTP or HTTPS LiDAR URL."
     },
     "zarr": {
@@ -2126,6 +2264,14 @@
     "localSourceLabel": "Local COG DEM",
     "localSourceDescription": "The file stays on this device and is read in small ranges as terrain tiles are needed.",
     "useCog": "Use COG DEM",
+    "ionAssetLabel": "Cesium Ion terrain asset",
+    "ionAssetDescription": "Use a quantized-mesh terrain asset from Cesium Ion on the globe. The asset must be available to the configured Ion account.",
+    "ionTokenMissing": "Add a Cesium Ion token in Settings to use Ion terrain.",
+    "useIonTerrain": "Use Ion terrain",
+    "ionLoading": "Loading Ion terrain…",
+    "ionErrorAssetId": "Enter a positive Cesium Ion terrain asset id.",
+    "ionErrorToken": "A Cesium Ion token is required for Ion terrain.",
+    "ionError": "Could not apply the Cesium Ion terrain asset.",
     "sourceLoading": "Opening COG…",
     "restoreDefaultSource": "Use global terrain",
     "sourceError": "Could not open the COG DEM.",
@@ -2880,6 +3026,24 @@
       "dams": "Dams",
       "cables": "Submarine Cables",
       "osmInfrastructure": "OSM Infrastructure",
+      "options": {
+        "radioCategory": "Category",
+        "radioCategories": {
+          "all": "All",
+          "news": "News",
+          "talk": "Talk",
+          "weather": "Weather / Emergency",
+          "publicSafety": "Public Safety",
+          "aviationMarine": "Aviation / Marine",
+          "trafficTransit": "Traffic / Transit",
+          "music": "Music",
+          "other": "Other"
+        },
+        "cctvPreviews": "Snapshots on map",
+        "cctvPreviewsAuto": "When zoomed in",
+        "cctvPreviewsAlways": "Always",
+        "cctvPreviewsOff": "Off (markers only)"
+      },
       "loading": "Updating…",
       "updateFailed": "Update failed",
       "noneInView": "No features found in the current view for this layer.",
@@ -2919,6 +3083,45 @@
         "saveFailedKeychain": "Could not save the key in your system keychain. It works until GeoLibre closes."
       }
     }
+  },
+  "imageControl": {
+    "title": "Image",
+    "description": "Show images from URLs on the map, such as a logo, a north arrow or a legend. Each image has a header you can click to fold it away.",
+    "listLabel": "Images on the map",
+    "titleField": "Title",
+    "defaultTitle": "Image",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "limit": "A map can hold up to {{max}} images.",
+    "edit": "Edit image",
+    "editNamed": "Edit {{title}}",
+    "removeNamed": "Remove {{title}}",
+    "newImage": "New image",
+    "close": "Close",
+    "url": "Image URL",
+    "urlInvalid": "Enter a full https:// image URL.",
+    "sizeMode": "Size",
+    "mode": {
+      "auto": "Width (keep the image's aspect ratio)",
+      "fixed": "Width and height",
+      "ratio": "Width and aspect ratio"
+    },
+    "width": "Width (px)",
+    "height": "Height (px)",
+    "ratio": "Aspect ratio (width:height)",
+    "ratioInvalid": "Enter a ratio such as 16:9 or 1.5 (between {{min}} and {{max}}) that keeps the height between {{minSize}} and {{maxSize}} px.",
+    "sizeRange": "Enter a size between {{min}} and {{max}} px.",
+    "position": "Position",
+    "corner": {
+      "topLeft": "Top left",
+      "topRight": "Top right",
+      "bottomLeft": "Bottom left",
+      "bottomRight": "Bottom right"
+    },
+    "add": "Add to map",
+    "update": "Update",
+    "remove": "Remove image",
+    "addFailed": "Could not add the image to the map."
   },
   "toolbar": {
     "menu": {
@@ -2992,6 +3195,11 @@
       "videoUnsupported": "Video recording isn't supported in this browser.",
       "videoFileTypeMp4": "MP4 video",
       "videoFileTypeWebm": "WebM video",
+      "errors": {
+        "notActive": "The route animation is not active.",
+        "selectLineLayer": "Select a line layer with length before recording.",
+        "encoderTimeout": "Recording timed out waiting for the encoder."
+      },
       "collapse": "Collapse",
       "expand": "Expand",
       "close": "Close"
@@ -3118,6 +3326,7 @@
       "toggleColorbar": "Toggle Colorbar",
       "toggleLegend": "Toggle Legend",
       "toggleHtmlPanel": "Toggle HTML Panel",
+      "toggleImage": "Add or Edit Image",
       "toggleMeasure": "Toggle Measure",
       "toggleBookmark": "Toggle Bookmark",
       "toggleMinimap": "Toggle Minimap",
@@ -3162,6 +3371,7 @@
       "ogcVectorTiles": "OGC Vector Tiles",
       "arcgis": "ArcGIS Layer",
       "georss": "GeoRSS Layer",
+      "geoBoundaries": "Administrative Boundaries",
       "video": "Video Layer",
       "deckglViz": "Deck.gl Layer",
       "cesiumIon": "Cesium Ion Asset",
@@ -3529,6 +3739,7 @@
       "colorbar": "Colorbar",
       "legend": "Legend",
       "html": "HTML",
+      "image": "Image",
       "measure": "Measure",
       "bookmark": "Bookmark",
       "minimap": "Minimap",
@@ -3669,6 +3880,7 @@
       "geolibre-timelapse": "Timelapse",
       "maplibre-gl-esri-wayback": "Historical Imagery",
       "maplibre-gl-openaerialmap": "OpenAerialMap",
+      "geolibre-arcgis-portal": "ArcGIS Portal",
       "maplibre-gl-arcgis-hub": "ArcGIS Hub",
       "geolibre-tennessee-gis": "Tennessee GIS",
       "geolibre-us-state-gis": "US State GIS",
@@ -3688,6 +3900,7 @@
       "maplibre-gl-huggingface": "Hugging Face",
       "geolibre-satellite-embeddings": "Satellite Embeddings",
       "geolibre-fields-of-the-world": "Fields of the World",
+      "geolibre-sentinel2-explorer": "Sentinel-2 Explorer",
       "geolibre-ocean-data-platform": "Ocean Data Platform",
       "carto-light": "Carto Light Basemap",
       "geolibre-flight-simulator": "Flight Simulator",
@@ -7177,6 +7390,10 @@
     "collapse": "Collapse {{title}}"
   },
   "attributeTable": {
+    "refresh": "Refresh features",
+    "refreshTitle": "Re-read features from the source to pick up changes made elsewhere",
+    "refreshTitleLocalFile": "Reload features from the file on disk",
+    "refreshTitlePendingEdits": "Save or discard your edits before refreshing",
     "title": "Attribute table",
     "resize": "Resize attribute table",
     "editValues": "Edit attribute values",
@@ -7237,7 +7454,8 @@
       "fields": "Fields",
       "explore": "Explore",
       "statistics": "Statistics",
-      "export": "Export"
+      "export": "Export",
+      "refresh": "Refresh"
     },
     "chart": {
       "field": "Field",
@@ -7648,7 +7866,11 @@
       "markerShape": "Marker shape",
       "markerColor": "Marker color",
       "markerSize": "Marker size (px)",
-      "markerSvg": "Marker SVG",
+      "markerSvg": "Marker image",
+      "markerImagePlaceholder": "<svg xmlns='http://www.w3.org/2000/svg' ...>…</svg>, or a data/https URL to an SVG, PNG, JPEG, or GIF",
+      "uploadMarkerImage": "Upload image…",
+      "markerImageUploadError": "That file could not be read as an SVG (up to 512 KB), PNG, JPEG, or GIF image.",
+      "rasterMarkerHint": "Raster images draw as they are: the marker color and the per-class colors of categorized, graduated, and rule-based styles apply only to SVG markers. An animated GIF shows its first frame.",
       "markerShapes": {
         "circle": "Circle",
         "square": "Square",
@@ -7657,7 +7879,7 @@
         "star": "Star",
         "cross": "Cross",
         "pin": "Pin",
-        "custom": "Custom SVG"
+        "custom": "Custom image"
       },
       "fillPatterns": {
         "none": "None (solid fill)",
@@ -7701,6 +7923,9 @@
       "schemeEqualInterval": "Equal interval",
       "schemeQuantile": "Quantile",
       "schemeNaturalBreaks": "Natural breaks",
+      "schemeStandardDeviation": "Standard deviation",
+      "schemeGeometricInterval": "Geometric interval",
+      "schemeManual": "Manual",
       "schemeTopValues": "Most frequent",
       "schemeAlphabetical": "Alphabetical",
       "schemeFirstValues": "First values",
@@ -8048,6 +8273,7 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "zoomToLayer": "Zoom to layer",
+    "zoomToLayerUnknownExtent": "The extent of \"{{name}}\" is unknown. Pan the map to where its data is, then try Zoom to layer again.",
     "layerActions": "Layer actions",
     "exportSketchesAsLayer": "Export Sketches as new layer",
     "exportSketchesKeep": "Keep features in Sketches",
@@ -8071,6 +8297,9 @@
     "selectFeaturesRadius": "Select features by radius",
     "selectFeaturesModifiers": "Shift adds, Alt removes, and Shift+Alt intersects. Press Esc to cancel.",
     "exportGeoTiff": "GeoTIFF (COG)",
+    "exportLas": "LAS",
+    "exportLaz": "LAZ (compressed)",
+    "exportCopc": "COPC (cloud optimized)",
     "extractSubset": "Extract subset…",
     "stylesMenu": "Styles",
     "exportGeoLibreStyle": "Export GeoLibre URL style",
@@ -8128,6 +8357,9 @@
     "openRasterStylePanel": "Edit raster style…",
     "exportRasterSuccess": "Raster exported.",
     "exportRasterError": "Could not export this raster.",
+    "exportLidarRunning": "Exporting point cloud…",
+    "exportLidarSuccess": "Point cloud exported.",
+    "exportLidarError": "Could not export this point cloud.",
     "saveEditsToSource": "Save edits to source file",
     "saveEditsSuccess": "Saved {{count}} feature(s) to the source file.",
     "saveEditsNoFeatures": "This layer has no features to save.",
@@ -8562,7 +8794,9 @@
     "expandEntry": "Expand section",
     "collapsePanel": "Collapse legend",
     "expandPanel": "Expand legend",
-    "exportJson": "Export as JSON"
+    "exportJson": "Export as JSON",
+    "classification_one": "{{method}}, {{count}} class",
+    "classification_other": "{{method}}, {{count}} classes"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -8637,6 +8871,8 @@
     "layerAccessDeniedHint": "The server answered HTTP {{status}}. Check the layer's API key or access token.",
     "layerTilesMissing": "No tiles found for layer \"{{name}}\"",
     "layerTilesMissingHint": "Every tile request so far came back as not found. Check the layer's URL template.",
+    "layerRateLimited": "The server for layer \"{{name}}\" is limiting requests",
+    "layerRateLimitedHint": "It answered HTTP 429 (too many requests), so some tiles may be missing. They load again when you pan or zoom after a moment.",
     "projectHistoryLoadFailed": "Could not load the project history.",
     "projectRecoveryUnavailable": "Could not check for unsaved work from a previous session.",
     "autosaveFailed": "Autosave failed. Save the project to keep your changes.",
@@ -8656,6 +8892,11 @@
   },
   "shell": {
     "workspaceTitle": "GeoLibre map workspace",
+    "webglContextLost": {
+      "message": "The map lost its graphics context",
+      "description": "The graphics driver reset or the GPU ran out of memory, so the map may be frozen or blank. Reload to restore it. Save your project first if you can; a recent autosave may also be in project history.",
+      "reload": "Reload"
+    },
     "section": {
       "toolbar": "Toolbar",
       "sharedLeftSidebar": "Shared left sidebar",
@@ -8947,6 +9188,45 @@
     "loadError": "Failed to load DEM: {{message}}"
   },
   "plugin": {
+    "geolibre-arcgis-portal": {
+      "portalPlaceholder": "Portal URL (blank for ArcGIS Online)",
+      "clientIdPlaceholder": "OAuth client ID",
+      "signIn": "Sign in",
+      "signInHint": "Sign in to browse the content you can access. Enter your organization URL (https://yourorg.maps.arcgis.com) for its sign-in page, or your ArcGIS Enterprise portal.",
+      "unavailable": "ArcGIS sign-in is not available in this build.",
+      "portal": "Portal",
+      "signOut": "Sign out",
+      "addPortal": "Another portal",
+      "view": "Browse",
+      "views": {
+        "content": "My content",
+        "favorites": "My favorites",
+        "groups": "My groups",
+        "organization": "My organization",
+        "portal": "All of the portal"
+      },
+      "group": "Group",
+      "itemType": "Item type",
+      "allTypes": "All supported types",
+      "searchPlaceholder": "Filter by keyword",
+      "search": "Search",
+      "loadMore": "Load more",
+      "add": "Add to map",
+      "addingButton": "Adding…",
+      "remove": "Remove from map",
+      "removed": "Removed {{title}}.",
+      "adding": "Adding {{title}}…",
+      "webMapEmpty": "{{title}} has no layers that can be added.",
+      "added": "Added {{title}}.",
+      "addError": "Could not add {{title}}.",
+      "zoom": "Zoom",
+      "details": "Details",
+      "searching": "Searching…",
+      "noGroups": "You are not a member of any group.",
+      "viewUnavailable": "This view is not available for your account.",
+      "noResults": "No items found.",
+      "showing": "Showing {{shown}} of {{total}} items."
+    },
     "3d-tiles": {
       "arcgisSourceUnsupported": "Use a 3D Tiles tileset.json URL in this ArcGIS view. Google Photorealistic and I3S tiles require another renderer.",
       "globeGoogleKeyRequired": "Google Photorealistic 3D Tiles need a Google Maps API key in Settings to load on the globe.",
@@ -9105,6 +9385,90 @@
       "tesseraEmpty": "No embeddings in this area for {{year}}.",
       "tesseraLayerName": "Tessera {{year}} ({{bands}})",
       "tesseraRenderHint": "Visualize reads the v1.1 embeddings (AWS Open Data) at full 10 m resolution over the search area, about 1 MB per km², and stretches each band to its 2–98% range."
+    },
+    "geolibre-sentinel2-explorer": {
+      "loadingGrid": "Loading the MGRS tile grid…",
+      "gridPainted": "{{passing}} of {{total}} tiles pass the filters. Click a tile to find its scenes.",
+      "gridFailed": "Could not load the tile statistics: {{error}}",
+      "searching": "Reading the scenes of tile {{tile}}…",
+      "searchDone": "{{count}} scenes of {{tile}} read in {{seconds}} s ({{gets}} range reads, {{kib}} KiB). No API, just static GeoParquet.",
+      "searchFailed": "Search failed: {{error}}",
+      "displayTci": "True color (TCI)",
+      "noCog": "This GeoLibre build cannot add COG layers.",
+      "adding": "Adding {{name}}…",
+      "added": "Added {{name}}.",
+      "addFailed": "Could not add {{name}}: {{error}}",
+      "metricClearest": "Clearest scene",
+      "legendClear": "clear",
+      "legendCloudy": "cloudy",
+      "metricSceneCount": "Scene count",
+      "legendMany": "12+ scenes",
+      "legendFew": "few",
+      "metricMedianCloud": "Median cloud",
+      "metricCoverage": "Coverage",
+      "legendFull": "full tile",
+      "legendPartial": "partial",
+      "intro": "Find and view Sentinel-2 L2A imagery anywhere on Earth. The map colors every MGRS tile by its statistics over the date window; click a tile to search its scenes. Every query is an HTTP range read of static GeoParquet on Source Cooperative, with no API or server.",
+      "linkExplorer": "Reference explorer",
+      "linkSource": "Source code",
+      "linkData": "Data on Source Cooperative",
+      "collectionC1": "Sentinel-2 Collection 1 L2A (since 2015)",
+      "collectionL2a": "Sentinel-2 L2A (since 2016)",
+      "collection": "Collection",
+      "from": "From",
+      "to": "To",
+      "colorBy": "Color tiles by",
+      "showGrid": "Show the tile grid",
+      "filters": "Filters",
+      "maxCloud": "Max cloud %",
+      "minCoverage": "Min coverage %",
+      "minScenes": "Min scenes per tile",
+      "display": "Add scenes as",
+      "sceneMeta": "{{cloud}}% cloud · {{cover}} coverage",
+      "addToMap": "Add to map",
+      "addToMapTitle": "Stream this scene's Cloud-Optimized GeoTIFF onto the map",
+      "zoom": "Zoom",
+      "tileScenes": "Tile {{tile}}",
+      "loadingScenes": "Loading scenes…",
+      "sortCloud": "Least cloud",
+      "sortCoverage": "Most coverage",
+      "sortDate": "Newest",
+      "sort": "Sort",
+      "matchCount": "{{count}} of {{total}} scenes match the filters.",
+      "showMore": "Show more ({{count}} left)",
+      "attribution": "Imagery: Copernicus Sentinel-2, processed by ESA, indexed by Element 84 Earth Search. Catalog: s2-stac-geoparquet by Taylor Geospatial (CC-BY-4.0).",
+      "title": "Sentinel-2 Explorer",
+      "bandB01": "Coastal aerosol (443 nm)",
+      "bandB02": "Blue (490 nm)",
+      "bandB03": "Green (560 nm)",
+      "bandB04": "Red (665 nm)",
+      "bandB05": "Red edge 1 (705 nm)",
+      "bandB06": "Red edge 2 (740 nm)",
+      "bandB07": "Red edge 3 (783 nm)",
+      "bandB08": "NIR (842 nm)",
+      "bandB8A": "Narrow NIR (865 nm)",
+      "bandB09": "Water vapour (945 nm)",
+      "bandB11": "SWIR 1 (1610 nm)",
+      "bandB12": "SWIR 2 (2190 nm)",
+      "bandAOT": "Aerosol optical thickness",
+      "bandWVP": "Water vapour column",
+      "bandSCL": "Scene classification",
+      "bandCLD_20m": "Cloud probability",
+      "bandSNW_20m": "Snow probability",
+      "groupComposites": "Composites and indices",
+      "groupBands": "Single bands",
+      "compositeFcir": "False color infrared",
+      "compositeAgri": "Agriculture",
+      "compositeSwir": "Short-wave infrared",
+      "compositeNdvi": "NDVI (vegetation index)",
+      "compositeNdwi": "NDWI (water index)",
+      "noComposite": "Composites need the MapLibre renderer.",
+      "download": "Download",
+      "downloadTitle": "Download this scene's Cloud-Optimized GeoTIFFs",
+      "about": "About this explorer",
+      "addingShort": "Adding…",
+      "removeFromMap": "Remove from map",
+      "removeFromMapTitle": "Remove this scene's layer from the map"
     },
     "geolibre-fields-of-the-world": {
       "boundariesExists": "{{name}} is already on the map.",
@@ -9416,10 +9780,46 @@
       "statDescent": "Descent ↓",
       "unitsTitle": "Units: {{units}}"
     },
+    "earth-engine-auth": {
+      "unavailable": "Earth Engine sign-in is not available in the App Store build of GeoLibre.",
+      "noAccessToken": "Earth Engine sign-in did not return an access token.",
+      "popupUnavailable": "Earth Engine popup authentication is unavailable.",
+      "oauthUnavailable": "Earth Engine OAuth authentication is unavailable.",
+      "timedOut": "Earth Engine sign-in timed out."
+    },
     "maplibre-gl-geoagent": {
       "signIn": "Sign in",
       "signInOpening": "Opening Google sign-in...",
       "signInComplete": "Earth Engine sign-in complete."
+    }
+  },
+  "arcgisService": {
+    "errors": {
+      "enterServiceUrl": "Enter an ArcGIS service URL.",
+      "enterPortalItemId": "Enter an ArcGIS portal item ID.",
+      "missingGeometryType": "The ArcGIS feature layer metadata is missing geometry type.",
+      "itemWithoutServiceUrl": "The ArcGIS portal item does not include a service URL.",
+      "sublayerIds": "Enter the MapServer sublayers as numeric ids, for example 0,2,5.",
+      "renderingRuleJson": "The rendering rule must be JSON, for example {\"rasterFunction\":\"Hillshade\"}.",
+      "featureQueryFailed": "ArcGIS feature query failed with {{status}}.",
+      "htmlInsteadOfGeojson": "The ArcGIS service returned HTML instead of GeoJSON (the layer may require a token or sign-in).",
+      "notGeojson": "The ArcGIS feature layer did not return GeoJSON features.",
+      "enterFeatureServerLayerUrl": "Enter an ArcGIS FeatureServer layer URL.",
+      "noFeatureLayer": "The ArcGIS feature service does not list a feature layer.",
+      "portalItemRequestFailed": "ArcGIS portal item request failed with {{status}}.",
+      "serviceRequestFailed": "ArcGIS service request failed with {{status}}.",
+      "saveInProgress": "An ArcGIS save is already in progress.",
+      "finishGeometryEdit": "Finish editing geometry before saving to ArcGIS.",
+      "noWritableConnection": "This layer has no writable ArcGIS connection. Add the service again to establish one.",
+      "saveUnconfirmed": "The previous save could not be confirmed. Check the service and add the layer again before saving to avoid duplicate inserts.",
+      "missingServiceUrl": "Missing ArcGIS service URL.",
+      "invalidServiceUrl": "Invalid ArcGIS service URL. Add the service again with a valid Feature Service URL.",
+      "writesRequireHttps": "ArcGIS writes require HTTPS.",
+      "layerRemoved": "ArcGIS layer was removed.",
+      "editsNotPermitted": "Layer permissions do not allow the requested edits.",
+      "incompleteEditResults": "Incomplete ArcGIS edit results.",
+      "noInsertedObjectIds": "ArcGIS did not return inserted object IDs.",
+      "saveNotConfirmed": "ArcGIS save could not be confirmed. Check the service and add the layer again before saving to avoid duplicate inserts."
     }
   }
 }

@@ -69,7 +69,6 @@
     "recent": "Son istifadə edilənlər",
     "databases": "Verilənlər bazaları",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "Yeni verilənlər bazası bağlantısı",
     "searchPlaceholder": "Verilənlər mənbələrində axtar",
     "empty": "Hələ yadda saxlanmış xidmət və ya son istifadə edilmiş layihə yoxdur.",
     "emptyGroup": "Boşdur",
@@ -7618,7 +7617,7 @@
       "markerShape": "Markerin forması",
       "markerColor": "Markerin rəngi",
       "markerSize": "Markerin ölçüsü (px)",
-      "markerSvg": "Marker SVG-si",
+      "markerSvg": "Marker şəkli",
       "markerShapes": {
         "circle": "Dairə",
         "square": "Kvadrat",
@@ -7627,7 +7626,7 @@
         "star": "Ulduz",
         "cross": "Xaç",
         "pin": "Sancaq",
-        "custom": "Fərdi SVG"
+        "custom": "Fərdi şəkil"
       },
       "fillPatterns": {
         "none": "Yoxdur (bütöv doldurma)",

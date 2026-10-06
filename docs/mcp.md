@@ -34,7 +34,8 @@ geolibre-mcp --root ~/maps
 The server speaks MCP over stdio, which is what desktop clients spawn. The
 `--root` flag is repeatable, and `GEOLIBRE_MCP_ROOTS` (`:`-separated, `;` on
 Windows) does the same job from the environment. With neither set, the workspace
-is the current directory.
+is the current directory. `--transport` switches from the default `stdio` to
+`streamable-http` or `sse` for clients that connect over HTTP.
 
 ### Client configuration
 
@@ -154,14 +155,13 @@ what `describe_project` showed it without tracking UUIDs.
 | `set_story_map` | Set a story map's title block, theme, markers, inset, and start/end slides. |
 | `add_story_chapter` | Add a chapter with its camera, text, image, alignment, animation, and layer fades. A camera value left out comes from the project's saved view. |
 | `move_story_chapter` / `remove_story_chapter` | Reorder or drop a chapter by id, title, or index. |
+| `add_bookmark` | Add a saved view to the Bookmarks panel, optionally in a folder (a new folder name creates it) and with the layers to show when it is opened. A camera value left out comes from the project's saved view. |
+| `remove_bookmark` | Drop a bookmark by id, name, or index. |
 
 The shapes match what the app reads (`parseProject` in `@geolibre/core`); a
 round-trip test loads a project these tools wrote through it and checks nothing
 is dropped or rewritten.
 
-Bookmarks have no tool: the app keeps them in browser storage, not in the
-project file, so there is nothing for a project tool to write. Story chapters
-are the saved, shareable equivalent.
 
 ### Live desktop map
 
@@ -244,7 +244,7 @@ project.
 
 Use `set_renderer(path, "cesium")` to open a project on the globe.
 `set_map_layout(path, 1, 2, view_kinds=["cesium", "maplibre"])` creates a mixed
-grid and returns the secondary pane IDs. Pass one as `pane_id` to `set_renderer`
+grid and returns the secondary panes, with their IDs, as `secondaryMapViews`. Pass one as `pane_id` to `set_renderer`
 to change only that pane. Camera tools continue to use longitude/latitude and
 the shared zoom, bearing, and pitch convention. The accepted renderer names are
 `maplibre`, `mapbox`, `cesium`, and `arcgis`.

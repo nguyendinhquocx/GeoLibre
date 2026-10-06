@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   fileOutputTargetExtension,
+  lidarBytesExtension,
   lidarOutputTargetExtension,
   manifestScalarDefaults,
   mergeWasmToolManifests,
@@ -518,11 +519,62 @@ describe("lidarOutputTargetExtension", () => {
     assert.equal(lidarOutputTargetExtension(" /data/OUT.LAZ "), "laz");
   });
 
+  it("honours a user-typed .copc.laz path", () => {
+    assert.equal(lidarOutputTargetExtension("thinned.copc.laz"), "copc.laz");
+    assert.equal(lidarOutputTargetExtension(" /data/OUT.COPC.LAZ "), "copc.laz");
+  });
+
   it("keeps uncompressed .las for anything else", () => {
     assert.equal(lidarOutputTargetExtension("classified.las"), "las");
     assert.equal(lidarOutputTargetExtension("classified.laz.bak"), "las");
     assert.equal(lidarOutputTargetExtension(""), "las");
     assert.equal(lidarOutputTargetExtension(undefined), "las");
     assert.equal(lidarOutputTargetExtension(42), "las");
+  });
+});
+
+/**
+ * A minimal LAS 1.4 header (375 bytes) plus room for one VLR header.
+ *
+ * @param pointFormatByte - The point data format byte (offset 104).
+ * @param firstVlrUserId - The first VLR's user id, if any.
+ * @returns The header bytes.
+ */
+function lasHeader(pointFormatByte: number, firstVlrUserId = "", recordId = 0): Uint8Array {
+  const bytes = new Uint8Array(375 + 54);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x4c, 0x41, 0x53, 0x46], 0); // "LASF"
+  view.setUint16(94, 375, true);
+  bytes[104] = pointFormatByte;
+  bytes.set(
+    Array.from(firstVlrUserId, (char) => char.charCodeAt(0)),
+    375 + 2,
+  );
+  view.setUint16(375 + 18, recordId, true);
+  return bytes;
+}
+
+describe("lidarBytesExtension", () => {
+  it("names uncompressed LAS records .las", () => {
+    assert.equal(lidarBytesExtension(lasHeader(6, "LASF_Projection")), "las");
+  });
+
+  it("names LASzip-compressed records .laz (bit 7, or bit 6 in old files)", () => {
+    assert.equal(lidarBytesExtension(lasHeader(0x86, "laszip encoded")), "laz");
+    assert.equal(lidarBytesExtension(lasHeader(0x43)), "laz");
+  });
+
+  it("names a cloud whose first VLR is the COPC info .copc.laz", () => {
+    assert.equal(lidarBytesExtension(lasHeader(0x86, "copc", 1)), "copc.laz");
+  });
+
+  it("does not mistake a look-alike first VLR for the COPC info", () => {
+    assert.equal(lidarBytesExtension(lasHeader(0x86, "copc_custom", 1)), "laz");
+    assert.equal(lidarBytesExtension(lasHeader(0x86, "copc", 1000)), "laz");
+  });
+
+  it("falls back to .las for bytes that are not LAS", () => {
+    assert.equal(lidarBytesExtension(new Uint8Array([0x49, 0x49, 0x2a, 0x00])), "las");
+    assert.equal(lidarBytesExtension(new Uint8Array()), "las");
   });
 });

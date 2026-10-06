@@ -21,7 +21,7 @@ The extension also reads schema.org download metadata, understands existing GeoL
 
 Interactive maps are supported too. The extension recognizes the WMS, WMTS, WFS, OGC API Features, ArcGIS Feature Service, XYZ/TMS, and vector-tile requests the current page has already made.
 
-The extension reads the page only when you click its icon, holds no standing access to any website, stores nothing, and runs nothing in the background. It runs no analytics and sends no browsing activity to GeoLibre unless you explicitly select an item and open it.
+The extension reads the page only when you click its icon, holds no standing access to any website, runs nothing in the background, and stores only one setting: the GeoLibre address "Open in GeoLibre" uses, which you can point at your own instance. It runs no analytics and sends no browsing activity to GeoLibre unless you explicitly select an item and open it.
 
 Dataset servers must allow browser access through CORS. Complete HTTP(S) URLs, including signed query parameters, are forwarded to GeoLibre. Cookies and other browser-session credentials are not forwarded, so cookie-bound or session-authenticated links may fail. Temporary `blob:` links cannot be transferred.
 
@@ -35,7 +35,7 @@ English
 
 ## Permission justification
 
-Each block below is self-contained and is pasted verbatim into the matching field of the Chrome Web Store dashboard's Privacy tab. Keep them in sync with `manifest.json`: a permission added there needs a justification here and in the dashboard, or the version is rejected. As of 0.3.0 the manifest requests `activeTab` and `scripting` and nothing else, so the storage, webRequest, and host-permission fields no longer appear.
+Each block below is self-contained and is pasted verbatim into the matching field of the Chrome Web Store dashboard's Privacy tab. Keep them in sync with `manifest.json`: a permission added there needs a justification here and in the dashboard, or the version is rejected. As of 0.4.0 the manifest requests `activeTab`, `scripting`, and `storage`, so the webRequest and host-permission fields still do not appear.
 
 ### activeTab
 
@@ -45,6 +45,10 @@ activeTab grants temporary access to the current page only after the user clicks
 
 scripting injects two packaged functions into the active tab when the user opens the popup. One reads the page's links and metadata to find dataset files. The other reads back the addresses of the requests the page has already made, so the map services it draws can be recognized; a map fetches those from JavaScript, so they are never links in the document. Both functions are contained in the extension package, so no remote code is involved. They run once per invocation and return their results to the popup.
 
+### storage
+
+storage holds a single setting: the base URL "Open in GeoLibre" opens, in case the user runs their own GeoLibre instance instead of the hosted default. It is read only when the popup opens and only written from the extension's own settings page. No other data is stored.
+
 ### Not requested
 
-The extension requests no host permissions, and no permission to watch network requests, store data, or run in the background. It does not request browsing history, downloads, cookies, tabs beyond the active one, or remote code. Answer "No, I am not using remote code": every script it runs ships inside the package.
+The extension requests no host permissions, and no permission to watch network requests or run in the background. It does not request browsing history, downloads, cookies, tabs beyond the active one, or remote code. Answer "No, I am not using remote code": every script it runs ships inside the package.

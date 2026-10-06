@@ -20,9 +20,11 @@ import {
   type AttributeFormFieldConfig,
   type AttributeFormFieldError,
   type EditorTrackingStampOptions,
+  type GeoLibreLayer,
   useLayer,
 } from "@geolibre/core";
 import {
+  arcGISLayerHasPendingEdits,
   getDuckDBLayerRows,
   getVectorLayerGeoJSON,
   getGeometryEditTargetLayerId,
@@ -76,6 +78,7 @@ import {
   PanelBottomClose,
   PanelBottomOpen,
   Plus,
+  RefreshCw,
   RotateCcw,
   Save,
   Sigma,
@@ -96,6 +99,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import { isTauri } from "../../lib/tauri-io";
+import { isRefreshableLayer } from "../../lib/layer-refresh";
+import { isLocalFileLayer } from "../../lib/local-file-watch";
+import type { LayerRefreshStatus } from "./layer-panel/layer-panel-utils";
 import {
   addColumn,
   calculateField,
@@ -381,9 +387,18 @@ function applyDraftsToDuckDBRows(
 
 interface AttributeTableProps {
   mapControllerRef: RefObject<MapEngine | null>;
+  /**
+   * The layer panel's refresh state (`useLayerRefresh`): its Refresh action and
+   * transient status notes keyed by layer id, shared so both surfaces dedupe
+   * the request and report one status. Omitted, the table offers no Refresh.
+   */
+  refresh?: {
+    handleRefreshLayer: (layer: GeoLibreLayer) => Promise<void> | void;
+    refreshStatuses: Record<string, LayerRefreshStatus>;
+  };
 }
 
-export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
+export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProps) {
   const { t } = useTranslation();
   // Column order is visual: in a right-to-left layout the first column renders
   // rightmost, so the move-left/right actions and their guards swap.
@@ -675,6 +690,44 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
   const requestAttributeTableEdit = useAppStore((s) => s.requestAttributeTableEdit);
   // The same gate as the Edit button below, shared with Identify's action.
   const canEnterEditMode = canEditAttributeValues(layer, geometryEditLayerId);
+  // Refresh re-reads the source so edits made by other clients show up (issue
+  // #2948). It mirrors the layer menu: desktop local-file layers reload from
+  // disk, everything else needs a refreshable source.
+  const isLocalFileRefresh = layer != null && isTauri() && isLocalFileLayer(layer);
+  const canRefreshLayer =
+    Boolean(refresh) && layer != null && (isLocalFileRefresh || isRefreshableLayer(layer));
+  const refreshStatus = layer ? refresh?.refreshStatuses[layer.id] : undefined;
+  const isRefreshingLayer = refreshStatus?.type === "refreshing";
+  // An ArcGIS refresh with unsaved edits keeps the local copy rather than
+  // overwrite it, so a click would report success without fetching anything.
+  const refreshBlockedByEdits =
+    canRefreshLayer && layer != null && arcGISLayerHasPendingEdits(layer.id);
+
+  /**
+   * Refresh a layer, then drop the row copy this table cached for a tiled
+   * vector-control layer. Its reload keeps the source unchanged, so the store
+   * sync leaves that copy in place and the table would keep showing the old
+   * rows; clearing it makes the loading effect above re-read the control.
+   *
+   * @param target - The layer to refresh.
+   */
+  const refreshLayerRows = async (target: GeoLibreLayer) => {
+    // Re-checked here because an in-flight ArcGIS save is module state the
+    // render-time check above is not subscribed to.
+    if (!refresh || arcGISLayerHasPendingEdits(target.id)) return;
+    const syncedBefore = target.connection?.lastSyncedAt;
+    await refresh.handleRefreshLayer(target);
+    if (!isVectorControlAttributeSource(target)) return;
+    const current = useAppStore.getState().layers.find((l) => l.id === target.id);
+    // The handler reports failure through the layer, not by throwing: only a
+    // new sync stamp with no error means the control actually reloaded. A
+    // failed, deduped, or skipped refresh keeps the rows the table has.
+    const synced =
+      current?.connection?.lastSyncedAt !== syncedBefore && !current?.connection?.lastError;
+    if (synced && current?.type === "vector-tiles" && current.geojson) {
+      updateLayer(target.id, { geojson: undefined });
+    }
+  };
   useEffect(() => {
     if (attributeTableEditLayerId === null) return;
     if (layer?.id === attributeTableEditLayerId && canEnterEditMode) {
@@ -1622,6 +1675,20 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
           <span className="max-w-48 truncate text-xs text-amber-600" title={exportWarning}>
             {exportWarning}
           </span>
+        ) : refreshStatus && refreshStatus.type !== "refreshing" ? (
+          <span
+            className={`max-w-48 truncate text-xs ${
+              refreshStatus.type === "error"
+                ? "text-destructive"
+                : refreshStatus.type === "warning"
+                  ? "text-amber-600"
+                  : "text-muted-foreground"
+            }`}
+            title={refreshStatus.message}
+            role="status"
+          >
+            {refreshStatus.message}
+          </span>
         ) : null}
         <Button
           variant={isEditing ? "secondary" : "outline"}
@@ -1809,6 +1876,27 @@ export function AttributeTable({ mapControllerRef }: AttributeTableProps) {
           >
             <LayoutDashboard className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{t("attributeTable.dashboard")}</span>
+          </Button>
+        ) : null}
+        {!isEditing && canRefreshLayer && layer ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2"
+            title={
+              refreshBlockedByEdits
+                ? t("attributeTable.refreshTitlePendingEdits")
+                : isLocalFileRefresh
+                  ? t("attributeTable.refreshTitleLocalFile")
+                  : t("attributeTable.refreshTitle")
+            }
+            aria-label={t("attributeTable.refresh")}
+            aria-busy={isRefreshingLayer}
+            disabled={isRefreshingLayer || refreshBlockedByEdits}
+            onClick={() => void refreshLayerRows(layer)}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingLayer ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{t("attributeTable.buttons.refresh")}</span>
           </Button>
         ) : null}
         <DropdownMenu>

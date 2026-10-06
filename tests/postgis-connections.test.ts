@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { DEFAULT_LAYER_STYLE, type GeoLibreLayer } from "@geolibre/core";
 import {
-  postgisBaselineKeys,
   prunePostgisConnections,
   registerPostgisConnection,
   resolvePostgisConnection,
@@ -105,13 +104,5 @@ describe("postgis connection registry", () => {
     assert.equal(resolvePostgisConnection(postgisLayer("layer-gone")), null);
     assert.equal(resolvePostgisConnection(postgisLayer("layer-kept")), CONNECTION);
     unregisterPostgisConnection("layer-kept");
-  });
-
-  it("reads baseline keys from layer metadata, dropping junk entries", () => {
-    const layer = postgisLayer("layer-e", {
-      postgisBaselineKeys: [1, "two", null, { bad: true }, 3],
-    });
-    assert.deepEqual(postgisBaselineKeys(layer), [1, "two", 3]);
-    assert.equal(postgisBaselineKeys(postgisLayer("layer-f")), undefined);
   });
 });

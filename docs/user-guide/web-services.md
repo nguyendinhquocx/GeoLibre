@@ -2,7 +2,7 @@
 
 **Plugins → Web Services** is a submenu of catalog and service browsers. Each entry connects to one public (or self-hosted) data provider, searches it, and adds what you pick to the map as a normal GeoLibre layer.
 
-They are grouped together because they behave the same way, not because they share a data source: every one of them opens a **docked side panel** rather than a floating on-map control, so it sits alongside the Layers and Style panels, resizes with them, and can be collapsed. That is also why these entries have no "position" submenu — unlike most plugins, there is no on-map control to place in a corner.
+They are grouped together because they behave the same way, not because they share a data source: every one of them opens a **docked side panel** rather than a floating on-map control, so it sits alongside the Layers and Style panels, resizes with them, and can be collapsed. That is also why these entries have no "position" submenu: there is no on-map control to place in a corner.
 
 ![The Plugins menu with the Web Services submenu open, listing the catalog and service browsers](https://assets.geolibre.app/images/web-services-menu.webp)
 
@@ -10,8 +10,8 @@ They are grouped together because they behave the same way, not because they sha
 
 - **Activating** an entry opens its panel; closing the panel deactivates the plugin. A check mark next to **Web Services** in the Plugins menu means at least one of them is active.
 - **Layers you add are real layers.** Whatever a panel puts on the map is mirrored into the GeoLibre layer store, so it appears in the [Layers panel](layers.md), can be reordered, hidden, restyled, and removed there, and is saved into the `.geolibre.json` [project file](projects.md). Reopening the project restores the layer and hands it back to its panel.
-- **The catalog browsers are mutually exclusive.** STAC Catalogs and Planet Open Data share panel state, so activating one deactivates the other; if the switch fails, the plugin that was displaced comes back.
-- **Nothing here needs an account** except Hugging Face uploads (a user access token) and GeoLens private datasets (an API key).
+- **The catalog browsers are mutually exclusive.** STAC Catalogs, Planet Open Data, and Portolan share panel state, so activating one deactivates the other; if the switch fails, the plugin that was displaced comes back.
+- **Nothing here needs an account** except ArcGIS Portal (an ArcGIS sign-in), private S3 buckets (an S3 connection), Hugging Face uploads (a user access token), and GeoLens private datasets (an API key).
 
 ## At a glance
 
@@ -23,11 +23,15 @@ They are grouped together because they behave the same way, not because they sha
 | [USGS National Map](#usgs-national-map) | USGS | Topo, imagery, hydrography, elevation, and index services |
 | [USGS NLDI](#usgs-nldi) | USGS | Flowline tracing, hydrolocation, basins, and network navigation |
 | [USGS 3DEP](#usgs-3dep) | USGS | 3DEP digital elevation models (1 m, 1/3 and 1 arc-second, and more) |
+| [USGS LiDAR](#usgs-lidar) | USGS | 3DEP LiDAR point clouds clipped to an area of interest, as COPC |
 | [Vantor Open Data](#vantor-open-data) | Vantor | Disaster-event satellite imagery (COG) |
 | [Planet Open Data](#planet-open-data) | Planet Labs | Planet's disaster data releases, through the STAC browser |
+| [Portolan](#portolan) | Portolan Registry | Registered geospatial catalogs, or a publisher's catalog URL, through the STAC browser |
 | [Earthdata GIS](#earthdata-gis) | NASA EOSDIS | ArcGIS image, map, and feature services, and published web maps |
 | [OpenAerialMap](#openaerialmap) | OpenAerialMap | Openly licensed drone and aerial imagery |
 | [OSM Downloader](#osm-downloader) | OpenStreetMap / Overpass | Buildings, roads, amenities, waterways, land use, or custom OSM tags |
+| [IGN LiDAR HD](#ign-lidar-hd) | IGN (France) | LiDAR HD tile coverage and COPC point clouds |
+| [ArcGIS Portal](#arcgis-portal) | Esri | The content of your ArcGIS Online organization or Enterprise portal, after signing in |
 | [ArcGIS Hub](#arcgis-hub) | Esri | Public datasets published to ArcGIS Hub |
 | [Tennessee GIS](#tennessee-gis) | State of Tennessee | The geodata.tn.gov open GIS data portal |
 | [US Federal GIS](#us-federal-gis) | US federal agencies | The public GIS portals of 24 federal agencies, from the Census Bureau and NOAA to USGS and FEMA |
@@ -42,6 +46,7 @@ They are grouped together because they behave the same way, not because they sha
 | [Hugging Face](#hugging-face) | Hugging Face | Geospatial files in dataset repos — and uploads |
 | [Satellite Embeddings](#satellite-embeddings) | Source.coop, Tessera | Pre-computed foundation-model embeddings (AlphaEarth, Tessera, Earth Index, …) |
 | [Fields of the World](#fields-of-the-world) | Source.coop | Global agricultural field boundaries (2024, 2025) |
+| [Sentinel-2 Explorer](#sentinel-2-explorer) | Source.coop, AWS | Every Sentinel-2 L2A scene since 2015, searched from static GeoParquet |
 | [Ocean Data Platform](#ocean-data-platform) | HUB Ocean | Public ocean datasets: habitats, protected areas, fisheries, observations |
 | [GeoLens](#geolens) | your server | A self-hosted spatial catalog |
 
@@ -107,6 +112,10 @@ Searches The National Map for [3D Elevation Program](https://www.usgs.gov/3d-ele
 - Footprints render on the map and in the Layers panel; click one to select its result, or export them all to GeoJSON.
 - **Load on Map** streams a GeoTIFF DEM through GeoLibre's raster path; **Download** saves the source file (IMG products are download-only).
 
+## USGS LiDAR
+
+Clips a USGS [3D Elevation Program](https://www.usgs.gov/3d-elevation-program) LiDAR point cloud to an area of interest and downloads the result as COPC. While the panel is open, a 3DEP Elevation Index layer shows where point clouds exist, and the map switches to the Mercator projection (your previous projection is restored when you close it), since the streamed point cloud does not render on the globe.
+
 ## Vantor Open Data
 
 A STAC explorer for [Vantor's](https://www.vantor.com/) open disaster imagery releases.
@@ -119,6 +128,10 @@ A STAC explorer for [Vantor's](https://www.vantor.com/) open disaster imagery re
 ## Planet Open Data
 
 The same panel as [STAC Catalogs](#stac-catalogs), pinned to [Planet Labs PBC's](https://www.planet.com/disasterdata/) continuously updated disaster data releases so the catalog is already selected when it opens. Everything below about searching, filtering, and adding assets applies here too.
+
+## Portolan
+
+The same panel as [STAC Catalogs](#stac-catalogs), opened on the public [Portolan Registry](https://github.com/portolan-sdi/portolan-registry) of catalogs. Pick a registered catalog, or enter a publisher's catalog URL to connect to it directly, then add assets as in STAC Catalogs.
 
 ## Earthdata GIS
 
@@ -151,6 +164,42 @@ Downloads current OpenStreetMap vector data through the public Overpass API.
 Public Overpass instances are intended for bounded interactive queries. Zoom to the area you need before downloading. To prevent accidentally requesting an enormous result, **All tagged features** is limited to 0.25 square degrees and filtered downloads are limited to 4 square degrees.
 
 The panel identifies the source as © OpenStreetMap contributors and notes the Open Database License (ODbL); keep the required attribution when publishing derived maps or data.
+
+## IGN LiDAR HD
+
+Searches the tile coverage of France's [IGN LiDAR HD](https://geoservices.ign.fr/lidarhd) program and adds its COPC point clouds.
+
+- **Use map extent** and **Search tiles** list the LiDAR HD tiles in the area; their footprints are drawn as one entry in the Layers panel, and hovering a tile highlights its footprint.
+- **Add to map** streams a tile as a point cloud layer (MapLibre, Mapbox, or ArcGIS renderer), and **Download** saves the COPC file. Check several tiles and choose **Add selected to map** to add them in one go.
+- The data is © IGN, published under the Licence Ouverte 2.0.
+
+## ArcGIS Portal
+
+Browses the content of your own ArcGIS Online organization or ArcGIS Enterprise
+portal, including items shared only with your organization or your groups, and
+adds it to the map.
+
+- Sign in from the panel. Leave the portal URL blank for ArcGIS Online, or enter
+  your organization URL (`https://yourorg.maps.arcgis.com`) to get its sign-in
+  page (including SSO), or your Enterprise portal. You need an OAuth client ID
+  registered on the portal; the hosted web app fills one in for ArcGIS Online.
+  See [Signing in with ArcGIS](../arcgis-editing.md#signing-in-with-arcgis).
+- **Browse** picks the scope: **My content**, **My favorites**, **My groups**
+  (then choose the group), **My organization**, or **All of the portal**.
+  Narrow it with a keyword or an item type. Results are newest first, or by
+  relevance once you type a keyword.
+- **Add to map** loads feature, map, image, and vector tile services. A web map
+  adds its feature, map service, and image service layers. Once added, the
+  button reads **Remove from map** and removes them again; it turns back to
+  **Add to map** if you remove the layers elsewhere, such as in the Layers
+  panel. **Zoom** frames the item and **Details** opens its page on the portal.
+- The session is the same one Add Data → ArcGIS uses, so signing in or out in
+  either place applies to both. Layers you add renew their token while you stay
+  signed in. **Another portal** signs in to a second portal, and the portal
+  picker switches between them.
+- Your sign-in token is sent only to services on the portal's own host, or on
+  Esri's `arcgis.com` hosting for ArcGIS Online. A web map layer or item that
+  points anywhere else is loaded without it, so only public services there load.
 
 ## ArcGIS Hub
 
@@ -289,6 +338,24 @@ Browses [Fields of the World](https://fieldsofthe.world) (FTW), the global agric
 
 !!! note "Running the FTW model"
     The plugin shows and downloads the published global predictions. To run the FTW model on your own area and Sentinel-2 scenes, use the [FTW inference app](https://fieldsofthe.world/ftw-inference-app) or the [ftw-baselines](https://github.com/fieldsoftheworld/ftw-baselines) command-line tools, then add the result to GeoLibre. The data is licensed CC-BY-4.0.
+
+## Sentinel-2 Explorer
+
+Finds and views Sentinel-2 L2A imagery anywhere on Earth, the way Taylor Geospatial's [reference explorer](https://research.taylorgeospatial.org/s2-stac-geoparquet/) does. It reads the [s2-stac-geoparquet](https://github.com/taylor-geospatial/s2-stac-geoparquet) catalog on [Source Cooperative](https://source.coop/tge-labs/s2-stac-geoparquet), which republishes every scene Earth Search indexes as partitioned STAC-GeoParquet. There is no API or server behind it: each search is a set of HTTP range reads against static files, and each image streams from the scene's Cloud-Optimized GeoTIFFs on AWS.
+
+- Pick a **collection**: **Collection 1** (ESA's uniform reprocessing, from October 2015, the default) or the original **L2A** index (from November 2016).
+- Set the **From** and **To** dates. The map colors every MGRS tile by its statistics over that window, read from the catalog's small monthly stats files: the **clearest scene**'s cloud cover, the **scene count**, the **median cloud** cover, or the **coverage** (the most of the tile any one scene fills). Green is good and dark red is poor.
+- The **Max cloud %**, **Min coverage %**, and **Min scenes per tile** filters grey out tiles that fail them. Max cloud and Min coverage also filter the scene list. **Show the tile grid** hides the grid without closing the panel.
+- **Click a tile** to search its scenes. The panel reads only the row groups of the window's GeoParquet parts that can hold the tile, usually a few hundred KB, and reports how many range reads it took. The scenes can be sorted by least cloud, most coverage, or newest, and hovering a scene outlines its footprint.
+- **Add scenes as** picks what **Add to map** streams:
+    - the **true color** (TCI) image, or any **single band** (B01 to B12, B8A, AOT, WVP, the SCL scene classification, and for Collection 1 the cloud and snow probability masks), added as a COG layer and restyled in the Style panel like any raster;
+    - a **composite** of several band files: **false color infrared** (B08, B04, B03), **agriculture** (B11, B08, B02), or **short-wave infrared** (B12, B8A, B04), or an **index**: **NDVI** (B08/B04) or **NDWI** (B03/B08) on a diverging ramp. Each map tile reads the bands' windows straight from their COGs at the matching overview, warps them from UTM, and paints them in the browser, so 10 m and 20 m bands combine at full resolution. Reflectance is corrected for the 1000 offset of processing baseline 04.00 and later. Composites need the MapLibre renderer.
+- Once a scene is on the map in the chosen display, its button reads **Remove from map**; removing the layer in the Layers panel turns it back into **Add to map**. All of these layers are saved with the project. The selected tile is left unfilled so the scene shows through.
+- **Download** lists the scene's files (TCI, every band, SCL, and the Collection 1 masks). Each opens the Cloud-Optimized GeoTIFF in your browser (the system browser on desktop), which saves it.
+- **About this explorer** at the top of the panel collapses to save space.
+
+!!! note "Data and license"
+    The imagery is Copernicus Sentinel-2 data processed by ESA, indexed by Element 84's Earth Search, and hosted on the AWS Registry of Open Data. The catalog is published by Taylor Geospatial under CC-BY-4.0.
 
 ## Ocean Data Platform
 

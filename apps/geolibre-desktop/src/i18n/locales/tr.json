@@ -69,7 +69,6 @@
     "recent": "Son Açılanlar",
     "databases": "Veritabanları",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "Yeni veritabanı bağlantısı",
     "searchPlaceholder": "Veri kaynaklarında ara",
     "empty": "Henüz kayıtlı servis veya son açılan proje yok.",
     "emptyGroup": "Boş",
@@ -7554,7 +7553,7 @@
       "markerShape": "İşaretçi şekli",
       "markerColor": "İşaretçi rengi",
       "markerSize": "İşaretçi boyutu (px)",
-      "markerSvg": "İşaretçi SVG",
+      "markerSvg": "İşaretçi görüntüsü",
       "markerShapes": {
         "circle": "Daire",
         "square": "Kare",
@@ -7563,7 +7562,7 @@
         "star": "Yıldız",
         "cross": "Artı",
         "pin": "İğne",
-        "custom": "Özel SVG"
+        "custom": "Özel görüntü"
       },
       "fillPatterns": {
         "none": "Yok (düz dolgu)",

@@ -15,10 +15,15 @@ import {
   startMartinServer,
   stopMartinServer,
 } from "../../../../lib/martin";
-import { postgisFeatureKeys, registerPostgisConnection } from "../../../../lib/postgis-connections";
-import { postgisTableKey, postgisTableLabel } from "../../../../lib/postgis-table-selection";
+import { registerPostgisConnection } from "../../../../lib/postgis-connections";
+import {
+  databaseFeatureKeys,
+  databaseTableKey,
+  databaseTableLabel,
+  uniqueDatabaseTables,
+} from "../../../../lib/database-tables";
 import { IS_MAS_BUILD } from "../../../../lib/build-flags";
-import { startGeoLibreSidecar } from "../../../../lib/sidecar";
+import { ignoreSidecarStartError, startGeoLibreSidecar } from "../../../../lib/sidecar";
 import { isDesktopRuntime } from "../../../../lib/is-mobile";
 import {
   createBaseLayer,
@@ -150,13 +155,10 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
       }
       const connectionString = postgresConnectionString.trim();
       setPostgisStatus(t("addData.postgres.statusListingTables"));
-      try {
-        // Best-effort: the sidecar may already be running (or be started
-        // externally in dev); a failed start still lets the list call try.
-        await startGeoLibreSidecar();
-      } catch {
-        // Ignored: the status check below surfaces the real error.
-      }
+      // Best-effort: the sidecar may already be running (or be started
+      // externally in dev); the status check below surfaces a missing runtime.
+      // Only a stale sidecar from an earlier session is surfaced from here.
+      await startGeoLibreSidecar().catch(ignoreSidecarStartError);
       // Check the runtime first so a missing psycopg reads as "install the
       // postgis extra", not as a generic connection failure (mirrors how the
       // other optional engines gate their dialogs on a *Status call).
@@ -188,7 +190,7 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
           )
         : undefined;
       const defaultTable = desiredTable ?? tables.find((table) => table.primary_key);
-      setSelectedTableKey(defaultTable ? postgisTableKey(defaultTable) : "");
+      setSelectedTableKey(defaultTable ? databaseTableKey(defaultTable) : "");
       setSelectedGeometryColumn(defaultTable?.geometry_column ?? "");
       // Consumed once: a later reconnect on the same connection must not undo a
       // manual table pick by re-applying the originally-clicked table.
@@ -196,7 +198,7 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
       setPostgisStatus(
         tables.length > 0
           ? t("addData.postgres.statusTablesFound", {
-              count: new Set(tables.map(postgisTableKey)).size,
+              count: new Set(tables.map(databaseTableKey)).size,
             })
           : t("addData.postgres.statusNoTables"),
       );
@@ -359,7 +361,7 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
   const addEditableTable = async (tableKey: string) => {
     const table = postgisTables.find(
       (candidate) =>
-        postgisTableKey(candidate) === tableKey &&
+        databaseTableKey(candidate) === tableKey &&
         candidate.geometry_column === selectedGeometryColumn,
     );
     if (!table) {
@@ -397,7 +399,7 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
           postgisConnectionLabel: savedPostgresConnectionLabel(connectionString),
           // Persisted with the project so the deletion-scoping baseline
           // survives a reload (keys are not credentials).
-          postgisBaselineKeys: postgisFeatureKeys(result.geojson),
+          postgisBaselineKeys: databaseFeatureKeys(result.geojson),
         },
         { geojson: result.geojson },
       ),
@@ -427,17 +429,9 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
     await addMartinSource(martin.selectedSourceId);
   });
 
-  const uniquePostgisTables = (() => {
-    const seen = new Set<string>();
-    return postgisTables.filter((table) => {
-      const key = postgisTableKey(table);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  })();
+  const uniquePostgisTables = uniqueDatabaseTables(postgisTables);
   const selectedTableGeometries = postgisTables.filter(
-    (table) => postgisTableKey(table) === selectedTableKey,
+    (table) => databaseTableKey(table) === selectedTableKey,
   );
 
   return (
@@ -594,14 +588,14 @@ export function PostgresSource({ initialPostgres }: PostgresSourceProps) {
                 const tableKey = event.target.value;
                 setSelectedTableKey(tableKey);
                 setSelectedGeometryColumn(
-                  postgisTables.find((table) => postgisTableKey(table) === tableKey)
+                  postgisTables.find((table) => databaseTableKey(table) === tableKey)
                     ?.geometry_column ?? "",
                 );
               }}
             >
               {uniquePostgisTables.map((table) => {
-                const key = postgisTableKey(table);
-                const label = postgisTableLabel(table);
+                const key = databaseTableKey(table);
+                const label = databaseTableLabel(table);
                 // Tables without a usable key stay visible (so the user sees
                 // why they are missing) but cannot be picked: this mode exists
                 // to save edits back, which needs a primary key.

@@ -1,9 +1,10 @@
 // @refresh reset
-import { useAppStore } from "@geolibre/core";
+import { shouldZoomToNewLayers, useAppStore } from "@geolibre/core";
 import type { MapDiagnosticEvent, MapEngine } from "@geolibre/map";
 import { MapCanvas, rendererCapabilities } from "@geolibre/map";
 import { useTranslation } from "react-i18next";
 import {
+  addLidarLayerFromBytes,
   addRasterToMap,
   getGeometryEditTargetLayerId,
   openRasterLayerPanel,
@@ -41,6 +42,7 @@ import {
 } from "../../hooks/usePlugins";
 import type { DataUrlLoadState } from "../../hooks/useDataUrlLoader";
 import { wikipediaLang } from "../../lib/knowledge";
+import { lidarOutputForMap } from "../../lib/lidar-export";
 import { useLineOfSightTool } from "../../lib/line-of-sight-store";
 import { projectUrlFromLocation } from "../../lib/project-url";
 import { useEmbedBridge } from "../../hooks/useEmbedBridge";
@@ -92,6 +94,7 @@ import {
   useDiagnosticsSnapshot,
 } from "../../lib/diagnostics";
 import { createLayerFailureNotifier } from "../../lib/layer-failure-notifier";
+import { mapDiagnosticLevel } from "../../lib/map-error-notification";
 import { useCredentialStorageStatus } from "../../lib/credential-store";
 import { SectionErrorBoundary, SilentErrorBoundary } from "../common/error-boundaries";
 import { AttributeTable } from "../panels/AttributeTable";
@@ -149,6 +152,7 @@ import { useCollabShareLinkAutoOpen } from "../../hooks/desktop-shell/useCollabS
 import { useDataUrlFit } from "../../hooks/desktop-shell/useDataUrlFit";
 import { useDropStatus } from "../../hooks/desktop-shell/useDropStatus";
 import { useUrlLoadErrorNotices } from "../../hooks/desktop-shell/useUrlLoadErrorNotices";
+import { useWebglContextLossNotice } from "../../hooks/desktop-shell/useWebglContextLossNotice";
 import { useFileDrop } from "../../hooks/desktop-shell/useFileDrop";
 import { useKnowledgeCard } from "../../hooks/desktop-shell/useKnowledgeCard";
 import { useLayerEditActions } from "../../hooks/desktop-shell/useLayerEditActions";
@@ -315,6 +319,8 @@ export function DesktopShell({
   const [mapReadyGeneration, setMapReadyGeneration] = useState(0);
   const { clearDropMessageLater, setCrsWarning, setDropError, setDropMessage } = useDropStatus();
   useUrlLoadErrorNotices(projectUrlLoadState?.error, dataUrlLoadState?.error);
+  const mapAreaRef = useRef<HTMLElement>(null);
+  useWebglContextLossNotice(mapAreaRef);
   const credentialStorageError = useCredentialStorageStatus((s) => s.error);
   const credentialStorageRevision = useCredentialStorageStatus((s) => s.revision);
   // A new failure bumps the revision, which re-shows a dismissed warning.
@@ -511,7 +517,7 @@ export function DesktopShell({
     (event: MapDiagnosticEvent) => {
       const record = appendDiagnostic({
         category: "map",
-        level: "error",
+        level: mapDiagnosticLevel(event),
         message: event.message,
         detail: event.detail,
         source: event.source,
@@ -736,6 +742,7 @@ export function DesktopShell({
           </>
         )}
         <main
+          ref={mapAreaRef}
           // `isolate` creates a stacking context so map-panel z-indexes (up to 10000) stay below body-portaled dialogs. See #451.
           className={`relative isolate min-w-0 flex-1 overflow-hidden ${
             layoutOptions.compact ? "min-h-0" : "min-h-72 md:min-h-0"
@@ -1093,7 +1100,7 @@ export function DesktopShell({
           label="Attribute table"
           displayName={t("shell.section.attributeTable")}
         >
-          <AttributeTable mapControllerRef={mapControllerRef} />
+          <AttributeTable mapControllerRef={mapControllerRef} refresh={layerRefresh} />
         </SectionErrorBoundary>
       ) : null}
       {layoutOptions.attributePanelVisible ? (
@@ -1168,7 +1175,7 @@ export function DesktopShell({
         restoreError={projectHistory.restoreError}
         onRestore={projectHistory.restore}
         onRestoreLayer={projectHistory.restoreLayer}
-        getCurrentProject={projectHistory.currentProject}
+        getCurrentProjectContent={projectHistory.currentProjectContent}
       />
       <ProjectRecoveryDialog
         snapshot={projectHistory.recoverySnapshot}
@@ -1208,6 +1215,26 @@ export function DesktopShell({
               await addRasterToMap(createAppAPI(mapControllerRef), file, {
                 name,
               });
+            }}
+            onAddLidar={async (bytes, name, fileName) => {
+              try {
+                const cloud = await lidarOutputForMap(bytes, fileName);
+                const id = await addLidarLayerFromBytes(
+                  createAppAPI(mapControllerRef),
+                  cloud.bytes,
+                  {
+                    name,
+                    fileName: cloud.fileName,
+                    fit: shouldZoomToNewLayers(),
+                  },
+                );
+                return id !== null;
+              } catch (error) {
+                // Too large to convert, or unreadable by the viewer: the dialog
+                // downloads the output instead.
+                console.warn("[lidar] could not add tool output to the map", error);
+                return false;
+              }
             }}
           />
         </Suspense>

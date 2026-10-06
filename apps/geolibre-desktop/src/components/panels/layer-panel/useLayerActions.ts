@@ -53,6 +53,7 @@ import {
   type QuickBufferPreset,
 } from "../../../lib/quick-analysis";
 import { layerParquetKeyValueMetadata } from "../../../lib/parquet-kv-metadata";
+import { exportLidarLayer, type LidarExportFormat } from "../../../lib/lidar-export";
 import { exportRasterLayer } from "../../../lib/raster-export";
 import type { ExtrusionModelFormat } from "../../../lib/extrusion-model";
 import {
@@ -74,16 +75,9 @@ import {
 } from "../../../lib/tauri-io";
 import { startGeoLibreSidecar } from "../../../lib/sidecar";
 import { importedStyleErrorMessage, importedStyleNote } from "../../../lib/style-import-note";
-import {
-  postgisBaselineKeys,
-  postgisFeatureKeys,
-  resolvePostgisConnection,
-} from "../../../lib/postgis-connections";
-import {
-  MssqlReconnectRequiredError,
-  mssqlBaselineKeys,
-  withMssqlSession,
-} from "../../../lib/mssql-sessions";
+import { resolvePostgisConnection } from "../../../lib/postgis-connections";
+import { databaseBaselineKeys, databaseFeatureKeys } from "../../../lib/database-tables";
+import { MssqlReconnectRequiredError, withMssqlSession } from "../../../lib/mssql-sessions";
 import {
   mssqlWritePayload,
   reconcileMssqlWritebackMetadata,
@@ -143,6 +137,7 @@ export function useLayerActions({
   // vector-control materialize cannot create a duplicate library entry.
   const savingToLibraryIdsRef = useRef(new Set<string>());
   const savingMssqlEditsIdsRef = useRef(new Set<string>());
+  const lidarExportsInFlightRef = useRef(new Set<string>());
 
   // Quick analysis (#1523): run an existing vector tool over a whole layer from
   // its actions menu, with defaults filled in. No new algorithms — each entry
@@ -789,7 +784,7 @@ export function useLayerActions({
       const isMssql = isMssqlEditableLayer(layer);
       // Captured once, from the click-time layer, before any await: retries and
       // store updates during the round trip must not change which rows may be deleted.
-      const mssqlBaseline = isMssql ? mssqlBaselineKeys(layer) : undefined;
+      const mssqlBaseline = isMssql ? databaseBaselineKeys(layer, "mssqlBaselineKeys") : undefined;
       const isCurrentMssqlRequest = () => {
         const state = useAppStore.getState();
         const current = state.layers.find((candidate) => candidate.id === layer.id);
@@ -1009,7 +1004,7 @@ export function useLayerActions({
             // save cannot sweep away rows inserted concurrently elsewhere.
             // The baseline lives on the layer metadata, so it survives a
             // project reload.
-            baseline_keys: postgisBaselineKeys(layer),
+            baseline_keys: databaseBaselineKeys(layer, "postgisBaselineKeys"),
             // Resolved, not `layer.capabilities`: the sidecar reads an omitted
             // flag as allowed, so a partial override has to be filled in from
             // the same inferred defaults the UI gated on, or the two can
@@ -1057,7 +1052,7 @@ export function useLayerActions({
             metadata: {
               ...currentMetadata,
               featureCount: fresh.feature_count,
-              postgisBaselineKeys: postgisFeatureKeys(fresh.geojson),
+              postgisBaselineKeys: databaseFeatureKeys(fresh.geojson),
             },
           });
           message = t("layers.saveEditsPostgisSuccess", {
@@ -1188,6 +1183,46 @@ export function useLayerActions({
     [clearRefreshStatusTimer, scheduleStatusClear, setRefreshStatuses, t],
   );
 
+  const handleExportLidarLayer = useCallback(
+    async (layer: GeoLibreLayer, format: LidarExportFormat) => {
+      // One export per layer at a time: a second would refetch and reconvert
+      // the cloud, and either finishing would clear the other's status note.
+      if (lidarExportsInFlightRef.current.has(layer.id)) return;
+      lidarExportsInFlightRef.current.add(layer.id);
+      clearRefreshStatusTimer(layer.id);
+      // Reading a remote cloud and converting it can take a while.
+      setRefreshStatuses((current) => ({
+        ...current,
+        [layer.id]: { type: "refreshing", message: t("layers.exportLidarRunning") },
+      }));
+      try {
+        const savedPath = await exportLidarLayer(layer, format, sanitizeExportFileName(layer.name));
+        if (savedPath === null) {
+          // The user cancelled the save dialog: clear the running note.
+          setRefreshStatuses((current) => {
+            const { [layer.id]: _cleared, ...rest } = current;
+            return rest;
+          });
+          return;
+        }
+        setRefreshStatuses((current) => ({
+          ...current,
+          [layer.id]: { type: "success", message: t("layers.exportLidarSuccess") },
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t("layers.exportLidarError");
+        setRefreshStatuses((current) => ({
+          ...current,
+          [layer.id]: { type: "error", message },
+        }));
+      } finally {
+        lidarExportsInFlightRef.current.delete(layer.id);
+      }
+      scheduleStatusClear(layer.id);
+    },
+    [clearRefreshStatusTimer, scheduleStatusClear, setRefreshStatuses, t],
+  );
+
   return {
     quickBufferPresets,
     formatQuickDistance,
@@ -1208,6 +1243,7 @@ export function useLayerActions({
     handleBindTemporalLayer,
     handleUnbindTimeSlider,
     handleExportRasterLayer,
+    handleExportLidarLayer,
   };
 }
 

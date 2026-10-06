@@ -67,7 +67,6 @@
     "recent": "最近使用したプロジェクト",
     "databases": "データベース",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "新しいデータベース接続",
     "searchPlaceholder": "データソースを検索",
     "empty": "保存済みのサービスや最近使用したプロジェクトはまだありません。",
     "emptyGroup": "空",
@@ -7466,7 +7465,7 @@
       "markerShape": "マーカーの形状",
       "markerColor": "マーカーの色",
       "markerSize": "マーカーサイズ (px)",
-      "markerSvg": "マーカーSVG",
+      "markerSvg": "マーカー画像",
       "markerShapes": {
         "circle": "円",
         "square": "四角",
@@ -7475,7 +7474,7 @@
         "star": "星",
         "cross": "十字",
         "pin": "ピン",
-        "custom": "カスタムSVG"
+        "custom": "カスタム画像"
       },
       "fillPatterns": {
         "none": "なし (べた塗り)",

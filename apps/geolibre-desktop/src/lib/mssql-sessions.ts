@@ -1,4 +1,3 @@
-import type { GeoLibreLayer } from "@geolibre/core";
 import {
   connectMssql,
   disconnectMssql,
@@ -6,7 +5,7 @@ import {
   type ConnectMssqlRequest,
   type MssqlAuthMethod,
 } from "@geolibre/processing";
-import { startGeoLibreSidecar } from "./sidecar";
+import { ignoreSidecarStartError, startGeoLibreSidecar } from "./sidecar";
 import {
   readSavedMssqlConnections,
   savedMssqlSecret,
@@ -104,7 +103,7 @@ export async function openMssqlSession(
   return result.session_id;
 }
 async function restoreSession(profileId: string, client: MssqlSessionClient): Promise<string> {
-  await client.startSidecar().catch(() => {});
+  await client.startSidecar().catch(ignoreSidecarStartError);
   const profile = readSavedMssqlConnections().find((item) => item.id === profileId);
   if (!profile) throw new MssqlReconnectRequiredError("Reconnect to SQL Server in Add Data.");
   const secret = resolveMssqlSecret(profileId, {});
@@ -190,14 +189,6 @@ export function forgetMssqlProfile(
 ): MssqlConnectionProfile[] {
   discardMssqlProfileSession(profileId, client);
   return forgetMssqlConnection(profileId);
-}
-export function mssqlBaselineKeys(layer: GeoLibreLayer): Array<string | number> | undefined {
-  const keys = layer.metadata?.mssqlBaselineKeys;
-  return Array.isArray(keys)
-    ? keys.filter(
-        (key): key is string | number => typeof key === "string" || typeof key === "number",
-      )
-    : undefined;
 }
 export function resetMssqlSessions(): void {
   sessionByProfileId.clear();

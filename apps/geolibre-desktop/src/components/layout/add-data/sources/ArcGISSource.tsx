@@ -1,7 +1,5 @@
 import {
   addArcGISLayer,
-  ARCGIS_IMAGE_SERVICE_URL_ERROR,
-  ARCGIS_MAP_SERVICE_URL_ERROR,
   fetchArcGISImageServiceRasterFunctions,
   fetchArcGISMapServiceSublayers,
   type ArcGISImageServiceRasterFunction,
@@ -15,10 +13,17 @@ import { ListTree, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createAppAPI } from "../../../../hooks/usePlugins";
+import {
+  arcgisAuthErrorKey,
+  arcgisLayerTokenProvider,
+  getArcGISAccessToken,
+  supportsArcGISSignIn,
+} from "../../../../lib/arcgis-oauth";
 import { serviceRequestErrorMessage } from "../helpers";
 import { DEFAULT_ARCGIS_URLS } from "../constants";
 import { ServiceLibrarySection } from "../ServiceLibrarySection";
 import { serviceFieldBoolean, serviceFieldString, type ServiceFields } from "../service-library";
+import { ArcGISSignInSection } from "./ArcGISSignInSection";
 import { AddDataSourceForm, SampleDataSelect, useAddDataSource } from "../shared";
 
 /**
@@ -42,6 +47,8 @@ const URL_PLACEHOLDER_KEYS = {
   "map-service": "addData.arcgis.mapServiceUrlPlaceholder",
   "image-service": "addData.arcgis.imageServiceUrlPlaceholder",
 } as const satisfies Record<ArcGISLayerType, string>;
+
+type ArcGISAuthMode = "none" | "sign-in" | "token";
 
 const CUSTOM_RENDERING_RULE_OPTION = "custom-rendering-rule";
 const RASTER_FUNCTION_OPTION_PREFIX = "raster-function:";
@@ -74,6 +81,7 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
   const [arcgisItemId, setArcgisItemId] = useState("");
   const [arcgisPortalUrl, setArcgisPortalUrl] = useState("");
   const [arcgisAccessToken, setArcgisAccessToken] = useState("");
+  const [authMode, setAuthMode] = useState<ArcGISAuthMode>("none");
   const [arcgisPageSize, setArcgisPageSize] = useState("");
   const [arcgisMaxFeatures, setArcgisMaxFeatures] = useState("");
   const [arcgisSublayers, setArcgisSublayers] = useState("");
@@ -100,6 +108,19 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
     },
     [],
   );
+
+  /** The token for the next request: a fresh sign-in token, the typed token, or none. */
+  const resolveToken = async (): Promise<string | undefined> => {
+    if (authMode === "sign-in") {
+      try {
+        return await getArcGISAccessToken(arcgisPortalUrl);
+      } catch (error) {
+        const key = arcgisAuthErrorKey(error);
+        throw key ? new Error(t(key), { cause: error }) : error;
+      }
+    }
+    return authMode === "token" ? arcgisAccessToken.trim() || undefined : undefined;
+  };
 
   const resetSublayerCatalog = (clearSelection = false) => {
     retrieveAbortRef.current?.abort();
@@ -130,7 +151,7 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
     try {
       const layers = await fetchArcGISMapServiceSublayers({
         url: arcgisUrl,
-        token: arcgisAccessToken || undefined,
+        token: await resolveToken(),
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
@@ -140,13 +161,8 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
     } catch (error) {
       if (controller.signal.aborted) return;
       setSublayerOptions([]);
-      setSublayerError(
-        error instanceof Error && error.message === ARCGIS_MAP_SERVICE_URL_ERROR
-          ? t("addData.arcgis.errorMapServiceUrl")
-          : error instanceof Error
-            ? error.message
-            : t("addData.arcgis.retrieveError"),
-      );
+      // Plugin errors (LocalizedError) arrive already translated.
+      setSublayerError(error instanceof Error ? error.message : t("addData.arcgis.retrieveError"));
     } finally {
       if (!controller.signal.aborted) setIsRetrievingSublayers(false);
     }
@@ -161,7 +177,7 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
     try {
       const rasterFunctions = await fetchArcGISImageServiceRasterFunctions({
         url: arcgisUrl,
-        token: arcgisAccessToken || undefined,
+        token: await resolveToken(),
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
@@ -174,11 +190,7 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
       if (controller.signal.aborted) return;
       setRasterFunctionOptions([]);
       setRasterFunctionError(
-        error instanceof Error && error.message === ARCGIS_IMAGE_SERVICE_URL_ERROR
-          ? t("addData.arcgis.errorImageServiceUrl")
-          : error instanceof Error
-            ? error.message
-            : t("addData.arcgis.retrieveRasterFunctionsError"),
+        error instanceof Error ? error.message : t("addData.arcgis.retrieveRasterFunctionsError"),
       );
     } finally {
       if (!controller.signal.aborted) setIsRetrievingRasterFunctions(false);
@@ -237,6 +249,7 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
     // Tokens are never saved, so clear any token typed for a previous entry to
     // avoid sending it to the newly selected service's endpoint.
     setArcgisAccessToken("");
+    setAuthMode("none");
   };
 
   const handleArcgisLayerTypeChange = (nextLayerType: ArcGISLayerType) => {
@@ -274,7 +287,12 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
         sourceType: arcgisSourceType,
         splitSublayers,
         sublayers: arcgisSublayers.trim() || undefined,
-        token: arcgisAccessToken.trim() || undefined,
+        token: await resolveToken(),
+        // Sign-in tokens expire in about 30 minutes; later requests renew them.
+        tokenProvider:
+          authMode === "sign-in"
+            ? arcgisLayerTokenProvider(arcgisPortalUrl, (key) => t(key))
+            : undefined,
         url: arcgisUrl.trim() || undefined,
       });
     } catch (error) {
@@ -380,20 +398,41 @@ export function ArcGISSource({ initialUrl = "" }: { initialUrl?: string }) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="arcgis-access-token">{t("addData.arcgis.accessToken")}</Label>
-          <Input
-            id="arcgis-access-token"
-            type="password"
-            autoComplete="off"
-            placeholder={t("addData.common.optional")}
-            value={arcgisAccessToken}
+          <Label htmlFor="arcgis-auth-mode">{t("addData.arcgis.authentication")}</Label>
+          <Select
+            id="arcgis-auth-mode"
+            value={authMode}
             onChange={(event) => {
               resetSublayerCatalog();
               resetRasterFunctionCatalog();
-              setArcgisAccessToken(event.target.value);
+              setAuthMode(event.target.value as ArcGISAuthMode);
             }}
-          />
+          >
+            <option value="none">{t("addData.arcgis.authNone")}</option>
+            {supportsArcGISSignIn() ? (
+              <option value="sign-in">{t("addData.arcgis.authSignIn")}</option>
+            ) : null}
+            <option value="token">{t("addData.arcgis.authToken")}</option>
+          </Select>
         </div>
+        {authMode === "sign-in" ? <ArcGISSignInSection portalUrl={arcgisPortalUrl} /> : null}
+        {authMode === "token" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="arcgis-access-token">{t("addData.arcgis.accessToken")}</Label>
+            <Input
+              id="arcgis-access-token"
+              type="password"
+              autoComplete="off"
+              placeholder={t("addData.common.optional")}
+              value={arcgisAccessToken}
+              onChange={(event) => {
+                resetSublayerCatalog();
+                resetRasterFunctionCatalog();
+                setArcgisAccessToken(event.target.value);
+              }}
+            />
+          </div>
+        ) : null}
         {arcgisLayerType === "feature" ? (
           <div className="space-y-1.5">
             <div className="grid gap-3 sm:grid-cols-2">

@@ -1,11 +1,11 @@
 import {
+  cascadeLayerJoinRefresh,
   createProjectLayerSerializationCache,
   parseProject,
   registerProjectRestoreHistory,
   serializeProjectWithLayerCache,
   serializeProjectWithLayerCacheAsync,
   useAppStore,
-  type GeoLibreProject,
 } from "@geolibre/core";
 import type { MapEngine } from "@geolibre/map";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
@@ -36,7 +36,10 @@ import {
   SESSION_HEARTBEAT_MS,
   shouldOfferProjectRecovery,
 } from "../lib/project-history-session";
-import { restoreLayerFromSnapshot } from "../lib/snapshot-layer-restore";
+import {
+  restoreLayerFromSnapshot,
+  restoreLayerReferencesFromSnapshot,
+} from "../lib/snapshot-layer-restore";
 import { notify } from "../lib/notify";
 const AUTOSAVE_DELAY_MS = 3_000;
 
@@ -250,16 +253,16 @@ export function useProjectHistory(mapControllerRef: RefObject<MapEngine | null>)
   );
 
   /**
-   * The current project in the shape a snapshot is read back in (serialized
-   * and re-parsed), so comparing it with a snapshot reports real edits rather
-   * than in-memory versus on-disk shape differences.
+   * The current project serialized the way a snapshot is stored, so comparing
+   * it with a snapshot (after both are parsed the same way, in the compare
+   * worker) reports real edits rather than in-memory versus on-disk shape
+   * differences. Reuses the autosave layer cache, so unchanged layers are not
+   * re-serialized.
    */
-  const currentProject = useCallback((): GeoLibreProject => {
+  const currentProjectContent = useCallback((): string => {
     const layerSources = useAppStore.getState().layers;
     const snapshot = buildProjectSnapshot(mapControllerRef);
-    return parseProject(
-      serializeProjectWithLayerCache(snapshot, layerSources, layerCacheRef.current),
-    );
+    return serializeProjectWithLayerCache(snapshot, layerSources, layerCacheRef.current);
   }, [mapControllerRef]);
 
   /**
@@ -271,14 +274,26 @@ export function useProjectHistory(mapControllerRef: RefObject<MapEngine | null>)
       setRestoreError(null);
       try {
         const state = useAppStore.getState();
-        const layers = restoreLayerFromSnapshot(
+        const project = parseProject(snapshot.content);
+        const restoredLayers = restoreLayerFromSnapshot(
           { layers: state.layers, layerGroups: state.layerGroups },
-          parseProject(snapshot.content),
+          project,
           layerId,
         );
-        if (!layers) throw new Error(`Snapshot has no layer ${layerId}.`);
+        if (!restoredLayers) throw new Error(`Snapshot has no layer ${layerId}.`);
+        // Layers that join on the restored one re-derive their columns from it,
+        // as they do after any change to a join source.
+        const layers = cascadeLayerJoinRefresh(restoredLayers, layerId);
+        // Deleting a layer scrubbed every reference to it, so a re-inserted
+        // layer also gets back its widgets, comments, legend entries,
+        // story-map rows, pane visibility and Print Layout blocks. A layer
+        // that still exists kept its references; leave those as they are.
+        const wasDeleted = !state.layers.some((layer) => layer.id === layerId);
+        const references = wasDeleted
+          ? restoreLayerReferencesFromSnapshot(state, project, layerId)
+          : {};
         // One store write, so one Undo step reverts the whole restore.
-        useAppStore.setState({ layers, isDirty: true });
+        useAppStore.setState({ layers, ...references, isDirty: true });
         return true;
       } catch (error) {
         console.error("Could not restore the layer from the snapshot.", error);
@@ -310,7 +325,7 @@ export function useProjectHistory(mapControllerRef: RefObject<MapEngine | null>)
     refresh,
     restore,
     restoreLayer,
-    currentProject,
+    currentProjectContent,
     discardRecovery,
     dismissRecovery,
     clearRestoreError,

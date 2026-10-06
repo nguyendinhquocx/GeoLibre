@@ -26,6 +26,7 @@ import {
   type ArcGISRecordIdentity,
 } from "./arcgis-quantized";
 import { getGeometryEditTargetLayerId } from "./maplibre-geo-editor";
+import { LocalizedError, localizedMessage } from "../localized-error";
 
 let arcGISFetchOverride: typeof globalThis.fetch | null = null;
 
@@ -80,6 +81,8 @@ export const ARCGIS_MAP_SERVICE_SOURCE_KIND = "arcgis-map-service";
 export const ARCGIS_IMAGE_SERVICE_SOURCE_KIND = "arcgis-image-service";
 export const ARCGIS_MAP_SERVICE_URL_ERROR = "Enter an ArcGIS MapServer URL.";
 export const ARCGIS_IMAGE_SERVICE_URL_ERROR = "Enter an ArcGIS ImageServer URL.";
+// Catalog namespace for the errors this module raises for the UI.
+const ERROR_KEY = "arcgisService.errors";
 
 /** Tile size requested from `/export` and `/exportImage`, in pixels. */
 const ARCGIS_EXPORT_TILE_SIZE = 256;
@@ -187,6 +190,13 @@ export interface ArcGISLayerOptions {
    */
   splitSublayers?: boolean;
   token?: string;
+  /**
+   * Supplies a current access token for this layer's later requests (edits,
+   * refresh), for a connection whose token expires and is renewed, such as an
+   * ArcGIS sign-in. Kept in memory with the layer's edit options and never
+   * persisted. Once set it replaces `token` entirely, so a provider that returns nothing (signed out) sends no token.
+   */
+  tokenProvider?: () => Promise<string | undefined>;
   url?: string;
   /**
    * Whether to fit the map to the layer once its bounds are known. Defaults to
@@ -486,11 +496,9 @@ async function createArcGISHostedLayer(
 function getArcGISInput(options: ArcGISLayerOptions): string {
   const input = options.sourceType === "url" ? options.url?.trim() : options.itemId?.trim();
   if (!input) {
-    throw new Error(
-      options.sourceType === "url"
-        ? "Enter an ArcGIS service URL."
-        : "Enter an ArcGIS portal item ID.",
-    );
+    throw options.sourceType === "url"
+      ? new LocalizedError(`${ERROR_KEY}.enterServiceUrl`, "Enter an ArcGIS service URL.")
+      : new LocalizedError(`${ERROR_KEY}.enterPortalItemId`, "Enter an ArcGIS portal item ID.");
   }
   return input;
 }
@@ -567,7 +575,10 @@ async function addArcGISFeatureLayerAsGeoJson(
       : await resolvePortalFeatureLayerUrl(input, options, undefined);
   const layerInfo = await fetchArcGISJson<ArcGISFeatureLayerInfo>(layerUrl, options, undefined);
   if (!layerInfo.geometryType) {
-    throw new Error("The ArcGIS feature layer metadata is missing geometry type.");
+    throw new LocalizedError(
+      `${ERROR_KEY}.missingGeometryType`,
+      "The ArcGIS feature layer metadata is missing geometry type.",
+    );
   }
 
   // The token is kept out of the persisted refresh URL so it is never written
@@ -597,6 +608,9 @@ async function addArcGISFeatureLayerAsGeoJson(
   // Add the layer before downloading features. Large services must not hold the
   // Add Data dialog open while hundreds of thousands of records are fetched.
   const id = store.addGeoJsonLayer(name, initialData, refreshUrl, options.beforeLayerId ?? null);
+  // A viewport-loaded layer only ever holds the features in view, so Zoom to
+  // layer needs the service's extent stored on the layer to frame the data.
+  const bounds = arcgisExtentToBounds(layerInfo.extent);
 
   store.updateLayer(id, {
     source: {
@@ -616,6 +630,7 @@ async function addArcGISFeatureLayerAsGeoJson(
     metadata: {
       sourceKind: ARCGIS_FEATURE_SOURCE_KIND,
       viewportLoading: Boolean(map),
+      ...(bounds ? { bounds } : {}),
       arcgisEditBaseline: structuredClone(initialData),
       arcgisEditInfo: layerInfo,
     },
@@ -623,9 +638,29 @@ async function addArcGISFeatureLayerAsGeoJson(
 
   arcgisEditOptions.set(id, { ...options, onProgress: undefined });
   ensureArcGISFeatureLoaderCleanup();
-  const bounds = arcgisExtentToBounds(layerInfo.extent);
-  if (bounds && (options.zoomTo ?? shouldZoomToNewLayers())) app.fitBounds?.(bounds);
+  const zoomTo = options.zoomTo ?? shouldZoomToNewLayers();
+  if (bounds && zoomTo) app.fitBounds?.(bounds);
   if (map) startArcGISViewportLoader(id, map, queryUrl, options, () => Promise.resolve(layerInfo));
+  // Only a viewport-loaded layer reads its stored extent; one holding the
+  // complete download frames its features.
+  if (map && !bounds) {
+    // An extent in a local projected CRS is projected by the server. That is a
+    // round trip the layer does not wait on: the extent is patched in when it
+    // lands, if the layer is still there.
+    const viewAtAdd = viewportKey(map);
+    void fetchProjectedArcGISFeatureLayerBounds(queryUrl, options).then((projected) => {
+      const layer = useAppStore.getState().layers.find((item) => item.id === id);
+      if (!projected || !layer || layer.metadata.bounds) return;
+      useAppStore.getState().updateLayer(id, {
+        metadata: { ...layer.metadata, bounds: projected },
+      });
+      // A late fit must not pull the camera away from where the user went
+      // while the request was out.
+      // A map torn down meanwhile has no key, so it is never fitted.
+      const viewNow = viewportKey(map);
+      if (zoomTo && viewNow !== null && viewNow === viewAtAdd) app.fitBounds?.(projected);
+    });
+  }
   return id;
 }
 
@@ -715,10 +750,14 @@ function startArcGISViewportLoader(
       }
       const data = identifyArcGISFeatures(collect(), layerInfo.objectIdField);
       const current = useAppStore.getState().layers.find((l) => l.id === layerId)!;
+      // Backfill the extent Zoom to layer reads for a layer restored from a
+      // project saved before it was stored.
+      const bounds = current.metadata.bounds ?? arcgisExtentToBounds(layerInfo.extent);
       useAppStore.getState().updateLayer(layerId, {
         geojson: data,
         metadata: {
           ...current.metadata,
+          ...(bounds ? { bounds } : {}),
           arcgisEditBaseline: structuredClone(data),
           // Generalized shapes must never be written back over the originals.
           arcgisEditInfo: generalization ? { ...layerInfo, geometryGeneralized: true } : layerInfo,
@@ -734,20 +773,25 @@ function startArcGISViewportLoader(
     // publish over an already-reported error with nothing to clear it.
     const walk = async (envelope: ArcGISEnvelope, index: number, attempt = 0): Promise<void> => {
       try {
-        const data = await fetchArcGISFeaturePages(queryUrl, queryOptions, layerInfo, {
-          params: {
-            geometry: envelope.join(","),
-            geometryType: "esriGeometryEnvelope",
-            inSR: "4326",
-            spatialRel: "esriSpatialRelIntersects",
-            ...generalization,
+        const data = await fetchArcGISFeaturePages(
+          queryUrl,
+          await withFreshArcGISToken(queryOptions),
+          layerInfo,
+          {
+            params: {
+              geometry: envelope.join(","),
+              geometryType: "esriGeometryEnvelope",
+              inSR: "4326",
+              spatialRel: "esriSpatialRelIntersects",
+              ...generalization,
+            },
+            signal: controller.signal,
+            onPage: (features) => {
+              pages[index] = features;
+              publish();
+            },
           },
-          signal: controller.signal,
-          onPage: (features) => {
-            pages[index] = features;
-            publish();
-          },
-        });
+        );
         pages[index] = data.features;
         publish();
       } catch (error) {
@@ -1351,6 +1395,59 @@ async function addArcGISImageServiceLayer(
 }
 
 /**
+ * The map's visible extent as a string, for telling whether the view moved.
+ *
+ * @returns The key, or null when the map can no longer answer (torn down).
+ */
+function viewportKey(map: maplibregl.Map): string | null {
+  try {
+    // engine-audit-allow: getMap-bounds — compared only against the same map's
+    // own earlier value; the caller holds a MapLibre map (viewport loading).
+    const bounds = map.getBounds();
+    return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
+  } catch {
+    return null;
+  }
+}
+
+/** How long the server gets to project a feature layer's extent. */
+const ARCGIS_EXTENT_TIMEOUT_MS = 10_000;
+
+/**
+ * Ask the server for a FeatureServer layer's extent in WGS84.
+ *
+ * For a layer published in a local projected CRS, whose metadata `extent`
+ * {@link arcgisExtentToBounds} cannot convert (see
+ * {@link resolveArcGISMapServiceBounds}). Failure, including a timeout, is not
+ * fatal: the layer simply has no stored extent.
+ *
+ * @param queryUrl - The layer's `/query` endpoint.
+ * @param options - The ArcGIS layer options, for the token.
+ * @returns `[west, south, east, north]`, or undefined when unknown.
+ */
+async function fetchProjectedArcGISFeatureLayerBounds(
+  queryUrl: string,
+  options: ArcGISLayerOptions,
+): Promise<[number, number, number, number] | undefined> {
+  try {
+    const result = await fetchArcGISJson<{ extent?: ArcGISExtent }>(
+      appendArcGISParams(queryUrl, {
+        f: "json",
+        outSR: "4326",
+        returnExtentOnly: "true",
+        where: "1=1",
+      }),
+      options,
+      undefined,
+      AbortSignal.timeout(ARCGIS_EXTENT_TIMEOUT_MS),
+    );
+    return arcgisExtentToBounds(result.extent);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Ask selected MapServer layers to project their data extents to WGS84.
  *
  * ArcGIS services frequently publish in a local projected CRS whose WKID is
@@ -1433,14 +1530,17 @@ function resolveArcGISImageServiceUrl(
   const url = trimTrailingSlash(stripArcGISUrlQuery(input));
   if (layerType === "image-service") {
     if (!/\/ImageServer$/i.test(url)) {
-      throw new Error(ARCGIS_IMAGE_SERVICE_URL_ERROR);
+      throw new LocalizedError(
+        "addData.arcgis.errorImageServiceUrl",
+        ARCGIS_IMAGE_SERVICE_URL_ERROR,
+      );
     }
     return { serviceUrl: url };
   }
 
   const match = /^(.*\/MapServer)(?:\/(\d+))?$/i.exec(url);
   if (!match) {
-    throw new Error(ARCGIS_MAP_SERVICE_URL_ERROR);
+    throw new LocalizedError("addData.arcgis.errorMapServiceUrl", ARCGIS_MAP_SERVICE_URL_ERROR);
   }
   return { serviceUrl: match[1], ...(match[2] ? { sublayers: match[2] } : {}) };
 }
@@ -1452,7 +1552,10 @@ async function resolvePortalArcGISImageServiceUrl(
 ): Promise<{ serviceUrl: string; sublayers?: string }> {
   const itemInfo = await fetchArcGISPortalItemInfo(itemId, options, undefined);
   if (!itemInfo.url) {
-    throw new Error("The ArcGIS portal item does not include a service URL.");
+    throw new LocalizedError(
+      `${ERROR_KEY}.itemWithoutServiceUrl`,
+      "The ArcGIS portal item does not include a service URL.",
+    );
   }
   return resolveArcGISImageServiceUrl(itemInfo.url, options.layerType);
 }
@@ -1479,7 +1582,10 @@ function normalizeArcGISSublayers(value: string | undefined): string | undefined
   if (!trimmed) return undefined;
   const ids = trimmed.split(/[\s,]+/).filter(Boolean);
   if (!ids.every((id) => /^\d+$/.test(id))) {
-    throw new Error("Enter the MapServer sublayers as numeric ids, for example 0,2,5.");
+    throw new LocalizedError(
+      `${ERROR_KEY}.sublayerIds`,
+      "Enter the MapServer sublayers as numeric ids, for example 0,2,5.",
+    );
   }
   return ids.join(",");
 }
@@ -1499,7 +1605,10 @@ function validArcGISRenderingRule(value: string | undefined): string | undefined
   try {
     JSON.parse(trimmed);
   } catch {
-    throw new Error('The rendering rule must be JSON, for example {"rasterFunction":"Hillshade"}.');
+    throw new LocalizedError(
+      `${ERROR_KEY}.renderingRuleJson`,
+      'The rendering rule must be JSON, for example {"rasterFunction":"Hillshade"}.',
+    );
   }
   return trimmed;
 }
@@ -1639,13 +1748,13 @@ export async function refreshArcGISFeatureLayer(params: {
   if (params.layerId && arcGISLayerHasPendingEdits(params.layerId))
     return currentArcGISLayerGeojson(params.layerId);
   const queryUrl = trimTrailingSlash(params.queryUrl).replace(/\/query$/i, "");
-  const options: ArcGISLayerOptions = {
+  const options: ArcGISLayerOptions = await withFreshArcGISToken({
     ...(params.layerId ? arcgisEditOptions.get(params.layerId) : undefined),
     layerType: "feature",
     maxFeatures: params.maxFeatures,
     pageSize: params.pageSize,
     sourceType: "url",
-  };
+  });
   // Re-read the metadata rather than trusting a stored copy: `maxRecordCount`
   // and the paging capabilities are the service's to change between sessions.
   const layerInfo = await fetchArcGISJson<ArcGISFeatureLayerInfo>(queryUrl, options, undefined);
@@ -2148,9 +2257,14 @@ async function fetchArcGISGeoJson(
 > {
   const response = await arcGISFetch(url, { signal });
   if (!response.ok) {
-    throw new ArcGISQueryError(`ArcGIS feature query failed with ${response.status}.`, {
-      status: response.status,
-    });
+    throw new ArcGISQueryError(
+      localizedMessage(
+        `${ERROR_KEY}.featureQueryFailed`,
+        "ArcGIS feature query failed with {{status}}.",
+        { status: response.status },
+      ),
+      { status: response.status },
+    );
   }
   // ArcGIS Enterprise (and services behind a WAF) can answer 200 with an HTML
   // login/redirect page when a token is missing or expired. Read the body as
@@ -2158,7 +2272,8 @@ async function fetchArcGISGeoJson(
   // `SyntaxError: Unexpected token '<'` from JSON.parse.
   const text = await response.text();
   if (/^\s*</.test(text)) {
-    throw new Error(
+    throw new LocalizedError(
+      `${ERROR_KEY}.htmlInsteadOfGeojson`,
       "The ArcGIS service returned HTML instead of GeoJSON (the layer may require a token or sign-in).",
     );
   }
@@ -2170,7 +2285,10 @@ async function fetchArcGISGeoJson(
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error("The ArcGIS feature layer did not return GeoJSON features.");
+    throw new LocalizedError(
+      `${ERROR_KEY}.notGeojson`,
+      "The ArcGIS feature layer did not return GeoJSON features.",
+    );
   }
   if (json.error) {
     throw new ArcGISQueryError(arcgisErrorMessage(json.error, "ArcGIS feature query failed."), {
@@ -2183,8 +2301,24 @@ async function fetchArcGISGeoJson(
     const decoded = decodeArcGISQuantizedFeatures(json);
     return { ...decoded, firstRecordSignature: arcgisRecordSignature(decoded.firstRecord) };
   }
+  // An envelope that matches nothing answers the quantized query with a bare
+  // Esri JSON feature set: no `transform`, no `geometryType`, and no features.
+  // The default world view splits at the antimeridian, so one of its two
+  // envelopes over the US routinely comes back like this (issue #2948).
+  if (json.type === undefined && Array.isArray(json.features) && json.features.length === 0) {
+    return {
+      type: "FeatureCollection",
+      features: [],
+      exceededTransferLimit: Boolean(json.exceededTransferLimit),
+      recordCount: 0,
+      firstRecordSignature: null,
+    };
+  }
   if (json.type !== "FeatureCollection" || !Array.isArray(json.features)) {
-    throw new Error("The ArcGIS feature layer did not return GeoJSON features.");
+    throw new LocalizedError(
+      `${ERROR_KEY}.notGeojson`,
+      "The ArcGIS feature layer did not return GeoJSON features.",
+    );
   }
   const features = json.features.map(repairArcGISNestedPolygonRings);
   // ArcGIS caps a single query at the service's maxRecordCount and flags the
@@ -2390,15 +2524,23 @@ async function resolveFeatureLayerUrl(
 ): Promise<string> {
   if (/\/FeatureServer\/\d+\/?$/i.test(input)) return trimTrailingSlash(input);
   if (!/\/FeatureServer\/?$/i.test(input)) {
-    throw new Error("Enter an ArcGIS FeatureServer layer URL.", { cause });
+    throw new LocalizedError(
+      `${ERROR_KEY}.enterFeatureServerLayerUrl`,
+      "Enter an ArcGIS FeatureServer layer URL.",
+      undefined,
+      { cause },
+    );
   }
 
   const serviceInfo = await fetchArcGISJson<ArcGISFeatureServiceInfo>(input, options, cause);
   const layerId = serviceInfo.layers?.find((layer) => !layer.subLayerIds)?.id;
   if (layerId == null) {
-    throw new Error("The ArcGIS feature service does not list a feature layer.", {
-      cause,
-    });
+    throw new LocalizedError(
+      `${ERROR_KEY}.noFeatureLayer`,
+      "The ArcGIS feature service does not list a feature layer.",
+      undefined,
+      { cause },
+    );
   }
   return `${trimTrailingSlash(input)}/${layerId}`;
 }
@@ -2410,9 +2552,12 @@ async function resolvePortalFeatureLayerUrl(
 ): Promise<string> {
   const itemInfo = await fetchArcGISPortalItemInfo(itemId, options, cause);
   if (!itemInfo.url) {
-    throw new Error("The ArcGIS portal item does not include a service URL.", {
-      cause,
-    });
+    throw new LocalizedError(
+      `${ERROR_KEY}.itemWithoutServiceUrl`,
+      "The ArcGIS portal item does not include a service URL.",
+      undefined,
+      { cause },
+    );
   }
   // City and county ArcGIS Server sites often register a map service layer as
   // a "Feature Service" item. Such a layer answers the same `/query` requests
@@ -2434,9 +2579,12 @@ async function fetchArcGISPortalItemInfo(
   });
   const response = await arcGISFetch(itemUrl);
   if (!response.ok) {
-    throw new Error(`ArcGIS portal item request failed with ${response.status}.`, {
-      cause,
-    });
+    throw new LocalizedError(
+      `${ERROR_KEY}.portalItemRequestFailed`,
+      "ArcGIS portal item request failed with {{status}}.",
+      { status: response.status },
+      { cause },
+    );
   }
   return (await response.json()) as ArcGISPortalItemInfo;
 }
@@ -2455,9 +2603,12 @@ async function fetchArcGISJson<T>(
     { signal },
   );
   if (!response.ok) {
-    throw new Error(`ArcGIS service request failed with ${response.status}.`, {
-      cause,
-    });
+    throw new LocalizedError(
+      `${ERROR_KEY}.serviceRequestFailed`,
+      "ArcGIS service request failed with {{status}}.",
+      { status: response.status },
+      { cause },
+    );
   }
   const json = (await response.json()) as T & {
     error?: ArcGISErrorEnvelope;
@@ -2524,6 +2675,26 @@ function arcgisPortalItemExtentToBounds(
   return isGeoBounds([west, south, east, north]) ? [west, south, east, north] : undefined;
 }
 
+/**
+ * Geographic CRSs numbered outside the ranges {@link isGeographicWkid} covers:
+ * JGD2011, GDA2020, NAD83(2011), NAD83(PA11) and NAD83(MA11).
+ */
+const ARCGIS_GEOGRAPHIC_WKIDS = new Set([6668, 7844, 6318, 6322, 6325]);
+
+/**
+ * Whether a WKID names a geographic (degree-based) CRS: the EPSG geographic
+ * block (4000-4999), Esri's geographic ranges, or a later EPSG geographic code.
+ * Any of them frames the map as-is, within metres of WGS84.
+ */
+function isGeographicWkid(wkid: number): boolean {
+  return (
+    (wkid >= 4000 && wkid <= 4999) ||
+    (wkid >= 37001 && wkid <= 37299) ||
+    (wkid >= 104000 && wkid <= 104999) ||
+    ARCGIS_GEOGRAPHIC_WKIDS.has(wkid)
+  );
+}
+
 function arcgisExtentToBounds(
   extent: ArcGISExtent | undefined,
 ): [number, number, number, number] | undefined {
@@ -2537,6 +2708,9 @@ function arcgisExtentToBounds(
       mercatorYToLatitude(extent.ymax),
     ];
   }
+  // A projected extent near its false origin can fall inside the degree range,
+  // so a known non-geographic WKID is never read as longitude and latitude.
+  if (wkid !== undefined && !isGeographicWkid(wkid)) return undefined;
 
   const bounds: [number, number, number, number] = [
     extent.xmin,
@@ -2658,6 +2832,14 @@ function createArcGISLayerId(): string {
 
 // Credentials belong to the live connection, never to project metadata.
 const arcgisEditOptions = new Map<string, ArcGISLayerOptions>();
+
+/** Resolve `options.tokenProvider` into `options.token`. */
+async function withFreshArcGISToken(options: ArcGISLayerOptions): Promise<ArcGISLayerOptions> {
+  if (!options.tokenProvider) return options;
+  // With a provider the token is the provider's alone: after a sign-out the
+  // initial token must not keep being sent while the service still accepts it.
+  return { ...options, token: await options.tokenProvider() };
+}
 const arcgisSavingLayers = new Set<string>();
 
 function arcGISBaseline(layer: GeoLibreLayer): FeatureCollection | undefined {
@@ -2700,38 +2882,58 @@ export function arcGISLayerHasPendingEdits(layerId: string): boolean {
 export async function saveArcGISLayerEdits(
   layerId: string,
 ): Promise<{ inserted: number; updated: number; deleted: number; errors: string[] }> {
-  if (arcgisSavingLayers.has(layerId)) throw new Error("An ArcGIS save is already in progress.");
-  if (getGeometryEditTargetLayerId() === layerId)
-    throw new Error("Finish editing geometry before saving to ArcGIS.");
+  if (arcgisSavingLayers.has(layerId)) {
+    throw new LocalizedError(
+      `${ERROR_KEY}.saveInProgress`,
+      "An ArcGIS save is already in progress.",
+    );
+  }
+  if (getGeometryEditTargetLayerId() === layerId) {
+    throw new LocalizedError(
+      `${ERROR_KEY}.finishGeometryEdit`,
+      "Finish editing geometry before saving to ArcGIS.",
+    );
+  }
   const layer = useAppStore.getState().layers.find((l) => l.id === layerId);
   if (!layer || !isArcGISWritableLayer(layer) || !layer.geojson)
-    throw new Error(
+    throw new LocalizedError(
+      `${ERROR_KEY}.noWritableConnection`,
       "This layer has no writable ArcGIS connection. Add the service again to establish one.",
     );
   if (layer.metadata.arcgisSaveUncertain === true)
-    throw new Error(
+    throw new LocalizedError(
+      `${ERROR_KEY}.saveUnconfirmed`,
       "The previous save could not be confirmed. Check the service and add the layer again before saving to avoid duplicate inserts.",
     );
   const queryUrl = layer.source.arcgisQueryUrl;
-  if (typeof queryUrl !== "string") throw new Error("Missing ArcGIS service URL.");
+  if (typeof queryUrl !== "string") {
+    throw new LocalizedError(`${ERROR_KEY}.missingServiceUrl`, "Missing ArcGIS service URL.");
+  }
   const layerUrl = trimTrailingSlash(queryUrl).replace(/\/query$/i, "");
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(layerUrl);
   } catch {
-    throw new Error(
+    throw new LocalizedError(
+      `${ERROR_KEY}.invalidServiceUrl`,
       "Invalid ArcGIS service URL. Add the service again with a valid Feature Service URL.",
     );
   }
-  if (parsedUrl.protocol !== "https:") throw new Error("ArcGIS writes require HTTPS.");
-  const options = arcgisEditOptions.get(layerId) ?? { layerType: "feature", sourceType: "url" };
+  if (parsedUrl.protocol !== "https:") {
+    throw new LocalizedError(`${ERROR_KEY}.writesRequireHttps`, "ArcGIS writes require HTTPS.");
+  }
   arcgisSavingLayers.add(layerId);
   // Abort a page walk started before the save; late pages also check the lock.
   arcgisFeatureLoaders.get(layerId)?.abort?.abort();
   try {
+    const options = await withFreshArcGISToken(
+      arcgisEditOptions.get(layerId) ?? { layerType: "feature", sourceType: "url" },
+    );
     const fetched = await fetchArcGISJson<ArcGISFeatureLayerInfo>(layerUrl, options, undefined);
     const current = useAppStore.getState().layers.find((l) => l.id === layerId);
-    if (!current?.geojson) throw new Error("ArcGIS layer was removed.");
+    if (!current?.geojson) {
+      throw new LocalizedError(`${ERROR_KEY}.layerRemoved`, "ArcGIS layer was removed.");
+    }
     // The service's metadata knows nothing of how the features were loaded, so
     // carry the generalized marker over from the layer: planning must refuse a
     // reshaped simplified geometry, and the metadata written after the save
@@ -2758,7 +2960,10 @@ export async function saveArcGISLayerEdits(
       (plan.updates.length && caps?.update === false) ||
       (plan.deletes.length && caps?.delete === false)
     )
-      throw new Error("Layer permissions do not allow the requested edits.");
+      throw new LocalizedError(
+        `${ERROR_KEY}.editsNotPermitted`,
+        "Layer permissions do not allow the requested edits.",
+      );
     const result = { inserted: 0, updated: 0, deleted: 0, errors: [] as string[] };
     if (!plan.adds.length && !plan.updates.length && !plan.deletes.length) return result;
     const body = new URLSearchParams({
@@ -2812,20 +3017,28 @@ export async function saveArcGISLayerEdits(
           (entries?.length ?? 0) !== count ||
           entries?.some((e) => typeof e.success !== "boolean")
         )
-          throw new Error("Incomplete ArcGIS edit results.");
+          throw new LocalizedError(
+            `${ERROR_KEY}.incompleteEditResults`,
+            "Incomplete ArcGIS edit results.",
+          );
       }
       if (
         response.addResults?.some(
           (e) => e.success && (!Number.isSafeInteger(e.objectId) || e.objectId! < 0),
         )
       )
-        throw new Error("ArcGIS did not return inserted object IDs.");
+        throw new LocalizedError(
+          `${ERROR_KEY}.noInsertedObjectIds`,
+          "ArcGIS did not return inserted object IDs.",
+        );
     } catch (error) {
       const uncertain = useAppStore.getState().layers.find((l) => l.id === layerId)
         ?.metadata.arcgisSaveUncertain;
       if (uncertain)
-        throw new Error(
+        throw new LocalizedError(
+          `${ERROR_KEY}.saveNotConfirmed`,
           "ArcGIS save could not be confirmed. Check the service and add the layer again before saving to avoid duplicate inserts.",
+          undefined,
           { cause: error },
         );
       throw error;

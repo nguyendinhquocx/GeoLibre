@@ -477,7 +477,7 @@ rejects the preflight a JSON `POST /search` needs, so the library's own
 goes out as a `GET /search`, and the collection list falls back to the bundled
 `planetary-computer-collections.json` when the live one cannot be read. The
 subclass reuses the private `fetch` / `abortController` fields, and
-`maplibre-gl-planetary-computer.ts` swaps it into the control's private
+`maplibre-planetary-computer.ts` swaps it into the control's private
 `_stacClient` field before the control is added (collections load in `onAdd`).
 
 If upstream renames those fields, loads collections in its constructor, or adds
@@ -821,6 +821,29 @@ in the CI "Lint and type check" job) fails when a package declared in both
 manifests, in any dependency section, carries different ranges. Fix it by
 giving both the same range and refreshing `package-lock.json` in the same PR.
 
+### One shared `three`
+
+The app and its three-based plugins (`maplibre-gl-3d-tiles`, `maplibre-gl-splat`,
+`maplibre-gl-components`, deck.gl mesh layers) share one copy of three. Two things
+keep it that way:
+
+- The upstream opengeos packages keep three out of their ES `dist` and declare it as
+  a peer (`maplibre-gl-splat` >= 0.2.9, `maplibre-gl-3d-tiles` >= 0.5.11,
+  `maplibre-gl-components` >= 0.31.2). An older release inlines its own three again.
+- The root `package.json` `overrides` pins `three` to the app's range, because
+  `@dvt3d/maplibre-three-plugin` declares `three: ^0.178.0` (0.178.x only) and would
+  otherwise pull in a second, older copy. `mapillary-js` also declares an old three,
+  but its `dist` bundles its own copy and never imports it, so the override is
+  harmless there. Opening the Mapillary viewer still loads that bundled 0.134 copy,
+  the only remaining "Multiple instances of Three.js" warning.
+
+When bumping `three`, move the override with the app's range, then run
+`npm ls three`: it should list one version. If npm keeps a stale nested copy,
+follow the lockfile clean-up in
+[Dependency updates and the audit allowlist](#dependency-updates-and-the-audit-allowlist).
+Spark's `dist` embeds three inside its sort worker's source string. That copy runs in
+a Web Worker and never registers as a second main-thread instance.
+
 ## Adding a blend mode
 
 **Do not add a blend mode without checking it in the browser.** MapLibre's blend
@@ -1049,8 +1072,9 @@ the bundle report makes a second copy easy to spot.
 
 Dependencies are watched two ways: **Dependabot** (`.github/dependabot.yml`) opens
 grouped weekly update PRs for npm, pip (backend + `python/`), cargo, and Actions,
-and the CI **`audit` job** runs `npm run audit:ci` (blocking) plus a non-blocking
-`pip-audit` of the resolved backend environment.
+and CI runs `npm run audit:ci` (blocking, in the "Lint and type check" job) plus a
+non-blocking `pip-audit` of the resolved backend environment (in the "Backend
+tests" job).
 
 `audit:ci` is `scripts/audit-check.mjs`, a thin wrapper over `npm audit
 --omit=dev` that still fails on every high/critical advisory _except_ the ones

@@ -178,8 +178,14 @@ black, flickers, or 3D layers are missing:
 - **Look in Diagnostics** for `map` and `console` entries that name the failing
   layer or shader.
 
-GeoLibre does not detect a lost or missing WebGL context on its own, so a page
-reload is the way to recover after the graphics driver resets.
+When a map canvas loses its WebGL context (the graphics driver resets, or the
+GPU runs out of memory), GeoLibre shows a **The map lost its graphics context**
+warning with a **Reload** button. If the map does not recover on its own, reload
+the page. The warning goes away on its own if the context comes back.
+Save your project before reloading if you can. A recent autosave may also be in
+[project history](projects.md#project-history-and-crash-recovery), but autosave
+runs on a delay and skips projects above the snapshot size limit, so it may not
+have your latest changes.
 
 ### Linux desktop app
 
@@ -196,8 +202,9 @@ that is the first thing to try if the window is blank or the map flickers. See
 If a plugin's **Activate** action seems to do nothing, first rule out the
 stale-cache cause above with a hard refresh or a private window. Once you are on
 the latest build, an active plugin shows a checkmark next to its entry in the
-**Plugins** menu, and map controls (when the plugin provides one) appear at the
-configured corner of the map. A greyed-out plugin does not support the current
+**Plugins** menu, and its panel opens in the side panel, or, for the few
+plugins with an on-map control (such as GeoEditor or Annotations), the control
+appears at the configured corner of the map. A greyed-out plugin does not support the current
 rendering engine; hover over it for the reason. A plugin that fails to start is
 reported as a notification and in Diagnostics.
 

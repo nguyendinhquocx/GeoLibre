@@ -44,6 +44,7 @@ import {
   maplibreOpenAerialMapPlugin,
   maplibreOsmDownloaderPlugin,
   maplibreIgnLidarHdPlugin,
+  maplibreArcGisPortalPlugin,
   maplibreArcGisHubPlugin,
   maplibreTennesseeGisPlugin,
   maplibreUsFederalGisPlugin,
@@ -58,6 +59,8 @@ import {
   maplibreHuggingFacePlugin,
   maplibreSatelliteEmbeddingsPlugin,
   maplibreFieldsOfTheWorldPlugin,
+  maplibreSentinel2ExplorerPlugin,
+  registerSentinel2CompositeProtocol,
   maplibreOceanDataPlatformPlugin,
   maplibreGeoLensPlugin,
   setGeoLensDefaultServerUrl,
@@ -119,6 +122,8 @@ import {
   openFloatingPanel,
   closeFloatingPanel,
   getOpenFloatingPanels,
+  setArcGisPortalAuth,
+  setLocalizedErrorTranslator,
 } from "@geolibre/plugins";
 import { getDeploymentPolicy, readDeploymentEnvValue } from "../lib/deployment-env";
 import type { DeploymentPolicy } from "../lib/deployment-policy";
@@ -146,6 +151,16 @@ import {
   PluginPolicyError,
 } from "../lib/external-plugins";
 import { appendDiagnostic } from "../lib/diagnostics";
+import {
+  arcgisAuthErrorKey,
+  arcgisLayerTokenProvider,
+  getArcGISAccessToken,
+  loadArcGISClientId,
+  normalizeArcGISPortalUrl,
+  signInToArcGIS,
+  signOutOfArcGIS,
+  useArcGISAuthStore,
+} from "../lib/arcgis-oauth";
 import { pickZarrDirectory, zarrDirectoryPickerSupported } from "../lib/zarr-directory-picker";
 import { partitionProjectPluginManifestUrls } from "../lib/plugin-trust";
 import i18n from "../i18n";
@@ -201,6 +216,7 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreOpenAerialMapPlugin,
   maplibreOsmDownloaderPlugin,
   maplibreIgnLidarHdPlugin,
+  maplibreArcGisPortalPlugin,
   maplibreArcGisHubPlugin,
   maplibreTennesseeGisPlugin,
   maplibreUsFederalGisPlugin,
@@ -215,6 +231,7 @@ const BUILT_IN_PLUGINS: GeoLibrePlugin[] = [
   maplibreHuggingFacePlugin,
   maplibreSatelliteEmbeddingsPlugin,
   maplibreFieldsOfTheWorldPlugin,
+  maplibreSentinel2ExplorerPlugin,
   maplibreOceanDataPlatformPlugin,
   maplibreGeoLensPlugin,
   maplibreStreetViewPlugin,
@@ -373,6 +390,35 @@ setPointCloudLabelWriter({
   },
 });
 
+// The ArcGIS Portal plugin browses a signed-in portal. Sign-in lives in the
+// app (lib/arcgis-oauth.ts), so the plugin shares the session Add Data uses.
+setArcGisPortalAuth({
+  connections: () => Object.values(useArcGISAuthStore.getState().connections),
+  subscribe: (listener) =>
+    useArcGISAuthStore.subscribe((state, previous) => {
+      if (state.connections !== previous.connections) listener();
+    }),
+  normalizePortalUrl: normalizeArcGISPortalUrl,
+  clientId: loadArcGISClientId,
+  signIn: (portalUrl, clientId) => signInToArcGIS({ portalUrl, clientId }),
+  signOut: (portal) => signOutOfArcGIS(portal),
+  getToken: getArcGISAccessToken,
+  tokenProvider: (portal) => arcgisLayerTokenProvider(portal, (key) => i18n.t(key)),
+  errorMessage: (error) => {
+    const key = arcgisAuthErrorKey(error);
+    return key ? i18n.t(key) : error instanceof Error ? error.message : String(error);
+  },
+});
+
+// Errors that plugin library code throws for the UI (LocalizedError) translate
+// themselves through this when they are raised.
+setLocalizedErrorTranslator((key, defaultValue, params) =>
+  (i18n.t as (key: string, options: Record<string, unknown>) => string)(key, {
+    ...params,
+    defaultValue,
+  }),
+);
+
 // The Earthdata GIS plugin exports an ArcGIS service as a plain GeoTIFF but
 // cannot re-encode it: ArcGIS has no COG output (`format=cog` falls back to
 // PNG, and `format=tiff` returns a tiled file with no overviews), and the
@@ -407,6 +453,10 @@ setSatelliteEmbeddingsFileSaver((blob, { defaultName, extension, mimeType, descr
     mimeType,
   }),
 );
+
+// Sentinel-2 Explorer composites are tiles of a MapLibre protocol; register it
+// up front so a saved project's composite layers draw before the plugin opens.
+registerSentinel2CompositeProtocol();
 
 // The Fields of the World plugin saves tile GeoParquet and GeoJSON files the
 // same way.

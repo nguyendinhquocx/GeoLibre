@@ -9,7 +9,8 @@ import {
   type StoryChapterLocation,
   storyLocationView,
 } from "@geolibre/core";
-import type { Cartesian2, CesiumWidget, PointPrimitiveCollection } from "@cesium/engine";
+import type { Cartesian2 } from "@cesium/core";
+import type { CesiumTerrainProvider, CesiumWidget, PointPrimitiveCollection } from "@cesium/engine";
 import type { FeatureCollection, Point, Polygon } from "geojson";
 import type * as maplibregl from "maplibre-gl";
 import {
@@ -83,6 +84,7 @@ export const CESIUM_CAPABILITIES: MapEngineCapabilities = Object.freeze({
   screenOverlays: false,
   flatProjection: false,
   terrainSource: true,
+  ionTerrain: true,
   // Zarr cubes, KML/KMZ, CZML and ion assets load through the globe's own
   // imagery and data-source loaders.
   nativeZarr: true,
@@ -217,6 +219,10 @@ export interface CesiumSceneHandle {
 export interface CesiumEngineOptions {
   /** Whether this canvas has credentials for Cesium World Terrain. */
   worldTerrainAvailable?: boolean;
+  /** Runtime Ion token used for the selected terrain asset. */
+  ionToken?: string;
+  /** Project-selected Ion terrain asset, if any. */
+  terrainIonAssetId?: number | null;
   /**
    * Id of the `secondaryMapViews` record this globe draws, or `undefined` when
    * it *is* the primary map area. Decides which camera the engine publishes to
@@ -371,10 +377,12 @@ export class CesiumEngine implements MapEngine {
   private pendingProjection: MapProjection | null = null;
 
   private readonly worldTerrainAvailable: boolean;
+  private readonly ionToken: string | undefined;
   private terrainEnabled = false;
   private terrainRequest = 0;
   private terrainExaggeration = 1;
   private terrainProvider: TerrariumTerrainProvider | null = null;
+  private terrainIonAssetId: number | null;
   private cogTerrain: CogDemSourceRegistration | null = null;
   private cogTerrainUrl: string | null = null;
   private cogTerrainRequest = 0;
@@ -390,6 +398,8 @@ export class CesiumEngine implements MapEngine {
     this.viewer = viewer;
     this.viewId = options.viewId;
     this.worldTerrainAvailable = options.worldTerrainAvailable ?? true;
+    this.ionToken = options.ionToken?.trim() || undefined;
+    this.terrainIonAssetId = options.terrainIonAssetId ?? null;
     this.capabilities =
       options.viewId === undefined ? CESIUM_CAPABILITIES : CESIUM_PANE_CAPABILITIES;
     const onDiagnostic = options.onDiagnostic;
@@ -605,11 +615,11 @@ export class CesiumEngine implements MapEngine {
     });
   }
 
-  fitLayer(layer: GeoLibreLayer): void {
+  fitLayer(layer: GeoLibreLayer): boolean {
     const bounds = getLayerBounds(layer);
     if (bounds) {
       this.fitBounds(bounds);
-      return;
+      return true;
     }
     // An Ion asset, a tileset by URL, CZML and KML keep no bounds in the store:
     // their extent belongs to the Cesium object the sync loads. Hand the fit
@@ -617,6 +627,7 @@ export class CesiumEngine implements MapEngine {
     // loading — the sync flies as soon as it has one, and reports that flight
     // through `onFlyTo`.
     this.layerSync.zoomToLayer(layer.id);
+    return true;
   }
 
   readCameraAltitude(): number | null {
@@ -1317,8 +1328,13 @@ export class CesiumEngine implements MapEngine {
    * terrain correction to fix it. The interface form cannot express that (it
    * returns `boolean`), so the mount path calls this and the interface delegates
    * to it fire-and-forget.
+   *
+   * A saved Ion asset that fails to load (revoked, deleted, wrong account) falls
+   * back to World Terrain rather than leaving the globe with none. Callers that
+   * are switching the source themselves pass `false` so they see the failure
+   * and can keep the previous source.
    */
-  async enableWorldTerrain(): Promise<void> {
+  async enableWorldTerrain(fallbackFromIon = true): Promise<boolean> {
     this.terrainEnabled = true;
     const request = ++this.terrainRequest;
     try {
@@ -1329,18 +1345,61 @@ export class CesiumEngine implements MapEngine {
               this.cogTerrain?.renderTile,
               this.cogTerrain ? 22 : 15,
             ))
-          : await this.Cesium.createWorldTerrainAsync();
+          : this.terrainIonAssetId !== null
+            ? await this.loadIonTerrain(this.terrainIonAssetId).catch((error: unknown) => {
+                if (!fallbackFromIon) throw error;
+                return this.Cesium.createWorldTerrainAsync();
+              })
+            : await this.Cesium.createWorldTerrainAsync();
       const viewer = this.live();
       // The toggle may have been reversed, or the viewer destroyed, while the
       // provider loaded; applying it then would resurrect terrain the user just
       // turned off.
       if (viewer && this.terrainEnabled && request === this.terrainRequest) {
         viewer.terrainProvider = provider;
+        return true;
       }
+      return false;
     } catch {
       // Allow a subsequent enable to retry, without resetting a newer request.
       if (request === this.terrainRequest) this.terrainEnabled = false;
+      return false;
     }
+  }
+
+  /** Resolve the project-selected Ion terrain asset, using the configured token explicitly. */
+  private async loadIonTerrain(assetId: number): Promise<CesiumTerrainProvider> {
+    if (!this.ionToken) throw new Error("A Cesium Ion token is required for Ion terrain.");
+    const resource = await this.Cesium.IonResource.fromAssetId(assetId, {
+      accessToken: this.ionToken,
+    });
+    return this.Cesium.CesiumTerrainProvider.fromUrl(resource);
+  }
+
+  getTerrainIonAssetId(): number | null {
+    return this.terrainIonAssetId;
+  }
+
+  async setTerrainIonAssetId(assetId: number | null): Promise<boolean> {
+    if (assetId !== null && (!Number.isSafeInteger(assetId) || assetId <= 0 || !this.ionToken))
+      return false;
+    if (this.terrainIonAssetId === assetId) return true;
+    const previous = this.terrainIonAssetId;
+    this.terrainIonAssetId = assetId;
+    if (!this.terrainEnabled) {
+      this.terrainRequest++;
+      return true;
+    }
+    const before = this.terrainRequest;
+    const applied = await this.enableWorldTerrain(false);
+    // Roll back only a genuine load failure. A newer request (another asset, a
+    // COG switch, or terrain turned off) bumps `terrainRequest` past ours, and
+    // restoring `previous` then would override that newer state.
+    if (!applied && this.terrainRequest === before + 1 && this.terrainIonAssetId === assetId) {
+      this.terrainIonAssetId = previous;
+      if (this.live()) await this.enableWorldTerrain();
+    }
+    return applied;
   }
 
   getTerrainExaggeration(): number {
@@ -1364,6 +1423,12 @@ export class CesiumEngine implements MapEngine {
   async setTerrainCogSource(source: string | Blob | null, band = 1): Promise<boolean> {
     if (!this.live()) return false;
     const normalized = typeof source === "string" ? source.trim() || null : source;
+    if (this.cogTerrain === null && normalized === null) {
+      // Still supersede a COG that is opening, so it cannot land after this.
+      this.cogTerrainRequest++;
+      this.cogTerrainUrl = null;
+      return true;
+    }
     const request = ++this.cogTerrainRequest;
     let registration: CogDemSourceRegistration | null;
     try {
@@ -1379,10 +1444,24 @@ export class CesiumEngine implements MapEngine {
     this.terrainRequest++;
     const previousProvider = this.terrainProvider;
     const previousSource = this.cogTerrain;
+    const previousUrl = this.cogTerrainUrl;
     this.terrainProvider = null;
     this.cogTerrain = registration;
     this.cogTerrainUrl = typeof normalized === "string" ? normalized : null;
-    if (this.terrainEnabled) await this.enableWorldTerrain();
+    if (this.terrainEnabled) {
+      const before = this.terrainRequest;
+      const applied = await this.enableWorldTerrain(false);
+      // Clearing the COG falls back to Ion/World Terrain, which can fail to
+      // load. Keep the active COG source then instead of leaving no terrain.
+      if (!applied && this.terrainRequest === before + 1 && this.live()) {
+        registration?.dispose();
+        this.terrainProvider = previousProvider;
+        this.cogTerrain = previousSource;
+        this.cogTerrainUrl = previousUrl;
+        await this.enableWorldTerrain();
+        return false;
+      }
+    }
     previousProvider?.destroy();
     previousSource?.dispose();
     return true;

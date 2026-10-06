@@ -10,7 +10,7 @@ For vector layers the Style panel covers fill, stroke, points, labels, and 3D ex
 
 - **Fill**: fill color and fill opacity for polygons.
 - **Stroke**: line color and width for lines and polygon outlines.
-- **Points**: circle radius for point layers.
+- **Points**: circle radius for point layers, or **Use marker icon** to draw a marker instead: a built-in shape (circle, square, triangle, diamond, star, cross, or pin) with a color and size, or a **Custom image**. **Upload image…** accepts SVG, PNG, JPEG, or GIF; raster images draw as they are, so the marker color and per-class colors apply only to SVG markers.
 - **Labels**: text color, size, halo color, and halo width.
 - **3D extrusion**: turn polygons into extruded blocks, with a height field, height scale, base height, and color. Advanced expressions are available for both height and color.
 
@@ -44,10 +44,18 @@ Graduated and categorized styles share four more controls, and then list the gen
 
 - **Attribute** — the field the style reads.
 - **Classes** — 2 to 12 classes for a graduated style; 1 to 12 for a categorized one, plus an **All (n)** option that gives every distinct value its own colour.
-- **Scheme** — how the stops are chosen. Graduated offers **Equal interval**, **Quantile**, and **Natural breaks**; categorized offers **Most frequent**, **Alphabetical**, and **First values**.
+- **Scheme** — how the stops are chosen. Graduated offers **Equal interval**, **Quantile**, **Natural breaks**, **Standard deviation**, **Geometric interval**, and **Manual**; categorized offers **Most frequent**, **Alphabetical**, and **First values**.
 - **Colormap** — the named colour ramp the classes are drawn from.
 
 Nothing reaches the map until you click **Apply style type**, so you can adjust the classification and watch the stop list update first.
+
+The graduated schemes differ in where they put the class breaks:
+
+- **Standard deviation** centres classes one standard deviation wide on the mean, so it shows how far each feature is from average. An even class count puts a break on the mean; an odd count gives a middle class that straddles it. Breaks that would fall outside the data's range are dropped, so you can get fewer classes than you asked for. A diverging colormap suits it.
+- **Geometric interval** grows the breaks by a constant ratio from the smallest positive value to the maximum, which suits skewed data spanning orders of magnitude (population, income, concentrations). Zero and negative values fall into the first class; if no value is positive, it classifies by equal interval instead.
+- **Manual** is set for you as soon as you edit a class value, add a class, or remove one, so the method shown never claims to have produced breaks you typed. Choose it yourself to keep the current breaks while you edit them. Changing the class count, colormap, or attribute regenerates the breaks by equal interval.
+
+The map legend names the method under a graduated layer's field, for example "Quantile, 5 classes", so a reader of an exported or shared map can tell how the classes were built. A project saved before the **Manual** scheme existed keeps the method it was classified with even if its breaks were edited by hand afterwards; reapply the classification, or pick **Manual**, to correct the caption.
 
 ### Diagram symbology
 
@@ -114,6 +122,8 @@ The selected vector layer's **Layer actions → Styles** submenu imports and exp
 
 See [Managing Layers](layers.md#importing-and-exporting-styles) for the menu workflow and [Embedding & Sharing](embedding.md#open-remote-data) for the JSON conventions.
 
+To restyle many layers at once, **Project → Export → Export Layer Styles...** writes every layer's style to one file keyed by layer name, and **Project → Import → Import Layer Styles...** applies it to the layers whose names match. See [Projects](projects.md#layer-styles).
+
 !!! tip "Choropleth maps"
     To make a choropleth, select **Graduated**, pick a numeric attribute, choose a colormap, and click **Apply style type**. See the [Your First Map tutorial](../tutorials/first-map.md).
 
@@ -139,9 +149,11 @@ For raster layers the Style panel exposes image adjustments:
 - **Brightness** (minimum and maximum)
 - **Saturation**
 - **Contrast**
-- **Hue rotation** (in degrees)
+- **Hue Rotate** (in degrees)
 
 These let you tune the look of GeoTIFF, COG, and tile-based raster layers without changing the underlying data.
+
+A WMS layer also gets a **Legend** section. **Get legend** shows the service's legend image, from the capabilities `LegendURL` when one is advertised or a `GetLegendGraphic` request otherwise; if the service has none, you can enter a legend image URL instead. **Add to map** places the legend on the map in an HTML control.
 
 ### Raster symbology and histogram stretch
 

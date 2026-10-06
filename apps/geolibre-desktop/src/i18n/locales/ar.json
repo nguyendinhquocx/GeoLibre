@@ -77,7 +77,6 @@
     "recent": "الأخيرة",
     "databases": "قواعد البيانات",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "اتصال جديد بقاعدة بيانات",
     "searchPlaceholder": "البحث في مصادر البيانات",
     "empty": "لا توجد خدمات محفوظة أو مشاريع حديثة بعد.",
     "emptyGroup": "فارغ",
@@ -7905,7 +7904,7 @@
       "markerShape": "شكل العلامة",
       "markerColor": "لون العلامة",
       "markerSize": "حجم العلامة (بكسل)",
-      "markerSvg": "علامة SVG",
+      "markerSvg": "صورة العلامة",
       "markerShapes": {
         "circle": "دائرة",
         "square": "مربع",
@@ -7914,7 +7913,7 @@
         "star": "نجمة",
         "cross": "صليب",
         "pin": "دبوس",
-        "custom": "SVG مخصص"
+        "custom": "صورة مخصصة"
       },
       "fillPatterns": {
         "none": "بدون (تعبئة مصمتة)",

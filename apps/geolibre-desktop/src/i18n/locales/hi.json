@@ -69,7 +69,6 @@
     "recent": "हाल के",
     "databases": "डेटाबेस",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "नया डेटाबेस कनेक्शन",
     "searchPlaceholder": "डेटा स्रोत खोजें",
     "empty": "अभी तक कोई सहेजी गई सेवा या हाल का प्रोजेक्ट नहीं है।",
     "emptyGroup": "खाली",
@@ -7554,7 +7553,7 @@
       "markerShape": "मार्कर आकृति",
       "markerColor": "मार्कर रंग",
       "markerSize": "मार्कर आकार (px)",
-      "markerSvg": "मार्कर SVG",
+      "markerSvg": "मार्कर छवि",
       "markerShapes": {
         "circle": "वृत्त",
         "square": "वर्ग",
@@ -7563,7 +7562,7 @@
         "star": "तारा",
         "cross": "क्रॉस",
         "pin": "पिन",
-        "custom": "कस्टम SVG"
+        "custom": "कस्टम छवि"
       },
       "fillPatterns": {
         "none": "कोई नहीं (ठोस फ़िल)",

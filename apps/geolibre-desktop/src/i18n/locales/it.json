@@ -69,7 +69,6 @@
     "recent": "Recenti",
     "databases": "Database",
     "sqlServer": "SQL Server",
-    "newDatabaseConnection": "Nuova connessione al database",
     "searchPlaceholder": "Cerca sorgenti dati",
     "empty": "Nessun servizio salvato o progetto recente ancora.",
     "emptyGroup": "Vuoto",
@@ -7554,7 +7553,7 @@
       "markerShape": "Forma marcatore",
       "markerColor": "Colore marcatore",
       "markerSize": "Dimensione marcatore (px)",
-      "markerSvg": "SVG marcatore",
+      "markerSvg": "Immagine marcatore",
       "markerShapes": {
         "circle": "Cerchio",
         "square": "Quadrato",
@@ -7563,7 +7562,7 @@
         "star": "Stella",
         "cross": "Croce",
         "pin": "Segnaposto",
-        "custom": "SVG personalizzato"
+        "custom": "Immagine personalizzata"
       },
       "fillPatterns": {
         "none": "Nessuno (riempimento pieno)",
