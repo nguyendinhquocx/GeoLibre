@@ -1,4 +1,4 @@
-import { useAppStore } from "@geolibre/core";
+import { useAppStore, type GeoLibreLayer } from "@geolibre/core";
 import { SKETCHES_SOURCE_KIND } from "@geolibre/plugins/geo-editor-geometry";
 import type { GeoLibreSelection } from "@geolibre/plugins";
 
@@ -36,6 +36,30 @@ export function readPluginSelection(): GeoLibreSelection {
 }
 
 /**
+ * A layer's in-memory features as a deep copy, or throw `No layer with id "…"`.
+ * A layer that keeps no GeoJSON in the app (raster, tiles, remote vector
+ * sources) yields an empty array. Shared by the plugin API's `getLayerFeatures`
+ * and the embed API's verb of the same name, so both answer identically.
+ */
+export function readLayerFeatures(layers: GeoLibreLayer[], layerId: string) {
+  const layer = layers.find((item) => item.id === layerId);
+  if (!layer) throw new Error(`No layer with id "${layerId}"`);
+  return structuredClone(layer.geojson?.features ?? []);
+}
+
+/**
+ * The features of every Sketches layer combined, as a deep copy. Shared by the
+ * plugin API's `getDrawnFeatures` and the embed API's verb of the same name.
+ */
+export function readDrawnFeatures(layers: GeoLibreLayer[]) {
+  return structuredClone(
+    layers.flatMap((layer) =>
+      layer.metadata.sourceKind === SKETCHES_SOURCE_KIND ? (layer.geojson?.features ?? []) : [],
+    ),
+  );
+}
+
+/**
  * Build the read-only query methods that `createAppAPI` exposes to plugins.
  * Reads the store on every call rather than closing over a snapshot, so a
  * plugin holding the API sees the map as it is now.
@@ -64,23 +88,11 @@ export function createPluginLayerQueries() {
           opacity,
           collapsed,
         })),
-    getLayerFeatures: (layerId: string) => {
-      const layer = useAppStore.getState().layers.find((item) => item.id === layerId);
-      if (!layer) throw new Error(`No layer with id "${layerId}"`);
-      return structuredClone(layer.geojson?.features ?? []);
-    },
+    getLayerFeatures: (layerId: string) =>
+      readLayerFeatures(useAppStore.getState().layers, layerId),
     getSelectedFeatures: () => readPluginSelection().features,
     getSelectedLayerId: () => useAppStore.getState().selectedLayerId,
-    getDrawnFeatures: () =>
-      structuredClone(
-        useAppStore
-          .getState()
-          .layers.flatMap((layer) =>
-            layer.metadata.sourceKind === SKETCHES_SOURCE_KIND
-              ? (layer.geojson?.features ?? [])
-              : [],
-          ),
-      ),
+    getDrawnFeatures: () => readDrawnFeatures(useAppStore.getState().layers),
     onSelectionChange: (callback: (selection: GeoLibreSelection) => void) =>
       useAppStore.subscribe((state, previous) => {
         if (

@@ -386,6 +386,15 @@ await map.setLayerVisibility("roads", false);
 const added = await map.addData("https://assets.geolibre.app/data/places.geojson");
 const layers = await map.listLayers();
 map.on("selectionChanged", ({ featureIds }) => console.log(featureIds));
+// Read back what the user drew or edited:
+map.on("featuresChanged", async ({ layerId, removed }) => {
+  if (removed) {
+    removeFromBackend(layerId); // the layer is gone; getLayerFeatures would reject
+    return;
+  }
+  const features = await map.getLayerFeatures(layerId);
+  saveToBackend(layerId, features);
+});
 ```
 
 ### Enabling it
@@ -435,9 +444,10 @@ general-purpose data-fetching proxy — configure
 [deployment capabilities](../deployment-capabilities.md) in the runtime
 policy. A denied command rejects with `Missing <capability> capability` rather
 than silently doing nothing: `loadProject` needs `project:edit`, `addLayer` and
-`addData` need `data:add`, `openTool` needs `processing:run`, and `exportImage`
-needs `export:data`. The rest — `setView`, `highlight`, layer visibility — are
-unprivileged and always available.
+`addData` need `data:add`, `openTool` needs `processing:run`, and
+`exportImage`, `getLayerFeatures`, and `getDrawnFeatures` need `export:data`.
+The rest — `setView`, `highlight`, layer visibility — are unprivileged and
+always available.
 
 ### The typed client
 
@@ -483,6 +493,8 @@ other frame or origin is ignored. Pass the *app's* origin, not your own.
 | `addLayer(spec)`                       | the new layer's `id`    | Takes a project-format layer specification.                             |
 | `addData(url, options?)`               | the new layer `id`s     | Loads remote data like `?data=`; options are `{ styleUrl, fit }`.        |
 | `exportImage()`                        | a PNG `data:` URL       | The map as currently rendered.                                          |
+| `getLayerFeatures(layerId)`            | `Feature[]`             | A layer's features. See [Reading features back](#reading-features-back). |
+| `getDrawnFeatures()`                   | `Feature[]`             | The user's drawings (all Sketches layers). See [Reading features back](#reading-features-back). |
 | `on(event, listener)`                  | an unsubscribe function | Not a promise; events are the set the app posts (see below).            |
 | `disconnect()`                         | not a promise           | Removes the listener and rejects anything still in flight.              |
 
@@ -532,6 +544,8 @@ them out of the other `postMessage` traffic on your page.
 | `addLayer`         | `{ spec }`                                                 | Adds a project-format layer specification at runtime.                                 |
 | `addData`          | `{ url, styleUrl?, fit? }`                                 | Loads GeoJSON/API, ZIP, GeoParquet, PMTiles, or COG data without reloading the iframe. |
 | `exportImage`      | `{}`                                                       | Returns the rendered map as a PNG data URL in `result`.                               |
+| `getLayerFeatures` | `{ layerId }`                                              | Returns a layer's GeoJSON features as an array in `result`. See [Reading features back](#reading-features-back). |
+| `getDrawnFeatures` | `{}`                                                       | Returns the features of all Sketches layers as an array in `result`. See [Reading features back](#reading-features-back). |
 
 Send `{ layerId }` alone to `highlightFeature` to clear the highlight. A request
 that names features (or a filter) but matches none is rejected rather than
@@ -569,6 +583,67 @@ reporting whether it worked.
 | `viewChanged`       | `{ bbox, center, zoom, bearing, pitch }`                       | The camera moved (throttled to about four events a second).       |
 | `toolCompleted`     | `{ id, name, status, engine, durationMs, outputLayerNames }`   | A processing run finished, successfully or not.                   |
 | `serverFileWritten` | `{ path, toolId }`                                             | A file-based tool wrote an output (conversion and raster tools).  |
+| `featuresChanged`   | `{ layerId, featureCount, removed? }`                          | A layer's features were replaced or removed (debounced, see below). |
+
+### Reading features back
+
+`addLayer` pushes features into the map; `getLayerFeatures` and
+`getDrawnFeatures` read them out again, so a host can store what the user drew
+or edited. They mirror the plugin API's read-only layer queries
+`getLayerFeatures` and `getDrawnFeatures` (see the [plugin API](../plugin-api.md))
+and the Python widget's `get_features` and `get_drawn_features`.
+
+- **Params:** the wire message `getLayerFeatures` takes `{ layerId }`, a
+  non-empty string (the typed client call is `getLayerFeatures(layerId)`).
+  `getDrawnFeatures` takes no parameters and returns the features of every
+  **Sketches** layer (where free drawings live) combined; if nothing has been
+  drawn yet the result is an empty array, not an error.
+- **Result:** an array of WGS84 GeoJSON features. Feature `id`s are returned
+  exactly as stored (strings stay strings, numbers stay numbers), so you can join
+  on them. It is a copy: nothing you do to it reaches the map. It is what the app
+  holds: for a layer that is itself a truncated subset (a SQL or Iceberg query
+  result, for example) that is the subset, not the full source.
+- **Drawings:** features in a Sketches layer carry the drawing editor's
+  bookkeeping properties (such as `__gm_shape`). Circles and text come back as
+  Point features with those properties as hints about the original shape.
+- **Errors:** an unknown `layerId` is rejected (`No layer with id "…"`). A layer
+  that holds no in-memory features, such as a raster, a tile or PMTiles layer, or
+  a remote vector source, returns an empty array. An empty array therefore
+  means "no in-memory features" (an empty layer, or a raster, tile or remote
+  source); the layer `type` from `listLayers` cannot tell these apart. A removed
+  layer is rejected like an unknown one.
+- **Capability:** `export:data`, because data leaves the app. A denied call
+  rejects with `Missing export:data capability`, like `exportImage`, and
+  `featuresChanged` is not sent either.
+
+`featuresChanged` tells you when to read. It fires when a layer's in-memory
+feature collection is replaced: drawings (including the first one, which creates
+the Sketches layer), edits, attribute edits, refreshes, and late-loaded data. It
+may fire without a content change, and it is not sent for whole project loads
+(use `projectLoaded`). It also fires for layers the host itself created with
+`addLayer` or `addData`, so do not write each event straight back as a new
+layer, or you will loop. When a layer that held features is removed it is sent at
+once as `{ layerId, featureCount: 0, removed: true }`, and a layer that stays but
+loses its in-memory features is reported with `featureCount: 0` (no `removed`).
+Events are **debounced per
+layer**: a burst of changes, such as dragging a vertex, produces one event 250 ms
+after the last change, so listen for it and then call `getLayerFeatures`. An edit made
+less than 250 ms before a renderer hand-off may be folded into the new baseline
+and not reported.
+
+```ts
+map.on("featuresChanged", async ({ layerId, featureCount, removed }) => {
+  if (removed) {
+    removeFromBackend(layerId); // the layer is gone; getLayerFeatures would reject
+    return;
+  }
+  console.log(`${layerId} now has ${featureCount} features`);
+  const features = await map.getLayerFeatures(layerId);
+  saveToBackend(layerId, features);
+});
+
+const drawings = await map.getDrawnFeatures(); // all Sketches layers, combined
+```
 
 ### A host page
 

@@ -569,6 +569,7 @@
 - [x] **For Python and AI agents**: `geolibre-mcp` can drive the open desktop map, author filters, labels, plugin state, and story maps, and run live processing. See [MCP server](mcp.md) and [Python API](python.md)
 - [x] **For deployments and servers**: deployment.json loads before first paint and from the desktop config directory, the Docker image generates a validated deployment.json at boot and enforces sidecar, AI, and plugin policy, and the server API gains shares with link role, expiry, and password, per-org OIDC federation and trusted-header sign-in, per-org security policy, and SCIM 2.0 provisioning. See [Deployment Policy](deployment-policy.md) and [Server API](server-api.md)
 - [x] **Complete catalogs, and a zoom preference**: every locale catalog is complete and plugins can ship their own translations, and a Map Preferences option turns off zooming to newly added layers. See [Internationalization](i18n.md)
+- [x] **Vercel AI Gateway in the AI Assistant**: one `AI_GATEWAY_API_KEY` authenticates Chat Completions requests to the gateway, and a model picker lists its public, keyless model catalog. See [AI Assistant](user-guide/ai-assistant.md)
 
 ## Plugin marketplace and registry (design)
 

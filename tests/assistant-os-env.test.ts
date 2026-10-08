@@ -40,6 +40,7 @@ describe("OS_ENV_VAR_NAMES", () => {
       "GEOLIBRE_ASSISTANT_PROVIDER",
       "GEOLIBRE_ASSISTANT_MODEL",
       "OPENROUTER_MODEL",
+      "AI_GATEWAY_MODEL",
       "TAVILY_API_KEY",
       "JEV_API_KEY",
     ]);
@@ -61,6 +62,8 @@ describe("OS_ENV_VAR_NAMES", () => {
       "OPENAI_API_KEY",
       "OPENROUTER_API_KEY",
       "OPENROUTER_MODEL",
+      "AI_GATEWAY_API_KEY",
+      "AI_GATEWAY_MODEL",
       "OLLAMA_BASE_URL",
       "OLLAMA_MODEL",
       "OPENAI_COMPATIBLE_BASE_URL",
@@ -129,6 +132,19 @@ describe("OS env feeds provider resolution", () => {
       provider: "openrouter",
       apiKey: "os-key",
       baseURL: "https://openrouter.ai/api/v1",
+      modelId: "vendor/os-model",
+    });
+  });
+  it("configures Vercel AI Gateway from an OS key and its OS model override", () => {
+    const merged = {
+      AI_GATEWAY_API_KEY: "os-key",
+      AI_GATEWAY_MODEL: "vendor/os-model",
+    };
+    assert.deepEqual(availableProviders(merged), ["vercel"]);
+    assert.deepEqual(configForProvider("vercel", undefined, merged), {
+      provider: "vercel",
+      apiKey: "os-key",
+      baseURL: "https://ai-gateway.vercel.sh/v1",
       modelId: "vendor/os-model",
     });
   });

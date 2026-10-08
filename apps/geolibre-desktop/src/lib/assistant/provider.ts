@@ -5,14 +5,15 @@ import { getDeploymentPolicy, readDeploymentEnv } from "../deployment-env";
  * Supported LLM providers for the natural-language assistant. The boundary is
  * kept deliberately small and provider-pluggable: each provider maps to a
  * Strands model class that is dynamically imported so only the selected
- * provider's SDK is pulled into the bundle. `ollama` and `custom` reuse the
- * OpenAI-compatible client against a configurable base URL.
+ * provider's SDK is pulled into the bundle. `openrouter`, `vercel`, `ollama`,
+ * and `custom` reuse the OpenAI-compatible client against a base URL.
  */
 export type AssistantProviderId =
   | "google"
   | "anthropic"
   | "openai"
   | "openrouter"
+  | "vercel"
   | "ollama"
   | "bedrock"
   | "custom";
@@ -23,6 +24,7 @@ export const ASSISTANT_PROVIDER_IDS: readonly AssistantProviderId[] = [
   "anthropic",
   "openai",
   "openrouter",
+  "vercel",
   "ollama",
   "bedrock",
   "custom",
@@ -85,6 +87,7 @@ const PROVIDER_KEY_NAMES: Partial<Record<AssistantProviderId, readonly string[]>
   anthropic: ["ANTHROPIC_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
+  vercel: ["AI_GATEWAY_API_KEY"],
 };
 
 /**
@@ -121,6 +124,10 @@ export const OS_ENV_VAR_NAMES: readonly string[] = [
   // OpenRouter.
   "OPENROUTER_API_KEY",
   "OPENROUTER_MODEL",
+  // Vercel AI Gateway. `VERCEL_OIDC_TOKEN` is intentionally omitted — it is an
+  // ambient Vercel deployment credential, not a key the user set for GeoLibre.
+  "AI_GATEWAY_API_KEY",
+  "AI_GATEWAY_MODEL",
   // Ollama (local). `OLLAMA_HOST` is intentionally omitted — it is the ambient
   // Ollama variable; `OLLAMA_BASE_URL` is GeoLibre's own documented setting.
   "OLLAMA_BASE_URL",
@@ -227,7 +234,7 @@ export function mergeRuntimeEnv({
  * Selectable models per provider, recommended/newest first. The first entry is
  * the provider default. Users can pin any other id via `GEOLIBRE_ASSISTANT_MODEL`
  * (or the per-provider env var) or the model picker. For Google, Anthropic,
- * OpenAI, OpenRouter and Bedrock the picker replaces these with the provider's
+ * OpenAI, OpenRouter, Vercel AI Gateway, and Bedrock the picker replaces these with the provider's
  * live catalog once it loads (see `model-discovery.ts`), so the lists here are
  * only the default and the offline fallback. The hosted-model ids were
  * verified against the providers' docs as of 2026-07; the `ollama` list is
@@ -244,6 +251,7 @@ export const PROVIDER_MODELS: Record<AssistantProviderId, readonly string[]> = {
   anthropic: ["claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-haiku-4-5"],
   openai: ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
   openrouter: ["openai/gpt-5.6-luna"],
+  vercel: ["openai/gpt-5.6-luna"],
   ollama: ["gemma4", "qwen3.6", "qwen3.5", "llama4", "gpt-oss"],
   bedrock: [
     "global.anthropic.claude-opus-5",
@@ -262,6 +270,7 @@ const DEFAULT_MODEL: Record<AssistantProviderId, string> = {
   anthropic: PROVIDER_MODELS.anthropic[0],
   openai: PROVIDER_MODELS.openai[0],
   openrouter: PROVIDER_MODELS.openrouter[0],
+  vercel: PROVIDER_MODELS.vercel[0],
   ollama: PROVIDER_MODELS.ollama[0],
   bedrock: PROVIDER_MODELS.bedrock[0],
   custom: "",
@@ -273,6 +282,7 @@ export const PROVIDER_LABELS: Record<AssistantProviderId, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   openrouter: "OpenRouter",
+  vercel: "Vercel AI Gateway",
   ollama: "Ollama (local)",
   bedrock: "Amazon Bedrock",
   custom: "Custom (OpenAI-compatible)",
@@ -411,13 +421,42 @@ export function getApiKey(
   return names ? firstValue(env, ...names) : null;
 }
 
-/** The default model id for a provider, honoring OpenRouter's model override. */
+/**
+ * The default model id for a provider.
+ *
+ * OpenRouter and Vercel AI Gateway honor their optional model overrides here
+ * so a new profile picks that id up. Other providers apply their overrides only
+ * when a request is resolved, not when the settings form proposes a default.
+ */
 export function defaultModelFor(
   provider: AssistantProviderId,
   env: RuntimeEnv = readRuntimeEnv(),
 ): string {
-  const openrouterModel = provider === "openrouter" ? env.OPENROUTER_MODEL?.trim() : undefined;
-  return openrouterModel || DEFAULT_MODEL[provider];
+  const override =
+    provider === "openrouter"
+      ? env.OPENROUTER_MODEL
+      : provider === "vercel"
+        ? env.AI_GATEWAY_MODEL
+        : undefined;
+  return override?.trim() || DEFAULT_MODEL[provider];
+}
+
+/** The optional model override a provider reads from the environment, if any. */
+function perProviderModel(provider: AssistantProviderId, env: RuntimeEnv): string | undefined {
+  switch (provider) {
+    case "ollama":
+      return env.OLLAMA_MODEL;
+    case "bedrock":
+      return env.BEDROCK_MODEL;
+    case "custom":
+      return env.OPENAI_COMPATIBLE_MODEL;
+    case "openrouter":
+      return env.OPENROUTER_MODEL;
+    case "vercel":
+      return env.AI_GATEWAY_MODEL;
+    default:
+      return undefined;
+  }
 }
 
 /** Resolve the model id for a provider: explicit → env → provider default. */
@@ -426,16 +465,7 @@ function resolveModelId(
   model: string | undefined,
   env: RuntimeEnv,
 ): string {
-  const perProvider =
-    provider === "ollama"
-      ? env.OLLAMA_MODEL
-      : provider === "bedrock"
-        ? env.BEDROCK_MODEL
-        : provider === "custom"
-          ? env.OPENAI_COMPATIBLE_MODEL
-          : provider === "openrouter"
-            ? env.OPENROUTER_MODEL
-            : undefined;
+  const perProvider = perProviderModel(provider, env);
   return (
     model?.trim() ||
     env.GEOLIBRE_ASSISTANT_MODEL?.trim() ||
@@ -449,7 +479,7 @@ function resolveModelId(
  * or null when that provider is not configured. Each provider type reads its own
  * Settings → Environment variables:
  *
- * - google / anthropic / openai / openrouter — an API key (see {@link PROVIDER_KEY_NAMES}).
+ * - google / anthropic / openai / openrouter / vercel — an API key (see {@link PROVIDER_KEY_NAMES}).
  * - ollama — `OLLAMA_BASE_URL` (or `OLLAMA_HOST`); keyless, local.
  * - bedrock — `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ `AWS_REGION`,
  *   `AWS_SESSION_TOKEN`).
@@ -471,13 +501,17 @@ export function configForProvider(
       if (!apiKey) return null;
       return { provider, apiKey, modelId };
     }
-    case "openrouter": {
+    case "openrouter":
+    case "vercel": {
       const apiKey = getApiKey(provider, env);
       if (!apiKey) return null;
       return {
         provider,
         apiKey,
-        baseURL: "https://openrouter.ai/api/v1",
+        baseURL:
+          provider === "vercel"
+            ? "https://ai-gateway.vercel.sh/v1"
+            : "https://openrouter.ai/api/v1",
         modelId,
       };
     }
@@ -656,9 +690,11 @@ export async function createModel(config: AssistantProviderConfig): Promise<Mode
       }) as unknown as Model;
     }
     case "openrouter":
+    case "vercel":
     case "ollama":
     case "custom": {
-      // Ollama, OpenRouter, and custom endpoints speak OpenAI Chat Completions;
+      // Ollama, OpenRouter, Vercel AI Gateway, and custom endpoints speak
+      // OpenAI Chat Completions;
       // the Responses API (OpenAI's default) is not generally supported there.
       const { OpenAIModel } = await import("@strands-agents/sdk/models/openai");
       return new OpenAIModel({

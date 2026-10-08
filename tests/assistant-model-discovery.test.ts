@@ -217,7 +217,14 @@ describe("bedrockAuthFromConfig", () => {
 
 describe("hasModelPicker", () => {
   it("covers the providers with a live catalog", () => {
-    for (const id of ["openrouter", "bedrock", "openai", "anthropic", "google"] as const) {
+    for (const id of [
+      "openrouter",
+      "vercel",
+      "bedrock",
+      "openai",
+      "anthropic",
+      "google",
+    ] as const) {
       assert.equal(hasModelPicker(id), true, id);
     }
     assert.equal(hasModelPicker("ollama"), false);
@@ -231,6 +238,7 @@ describe("supportsKeyedModelDiscovery", () => {
     assert.equal(supportsKeyedModelDiscovery("anthropic"), true);
     assert.equal(supportsKeyedModelDiscovery("google"), true);
     assert.equal(supportsKeyedModelDiscovery("openrouter"), false);
+    assert.equal(supportsKeyedModelDiscovery("vercel"), false);
     assert.equal(supportsKeyedModelDiscovery("bedrock"), false);
     assert.equal(supportsKeyedModelDiscovery("custom"), false);
   });

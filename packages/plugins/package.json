@@ -16,6 +16,7 @@
     "./maplibre-graticule": "./src/plugins/maplibre-graticule.ts",
     "./maplibre-vantor/style.css": "./src/plugins/vantor/styles.css",
     "./mgrs-reference": "./src/plugins/mgrs-reference.ts",
+    "./plugin-ids": "./src/plugin-ids.ts",
     "./raster-symbology": "./src/plugins/raster-symbology.ts",
     "./right-panel-registry": "./src/right-panel-registry.ts",
     "./zarr-time-axis": "./src/plugins/zarr-time-axis.ts"
@@ -70,7 +71,7 @@
     "maplibre-gl-enviroatlas": "^0.1.1",
     "maplibre-gl-esri-wayback": "^0.2.2",
     "maplibre-gl-fema-wms": "^0.1.2",
-    "maplibre-gl-geo-editor": "^0.11.1",
+    "maplibre-gl-geo-editor": "^0.11.2",
     "maplibre-gl-geoagent": "^0.6.1",
     "maplibre-gl-lidar": "^0.21.0",
     "maplibre-gl-nasa-earthdata": "^0.1.4",

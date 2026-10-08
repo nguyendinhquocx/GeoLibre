@@ -24,6 +24,8 @@ class FakeRecognizer implements SpeechRecognizer {
   abortCalls = 0;
   /** Throw from start(), as a browser does when one is already running. */
   failOnStart = false;
+  /** Leave `end` for the test to deliver after stop(), as a real engine does. */
+  deferEnd = false;
 
   start(): void {
     if (this.failOnStart) throw new Error("already started");
@@ -33,7 +35,7 @@ class FakeRecognizer implements SpeechRecognizer {
   /** Ends the recognizer the way `stop()` does: the turn is finalized. */
   stop(): void {
     this.stopCalls += 1;
-    this.end();
+    if (!this.deferEnd) this.end();
   }
 
   abort(): void {
@@ -213,16 +215,18 @@ describe("voice session start", () => {
 });
 
 describe("voice session transcripts", () => {
-  it("previews an interim phrase and publishes only the final one", () => {
-    const h = harness();
+  it("previews an interim phrase and publishes only the final one", async () => {
+    const h = harness({ endpointMs: 10 });
     h.session.start("open-mic");
     h.current.say("show me riv", false);
     h.current.say("show me rivers", true);
+    assert.deepEqual(h.transcripts(), [], "sent before the endpoint");
+    await new Promise((resolve) => setTimeout(resolve, 30));
     assert.deepEqual(h.transcripts(), ["show me rivers"]);
     const interims = h.events.filter((e) => e.type === "interim");
     assert.deepEqual(
       interims.map((e) => (e as { text: string }).text),
-      ["show me riv", ""],
+      ["show me riv", "show me rivers", ""],
     );
   });
 
@@ -336,15 +340,16 @@ describe("voice session push-to-talk endpoint", () => {
 });
 
 describe("voice session open-mic restarts", () => {
-  it("restarts the recognizer that ended on a silence", () => {
+  it("restarts the recognizer that ended on a silence", async () => {
     // Chrome ends recognition at every pause; without this an open mic would
     // go deaf after the first sentence.
-    const h = harness();
+    const h = harness({ endpointMs: 10 });
     h.session.start("open-mic");
     h.current.end();
     assert.equal(h.recognizers.length, 2);
     assert.equal(h.session.getStatus(), "listening");
     h.current.say("second phrase");
+    await new Promise((resolve) => setTimeout(resolve, 30));
     assert.deepEqual(h.transcripts(), ["second phrase"]);
   });
 
@@ -601,6 +606,104 @@ describe("voice session end-of-phrase", () => {
       await new Promise((resolve) => setTimeout(resolve, 15));
     }
     assert.equal(first.stopCalls, 0, "a speaker mid-sentence must not be cut off");
+  });
+
+  it("sends a sentence the engine split at a pause as one request", async () => {
+    // The reported bug: Chrome finalizes a phrase at every short pause, and
+    // sending each one ran the first half of the sentence, which the second
+    // half then cancelled and replaced.
+    const h = harness({ endpointMs: 40 });
+    h.session.start("open-mic");
+    const first = h.current;
+    h.current.say("zoom to Paris");
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    h.current.say("and add a satellite basemap", false);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    h.current.say("and add a satellite basemap");
+    assert.deepEqual(h.transcripts(), [], "a speaker mid-sentence must not be cut off");
+    assert.equal(first.stopCalls, 0);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.deepEqual(h.transcripts(), ["zoom to Paris and add a satellite basemap"]);
+    assert.equal(first.stopCalls, 1);
+    assert.equal(h.session.getStatus(), "listening");
+  });
+
+  it("keeps a request together when the engine ends at a pause mid-sentence", async () => {
+    const h = harness({ endpointMs: 30 });
+    h.session.start("open-mic");
+    const first = h.current;
+    h.current.say("zoom to Paris");
+    // The engine ends on a silence of its own before the window elapses.
+    h.current.end();
+    assert.deepEqual(h.transcripts(), [], "an engine pause is not the endpoint");
+    assert.equal(first.stopCalls, 0);
+    const replacement = h.current;
+    assert.notEqual(replacement, first);
+    replacement.say("and add a basemap");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.deepEqual(h.transcripts(), ["zoom to Paris and add a basemap"]);
+    assert.equal(replacement.stopCalls, 1);
+  });
+
+  it("still sends what was heard when the engine ends and nothing follows", async () => {
+    const h = harness({ endpointMs: 30 });
+    h.session.start("open-mic");
+    h.current.say("zoom to Kenya");
+    h.current.end();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.deepEqual(h.transcripts(), ["zoom to Kenya"]);
+    assert.equal(h.session.getStatus(), "listening");
+  });
+
+  it("holds a reply back between the endpoint's stop and the end it causes", async () => {
+    const h = harness({ synthesis: true, endpointMs: 10 });
+    h.session.start("open-mic");
+    const recognizer = h.current;
+    recognizer.deferEnd = true;
+    recognizer.say("zoom to Kenya");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(recognizer.stopCalls, 1, "the endpoint fired");
+    // Stopped, but `end` not yet delivered: the request is still unsent.
+    h.session.speak("An older answer.");
+    assert.equal(h.synthesis!.spoken.length, 0);
+    recognizer.end();
+    assert.deepEqual(h.transcripts(), ["zoom to Kenya"]);
+  });
+
+  it("clears the preview when a phrase is revised away to nothing", () => {
+    const h = harness();
+    h.session.start("open-mic");
+    h.current.say("um", false);
+    h.current.say("", false);
+    const last = h.events.filter((e) => e.type === "interim").at(-1) as { text: string };
+    assert.equal(last.text, "");
+  });
+
+  it("still reads a reply once a lone interim phrase is retracted", () => {
+    const h = harness({ synthesis: true });
+    h.session.start("open-mic");
+    h.current.say("um", false);
+    h.current.say("", false);
+    h.session.speak("Here is the answer.");
+    assert.equal(h.synthesis!.spoken.length, 1);
+  });
+
+  it("previews the whole request, not just the phrase in progress", () => {
+    const h = harness();
+    h.session.start("open-mic");
+    h.current.say("zoom to Paris");
+    h.current.say("and add", false);
+    const last = h.events.filter((e) => e.type === "interim").at(-1) as { text: string };
+    assert.equal(last.text, "zoom to Paris and add");
+  });
+
+  it("does not read a reply over a user who is still talking", () => {
+    const h = harness({ synthesis: true });
+    h.session.start("open-mic");
+    h.current.say("zoom to", false);
+    h.session.speak("Here is the answer.");
+    assert.equal(h.synthesis!.spoken.length, 0);
+    assert.equal(h.current.abortCalls, 0, "the microphone was closed mid-sentence");
   });
 
   it("leaves push-to-talk to the key, which is its own endpoint", async () => {

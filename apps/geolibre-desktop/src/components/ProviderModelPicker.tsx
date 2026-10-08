@@ -11,10 +11,16 @@ import {
   discoverProviderModels,
 } from "../lib/assistant/model-discovery";
 import { discoverOpenRouterModels } from "../lib/assistant/openrouter";
+import { discoverVercelGatewayModels } from "../lib/assistant/vercel-gateway";
 import { PROVIDER_LABELS, PROVIDER_MODELS } from "../lib/assistant/provider";
 
 /** Wait this long after the credentials last changed before discovering, so typing a key does not fire a request per keystroke. */
 const KEY_SETTLE_MS = 500;
+
+/** Catalogs that are public, so the picker must not wait on or send the API key. */
+function usesPublicCatalog(provider: PickerProvider): boolean {
+  return provider === "openrouter" || provider === "vercel";
+}
 
 export interface ProviderModelPickerProps {
   /** The provider whose live catalog to list. */
@@ -59,13 +65,13 @@ export function ProviderModelPicker({
             bedrockAuth.sessionToken ?? "",
           ].join("\u0000")
         : ""
-      : provider === "openrouter"
-        ? // OpenRouter's catalog is public: typing its key must not refetch.
+      : usesPublicCatalog(provider)
+        ? // Public catalogs: typing the key must not refetch.
           ""
         : (apiKey?.trim() ?? "");
   const bedrockAuthRef = useRef(bedrockAuth);
   bedrockAuthRef.current = bedrockAuth;
-  const canDiscover = provider === "openrouter" || key.length > 0;
+  const canDiscover = usesPublicCatalog(provider) || key.length > 0;
   // Tagged with the inputs that produced it, so a catalog loaded for one
   // provider or key is never shown under another while the next one loads.
   const [discovered, setDiscovered] = useState<{
@@ -106,9 +112,11 @@ export function ProviderModelPicker({
         const models =
           provider === "openrouter"
             ? await discoverOpenRouterModels(controller.signal)
-            : provider === "bedrock"
-              ? await discoverBedrockModels(bedrockAuthRef.current!, options)
-              : await discoverProviderModels(provider, key, options);
+            : provider === "vercel"
+              ? await discoverVercelGatewayModels(controller.signal)
+              : provider === "bedrock"
+                ? await discoverBedrockModels(bedrockAuthRef.current!, options)
+                : await discoverProviderModels(provider, key, options);
         if (generation !== requestGeneration.current) return;
         setDiscovered({ provider, key, models });
       } catch (cause) {
@@ -133,7 +141,7 @@ export function ProviderModelPicker({
   );
 
   useEffect(() => {
-    const timer = setTimeout(() => void refresh(), provider === "openrouter" ? 0 : KEY_SETTLE_MS);
+    const timer = setTimeout(() => void refresh(), usesPublicCatalog(provider) ? 0 : KEY_SETTLE_MS);
     return () => {
       clearTimeout(timer);
       requestGeneration.current += 1;

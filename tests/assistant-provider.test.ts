@@ -415,6 +415,10 @@ describe("availableProviders", () => {
       "openai",
       "openrouter",
     ]);
+    assert.deepEqual(availableProviders({ AI_GATEWAY_API_KEY: "v", OPENROUTER_API_KEY: "r" }), [
+      "openrouter",
+      "vercel",
+    ]);
   });
 });
 
@@ -548,6 +552,112 @@ describe("configForProvider", () => {
     }
 
     assert.equal(requestUrl, "https://openrouter.ai/api/v1/chat/completions");
+    assert.deepEqual(requestHeaders, ["accept", "authorization", "content-type"]);
+    assert.equal(authorizationHeader, "Bearer profile-key");
+    assert.equal(JSON.parse(requestBody).model, "vendor/selected-model");
+  });
+
+  it("resolves Vercel AI Gateway from a nonblank API key with its synchronous default model", () => {
+    assert.deepEqual(configForProvider("vercel", undefined, { AI_GATEWAY_API_KEY: "key" }), {
+      provider: "vercel",
+      apiKey: "key",
+      baseURL: "https://ai-gateway.vercel.sh/v1",
+      modelId: "openai/gpt-5.6-luna",
+    });
+    assert.equal(configForProvider("vercel", undefined, { AI_GATEWAY_API_KEY: "  " }), null);
+  });
+
+  it("resolves the Vercel AI Gateway model override and gives explicit profile models precedence", () => {
+    assert.equal(
+      configForProvider("vercel", undefined, {
+        AI_GATEWAY_API_KEY: "key",
+        AI_GATEWAY_MODEL: "provider/model",
+      })?.modelId,
+      "provider/model",
+    );
+    assert.equal(
+      configForProvider("vercel", undefined, {
+        AI_GATEWAY_API_KEY: "key",
+        GEOLIBRE_ASSISTANT_MODEL: "global/model",
+        AI_GATEWAY_MODEL: "provider/model",
+      })?.modelId,
+      "global/model",
+    );
+    const profile: AssistantProfile = {
+      id: "vercel-profile",
+      name: "Vercel AI Gateway",
+      provider: "vercel",
+      modelId: "saved/model",
+      fieldValues: { AI_GATEWAY_API_KEY: "profile-key" },
+    };
+    const env = { AI_GATEWAY_MODEL: "provider/model" };
+    const profileWithEnvDefault: AssistantProfile = {
+      ...profile,
+      modelId: defaultModelFor("vercel", env),
+    };
+    assert.equal(defaultModelFor("vercel", env), "provider/model");
+    assert.equal(defaultModelFor("vercel", {}), "openai/gpt-5.6-luna");
+    assert.equal(configForProfile(profileWithEnvDefault, env)?.modelId, "provider/model");
+    assert.equal(
+      configForProfile(profile, {
+        AI_GATEWAY_MODEL: "provider/model",
+        GEOLIBRE_ASSISTANT_MODEL: "global/model",
+      })?.modelId,
+      "saved/model",
+    );
+  });
+
+  it("sends a profile model to Vercel AI Gateway's Chat Completions endpoint", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestUrl = "";
+    let requestHeaders: string[] = [];
+    let requestBody = "";
+    let authorizationHeader: string | null = null;
+    const chunks = [
+      {
+        id: "chatcmpl-test",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "openai/gpt-5.6-luna",
+        choices: [
+          { index: 0, delta: { role: "assistant", content: "Hello" }, finish_reason: null },
+        ],
+      },
+      {
+        id: "chatcmpl-test",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "openai/gpt-5.6-luna",
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      },
+    ];
+    const body = `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`;
+
+    try {
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        requestUrl = request.url;
+        requestHeaders = [...request.headers.keys()].sort();
+        authorizationHeader = request.headers.get("authorization");
+        requestBody = await request.clone().text();
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      };
+      const config = configForProvider("vercel", "vendor/selected-model", {
+        AI_GATEWAY_API_KEY: "profile-key",
+      });
+      assert.ok(config);
+      const model = await createModel(config);
+      for await (const _event of new Agent({ model }).stream("hello")) {
+        // Consume the real Strands/OpenAI stream to exercise the request path.
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(requestUrl, "https://ai-gateway.vercel.sh/v1/chat/completions");
     assert.deepEqual(requestHeaders, ["accept", "authorization", "content-type"]);
     assert.equal(authorizationHeader, "Bearer profile-key");
     assert.equal(JSON.parse(requestBody).model, "vendor/selected-model");

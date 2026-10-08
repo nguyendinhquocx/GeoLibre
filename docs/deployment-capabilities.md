@@ -47,7 +47,7 @@ withheld is never on offer, whatever the profile says.
 | `project:edit` | Authoring the project: New, Open, Open Recent, Import, Project History, Save, Save As, Duplicate, Save as Template, Collaborate, StoryMap; Undo/Redo (the menu items **and** the Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y shortcuts); Export Selection; adding a review comment; the embed API's `loadProject`. |
 | `data:add` | Bringing data in: the whole Add Data menu, dragging a file onto the map (browser and desktop), and the embed API's `addLayer` and `addData`. |
 | `processing:run` | The whole Processing menu — Whitebox, SQL, Python, the AI assistant, geocoding, Model Builder, conversion/vector/raster tools — and the embed API's `openTool`. |
-| `export:data` | Getting data or a rendering back out: Share, Export HTML, Print, Print Layout, Offline Basemap, and the embed API's `exportImage`. |
+| `export:data` | Getting data or a rendering back out: Share, Export HTML, Print, Print Layout, Offline Basemap, and the embed API's `exportImage`, `getLayerFeatures`, and `getDrawnFeatures`. |
 | `plugins:install` | The Plugins menu, plugin-registered toolbar menus, plugin items in the built-in menus, activating or deactivating a plugin, and the plugin marketplace ("Manage plugins"). |
 | `settings:manage` | The Settings dialog and the Style Manager. |
 
@@ -126,8 +126,10 @@ docker run --rm -p 8080:80 \
 ```
 
 An embedded map can use an empty grant to refuse commands such as
-`loadProject`, `addLayer`, `addData`, `openTool`, and `exportImage`, while
-`setView`, `highlightFeature`, and layer-visibility commands remain available.
+`loadProject`, `addLayer`, `addData`, `openTool`, `exportImage`,
+`getLayerFeatures`, and `getDrawnFeatures` (an empty grant also suppresses
+`featuresChanged` events), while `setView`, `highlightFeature`, and
+layer-visibility commands remain available.
 
 ## Embed API behavior
 

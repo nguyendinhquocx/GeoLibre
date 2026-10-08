@@ -111,6 +111,7 @@ export {
 } from "./plugins/maplibre-basemap-control";
 export {
   addArcGISLayer,
+  arcGISAttributeConstraints,
   isArcGISWritableLayer,
   saveArcGISLayerEdits,
   arcGISLayerHasPendingEdits,
@@ -127,12 +128,14 @@ export {
   refreshArcGISFeatureLayer,
   reloadArcGISViewportLayer,
   restoreArcGISViewportLayers,
+  type ArcGISAttributeConstraints,
   type ArcGISLayerOptions,
   type ArcGISImageServiceRasterFunction,
   type ArcGISLayerType,
   type ArcGISMapServiceSublayer,
   type ArcGISSourceType,
 } from "./plugins/arcgis-layer";
+export type { ArcGISDomainDiagnostic } from "./plugins/arcgis-domains";
 export {
   closeBookmarkPanel,
   closeColorbarPanel,
@@ -607,6 +610,7 @@ export {
   setOceanDataPlatformFileSaver,
   type OceanDataPlatformFileSaver,
 } from "./plugins/maplibre-ocean-data-platform";
+export { DYNAMICAL_PLUGIN_ID, maplibreDynamicalPlugin } from "./plugins/maplibre-dynamical";
 export {
   maplibreSatelliteEmbeddingsPlugin,
   SATELLITE_EMBEDDINGS_PLUGIN_ID,

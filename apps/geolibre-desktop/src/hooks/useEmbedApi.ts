@@ -3,8 +3,10 @@ import { type RefObject, useEffect } from "react";
 import { getLayerBounds, type MapEngine } from "@geolibre/map";
 import { imageBlobToDataUrl } from "@geolibre/map";
 import {
+  assertEmbedCapability,
   buildEmbedEvent,
   buildEmbedLayer,
+  createFeaturesChangeTracker,
   embedEventTargets,
   embedEventVersions,
   embedLayerSummaries,
@@ -17,6 +19,7 @@ import {
   type EmbedCommand,
   type EmbedEventType,
 } from "../lib/embed-api";
+import { readDrawnFeatures, readLayerFeatures } from "../lib/plugin-layer-queries";
 import { fetchProjectFromUrl, projectUrlFromLocation } from "../lib/project-url";
 import { resolveProjectXyzLayers } from "../lib/xyz-url";
 import { isKnownWhiteboxToolId } from "../lib/whitebox-tool-url";
@@ -43,9 +46,10 @@ const VIEW_THROTTLE_MS = 250;
  * Bridges a framed GeoLibre with an arbitrary host page over a versioned
  * `postMessage` protocol.
  *
- * Host → app: `loadProject`, `setView`, `highlightFeature`, `openTool`.
+ * Host → app: `loadProject`, `setView`, `highlightFeature`, `openTool`,
+ * `getLayerFeatures`, `getDrawnFeatures`.
  * App → host: `ready`, `ack`, `projectLoaded`, `selectionChanged`,
- * `viewChanged`, `toolCompleted`, `serverFileWritten`.
+ * `viewChanged`, `toolCompleted`, `serverFileWritten`, `featuresChanged`.
  *
  * The hook is an inert no-op unless the app is framed AND the deployment
  * configured an origin allowlist (see {@link readEmbedOrigins}); a public build
@@ -297,6 +301,12 @@ export function useEmbedApi(
           if (!engine) throw new Error("The map is not ready yet");
           return imageBlobToDataUrl(await engine.captureImage());
         }
+        case "getLayerFeatures":
+          assertEmbedCapability(useAppStore.getState().deploymentCapabilities, "export:data");
+          return readLayerFeatures(useAppStore.getState().layers, command.layerId);
+        case "getDrawnFeatures":
+          assertEmbedCapability(useAppStore.getState().deploymentCapabilities, "export:data");
+          return readDrawnFeatures(useAppStore.getState().layers);
       }
     };
 
@@ -338,6 +348,19 @@ export function useEmbedApi(
     let prevSelectedLayer = store.selectedLayerId;
     let prevSelection = store.selectedFeatureIds.join(" ");
     const emittedRuns = new Set(store.processingHistory.map((run) => run.id));
+    // Debounced per layer so a vertex drag is one event, not one per mouse move.
+    // Emits through `emit`, so it shares the allowlist and version handling.
+    const featuresTracker = createFeaturesChangeTracker(
+      (change) => {
+        // Feature data is what `getLayerFeatures` and `getDrawnFeatures` return, so a deployment that
+        // denies `export:data` must not get the change feed either.
+        if (!useAppStore.getState().deploymentCapabilities.has("export:data")) return;
+        emit("featuresChanged", { ...change });
+      },
+      () => useAppStore.getState().layers,
+    );
+    featuresTracker.reset(store.layers);
+    let prevLayers = store.layers;
 
     const unsubscribe = useAppStore.subscribe((state) => {
       if (state.primaryRenderer !== prevRenderer) {
@@ -346,11 +369,19 @@ export function useEmbedApi(
       }
       if (state.projectGeneration !== prevGeneration) {
         prevGeneration = state.projectGeneration;
+        // A loaded project replaces every layer; `projectLoaded` covers that,
+        // so re-baseline instead of reporting each replaced layer as an edit.
+        featuresTracker.reset(state.layers);
+        prevLayers = state.layers;
         emit("projectLoaded", {
           url: projectSourceUrl,
           name: state.projectName,
           layerIds: state.layers.map((layer) => layer.id),
         });
+      }
+      if (state.layers !== prevLayers) {
+        prevLayers = state.layers;
+        featuresTracker.update(state.layers);
       }
       const selection = state.selectedFeatureIds.join(" ");
       if (selection !== prevSelection || state.selectedLayerId !== prevSelectedLayer) {
@@ -444,6 +475,7 @@ export function useEmbedApi(
       disposed = true;
       window.removeEventListener("message", handleMessage);
       unsubscribe();
+      featuresTracker.reset();
       loadAbort?.abort();
       for (const abort of dataLoadAborts) abort.abort();
       dataLoadAborts.clear();

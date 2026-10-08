@@ -68,6 +68,8 @@ the target of every outbound message and the filter on inbound ones.
 | `addLayer(spec)`                       | the new layer's `id`    |
 | `addData(url, options?)`               | the new layer `id`s     |
 | `exportImage()`                        | a PNG `data:` URL       |
+| `getLayerFeatures(layerId)`            | `EmbedFeature[]`        |
+| `getDrawnFeatures()`                   | `EmbedFeature[]`        |
 | `on(event, listener)`                  | an unsubscribe function |
 | `disconnect()`                         | not a promise           |
 
@@ -77,7 +79,33 @@ timeout. Call `disconnect()` when the iframe goes away, so a pending promise
 cannot hang for the life of the page.
 
 Events: `ready`, `ack`, `projectLoaded`, `selectionChanged`, `viewChanged`,
-`toolCompleted`, `serverFileWritten`.
+`toolCompleted`, `serverFileWritten`, `featuresChanged`.
+
+`getLayerFeatures(layerId)` and `getDrawnFeatures()` read features back out
+(ids exactly as stored). They mirror the plugin API's `getLayerFeatures` and
+`getDrawnFeatures` and the Python widget's `get_features` and
+`get_drawn_features`. `getDrawnFeatures` returns the user's free drawings (all
+Sketches layers combined; an empty array if nothing is drawn yet). They reject
+for an unknown layer and when the deployment denies `export:data`. A layer that
+holds no in-memory features (raster, tiles, remote vector sources) returns an
+empty array, so an empty array means "no in-memory features" (an empty layer,
+or a raster, tile or remote source); the layer `type` does not tell these
+apart. A removed layer rejects. `featuresChanged` (`{ layerId, featureCount, removed? }`)
+fires, debounced per layer, when a layer's in-memory feature collection is
+replaced (drawings, edits, attribute edits, refreshes, late-loaded data; it may
+fire without a content change), and at once with `removed: true` when such a
+layer is removed. It is not sent for whole project loads (use `projectLoaded`)
+and needs `export:data`:
+
+```ts
+map.on("featuresChanged", async ({ layerId, removed }) => {
+  if (removed) {
+    // The layer is gone and getLayerFeatures would reject: drop your copy.
+    return;
+  }
+  const features = await map.getLayerFeatures(layerId);
+});
+```
 
 ## The API is off unless the deployment opts in
 

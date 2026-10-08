@@ -95,8 +95,14 @@ export function AiSection({
   const modelEnv = useMemo(
     () => ({
       OPENROUTER_MODEL: draftEnv.OPENROUTER_MODEL ?? scopedOsEnv.OPENROUTER_MODEL ?? "",
+      AI_GATEWAY_MODEL: draftEnv.AI_GATEWAY_MODEL ?? scopedOsEnv.AI_GATEWAY_MODEL ?? "",
     }),
-    [scopedOsEnv.OPENROUTER_MODEL, draftEnv.OPENROUTER_MODEL],
+    [
+      scopedOsEnv.OPENROUTER_MODEL,
+      scopedOsEnv.AI_GATEWAY_MODEL,
+      draftEnv.OPENROUTER_MODEL,
+      draftEnv.AI_GATEWAY_MODEL,
+    ],
   );
 
   // Every env var name a field is backed by: its canonical key plus any aliases
