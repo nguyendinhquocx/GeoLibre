@@ -12,14 +12,39 @@ export const DYNAMICAL_HOME_URL = "https://dynamical.org/";
 export const DYNAMICAL_CATALOG_PAGE_URL = "https://dynamical.org/catalog/";
 
 /**
- * Most slices of the other dimensions one chunk may hold for the dataset to count as drawable.
+ * Most slices of the other dimensions one chunk may hold for the dataset to draw at any zoom.
  *
  * A map draws one slice, but the reader decodes whole chunks. dynamical.org's "time-optimized"
  * archives pack a forecast's lead times into each chunk (49-105 of them, so a global GFS slice is
  * ~70 MB), and the analyses and ensembles pack hundreds to thousands (1-6 GB per global slice).
- * The first group renders in seconds and steps lead times from cache; the second never finishes.
+ * The first group draws the whole globe in seconds; the second only draws a region at a time
+ * ({@link REGIONAL_VIEW_BUDGET_BYTES}).
  */
 export const MAX_SLICES_PER_CHUNK = 128;
+
+/**
+ * Most decoded bytes one view of a regional dataset may read: the renderer fetches one region per
+ * chunk in view, so a minimum zoom ({@link regionalMinZoom}) keeps the chunks in view under this.
+ */
+export const REGIONAL_VIEW_BUDGET_BYTES = 256 * 2 ** 20;
+
+/**
+ * Largest single chunk a regional dataset may decode. Past this one region alone is too much to
+ * hold, at any zoom (the biggest dynamical.org has today, NASA IMERG's, is ~58 MB).
+ */
+export const MAX_REGIONAL_CHUNK_BYTES = 96 * 2 ** 20;
+
+/** Every dynamical.org data variable is stored as 32-bit floats (or decodes to them). */
+const BYTES_PER_VALUE = 4;
+
+/** The deepest minimum zoom a regional dataset is given. */
+const MAX_REGIONAL_MIN_ZOOM = 12;
+
+/** MapLibre's tile size: at zoom `z` the world is `512 * 2^z` pixels wide. */
+const WORLD_TILE_PIXELS = 512;
+
+/** Metres per degree along a meridian, to size a projected grid's chunks in degrees. */
+const METRES_PER_DEGREE = 111_320;
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -50,8 +75,11 @@ export interface DynamicalVariable {
   comment?: string;
 }
 
-/** Why a dataset can or cannot be drawn in the browser. */
-export type DynamicalMapSupport = "supported" | "virtual" | "time-series";
+/**
+ * How a dataset can be drawn in the browser: at any zoom, a region at a time (from a minimum
+ * zoom), or not at all.
+ */
+export type DynamicalMapSupport = "supported" | "regional" | "time-series";
 
 /** A dataset (one STAC collection) reduced to what the panel shows and reads. */
 export interface DynamicalDataset {
@@ -66,7 +94,10 @@ export interface DynamicalDataset {
   docsUrl: string;
   /** The repository's HTTPS address, which the Icechunk reader opens. */
   repositoryUrl: string;
-  /** Whether chunks point into the producer's GRIB files rather than at Zarr chunks. */
+  /**
+   * Whether chunks point into the producer's GRIB files rather than at Zarr chunks; those decode
+   * through the `gribberish` codec ({@link registerGribberishCodec}).
+   */
   virtual: boolean;
   bbox: [number, number, number, number] | null;
   dimensions: Record<string, DynamicalDimension>;
@@ -278,21 +309,119 @@ export function slicesPerChunk(dataset: DynamicalDataset, variable: DynamicalVar
   );
 }
 
+/** Decoded bytes in one chunk of a variable. */
+export function chunkBytes(variable: DynamicalVariable): number {
+  if (!variable.chunks.length) return 0;
+  return variable.chunks.reduce((product, length) => product * (length || 1), BYTES_PER_VALUE);
+}
+
 /**
  * Whether the browser can draw a dataset.
  *
- * Virtual repositories reference the producer's GRIB2 files and decode them with the `gribberish`
- * codec, which has no JavaScript build; the others are judged on their chunk layout
- * ({@link MAX_SLICES_PER_CHUNK}).
+ * Virtual repositories decode the producer's GRIB2 messages through the `gribberish` codec, one
+ * whole field per chunk, so they draw like any other. The others are judged on their chunk layout:
+ * few slices per chunk draws everywhere ({@link MAX_SLICES_PER_CHUNK}), many draws a region at a
+ * time while each chunk stays small enough to decode ({@link MAX_REGIONAL_CHUNK_BYTES}).
  */
 export function datasetMapSupport(dataset: DynamicalDataset): DynamicalMapSupport {
-  if (dataset.virtual) return "virtual";
   // The worst variable decides: the panel offers every variable of a dataset it lists as ready.
   const worst = Math.max(
     1,
     ...dataset.variables.map((variable) => slicesPerChunk(dataset, variable)),
   );
-  return worst > MAX_SLICES_PER_CHUNK ? "time-series" : "supported";
+  if (worst <= MAX_SLICES_PER_CHUNK) return "supported";
+  const largest = Math.max(0, ...dataset.variables.map((variable) => chunkBytes(variable)));
+  return largest > 0 && largest <= MAX_REGIONAL_CHUNK_BYTES ? "regional" : "time-series";
+}
+
+/** Whether a variable's chunks hold more slices than a whole-world view can afford. */
+export function needsRegionalView(dataset: DynamicalDataset, variable: DynamicalVariable): boolean {
+  return slicesPerChunk(dataset, variable) > MAX_SLICES_PER_CHUNK;
+}
+
+/** The step between a dimension's cells, from its extent and size. */
+function cellStep(dimension: DynamicalDimension | undefined): number | null {
+  const [first, last] = (dimension?.extent ?? []).map(Number);
+  const size = dimension?.size ?? 0;
+  if (!Number.isFinite(first) || !Number.isFinite(last) || size < 2) return null;
+  const step = Math.abs(last - first) / (size - 1);
+  return step > 0 ? step : null;
+}
+
+/** Whether a dimension counts in metres (a projected grid) rather than degrees. */
+function inMetres(dimension: DynamicalDimension): boolean {
+  return /^(m|metre|metres|meter|meters)$/i.test(dimension.unit ?? "");
+}
+
+/**
+ * How far one chunk of a variable reaches, and how many chunks span the grid, along x and y.
+ *
+ * A projected grid's metres are read as degrees of latitude, which overstates how many of its
+ * chunks a view away from the equator holds; the minimum zoom errs deeper for it.
+ *
+ * Returns:
+ *   Degrees per chunk and chunk counts, or null when the extents or chunks are missing.
+ */
+export function chunkFootprint(
+  dataset: DynamicalDataset,
+  variable: DynamicalVariable,
+): { x: number; y: number; columns: number; rows: number } | null {
+  let x: { span: number; count: number } | null = null;
+  let y: { span: number; count: number } | null = null;
+  for (const [index, name] of variable.dimensions.entries()) {
+    const dimension = dataset.dimensions[name];
+    if (!dimension || dimension.type !== "spatial") continue;
+    const step = cellStep(dimension);
+    const cells = variable.chunks[index];
+    if (!step || !cells) continue;
+    const span = (step * cells) / (inMetres(dimension) ? METRES_PER_DEGREE : 1);
+    const count = Math.ceil((dimension.size ?? cells) / cells);
+    if (dimension.axis === "x" || name === "longitude") x = { span, count };
+    else y = { span, count };
+  }
+  if (!x || !y) return null;
+  return { x: x.span, y: y.span, columns: x.count, rows: y.count };
+}
+
+/**
+ * The lowest zoom at which a view of a regional variable stays within the decode budget.
+ *
+ * A view `width` pixels wide spans `360 * width / (512 * 2^zoom)` degrees of longitude, and as
+ * many of latitude per pixel at the equator, where a Mercator pixel covers the most; the chunks it
+ * touches are counted with one extra row and column for a view that straddles chunk edges.
+ *
+ * Args:
+ *   dataset: The dataset.
+ *   variable: The variable to draw.
+ *   viewport: The map's size in CSS pixels.
+ *   budget: Decoded bytes a view may read.
+ *
+ * Returns:
+ *   A whole zoom level; 0 when the variable draws at any zoom.
+ */
+export function regionalMinZoom(
+  dataset: DynamicalDataset,
+  variable: DynamicalVariable,
+  viewport: { width: number; height: number },
+  budget: number = REGIONAL_VIEW_BUDGET_BYTES,
+): number {
+  if (!needsRegionalView(dataset, variable)) return 0;
+  const footprint = chunkFootprint(dataset, variable);
+  const bytes = chunkBytes(variable);
+  if (!footprint || !bytes) return MAX_REGIONAL_MIN_ZOOM;
+  const allowed = Math.max(1, Math.floor(budget / bytes));
+  const width = Math.max(1, viewport.width);
+  const height = Math.max(1, viewport.height);
+  for (let zoom = 0; zoom < MAX_REGIONAL_MIN_ZOOM; zoom += 1) {
+    const degreesPerPixel = 360 / (WORLD_TILE_PIXELS * 2 ** zoom);
+    const columns = Math.min(
+      footprint.columns,
+      Math.ceil((width * degreesPerPixel) / footprint.x) + 1,
+    );
+    const rows = Math.min(footprint.rows, Math.ceil((height * degreesPerPixel) / footprint.y) + 1);
+    if (columns * rows <= allowed) return zoom;
+  }
+  return MAX_REGIONAL_MIN_ZOOM;
 }
 
 /** A variable's non-spatial dimensions, in array order: the ones the panel picks a slice of. */
@@ -408,6 +537,62 @@ export function formatUtc(ms: number): string {
   return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
+/** The UTC calendar day of a timestamp as `2026-10-07`, the value a date input holds. */
+export function utcDateKey(ms: number): string {
+  return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : "";
+}
+
+/** The time of day of a timestamp as `06:00 UTC`, what a run on a known day reads as. */
+export function formatUtcTimeOfDay(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  return `${new Date(ms).toISOString().slice(11, 16)} UTC`;
+}
+
+/** The indices of the steps that fall on a UTC calendar day, in axis order. */
+export function stepsOnUtcDate(values: readonly number[], dateKey: string): number[] {
+  const steps: number[] = [];
+  // An unreadable timestamp keys as "", which would otherwise match every other one.
+  if (!dateKey) return steps;
+  values.forEach((value, index) => {
+    if (utcDateKey(value) === dateKey) steps.push(index);
+  });
+  return steps;
+}
+
+/**
+ * The step to jump to when a day is picked: the one at the current step's time of day if that
+ * day has it, else the day's first step, else the step nearest that time on that day (a day the
+ * archive skips).
+ *
+ * @param values - Epoch milliseconds of each step.
+ * @param dateKey - The picked day, `YYYY-MM-DD`.
+ * @param current - The step shown now, whose time of day is kept.
+ * @returns The step index, or -1 when the day does not parse or the axis is empty.
+ */
+export function stepForUtcDate(
+  values: readonly number[],
+  dateKey: string,
+  current: number,
+): number {
+  const day = Date.parse(`${dateKey}T00:00:00Z`);
+  if (!Number.isFinite(day) || values.length === 0) return -1;
+  const now = values[current];
+  const timeOfDay = Number.isFinite(now) ? ((now % 86_400_000) + 86_400_000) % 86_400_000 : 0;
+  const target = day + timeOfDay;
+  const onDay = stepsOnUtcDate(values, dateKey);
+  if (onDay.length) return onDay.find((index) => values[index] === target) ?? onDay[0];
+  let best = -1;
+  let bestDistance = Infinity;
+  values.forEach((value, index) => {
+    const distance = Math.abs(value - target);
+    if (distance < bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
 /** A lead time in seconds as `+6 h`, or `+3 d 6 h` from two days on. */
 export function formatLeadTime(seconds: number): string {
   if (!Number.isFinite(seconds)) return "—";
@@ -513,4 +698,280 @@ function roundSignificant(value: number, round: (value: number) => number): numb
   const magnitude = 10 ** (Math.floor(Math.log10(Math.abs(value))) - 1);
   // The quotient is trimmed first: 0.3 / 0.01 is 29.999999999999996, which would floor to 29.
   return Number((round(Number((value / magnitude).toPrecision(12))) * magnitude).toPrecision(12));
+}
+
+/** Whether a `[west, south, east, north]` box holds a point; `west > east` crosses 180°. */
+export function bboxContains(
+  bbox: readonly [number, number, number, number],
+  lng: number,
+  lat: number,
+): boolean {
+  const [west, south, east, north] = bbox;
+  if (lat < south || lat > north) return false;
+  const wrapped = ((((lng + 180) % 360) + 360) % 360) - 180;
+  return west <= east ? wrapped >= west && wrapped <= east : wrapped >= west || wrapped <= east;
+}
+
+/** The centre of a `[west, south, east, north]` box, across 180° when `west > east`. */
+export function bboxCenter(bbox: readonly [number, number, number, number]): [number, number] {
+  const [west, south, east, north] = bbox;
+  const span = west <= east ? east - west : east + 360 - west;
+  const lng = west + span / 2;
+  return [lng > 180 ? lng - 360 : lng, (south + north) / 2];
+}
+
+// --- Point time series -------------------------------------------------------
+
+/**
+ * Most decoded bytes one point time series may read. A point's series still decodes whole
+ * chunks, so the window is cut to whole chunks around the chosen step ({@link seriesWindow}).
+ */
+export const POINT_SERIES_BUDGET_BYTES = 96 * 2 ** 20;
+
+/** The dimension a point's series runs along: lead time for a forecast, time for an analysis. */
+export function seriesDimension(
+  dataset: DynamicalDataset,
+  variable: DynamicalVariable,
+): string | null {
+  const dimensions = sliceDimensions(dataset, variable);
+  return (
+    dimensions.find(isLeadTimeDimension) ??
+    dimensions.find((name) => isTemporalDimension(dataset, name)) ??
+    null
+  );
+}
+
+/** The ensemble dimension, whose members a point series reads all of. */
+export function memberDimension(
+  dataset: DynamicalDataset,
+  variable: DynamicalVariable,
+): string | null {
+  return sliceDimensions(dataset, variable).find((name) => name === "ensemble_member") ?? null;
+}
+
+/**
+ * The steps a point series reads: whole chunks along `dimension`, centred on the chunk holding
+ * `index`, as many as the budget allows (at least one).
+ *
+ * Every member is read too, so an ensemble whose members span several chunks pays for each.
+ *
+ * Args:
+ *   dataset: The dataset.
+ *   variable: The variable.
+ *   dimension: The series dimension ({@link seriesDimension}).
+ *   index: The step the panel shows.
+ *   length: How many steps the dimension has.
+ *   budget: Decoded bytes the series may read.
+ *
+ * Returns:
+ *   `[start, end)` step indices, holding `index`.
+ */
+export function seriesWindow(
+  dataset: DynamicalDataset,
+  variable: DynamicalVariable,
+  dimension: string,
+  index: number,
+  length: number,
+  budget: number = POINT_SERIES_BUDGET_BYTES,
+): [number, number] {
+  if (length <= 0) return [0, 0];
+  const position = variable.dimensions.indexOf(dimension);
+  const chunk = Math.max(1, variable.chunks[position] || length);
+  const member = memberDimension(dataset, variable);
+  const memberPosition = member ? variable.dimensions.indexOf(member) : -1;
+  const memberChunks =
+    memberPosition >= 0
+      ? Math.ceil(
+          (dataset.dimensions[member as string]?.size ?? variable.chunks[memberPosition] ?? 1) /
+            Math.max(1, variable.chunks[memberPosition] || 1),
+        )
+      : 1;
+  const bytes = Math.max(1, chunkBytes(variable)) * memberChunks;
+  const allowed = Math.max(1, Math.floor(budget / bytes));
+  const chunks = Math.ceil(length / chunk);
+  const current = Math.min(chunks - 1, Math.max(0, Math.floor(index / chunk)));
+  const first = Math.min(
+    Math.max(0, current - Math.floor((allowed - 1) / 2)),
+    Math.max(0, chunks - allowed),
+  );
+  const last = Math.min(chunks, first + allowed);
+  return [first * chunk, Math.min(length, last * chunk)];
+}
+
+/**
+ * The index of the coordinate nearest `value` in a monotonic coordinate array.
+ *
+ * Returns:
+ *   The index, or null when `value` lies more than half a step outside the coordinates.
+ */
+export function nearestIndex(coordinates: ArrayLike<number>, value: number): number | null {
+  const count = coordinates.length;
+  if (!count || !Number.isFinite(value)) return null;
+  if (count === 1) return 0;
+  const ascending = coordinates[count - 1] >= coordinates[0];
+  const at = (index: number) => (ascending ? coordinates[index] : -coordinates[index]);
+  const target = ascending ? value : -value;
+  const half = Math.abs(coordinates[1] - coordinates[0]) / 2;
+  if (target < at(0) - half || target > at(count - 1) + half) return null;
+  let low = 0;
+  let high = count - 1;
+  while (high - low > 1) {
+    const middle = (low + high) >> 1;
+    if (at(middle) <= target) low = middle;
+    else high = middle;
+  }
+  return Math.abs(at(high) - target) < Math.abs(target - at(low)) ? high : low;
+}
+
+/**
+ * {@link nearestIndex} on a longitude axis. An axis that goes the whole way round is periodic, so
+ * a point in the half step past its last coordinate is next to the first one.
+ *
+ * Returns:
+ *   The index, or null when the longitude lies off a regional axis.
+ */
+export function nearestLongitudeIndex(
+  coordinates: ArrayLike<number>,
+  longitude: number,
+): number | null {
+  const index = nearestIndex(coordinates, longitude);
+  const count = coordinates.length;
+  if (index !== null || count < 2) return index;
+  const step = Math.abs(coordinates[1] - coordinates[0]);
+  const span = Math.abs(coordinates[count - 1] - coordinates[0]) + step;
+  if (Math.abs(span - 360) > step / 2) return null;
+  return nearestIndex(coordinates, longitude - 360) ?? nearestIndex(coordinates, longitude + 360);
+}
+
+/** Bring a longitude into the convention of a longitude axis: [-180, 180) or [0, 360). */
+export function wrapLongitude(longitude: number, coordinates: ArrayLike<number>): number {
+  let max = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < coordinates.length; index += 1) {
+    max = Math.max(max, coordinates[index]);
+  }
+  const wrapped = ((((longitude + 180) % 360) + 360) % 360) - 180;
+  return max > 180 && wrapped < 0 ? wrapped + 360 : wrapped;
+}
+
+/** One step of a point series: the value, or an ensemble's mean and spread. */
+export interface SeriesStep {
+  /** The step's time in epoch milliseconds (the valid time, for a forecast). */
+  time: number;
+  /** The value, or the ensemble mean; NaN where the data has none. */
+  value: number;
+  /** The smallest and largest member, for an ensemble. */
+  min?: number;
+  max?: number;
+}
+
+/**
+ * Reduce each step's members to their mean and range, skipping missing members.
+ *
+ * Args:
+ *   times: Each step's time in epoch milliseconds.
+ *   members: Each step's member values (one value for a deterministic series).
+ *
+ * Returns:
+ *   One step per time; `min`/`max` only when there is more than one member.
+ */
+export function summarizeSeries(
+  times: readonly number[],
+  members: ReadonlyArray<ArrayLike<number>>,
+): SeriesStep[] {
+  return times.map((time, step) => {
+    const values = members[step] ?? [];
+    let sum = 0;
+    let count = 0;
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index];
+      if (!Number.isFinite(value)) continue;
+      sum += value;
+      count += 1;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    const value = count ? sum / count : Number.NaN;
+    return values.length > 1
+      ? { time, value, min: count ? min : Number.NaN, max: count ? max : Number.NaN }
+      : { time, value };
+  });
+}
+
+/**
+ * Clean value-axis ticks inside `[min, max]`: a step of 1, 2 or 5 times a power of ten, rounded
+ * from `(max - min) / count` the way d3's `ticks` does.
+ *
+ * Returns:
+ *   Ascending tick values, about `count` of them.
+ */
+export function niceTicks(min: number, max: number, count = 4): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (max === min) return [min];
+  const raw = (max - min) / Math.max(1, count);
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const error = raw / magnitude;
+  const factor =
+    error >= Math.sqrt(50) ? 10 : error >= Math.sqrt(10) ? 5 : error >= Math.SQRT2 ? 2 : 1;
+  const step = factor * magnitude;
+  const ticks: number[] = [];
+  // Stepping by index always advances, where `tick += step` can stall on a step far smaller than
+  // the tick; the cap guards a degenerate range all the same.
+  const first = Math.ceil(min / step);
+  for (let n = 0; n < 100; n += 1) {
+    const tick = (first + n) * step;
+    if (tick > max + step * 1e-9) break;
+    ticks.push(Number(tick.toPrecision(12)));
+  }
+  return ticks;
+}
+
+const HOUR_MS = 3_600_000;
+const TIME_STEPS_MS = [1, 3, 6, 12, 24, 48, 96, 168, 336, 720, 1440, 2160, 4320, 8760].map(
+  (hours) => hours * HOUR_MS,
+);
+
+/**
+ * Time-axis ticks on whole UTC hours or days: the smallest standard step (1 h to a year) that
+ * gives at most `count` ticks across `[start, end]`.
+ */
+export function timeTicks(start: number, end: number, count = 4): number[] {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return Number.isFinite(start) ? [start] : [];
+  }
+  const step =
+    TIME_STEPS_MS.find((candidate) => (end - start) / candidate <= count) ??
+    TIME_STEPS_MS[TIME_STEPS_MS.length - 1];
+  const ticks: number[] = [];
+  for (let tick = Math.ceil(start / step) * step; tick <= end; tick += step) ticks.push(tick);
+  return ticks;
+}
+
+/**
+ * A point series as CSV: UTC time, then the value (or mean, min and max for an ensemble).
+ *
+ * Args:
+ *   steps: The series.
+ *   valueHeader: The value column's name, e.g. `temperature_2m (degree_Celsius)`.
+ *
+ * Returns:
+ *   The CSV text, one row per step; missing values are empty cells.
+ */
+export function seriesCsv(steps: readonly SeriesStep[], valueHeader: string): string {
+  const ensemble = steps.some((step) => step.min !== undefined);
+  const quote = (text: string) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
+  const cell = (value: number | undefined) =>
+    value !== undefined && Number.isFinite(value) ? String(value) : "";
+  const header = ensemble
+    ? ["time_utc", `${valueHeader} mean`, `${valueHeader} min`, `${valueHeader} max`]
+    : ["time_utc", valueHeader];
+  const rows = steps.map((step) =>
+    [
+      Number.isFinite(step.time) ? new Date(step.time).toISOString() : "",
+      cell(step.value),
+      ...(ensemble ? [cell(step.min), cell(step.max)] : []),
+    ].join(","),
+  );
+  return [header.map(quote).join(","), ...rows].join("\n") + "\n";
 }

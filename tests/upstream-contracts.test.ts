@@ -182,6 +182,20 @@ describe("@carbonplan/zarr-layer", () => {
       );
     }
   });
+
+  it("gates its own fetches on the private minZoom the Dynamical plugin writes", () => {
+    const section = "`@carbonplan/zarr-layer` — private `minZoom`";
+    const text = readPublishedText("@carbonplan/zarr-layer", { workspace: "packages/plugins" });
+    for (const [token, what] of [
+      ["this.minZoom = minzoom", "the constructor no longer stores `minzoom` on `this.minZoom`"],
+      ["zoom >= this.minZoom", "isZoomInRange no longer reads `this.minZoom`"],
+    ]) {
+      assert.ok(
+        text.includes(token),
+        contractMessage("@carbonplan/zarr-layer", section, what, "packages/plugins"),
+      );
+    }
+  });
 });
 
 describe("Web Services control packages", () => {
@@ -815,6 +829,25 @@ describe("cesium / @cesium/widgets", () => {
         message(`FullscreenButtonViewModel has no \`${field}\``),
       );
     }
+  });
+});
+
+describe("geotiff", () => {
+  const section = "`geotiff` (`packages/processing/package.json`) — private `actualizedFields`";
+
+  it("keeps parsed tags in a Map keyed by tag number", async () => {
+    const { fromArrayBuffer, writeArrayBuffer } = await import("geotiff");
+    const bytes = writeArrayBuffer(new Uint8Array(4), {
+      width: 2,
+      height: 2,
+    } as Parameters<typeof writeArrayBuffer>[1]) as ArrayBuffer;
+    const image = await (await fromArrayBuffer(bytes)).getImage();
+    const fields = (image.fileDirectory as unknown as { actualizedFields?: unknown })
+      .actualizedFields;
+    const message = (detail: string) =>
+      contractMessage("geotiff", section, detail, "packages/processing");
+    assert.ok(fields instanceof Map, message("fileDirectory.actualizedFields is no longer a Map"));
+    assert.ok(fields.has(339), message("SampleFormat is no longer stored under tag 339"));
   });
 });
 

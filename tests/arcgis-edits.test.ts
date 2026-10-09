@@ -3,7 +3,10 @@ import { afterEach, describe, it } from "node:test";
 import type { Feature, FeatureCollection } from "geojson";
 import { useAppStore } from "@geolibre/core";
 import {
+  arcGISEditCapabilities,
   arcGISGeometry,
+  describeArcGISEditError,
+  identifyArcGISFeatures,
   reconcileArcGISRefresh,
   planArcGISEdits,
   type ArcGISEditInfo,
@@ -80,6 +83,49 @@ describe("ArcGIS edit validation", () => {
       () => planArcGISEdits(fc(feature(1)), fc(invalid), { ...info, allowGeometryUpdates: false }),
       /geometry updates/,
     );
+  });
+  it("saves attribute edits and deletions, but no shapes, on an M-aware layer", () => {
+    const mInfo: ArcGISEditInfo = { ...info, geometryType: "esriGeometryPoint", hasM: true };
+    assert.deepEqual(arcGISEditCapabilities(mInfo), { create: false, update: true, delete: true });
+    const plan = planArcGISEdits(fc(feature(1), feature(2)), fc(feature(1, "after")), mInfo);
+    assert.deepEqual(plan.updates[0].payload, { attributes: { OBJECTID: 1, name: "after" } });
+    assert.deepEqual(plan.deletes, [2]);
+    const moved = feature(1);
+    moved.geometry = { type: "Point", coordinates: [1, 2] };
+    assert.throws(() => planArcGISEdits(fc(feature(1)), fc(moved), mInfo), /measure \(M\)/);
+    assert.throws(() => planArcGISEdits(fc(), fc(feature()), mInfo), /measure \(M\)/);
+  });
+  it("names the problem when the baseline lacks or repeats an object ID", () => {
+    assert.throws(() => planArcGISEdits(fc(feature()), fc(), info), /record has no OBJECTID value/);
+    assert.throws(
+      () => planArcGISEdits(fc(feature(1), feature(1)), fc(), info),
+      /OBJECTID 1 more than once/,
+    );
+  });
+  it("recovers object IDs and drops repeated records when features are loaded", () => {
+    const loaded = identifyArcGISFeatures(
+      fc(
+        // Only in the GeoJSON id.
+        { ...feature(), id: 1, properties: { name: "a" } },
+        // Under a name that differs in case.
+        { ...feature(), properties: { objectid: 2 } },
+        feature(3),
+        // The same record from an overlapping page.
+        feature(3, "again"),
+      ),
+      "OBJECTID",
+    );
+    assert.deepEqual(
+      loaded.features.map((f) => [f.id, f.properties?.OBJECTID, f.properties?.name]),
+      [
+        [1, 1, "a"],
+        [2, 2, undefined],
+        [3, 3, "before"],
+      ],
+    );
+    // The case-variant ID is moved, not copied.
+    assert.deepEqual(loaded.features[1].properties, { OBJECTID: 2 });
+    assert.equal(planArcGISEdits(loaded, loaded, info).updates.length, 0);
   });
   it("tags WGS84 and orients polygon shells clockwise and holes counterclockwise", () => {
     const shell = [
@@ -170,6 +216,32 @@ it("reconciles partial results and server IDs; retry does not repeat successful 
   assert.equal(arcGISLayerHasPendingEdits(connection.id), false);
   await saveArcGISLayerEdits(connection.id);
   assert.equal(connection.posts(), 2);
+});
+
+it("explains an insert the geodatabase refused for lack of a database permission", async () => {
+  // The response reported against ArcGIS Enterprise 11.1 on SQL Server (#3022).
+  const denied =
+    "Internal error during object insert. Insufficient permissions [42000:[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]The EXECUTE permission was denied on the object 'i12_get_ids', database 'gis', schema 'dbo'.] [HYDRANT]";
+  const connection = await load(() => ({
+    addResults: [{ success: false, error: { code: 1000, description: denied } }],
+  }));
+  useAppStore
+    .getState()
+    .updateLayer(connection.id, { geojson: fc(feature(1), feature(2), feature()) });
+  const result = await saveArcGISLayerEdits(connection.id);
+  assert.equal(result.inserted, 0);
+  assert.equal(result.errors.length, 1);
+  assert.ok(result.errors[0].startsWith(`Add 1: ${denied} `));
+  assert.match(result.errors[0], /database account lacks a permission/);
+  assert.equal(arcGISLayerHasPendingEdits(connection.id), true, "the new feature stays local");
+});
+
+it("leaves other edit failures as the service words them", () => {
+  assert.equal(describeArcGISEditError("Locked"), "Locked");
+  assert.match(
+    describeArcGISEditError("ORA-01031: insufficient privileges"),
+    /database account lacks a permission/,
+  );
 });
 
 const refreshGeometry: Array<string | null> = [];

@@ -1,5 +1,10 @@
-import { useAppStore, type MapProjection, type MapViewState } from "@geolibre/core";
-import { useEffect, useState } from "react";
+import {
+  createEmptyProject,
+  useAppStore,
+  type MapProjection,
+  type MapViewState,
+} from "@geolibre/core";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { dataUrlParameters, serviceUrlParameter, stacUrlParameter } from "../lib/data-url";
 import { isTauri } from "../lib/is-tauri";
@@ -9,6 +14,7 @@ import { projectUrlFromLocation } from "../lib/project-url";
 import { planStartup, startupDefaultWorkspace, type StartupPlan } from "../lib/startup-project";
 import { openRecentProjectFile, RecentProjectGoneError } from "../lib/tauri-io";
 import { resolveProjectXyzLayers } from "../lib/xyz-url";
+import { fetchStartupLayerData, startupLayerIds, withStartupLayers } from "../lib/startup-layers";
 import { DEFAULT_STARTUP_SETTINGS, useDesktopSettingsStore } from "./useDesktopSettings";
 import { loadRecentProjects } from "./useRecentProjectsPersistence";
 import { consumeInlineProjectFragment } from "../lib/inline-project-fragment";
@@ -94,6 +100,34 @@ function applyDefaultWorkspace(
   }));
 }
 
+/**
+ * Add the Startup setting's layers to the untitled workspace, if any are set.
+ * Starting a new project that holds them, rather than adding each layer, gives
+ * them the same restore passes an opened project's layers get (local files
+ * re-read from disk, plugin-painted layers replayed) and leaves the workspace
+ * clean.
+ *
+ * @returns The ids of the layers added, empty when none are set.
+ */
+function seedStartupLayers(): Set<string> {
+  const state = useAppStore.getState();
+  const project = withStartupLayers(
+    createEmptyProject(state.projectName, {
+      basemapStyleUrl: state.basemapStyleUrl,
+      mapView: state.mapView,
+    }),
+  );
+  if (project.layers.length === 0) return new Set();
+  state.newProject({
+    name: project.name,
+    basemapStyleUrl: project.basemapStyleUrl,
+    mapView: project.mapView,
+    layers: project.layers,
+    layerGroups: project.layerGroups,
+  });
+  return startupLayerIds(project);
+}
+
 export function useStartupProject(): {
   restoring: boolean;
 } {
@@ -126,6 +160,9 @@ export function useStartupProject(): {
   // default mode) mount straight away with no spinner. Writing to the store
   // during render is safe here: it happens once, before any subscriber has
   // rendered, and re-running the initializer would set the same value.
+  // The layers the Startup setting added to the untitled workspace, set by the
+  // initializer below and read by the effect that fetches their features.
+  const seededLayerIds = useRef<Set<string>>(new Set());
   const [restoring, setRestoring] = useState(() => {
     if (inlineProject) {
       useAppStore.getState().loadProject(inlineProject, null, { rememberRecent: false });
@@ -134,6 +171,7 @@ export function useStartupProject(): {
     const location =
       initialNativeCoordinateTarget() ?? coordinateTargetFromSearch(window.location.search);
     if (location && !hasExplicitLaunchPayload() && !openedProjectPath) {
+      seededLayerIds.current = seedStartupLayers();
       applyDefaultWorkspace({
         ...startupDefaultWorkspace(useDesktopSettingsStore.getState().desktopSettings.startup),
         ...location,
@@ -141,9 +179,19 @@ export function useStartupProject(): {
       return false;
     }
     const plan = currentStartupPlan(openedProjectPath);
-    if (plan.kind === "default") applyDefaultWorkspace(plan);
+    if (plan.kind === "default") {
+      seededLayerIds.current = seedStartupLayers();
+      applyDefaultWorkspace(plan);
+    }
     return plan.kind === "restore";
   });
+
+  // Fetch the features of the URL layers the seeding above added, and only
+  // those. In an effect, not the initializer, so a render that is thrown away
+  // fetches nothing.
+  useEffect(() => {
+    if (seededLayerIds.current.size > 0) void fetchStartupLayerData(seededLayerIds.current);
+  }, []);
 
   // End native startup in the same synchronous render that reads its target.
   // Waiting for the passive effect would drop intents received after render.
@@ -162,7 +210,13 @@ export function useStartupProject(): {
     if (plan.kind !== "restore") return;
     const path = plan.path;
     const settings = useDesktopSettingsStore.getState().desktopSettings.startup;
-    const openDefaultWorkspace = () => {
+    const openDefaultWorkspace = (options: { seedLayers?: boolean } = {}) => {
+      // Only once the restore has given up: seeding bumps the project
+      // generation, which would make a restore still in flight stand down.
+      if (options.seedLayers) {
+        const ids = seedStartupLayers();
+        if (ids.size > 0) void fetchStartupLayerData(ids);
+      }
       applyDefaultWorkspace(startupDefaultWorkspace(settings));
       setRestoring(false);
     };
@@ -177,7 +231,7 @@ export function useStartupProject(): {
     // File > New resets to the same `null` the app started on -- a restore
     // landing after that would clobber the new project and look identical to
     // landing on the untouched startup state.
-    const restoringOver = useAppStore.getState().projectGeneration;
+    let restoringOver = useAppStore.getState().projectGeneration;
 
     let cancelled = false;
     // Bounded gate: mount the shell over the default workspace if the restore
@@ -191,7 +245,12 @@ export function useStartupProject(): {
     // spinner would break it, and this call would need the same guard.
     const gateTimer = window.setTimeout(() => {
       if (cancelled) return;
-      openDefaultWorkspace();
+      openDefaultWorkspace({ seedLayers: true });
+      // Seeding the Startup setting's layers starts a new project. The restore
+      // may still replace this workspace while the user has not touched it, so
+      // move its ownership check onto the seeded workspace instead of making
+      // it stand down.
+      restoringOver = useAppStore.getState().projectGeneration;
     }, RESTORE_GATE_TIMEOUT_MS);
     // `cancelled` alone would leave a discarded run's read and XYZ probes in
     // flight; the signal ends them, matching `useProjectUrlLoader`.
@@ -243,7 +302,7 @@ export function useStartupProject(): {
         // A warning toast (8 s, like the banner it replaced): the app is usable,
         // just not with the project the user asked to start with.
         notify.warning(t("settings.startup.loadWarning"), { dedupeKey: "startup-project" });
-        openDefaultWorkspace();
+        openDefaultWorkspace({ seedLayers: true });
       } finally {
         window.clearTimeout(gateTimer);
         if (!cancelled) setRestoring(false);

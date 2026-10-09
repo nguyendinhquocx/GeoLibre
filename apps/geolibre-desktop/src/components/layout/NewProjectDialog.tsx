@@ -1,6 +1,7 @@
 import {
   BLANK_BASEMAP,
   createDefaultMapView,
+  createEmptyProject,
   detachProjectCopy,
   OPENFREEMAP_BASEMAPS,
   PLANETARY_BASEMAP_GROUPS,
@@ -19,6 +20,11 @@ import {
 import { planetaryBasemapLabel, planetaryBasemapSectionKey } from "../../lib/planetary-sections";
 import { buildRemotePmtilesBasemap, isPmtilesStyleUrl } from "../../lib/pmtiles-basemap-url";
 import { clearProjectSnapshots } from "../../lib/project-history-store";
+import {
+  fetchStartupLayerData,
+  startupLayerIds,
+  withStartupLayers,
+} from "../../lib/startup-layers";
 import { CollapsibleSection } from "../CollapsibleSection";
 import { RegionalBasemapSection } from "../panels/RegionalBasemapSection";
 import { StarterProjectsSection } from "./StarterProjectsSection";
@@ -242,14 +248,22 @@ export function NewProjectDialog({
     basemapId: BasemapChoice,
     { styleUrl, ellipsoidId }: ResolvedBasemap,
   ) => {
-    newProject({
-      name: projectName.trim() || DEFAULT_PROJECT_NAME,
+    const name = projectName.trim() || DEFAULT_PROJECT_NAME;
+    const options = {
       basemapStyleUrl: styleUrl,
       // A planetary basemap seeds the matching celestial body; other basemaps
       // leave the project on the default Earth ellipsoid.
       ellipsoidId,
       mapView: basemapId === LIBERTY_3D_ID ? THREE_D_MAP_VIEW : createDefaultMapView(),
-    });
+    };
+    // The Startup setting's layers join every new project. Seeding the new
+    // project with them, rather than adding each layer, runs the restore
+    // passes an opened project gets (local files re-read from disk,
+    // plugin-painted layers replayed) for them too.
+    const seeded = withStartupLayers(createEmptyProject(name, options));
+    newProject({ name, ...options, layers: seeded.layers, layerGroups: seeded.layerGroups });
+    const seededIds = startupLayerIds(seeded);
+    if (seededIds.size > 0) void fetchStartupLayerData(seededIds);
     void clearProjectSnapshots().catch((error) =>
       console.error("Could not clear project history for the new project.", error),
     );

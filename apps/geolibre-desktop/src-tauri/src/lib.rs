@@ -556,11 +556,15 @@ pub fn run() {
             // The portable zip has no installer step, so nothing registers the
             // OAuth callback scheme and a sign-in link from the browser never
             // reaches the app (#2667). `build-portable.ps1` drops a marker next
-            // to the exe; only that build claims the scheme, per user, at
-            // runtime. NSIS/MSI already register it at install time, and MSIX
-            // declares it in the package manifest and virtualizes HKCU writes.
+            // to the exe; that build always claims the scheme, per user, at
+            // runtime. The bare `geolibre-desktop_windows_x64.exe` release
+            // asset has no installer or marker either, so any other non-MSIX
+            // build claims it too when no live handler exists (#3042). NSIS/MSI
+            // register it at install time, so their handler is live and left
+            // alone, and MSIX declares it in the package manifest and
+            // virtualizes HKCU writes.
             #[cfg(windows)]
-            if is_portable_windows_build() {
+            if windows_deep_link_needs_registration() {
                 spawn_deep_link_registration(app);
             }
             Ok(())
@@ -604,10 +608,41 @@ fn current_working_directory() -> PathBuf {
 #[cfg(any(windows, test))]
 const PORTABLE_MARKER_FILE: &str = "portable.marker";
 
-/// Whether this process runs from the portable zip rather than an installer.
+/// URL scheme the share-server OAuth callback uses (`plugins > deep-link` in
+/// `tauri.conf.json`).
 #[cfg(windows)]
-fn is_portable_windows_build() -> bool {
-    env::current_exe().is_ok_and(|exe| exe_has_portable_marker(&exe))
+const DEEP_LINK_SCHEME: &str = "org.geolibre.desktop";
+
+/// Whether this process should claim the OAuth callback scheme at startup.
+///
+/// The portable build always does. An MSIX install never does. Any other
+/// build (an NSIS/MSI install, or the bare exe from the release page) does
+/// only when the scheme has no live handler, so a bare exe never takes the
+/// scheme away from an installed copy.
+#[cfg(windows)]
+fn windows_deep_link_needs_registration() -> bool {
+    let Ok(exe) = env::current_exe() else {
+        return false;
+    };
+    if exe_has_portable_marker(&exe) {
+        return true;
+    }
+    if is_msix_install(&exe) {
+        return false;
+    }
+    // Without a `URL Protocol` value Windows never launches the key's command
+    // for a URI, so such a key counts as no handler at all.
+    let command = windows_registry::CLASSES_ROOT
+        .open(DEEP_LINK_SCHEME)
+        .ok()
+        .filter(|scheme| scheme.get_string("URL Protocol").is_ok())
+        .and_then(|scheme| {
+            scheme
+                .open("shell\\open\\command")
+                .and_then(|key| key.get_string(""))
+                .ok()
+        });
+    scheme_handler_missing(command.as_deref(), Path::is_file)
 }
 
 /// Whether a portable marker file sits next to `exe`. Kept free of
@@ -616,6 +651,48 @@ fn is_portable_windows_build() -> bool {
 fn exe_has_portable_marker(exe: &Path) -> bool {
     exe.parent()
         .is_some_and(|dir| dir.join(PORTABLE_MARKER_FILE).is_file())
+}
+
+/// Whether `exe` runs from an MSIX package, which Windows always installs
+/// under `...\WindowsApps\`.
+#[cfg(any(windows, test))]
+fn is_msix_install(exe: &Path) -> bool {
+    exe.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("WindowsApps")
+    })
+}
+
+/// Whether a scheme's registered `shell\open\command` fails to launch an
+/// existing program: nothing registered, an unparsable command, or a program
+/// that was moved or deleted (such as a bare exe run once from Downloads).
+/// So another handler is never overwritten on a guess, a program path with `%`
+/// (an unexpanded `REG_EXPAND_SZ` variable) counts as live, and so does an
+/// unquoted command: its path may contain spaces, and the handlers Tauri, NSIS
+/// and MSI write are always quoted, so an unquoted one belongs to another app.
+#[cfg(any(windows, test))]
+fn scheme_handler_missing(command: Option<&str>, exists: impl Fn(&Path) -> bool) -> bool {
+    let Some(command) = command.map(str::trim).filter(|command| !command.is_empty()) else {
+        return true;
+    };
+    if !command.starts_with('"') {
+        return false;
+    }
+    match handler_program(command) {
+        Some(program) => !program.contains('%') && !exists(Path::new(program)),
+        None => true,
+    }
+}
+
+/// The program path of a quoted `shell\open\command` value
+/// (`"C:\Program Files\App\app.exe" "%1"`), or `None` when the value is
+/// unquoted or the quotes are empty.
+#[cfg(any(windows, test))]
+fn handler_program(command: &str) -> Option<&str> {
+    let program = command.trim_start().strip_prefix('"')?.split('"').next()?;
+    (!program.is_empty()).then_some(program)
 }
 
 fn has_geolibre_project_extension(path: &Path) -> bool {
@@ -3108,10 +3185,8 @@ fn wait_for_jupyter_health(
 ) -> Result<(), String> {
     // Build the HTTP client once and reuse it across all health polls (this loop
     // runs up to JUPYTER_HEALTH_ATTEMPTS = 240 times).
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-        .map_err(|error| format!("Could not build HTTP client: {error}"))?;
+    let client =
+        loopback_http_client().map_err(|error| format!("Could not build HTTP client: {error}"))?;
     for _ in 0..JUPYTER_HEALTH_ATTEMPTS {
         if let Some(status) = child
             .try_wait()
@@ -3176,6 +3251,24 @@ fn sidecar_base_url() -> String {
     format!("http://127.0.0.1:{SIDECAR_PORT}")
 }
 
+/// A short-timeout HTTP client for the app's own loopback servers (the
+/// sidecar, Jupyter and Martin health, token and shutdown probes).
+///
+/// The proxy is disabled: reqwest otherwise follows `HTTP_PROXY`-style env vars
+/// and, on Windows, the system proxy, whose `ProxyOverride` list it copies
+/// verbatim without expanding `<local>`. A corporate proxy then answers these
+/// `127.0.0.1` requests itself (often with a 403), so a healthy sidecar never
+/// reads as ready and startup waits out every attempt (issue #3003). The
+/// webview's own sidecar requests already bypass the proxy in
+/// `src/lib/sidecar-fetch.ts`.
+#[cfg(not(feature = "mas"))]
+fn loopback_http_client() -> reqwest::Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .no_proxy()
+        .build()
+}
+
 /// A per-launch shared secret the frontend must present on every sidecar
 /// request. The sidecar binds loopback and is CORS-restricted, but neither stops
 /// a cross-origin simple POST (CSRF) or a DNS-rebinding read; this token does.
@@ -3194,9 +3287,7 @@ fn sidecar_token() -> &'static str {
 
 #[cfg(not(feature = "mas"))]
 fn sidecar_health_is_ready(base_url: &str) -> bool {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build();
+    let client = loopback_http_client();
     let Ok(client) = client else {
         return false;
     };
@@ -3218,10 +3309,7 @@ fn sidecar_health_is_ready(base_url: &str) -> bool {
 /// still reused.
 #[cfg(not(feature = "mas"))]
 fn sidecar_accepts_token(base_url: &str, token: &str) -> bool {
-    let Ok(client) = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-    else {
+    let Ok(client) = loopback_http_client() else {
         return false;
     };
     client
@@ -3234,9 +3322,7 @@ fn sidecar_accepts_token(base_url: &str, token: &str) -> bool {
 
 #[cfg(not(feature = "mas"))]
 fn request_sidecar_shutdown(base_url: &str) {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build();
+    let client = loopback_http_client();
     if let Ok(client) = client {
         // /shutdown is token-protected (only /health is exempt), so attach this
         // session's token. This shuts down a sidecar we started or adopted (same
@@ -4608,10 +4694,8 @@ fn wait_for_martin_health(
     output: &CapturedOutput,
 ) -> Result<(), String> {
     let health_url = format!("{base_url}/health");
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-        .map_err(|error| format!("Could not create HTTP client: {error}"))?;
+    let client =
+        loopback_http_client().map_err(|error| format!("Could not create HTTP client: {error}"))?;
 
     for _ in 0..MARTIN_HEALTH_ATTEMPTS {
         if let Some(status) = child
@@ -5151,7 +5235,8 @@ mod tests {
     use super::{
         add_main_sidecar_extras, child_failure_message, clear_appimage_python_env,
         find_zip_manifest_path, plugin_archive_file_name, resolve_sidecar_in_resource_dir,
-        CapturedOutput, CAPTURED_LOG_MAX_LINES, CAPTURED_LOG_REPORTED_LINES, CAPTURED_LOG_SETTLE,
+        sidecar_accepts_token, sidecar_health_is_ready, CapturedOutput, CAPTURED_LOG_MAX_LINES,
+        CAPTURED_LOG_REPORTED_LINES, CAPTURED_LOG_SETTLE,
     };
     // Only the unix-only Martin tests (they spawn `sh`) use these.
     #[cfg(all(unix, not(feature = "mas")))]
@@ -5315,6 +5400,54 @@ mod tests {
         assert!(!super::exe_has_portable_marker(
             &nested.join("geolibre-desktop.exe")
         ));
+    }
+
+    // The bare release exe claims the OAuth callback scheme only when no live
+    // handler exists (#3042): an installed copy's handler stays put, while a
+    // missing key or a handler pointing at a deleted exe gets replaced.
+    #[cfg(not(feature = "mas"))]
+    #[test]
+    fn scheme_handler_missing_only_without_a_live_program() {
+        let installed = r#""C:\Program Files\GeoLibre Desktop\geolibre-desktop.exe" "%1""#;
+        assert_eq!(
+            super::handler_program(installed),
+            Some(r"C:\Program Files\GeoLibre Desktop\geolibre-desktop.exe")
+        );
+        assert_eq!(super::handler_program(r"C:\Tools\geolibre.exe %1"), None);
+        assert_eq!(super::handler_program(r#""" "%1""#), None);
+        assert_eq!(super::handler_program("   "), None);
+
+        assert!(super::scheme_handler_missing(None, |_| true));
+        assert!(super::scheme_handler_missing(Some(""), |_| true));
+        assert!(!super::scheme_handler_missing(Some(installed), |_| true));
+        assert!(super::scheme_handler_missing(Some(installed), |_| false));
+        assert!(!super::scheme_handler_missing(
+            Some(r#""%ProgramFiles%\GeoLibre Desktop\geolibre-desktop.exe" "%1""#),
+            |_| false
+        ));
+        // An unquoted path may hold spaces, so another app's handler is kept.
+        assert!(!super::scheme_handler_missing(
+            Some(r"C:\Program Files\Other App\app.exe %1"),
+            |_| false
+        ));
+        assert!(super::scheme_handler_missing(Some(r#""" "%1""#), |_| true));
+    }
+
+    #[cfg(not(feature = "mas"))]
+    #[test]
+    fn msix_install_is_detected_by_windowsapps_path() {
+        assert!(super::is_msix_install(std::path::Path::new(
+            "/Program Files/WindowsApps/OpenGeospatialSolutions.GeoLibre_3.3.0.0_x64__abc/geolibre-desktop.exe"
+        )));
+        assert!(super::is_msix_install(std::path::Path::new(
+            "/program files/windowsapps/pkg/geolibre-desktop.exe"
+        )));
+        assert!(!super::is_msix_install(std::path::Path::new(
+            "/Users/me/Downloads/geolibre-desktop_windows_x64.exe"
+        )));
+        assert!(!super::is_msix_install(std::path::Path::new(
+            "/Users/me/MyWindowsAppsBackup/geolibre-desktop.exe"
+        )));
     }
 
     #[cfg(not(feature = "mas"))]
@@ -6061,6 +6194,81 @@ mod tests {
         let _ = child.wait();
         assert!(error.contains("exited before it was ready"), "got: {error}");
         assert!(error.contains("error: last line"), "got: {error}");
+    }
+
+    // The sidecar probes must reach 127.0.0.1 directly. A corporate proxy picked
+    // up from the environment or the Windows system settings would otherwise
+    // answer them itself, so a healthy sidecar never reads as ready (#3003).
+    // reqwest reads the proxy env vars each time a client is built, so pointing
+    // them at a proxy that refuses everything shows whether the probes bypass it.
+    #[cfg(not(feature = "mas"))]
+    #[test]
+    fn sidecar_probes_bypass_a_configured_proxy() {
+        use std::io::Read;
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use std::thread;
+
+        /// Serves every connection with `response` and returns the server's
+        /// address plus a count of the requests it answered.
+        fn serve(response: &'static [u8]) -> (String, Arc<AtomicUsize>) {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
+            let address = listener.local_addr().unwrap().to_string();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let counter = Arc::clone(&hits);
+            thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { continue };
+                    let mut buffer = [0_u8; 1024];
+                    let _ = stream.read(&mut buffer);
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    let _ = stream.write_all(response);
+                }
+            });
+            (address, hits)
+        }
+
+        /// Restores the proxy env vars even when an assertion fails.
+        struct ProxyEnv(Vec<(&'static str, Option<OsString>)>);
+        impl Drop for ProxyEnv {
+            fn drop(&mut self) {
+                for (name, value) in &self.0 {
+                    match value {
+                        Some(value) => env::set_var(name, value),
+                        None => env::remove_var(name),
+                    }
+                }
+            }
+        }
+
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (sidecar, _) =
+            serve(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+        let (proxy, proxy_hits) =
+            serve(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+
+        let names = [
+            "HTTP_PROXY",
+            "http_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+            "NO_PROXY",
+            "no_proxy",
+        ];
+        let saved = names.iter().map(|name| (*name, env::var_os(name)));
+        let _restore = ProxyEnv(saved.collect());
+        for name in names {
+            env::remove_var(name);
+        }
+        env::set_var("HTTP_PROXY", format!("http://{proxy}"));
+        env::set_var("http_proxy", format!("http://{proxy}"));
+
+        let base_url = format!("http://{sidecar}");
+        assert!(sidecar_health_is_ready(&base_url));
+        assert!(sidecar_accepts_token(&base_url, "token"));
+        let proxy_requests = proxy_hits.load(Ordering::SeqCst);
+        assert_eq!(proxy_requests, 0, "a probe went through the proxy");
     }
 
     // A Martin that died or was killed from outside must not keep blocking new

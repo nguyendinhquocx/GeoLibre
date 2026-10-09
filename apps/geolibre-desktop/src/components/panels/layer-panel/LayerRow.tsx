@@ -1,4 +1,8 @@
-import { type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
+  useMemo,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   IDENTIFY_ALL_LAYERS_ID,
@@ -21,6 +25,7 @@ import {
   isPlaceholderLayer,
   placeholderMessage,
 } from "@geolibre/map";
+import { arcGISLayerHasPendingEdits, isArcGISWritableLayer } from "@geolibre/plugins";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@geolibre/ui";
 import {
   ChevronDown,
@@ -50,6 +55,7 @@ import {
 } from "./layer-panel-utils";
 import { LayerActionsMenuItems, type LayerActionsMenuShared } from "./LayerActionsMenu";
 import { LayerOpacitySlider } from "./LayerOpacitySlider";
+import { useCompactLayerList } from "./useCompactLayerList";
 
 interface LayerRowProps {
   layer: GeoLibreLayer;
@@ -210,6 +216,24 @@ export function LayerRow({
       : t("layers.identifyCapabilityDisabled");
   const geometryEditActive = geometryEditLayerId === layer.id;
   const geometryEditElsewhere = geometryEditLayerId !== null && !geometryEditActive;
+  // Edits to an ArcGIS layer stay local until Save edits to ArcGIS service, so
+  // say so once a geometry session or table edit leaves some unsent. Keyed on
+  // the features and baseline, which every edit and save replaces.
+  const arcgisEditsUnsent = useMemo(
+    () =>
+      !geometryEditActive &&
+      layer.metadata.arcgisSaveUncertain !== true &&
+      isArcGISWritableLayer(layer) &&
+      arcGISLayerHasPendingEdits(layer.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+    [
+      geometryEditActive,
+      layer.geojson,
+      layer.metadata.arcgisEditBaseline,
+      layer.metadata.arcgisEditInfo,
+      layer.metadata.arcgisSaveUncertain,
+    ],
+  );
   const isLayerLocked =
     collaboration.isActive && (collaboration.lockedLayerIds ?? []).includes(layer.id);
   // Whether collaboration lets this session touch the layer at all —
@@ -237,12 +261,18 @@ export function LayerRow({
           }
         : undefined);
   const isRefreshing = refreshStatus?.type === "refreshing";
+  // Compact rows keep only the header line; the selected row (and any row
+  // mid-rename or mid-edit) still shows its slider and actions.
+  const [compactLayerList] = useCompactLayerList();
+  const showDetails = !compactLayerList || selected || editing || geometryEditActive;
   return (
     <div
       data-testid="layer-row"
       data-layer-name={layer.name}
       data-layer-id={layer.id}
-      className={`relative min-w-0 max-w-full rounded-md border p-2 transition-colors ${
+      className={`relative min-w-0 max-w-full rounded-md border transition-colors ${
+        showDetails ? "p-2" : "px-2 py-0.5"
+      } ${
         selected
           ? "border-primary bg-primary/5"
           : "border-border bg-background hover:border-muted-foreground/40 hover:bg-muted/20"
@@ -460,6 +490,9 @@ export function LayerRow({
           {refreshStatus.message}
         </p>
       )}
+      {arcgisEditsUnsent && !refreshStatus && (
+        <p className="mt-1 text-[10px] text-amber-600">{t("layers.arcgisEditsUnsent")}</p>
+      )}
       {geometryEditActive && (
         <div className="mt-1 flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-1">
           <PencilRuler className="h-3 w-3 text-primary" />
@@ -497,158 +530,161 @@ export function LayerRow({
           slider is only shown when the plugin bridged a setter for
           it — otherwise it would move with no effect (#1445) — or
           when the primary renderer draws the layer itself. */}
-      {(!pluginOwnsPaint(layer) ||
-        supportsBridgedOpacity(layer.id) ||
-        rendererAppliesOpacity(layer, primaryRenderer)) && (
-        <LayerOpacitySlider
-          label={t("layers.opacity")}
-          ariaLabel={t("layers.opacityFor", { name: layer.name })}
-          value={layer.opacity}
-          onChange={(v) => setLayerOpacity(layer.id, v)}
-        />
-      )}
-      <div className="mt-2 flex flex-wrap gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title={t("layers.moveUp")}
-          aria-label={t("layers.moveUp")}
-          onClick={(e) => {
-            e.stopPropagation();
-            reorderLayer(layer.id, "up");
-          }}
-        >
-          <ChevronUp className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title={t("layers.moveDown")}
-          aria-label={t("layers.moveDown")}
-          onClick={(e) => {
-            e.stopPropagation();
-            reorderLayer(layer.id, "down");
-          }}
-        >
-          <ChevronDown className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title={t("layers.zoomToLayer")}
-          aria-label={t("layers.zoomToLayer")}
-          onClick={(e) => {
-            e.stopPropagation();
-            const controller = mapControllerRef.current;
-            // A layer with no known extent (e.g. a bare `{z}/{x}/{y}` vector
-            // tile URL viewed nowhere near its data) cannot be framed; say so
-            // rather than leave the button looking broken.
-            if (controller && !controller.fitLayer(layer)) {
-              notify.info(t("layers.zoomToLayerUnknownExtent", { name: layer.name }));
-            }
-          }}
-        >
-          <ZoomIn className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`h-7 w-7 ${
-            identifyActive
-              ? "border border-primary bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground"
-              : ""
-          }`}
-          title={identifyLabel}
-          aria-label={identifyLabel}
-          disabled={!canIdentify || geometryEditActive}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!canIdentify) return;
-            selectLayer(layer.id);
-            setIdentifyLayer(identifyActive ? null : layer.id);
-          }}
-        >
-          <MousePointerClick className="h-3.5 w-3.5" />
-        </Button>
-        {onOpenStylePanel && (
+      {showDetails &&
+        (!pluginOwnsPaint(layer) ||
+          supportsBridgedOpacity(layer.id) ||
+          rendererAppliesOpacity(layer, primaryRenderer)) && (
+          <LayerOpacitySlider
+            label={t("layers.opacity")}
+            ariaLabel={t("layers.opacityFor", { name: layer.name })}
+            value={layer.opacity}
+            onChange={(v) => setLayerOpacity(layer.id, v)}
+          />
+        )}
+      {showDetails && (
+        <div className="mt-2 flex flex-wrap gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title={t("layers.openStylePanel")}
-            aria-label={t("layers.openStylePanel")}
+            title={t("layers.moveUp")}
+            aria-label={t("layers.moveUp")}
             onClick={(e) => {
               e.stopPropagation();
-              selectLayer(layer.id);
-              onOpenStylePanel();
+              reorderLayer(layer.id, "up");
             }}
           >
-            <Palette className="h-3.5 w-3.5" />
+            <ChevronUp className="h-3.5 w-3.5" />
           </Button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={t("layers.moveDown")}
+            aria-label={t("layers.moveDown")}
+            onClick={(e) => {
+              e.stopPropagation();
+              reorderLayer(layer.id, "down");
+            }}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={t("layers.zoomToLayer")}
+            aria-label={t("layers.zoomToLayer")}
+            onClick={(e) => {
+              e.stopPropagation();
+              const controller = mapControllerRef.current;
+              // A layer with no known extent (e.g. a bare `{z}/{x}/{y}` vector
+              // tile URL viewed nowhere near its data) cannot be framed; say so
+              // rather than leave the button looking broken.
+              if (controller && !controller.fitLayer(layer)) {
+                notify.info(t("layers.zoomToLayerUnknownExtent", { name: layer.name }));
+              }
+            }}
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`h-7 w-7 ${
+              identifyActive
+                ? "border border-primary bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground"
+                : ""
+            }`}
+            title={identifyLabel}
+            aria-label={identifyLabel}
+            disabled={!canIdentify || geometryEditActive}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!canIdentify) return;
+              selectLayer(layer.id);
+              setIdentifyLayer(identifyActive ? null : layer.id);
+            }}
+          >
+            <MousePointerClick className="h-3.5 w-3.5" />
+          </Button>
+          {onOpenStylePanel && (
             <Button
               variant="ghost"
               size="icon"
-              className={`h-7 w-7 ${
-                refreshConfig.enabled ? "border border-primary text-primary" : ""
-              }`}
-              title={t("layers.layerActions")}
-              aria-label={t("layers.layerActions")}
-              onClick={(e: ReactMouseEvent) => e.stopPropagation()}
+              className="h-7 w-7"
+              title={t("layers.openStylePanel")}
+              aria-label={t("layers.openStylePanel")}
+              onClick={(e) => {
+                e.stopPropagation();
+                selectLayer(layer.id);
+                onOpenStylePanel();
+              }}
             >
-              <MoreHorizontal className="h-3.5 w-3.5" />
+              <Palette className="h-3.5 w-3.5" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onClick={(e: ReactMouseEvent) => e.stopPropagation()}>
-            <LayerActionsMenuItems
-              shared={menu}
-              layer={layer}
-              layerCaps={layerCaps}
-              layerRendered={layerRendered}
-              identifyOwnsClicks={identifyOwnsClicks}
-              geometryEditActive={geometryEditActive}
-              geometryEditElsewhere={geometryEditElsewhere}
-              isLayerLocked={isLayerLocked}
-              layerEditable={layerEditable}
-              refreshConfig={refreshConfig}
-              isRefreshing={isRefreshing}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title={t("layers.metadata")}
-          aria-label={t("layers.metadata")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenMetadata(layer);
-          }}
-        >
-          <Info className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-destructive disabled:opacity-40"
-          title={!layerEditable ? t("collaborate.layerLockedHint") : t("layers.removeLayer")}
-          aria-label={t("layers.removeLayer")}
-          disabled={!layerEditable}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!layerEditable) return;
-            onRequestRemove(layer);
-          }}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-7 w-7 ${
+                  refreshConfig.enabled ? "border border-primary text-primary" : ""
+                }`}
+                title={t("layers.layerActions")}
+                aria-label={t("layers.layerActions")}
+                onClick={(e: ReactMouseEvent) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e: ReactMouseEvent) => e.stopPropagation()}>
+              <LayerActionsMenuItems
+                shared={menu}
+                layer={layer}
+                layerCaps={layerCaps}
+                layerRendered={layerRendered}
+                identifyOwnsClicks={identifyOwnsClicks}
+                geometryEditActive={geometryEditActive}
+                geometryEditElsewhere={geometryEditElsewhere}
+                isLayerLocked={isLayerLocked}
+                layerEditable={layerEditable}
+                refreshConfig={refreshConfig}
+                isRefreshing={isRefreshing}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={t("layers.metadata")}
+            aria-label={t("layers.metadata")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMetadata(layer);
+            }}
+          >
+            <Info className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-destructive disabled:opacity-40"
+            title={!layerEditable ? t("collaborate.layerLockedHint") : t("layers.removeLayer")}
+            aria-label={t("layers.removeLayer")}
+            disabled={!layerEditable}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!layerEditable) return;
+              onRequestRemove(layer);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

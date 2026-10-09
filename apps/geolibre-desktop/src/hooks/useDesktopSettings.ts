@@ -3,6 +3,9 @@ import {
   isAllowedPluginManifestUrl,
   normalizeMapViewState,
   normalizeLayerStyleEntries,
+  normalizeLayersFileContent,
+  type LayerGroup,
+  type GeoLibreLayer,
   type LayerStyleFileEntry,
 } from "@geolibre/core";
 import { useEffect } from "react";
@@ -151,6 +154,11 @@ export interface StartupSettings {
    * added to the map. Null when none is set.
    */
   layerStyles: StartupLayerStyles | null;
+  /**
+   * Layers file whose layers are added to every untitled workspace: the one
+   * shown at launch and each File → New. Null when none is set.
+   */
+  layers: StartupLayers | null;
   /** Open the S3 Browser panel when the app starts (not in the read-only viewer). */
   openS3Browser: boolean;
 }
@@ -167,6 +175,20 @@ export interface StartupLayerStyles {
   /** The path (desktop) or file name (browser) it was read from. */
   path: string;
   entries: LayerStyleFileEntry[];
+}
+
+/**
+ * The layers file chosen in Startup settings, kept parsed for the same reasons
+ * as {@link StartupLayerStyles}. Its layers only reference their data, so the
+ * copy stays small.
+ */
+export interface StartupLayers {
+  /** The file's name, for display. */
+  fileName: string;
+  /** The path (desktop) or file name (browser) it was read from. */
+  path: string;
+  layers: GeoLibreLayer[];
+  layerGroups: LayerGroup[];
 }
 
 export interface ThemeSettings {
@@ -195,6 +217,13 @@ export interface DesktopLayoutSettings {
   browserPanelVisible: boolean;
   /** Same as {@link browserPanelVisible}, for the Comments right panel. */
   commentsPanelVisible: boolean;
+  /**
+   * Compact Layers panel: each row shows only its visibility toggle, swatch,
+   * and name, and the opacity slider and action buttons appear on the selected
+   * row alone. Keeps a project with hundreds of layers (e.g. a KMZ of
+   * placemarks) scannable, like the Places tree in Google Earth (#3045).
+   */
+  compactLayerList: boolean;
   layerPanelVisible: boolean;
   showProjectInfo: boolean;
   stylePanelVisible: boolean;
@@ -265,6 +294,7 @@ export function setSettingsKeychainWritable(writable: boolean): void {
 export const DEFAULT_DESKTOP_LAYOUT_SETTINGS: DesktopLayoutSettings = {
   browserPanelVisible: true,
   commentsPanelVisible: true,
+  compactLayerList: false,
   layerPanelVisible: true,
   showProjectInfo: true,
   stylePanelVisible: true,
@@ -299,6 +329,7 @@ export const DEFAULT_STARTUP_SETTINGS: StartupSettings = {
   center: [...createDefaultMapView().center],
   zoom: createDefaultMapView().zoom,
   layerStyles: null,
+  layers: null,
   openS3Browser: false,
 };
 
@@ -400,6 +431,7 @@ function normalizeStartupSettings(startup: unknown): StartupSettings {
     center: view.center,
     zoom: view.zoom,
     layerStyles: normalizeStartupLayerStyles(candidate.layerStyles),
+    layers: normalizeStartupLayers(candidate.layers),
     openS3Browser: candidate.openS3Browser === true,
   };
 }
@@ -415,6 +447,19 @@ function normalizeStartupLayerStyles(value: unknown): StartupLayerStyles | null 
       ? candidate.fileName.trim()
       : path;
   return { fileName, path, entries };
+}
+
+function normalizeStartupLayers(value: unknown): StartupLayers | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<Record<keyof StartupLayers, unknown>>;
+  const content = normalizeLayersFileContent(candidate);
+  if (content.layers.length === 0) return null;
+  const path = typeof candidate.path === "string" ? candidate.path : "";
+  const fileName =
+    typeof candidate.fileName === "string" && candidate.fileName.trim()
+      ? candidate.fileName.trim()
+      : path;
+  return { fileName, path, ...content };
 }
 
 /**
@@ -566,6 +611,10 @@ function normalizeDesktopLayoutSettings(layout: unknown): DesktopLayoutSettings 
       typeof candidate.commentsPanelVisible === "boolean"
         ? candidate.commentsPanelVisible
         : DEFAULT_DESKTOP_LAYOUT_SETTINGS.commentsPanelVisible,
+    compactLayerList:
+      typeof candidate.compactLayerList === "boolean"
+        ? candidate.compactLayerList
+        : DEFAULT_DESKTOP_LAYOUT_SETTINGS.compactLayerList,
     layerPanelVisible:
       typeof candidate.layerPanelVisible === "boolean"
         ? candidate.layerPanelVisible

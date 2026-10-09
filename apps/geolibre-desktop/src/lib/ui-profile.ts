@@ -362,6 +362,12 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     tier: "intermediate",
   },
   {
+    id: "project.exportLayers",
+    menuId: "project",
+    labelKey: "toolbar.item.exportLayersEllipsis",
+    tier: "intermediate",
+  },
+  {
     id: "project.collaborate",
     menuId: "project",
     labelKey: "toolbar.item.collaborateEllipsis",
@@ -551,6 +557,12 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     id: "processing.modelBuilder",
     menuId: "processing",
     labelKey: "toolbar.item.modelBuilder",
+    tier: "advanced",
+  },
+  {
+    id: "processing.obiaWorkbench",
+    menuId: "processing",
+    labelKey: "toolbar.item.obiaWorkbench",
     tier: "advanced",
   },
   {
