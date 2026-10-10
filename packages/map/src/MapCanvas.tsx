@@ -23,18 +23,8 @@ import {
 import * as maplibregl from "maplibre-gl";
 import type { Feature } from "geojson";
 import { memo, useEffect, useMemo, useRef } from "react";
-import {
-  circleLayerId,
-  fillExtrusionLayerId,
-  fillLayerId,
-  lineLayerId,
-  markerLayerId,
-} from "./geojson-loader";
-import {
-  externalExtrusionLayerId,
-  mbtilesStyleLayerIds,
-  vectorTileStyleLayerIds,
-} from "./layer-sync";
+import { circleLayerId, markerLayerId } from "./geojson-loader";
+import { identifyStyleLayerIds } from "./identify-layer-ids";
 import {
   attachFeatureSelection,
   FEATURE_SELECTION_BEGIN_EVENT,
@@ -123,27 +113,6 @@ function setMapLibreIdentifyCursor(map: maplibregl.Map, active: boolean): void {
 
 function createIdentifyMessagePopupElement(layerName: string, message: string): HTMLElement {
   return createIdentifyPopupElement(layerName, { status: message });
-}
-
-function nativeIdentifyLayerIds(layer: GeoLibreLayer): string[] {
-  const nativeLayerIds = layer.metadata.nativeLayerIds;
-  return Array.isArray(nativeLayerIds)
-    ? nativeLayerIds.filter((id): id is string => typeof id === "string")
-    : [];
-}
-
-function identifyStyleLayerIds(layer: GeoLibreLayer): string[] {
-  return [
-    ...nativeIdentifyLayerIds(layer),
-    ...nativeIdentifyLayerIds(layer).map(externalExtrusionLayerId),
-    ...mbtilesStyleLayerIds(layer),
-    markerLayerId(layer.id),
-    circleLayerId(layer.id),
-    lineLayerId(layer.id),
-    fillExtrusionLayerId(layer.id),
-    fillLayerId(layer.id),
-    ...vectorTileStyleLayerIds(layer),
-  ];
 }
 
 function findFeatureId(layer: GeoLibreLayer, feature: maplibregl.MapGeoJSONFeature): string | null {
@@ -396,6 +365,8 @@ export const MapCanvas = memo(function MapCanvas({
       // overwrite the project's saved view ~60 times a second.
       if (event?.flightCameraToken !== undefined) return;
       setMapView(mc.readView(), Boolean(event?.originalEvent));
+      // The store-sync effect below must not jump to this write (issue #3083).
+      mc.markStoreEcho(useAppStore.getState().mapView);
       // Same moveend cadence as zoom/bearing/pitch: a bar where one number is
       // live and the rest lag during a drag reads as broken.
       setCameraAltitude(mc.readCameraAltitude());
@@ -1442,8 +1413,11 @@ export const MapCanvas = memo(function MapCanvas({
     };
   }, [hoverTooltipKey]);
 
+  // applyStoreView, not applyView: the store's echo of a view the map itself
+  // wrote on moveend must not jump, or it stops any camera move a plugin or
+  // script started since (issue #3083).
   useEffect(() => {
-    controller.current?.applyView(mapView);
+    controller.current?.applyStoreView(mapView);
   }, [mapView.center[0], mapView.center[1], mapView.zoom, mapView.bearing, mapView.pitch]);
 
   // The map container sits inside a host element React owns. A control may

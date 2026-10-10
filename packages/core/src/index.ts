@@ -6,6 +6,7 @@ export * from "./photo";
 export * from "./ellipsoids";
 export * from "./regional-basemaps";
 export * from "./cesium-imagery";
+export * from "./arcgis-projection";
 export * from "./geojson-z";
 export * from "./color-ramp";
 export * from "./paths";
@@ -258,3 +259,10 @@ export {
   withDatumShift,
   withGeoKeysDatumShift,
 } from "./datum-shift";
+
+export {
+  convertTiffYCbCrToRgb,
+  isAbbreviatedJpegCompression,
+  patchJpegCogSource,
+  withJpegTablesPatch,
+} from "./cog-jpeg-tables";

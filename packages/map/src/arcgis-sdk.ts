@@ -56,6 +56,8 @@ export interface ArcgisSpatialReference {
   wkid?: number;
   isWebMercator?: boolean;
   isWGS84?: boolean;
+  /** Whether coordinates are degrees (a geographic system) rather than metres. */
+  isGeographic?: boolean;
 }
 
 export interface ArcgisPoint {
@@ -426,6 +428,8 @@ export interface ArcgisSdk {
   Graphic: ArcgisClass<ArcgisGraphic>;
   Point: ArcgisClass<ArcgisPoint>;
   Extent: ArcgisClass<ArcgisExtent>;
+  /** A tiling scheme; a custom-projection tile layer builds its own (issue #2708). */
+  TileInfo: ArcgisClass<unknown>;
   layers: {
     GeoJSONLayer: ArcgisClass<ArcgisLayer>;
     GraphicsLayer: ArcgisClass<ArcgisLayer>;
@@ -477,6 +481,7 @@ const SDK_MODULES = {
   Graphic: "Graphic",
   Point: "geometry/Point",
   Extent: "geometry/Extent",
+  TileInfo: "layers/support/TileInfo",
   GeoJSONLayer: "layers/GeoJSONLayer",
   GraphicsLayer: "layers/GraphicsLayer",
   BaseTileLayer: "layers/BaseTileLayer",
@@ -534,6 +539,7 @@ export function assembleArcgisSdk(modules: Record<ModuleKey, Record<string, unkn
     Graphic: member("Graphic"),
     Point: member("Point"),
     Extent: member("Extent"),
+    TileInfo: member("TileInfo"),
     layers: {
       GeoJSONLayer: member("GeoJSONLayer"),
       GraphicsLayer: member("GraphicsLayer"),
@@ -598,6 +604,7 @@ export function loadArcgisSdk(
 export function resetArcgisSdkForTests(): void {
   sdkPromise = null;
   scenePromise = null;
+  projectPromise = null;
 }
 
 // -------------------------------------------------------------- 3D modules
@@ -670,6 +677,51 @@ export function loadArcgisSceneSdk(
       });
   }
   return scenePromise;
+}
+
+// ------------------------------------------------------------- projection
+
+/**
+ * `geometry/operators/projectOperator`: client-side projection between
+ * coordinate systems. Only a flat map in a projection other than Web Mercator
+ * needs it (issue #2708), so it loads with that map, not with the core SDK.
+ */
+export interface ArcgisProjectOperator {
+  load(): Promise<void>;
+  isLoaded(): boolean;
+  /** The geometry in `outSpatialReference`, or null when it cannot be projected. */
+  execute<T>(geometry: T, outSpatialReference: { wkid: number }): T | null;
+  /**
+   * Each geometry in `outSpatialReference`, index for index (null where one
+   * cannot be projected). A multipoint would instead drop such points and
+   * shift the rest, so a sampling grid projects its points this way.
+   */
+  executeMany<T>(geometries: T[], outSpatialReference: { wkid: number }): (T | null)[];
+}
+
+let projectPromise: Promise<ArcgisProjectOperator> | null = null;
+
+/**
+ * Load the project operator and its projection engine once per page; a failed
+ * load is forgotten so the next mount retries, as for the core SDK.
+ */
+export function loadArcgisProjectOperator(
+  importer: ArcgisModuleImporter = defaultImporter,
+): Promise<ArcgisProjectOperator> {
+  if (!projectPromise) {
+    projectPromise = loadArcgisSdk(importer)
+      .then(() => importer(arcgisModuleUrl("geometry/operators/projectOperator")))
+      .then(async (module) => {
+        const operator = (module.default ?? module) as ArcgisProjectOperator;
+        if (!operator.isLoaded()) await operator.load();
+        return operator;
+      })
+      .catch((error: unknown) => {
+        projectPromise = null;
+        throw error;
+      });
+  }
+  return projectPromise;
 }
 
 // ---------------------------------------------------------------------- CSS

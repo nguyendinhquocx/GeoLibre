@@ -194,12 +194,15 @@ override draws Esri World Imagery instead.
   **Historical Imagery** (Esri Wayback), the **DGGS** grids (H3, S2, A5,
   DGGRID, DGGAL, OLC, Geohash, Tilecode) and the **Graticule**, and the
   imagery catalogs with footprints (STAC, OpenAerialMap, Vantor, Fields of the
-  World, Satellite Embeddings, IGN LiDAR HD, GeoLens). Footprint clicks and
+  World, Satellite Embeddings, IGN LiDAR HD, GeoLens, USGS 3DEP). Footprint clicks and
   hover, selection outlines and box drawing work; a GeoLens raster that needs
   an API key still requires MapLibre.
+- **USGS NLDI** and **Reverse Geocode**, whose popups are placed through the
+  control map's `project()` (`map-popup.ts` in the plugins package) in place of
+  MapLibre's `Popup`, which needs a MapLibre map.
 - **Controls** menu entries and plugins whose plugin needs a MapLibre, Mapbox
   or Cesium map (Atmospheric Effects, Sun, Route Animation, Flight Simulator,
-  Directions, Reverse Geocode, the Geo Editor, Annotations, Swipe, Street View,
+  Directions, the Geo Editor, Annotations, Swipe, Street View,
   Timelapse and others) are greyed out with the reason while ArcGIS is the
   primary renderer.
 - If the SDK cannot be loaded from the CDN, the map's banner offers **Retry**,
@@ -258,6 +261,44 @@ In a scene:
 - **3D (Z values)** places vector coordinates at their absolute altitude, with
   the configured vertical scale and offset. Selection highlights use the same
   transformed coordinates. Source data stays unchanged.
+
+## Map projections
+
+MapLibre and Mapbox draw only Web Mercator and a globe, but the SDK can draw a
+flat `MapView` in any projected coordinate system it knows by well-known ID
+(issue #2708). **Settings → Map → ArcGIS map projection** offers Spilhaus
+(54099), Equal Earth (8857), Robinson (54030), Winkel Tripel (54042),
+Mollweide (54009), Plate Carrée (4326) and the Arctic (3995) and Antarctic
+(3031) polar stereographic projections, plus **Custom WKID…** for any other
+Esri or EPSG code. The choice is saved as `preferences.map.arcgisWkid`; absent
+means Web Mercator. Picking a projection turns the globe off, since only the
+flat map uses it, and the globe button still switches to the globe and back.
+
+In another projection:
+
+- Vector layers (GeoJSON, feature services, the symbology pack's companion
+  layers) are reprojected on the client by the SDK's `projectOperator`, which
+  loads with the projected map only.
+- **COGs are warped into the projection** (`arcgis-reprojected-tiles.ts`). The
+  SDK cannot reproject a tile layer, so the COG layer tiles the view's
+  projection instead and fills each tile from the same Web Mercator tiles
+  `cog-tiler-wasm` renders on a Web Mercator map, with the same bands,
+  stretch and colormap: a 33 × 33 grid of the tile's points is projected to
+  longitude/latitude and the pixels between them are interpolated. Cells that
+  straddle a seam of the projection (Spilhaus cuts the land) are projected
+  pixel by pixel, and each tile reads the source zoom that matches how far
+  the projection stretches it there. Web Mercator tiles stop at ±85.05°, so
+  the polar caps above that latitude stay empty.
+- **No basemap is drawn.** Esri basemap styles and XYZ tiles are not warped,
+  so the Blank background colour shows instead. Other tiled data layers (XYZ,
+  WMS tiles, PMTiles, Zarr) do not draw either.
+- The camera, pointer coordinates, identify, selection and extent drawing
+  convert between the projection and longitude/latitude, so the shared
+  camera, other split panes and saved views stay in degrees.
+- The flat map stays a `MapView` even with terrain on, since a local scene
+  cannot use the projection; terrain applies again on the globe or in Web
+  Mercator. An unknown WKID shows the SDK's error over the map.
+- MapLibre, Mapbox and Cesium panes ignore the setting.
 
 ## Adding data
 
@@ -344,10 +385,10 @@ into a style that is never drawn by the SDK directly; instead:
   the engine from that store record, like any other layer.
 - Any other GeoJSON layer (a grid, a selection outline, a draw preview) is
   drawn as graphics in one overlay above the project layers. Fill, line,
-  circle and text layers are drawn, with filters, zoom ranges and data-driven
-  or zoom expressions evaluated per feature as MapLibre evaluates them.
-  Icons, fill patterns, extrusions and text along lines are not drawn, and
-  labels have no collision handling.
+  circle and text layers are drawn, with filters, zoom ranges, data-driven
+  or zoom expressions, and text anchors and offsets evaluated per feature as
+  MapLibre evaluates them. Icons, fill patterns, extrusions and text along
+  lines are not drawn, and labels have no collision handling.
 - Layer-scoped events (`map.on("click", layerId, ...)`, `mouseenter`,
   `mouseleave`) and a point `queryRenderedFeatures` answer from whichever of
   those two draws the layer. A box query answers empty.

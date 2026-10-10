@@ -1,10 +1,10 @@
 """An MCP server that authors GeoLibre projects.
 
-Every tool reads a ``.geolibre.json`` file, applies one change through
-:mod:`geolibre.authoring`, and writes it back, so the project on disk is the
-only state. Nothing here needs a browser, a running app, or the bundled web
-build: the output is a project file the user opens in GeoLibre (desktop, web, or
-Jupyter), or a standalone HTML page exported from it.
+Project-authoring tools apply changes through :mod:`geolibre.authoring` and
+write ``.geolibre.json`` files, so the project on disk is the only state. They
+need no browser, running app, or bundled web build. ``show_map`` also offers
+an interactive, read-only MCP Apps preview using a bundled single-file view;
+clients without Apps support still receive its project summary.
 
 The ``mcp`` SDK is an optional dependency (``pip install "geolibre[mcp]"``); it
 is imported here and nowhere else in the package, so the rest of ``geolibre``
@@ -23,13 +23,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from mcp.types import CallToolResult
 
 from .. import __version__, authoring
 from .. import project as _project
 from ..geolibre import render_project_html
 from ..legends import builtin_legend_names
 from . import live
+from .network import PreviewSessions, fetch_resource
 from .workspace import EXPORT_SUFFIXES, PROJECT_SUFFIXES, Workspace, WorkspaceError
 
 INSTRUCTIONS = """\
@@ -50,6 +52,10 @@ number-crunching whose output happens to be tabular.
 Typical flow: `create_project` -> one or more `add_*_layer` calls -> style and
 frame it (`style_layer`, `classify_layer`, `set_view`, `add_legend`) ->
 `export_html` if the user wants something they can open in a browser directly.
+
+After building or changing a map, `show_map` previews it inline in clients that
+support MCP Apps (an interactive, read-only map); elsewhere it returns the same
+summary `describe_project` would start from.
 
 When GeoLibre Desktop is open, the `live_*` tools change that map on screen.
 The user opens Processing → Jupyter Notebook once so the desktop relay is
@@ -95,6 +101,19 @@ feature data.
 #: format (other map and style configs use a top-level ``layers`` array) nor
 #: reliable, since ``load_project`` normalizes it onto whatever it loaded.
 PROJECT_MARKERS = ("mapView", "basemapStyleUrl")
+SHOW_MAP_URI = "ui://geolibre/show-map.html"
+MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
+SHOW_MAP_HTML = Path(__file__).resolve().parent.parent / "static" / "mcp" / "show-map.html"
+
+
+def _require_previewable(file: Path, project: dict[str, Any]) -> None:
+    missing = [key for key in ("version", "name", "mapView") if key not in project]
+    if "mapView" not in missing and not isinstance(project["mapView"], dict):
+        missing.append("mapView")
+    if missing:
+        raise WorkspaceError(
+            f"{file} is not a GeoLibre project the preview can open (missing {', '.join(missing)})."
+        )
 
 
 def _require_project(file: Path, project: dict[str, Any]) -> None:
@@ -175,44 +194,30 @@ def _build_layer(
 
 
 def _reports_its_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a tool so a rejected call tells the caller why it was rejected.
+    """Expose anticipated validation failures for synchronous and async tools.
 
-    Every validation failure in this package is a ``ValueError`` (``WorkspaceError``
-    subclasses it), raised where the rule lives -- in :mod:`geolibre.authoring`,
-    :mod:`geolibre.project`, :mod:`geolibre.mcp.workspace`, or a tool body here --
-    so none of those modules has to import the MCP SDK. But the SDK reserves
-    ``ToolError`` for a failure the tool *anticipated* and treats anything else as
-    a crash, withholding its message: from mcp 2.1 the caller of, say,
-    ``add_ogc_layer`` without ``layers`` sees only "Error executing tool
-    add_ogc_layer" instead of the sentence naming the missing argument. An agent
-    that cannot read why a call was rejected cannot correct it, so it retries the
-    same call or gives up.
-
-    Restating each failure as a ``ToolError`` at the tool boundary keeps the rules
-    SDK-free and the messages intact. A crash still surfaces as a crash: only
-    ``ValueError`` is translated, and the original stays attached as ``__cause__``
-    for the server log.
-
-    Every tool is synchronous. An ``async def`` one would return an unawaited
-    coroutine from the wrapper and raise its ``ValueError`` after the ``try``
-    below has exited, so its messages would be withheld again with nothing to
-    show for the wrapper -- it is refused here rather than registered that way.
+    The MCP SDK hides unexpected exception messages from clients. Our builders,
+    workspace checks, and preview checks raise ValueError for anticipated input
+    failures, with explanations the caller needs to correct the request.
+    Restating those as ToolError preserves their messages across the SDK
+    boundary. Other exceptions remain unexpected and keep the SDK's masking.
 
     Args:
-        fn: The tool function to wrap.
+        fn: The synchronous or asynchronous tool function to wrap.
 
     Returns:
-        The same function, with anticipated failures restated as ``ToolError``.
-
-    Raises:
-        TypeError: If *fn* is a coroutine function.
+        A wrapper preserving the function's metadata and sync/async behavior.
     """
     if inspect.iscoroutinefunction(fn):
-        raise TypeError(
-            f"{fn.__name__} is async, which this wrapper cannot report errors for; "
-            "give _reports_its_errors a coroutine branch that awaits fn inside the "
-            "same try, and register the tool through that."
-        )
+
+        @functools.wraps(fn)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await fn(*args, **kwargs)
+            except ValueError as exc:
+                raise ToolError(str(exc)) from exc
+
+        return async_wrapper
 
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -265,6 +270,8 @@ def build_server(workspace: Workspace) -> MCPServer:
         """
         register = server.tool(**kwargs)
         return lambda fn: register(_reports_its_errors(fn))
+
+    preview_sessions = PreviewSessions()
 
     @contextlib.contextmanager
     def edit(path: str) -> Iterator[tuple[Path, dict[str, Any]]]:
@@ -715,6 +722,73 @@ def build_server(workspace: Workspace) -> MCPServer:
             A summary of the added layer.
         """
         return add(path, _project.lidar_layer(name, url), index)
+
+    @tool()
+    def add_spaceborne_lidar_layer(
+        path: str,
+        input_file: str,
+        name: str | None = None,
+        beams: list[str] | None = None,
+        fields: list[str] | None = None,
+        quality_filter: bool = True,
+        bbox: list[float] | None = None,
+        max_points: int = 100_000,
+        color_by: str | None = None,
+        index: int | None = None,
+    ) -> dict[str, Any]:
+        """Add ICESat-2 (ATL06, ATL08) or GEDI (L2A, L2B, L4A) footprints from an HDF5 granule.
+
+        Reads a local granule the way the app's Add Data → ICESat-2 / GEDI
+        does: one point per segment or shot, the product's quality filter, and
+        `beam`, `beam_type`, `time` and `distance_km` on every point, colored by
+        the product's main field. The points are stored in the project, so the
+        granule is not needed afterwards. Needs `geolibre[spaceborne]`.
+
+        Args:
+            path: Path to the `.geolibre.json` file.
+            input_file: The `.h5` granule, inside the workspace.
+            name: Layer display name; `"<product> <file name>"` when omitted.
+            beams: Beams to read (`gt1l`..`gt3r` or `BEAM0000`..`BEAM1011`); all
+                when omitted.
+            fields: Field names (`h_canopy`, `rh50`) or dataset paths relative to
+                the beam; the product defaults when omitted.
+            quality_filter: Drop footprints the product's quality flag rejects.
+            bbox: `[west, south, east, north]` to keep only footprints inside.
+            max_points: Cap on points; every beam is thinned evenly to stay under it.
+            color_by: Field to color by; the main field when omitted, `""` for
+                one color.
+            index: Draw-order position; omit to add on top.
+
+        Returns:
+            A summary of the added layer, with the product and how many
+            footprints were read, matched and kept.
+        """
+        from geolibre.spaceborne_lidar import spaceborne_lidar_layer
+
+        file = workspace.resolve(input_file, must_exist=True)
+        if file.suffix.lower() not in (".h5", ".hdf5", ".he5"):
+            raise ValueError("The granule must be an .h5 (HDF5) file.")
+        # Read inside edit() so a bad project path fails before the granule read.
+        with edit(path) as (project_file, project):
+            layer, result = spaceborne_lidar_layer(
+                file,
+                name,
+                beams=beams,
+                fields=fields,
+                quality_filter=quality_filter,
+                bbox=bbox,
+                max_points=max_points,
+                color_by=color_by,
+            )
+            layer_id = authoring.add_layer(project, layer, index=index)
+        summary = _summarize(project_file, project, layerId=layer_id, layerName=layer.get("name"))
+        summary["footprints"] = {
+            "product": result.product,
+            "total": result.total,
+            "matched": result.matched,
+            "kept": result.kept,
+        }
+        return summary
 
     @tool()
     def get_point_cloud_annotations(path: str) -> dict[str, Any]:
@@ -1938,6 +2012,91 @@ def build_server(workspace: Workspace) -> MCPServer:
             "bytes": len(html.encode("utf-8")),
         }
 
+    # -- in-chat preview (MCP Apps) -----------------------------------------
+
+    @server.resource(
+        SHOW_MAP_URI,
+        name="show_map_view",
+        title="GeoLibre map preview",
+        description="Interactive read-only map view used by show_map.",
+        mime_type=MCP_APP_MIME_TYPE,
+        meta={
+            "ui": {
+                "prefersBorder": True,
+                "csp": {"connectDomains": [], "resourceDomains": []},
+            }
+        },
+    )
+    def show_map_view() -> str:
+        if not SHOW_MAP_HTML.is_file():
+            raise ResourceError(
+                f"The map preview view is not built ({SHOW_MAP_HTML} is missing). "
+                "Run `npm run build:mcp-app` from a GeoLibre checkout, or install a geolibre wheel."
+            )
+        return SHOW_MAP_HTML.read_text(encoding="utf-8")
+
+    @tool(meta={"ui": {"resourceUri": SHOW_MAP_URI}})
+    def show_map(path: str) -> dict[str, Any]:
+        """Show an existing project as an interactive, read-only map inline.
+
+        Clients supporting MCP Apps render the map; other clients get only the
+        summary. Never modifies the file.
+
+        Args:
+            path: Path to an existing `.geolibre.json` project in the workspace.
+
+        Returns:
+            Project summary, saved camera, and redacted basemap.
+        """
+        file = workspace.resolve(path, must_exist=True)
+        project = authoring.load_project(file)
+        _require_previewable(file, project)
+        return _summarize(
+            file,
+            project,
+            mapView=project["mapView"],
+            basemap=_project.redact_url(project.get("basemapStyleUrl") or ""),
+        )
+
+    @tool(meta={"ui": {"visibility": ["app"]}})
+    def get_map_preview(path: str) -> dict[str, Any]:
+        """Internal: the project data behind the show_map preview.
+
+        Call show_map instead; this returns the full project, including inlined
+        features.
+
+        Args:
+            path: Path to an existing `.geolibre.json` project in the workspace.
+
+        Returns:
+            Resolved path and a detached, credential-redacted project.
+        """
+        file = workspace.resolve(path, must_exist=True)
+        project = authoring.load_project(file)
+        _require_previewable(file, project)
+        return {
+            "path": str(file),
+            "project": _project.redact_credentials(project),
+            "previewId": preview_sessions.create(),
+        }
+
+    @tool(meta={"ui": {"visibility": ["app"]}})
+    def approve_map_origin(preview_id: str, origin: str) -> dict[str, Any]:
+        """Internal: grant this preview five minutes of access to one public origin."""
+        return preview_sessions.approve(preview_id, origin)
+
+    @tool(meta={"ui": {"visibility": ["app"]}})
+    async def fetch_map_resource(preview_id: str, grant: str, url: str) -> CallToolResult:
+        """Internal: fetch bounded binary resource bytes through an approved grant."""
+        result = await fetch_resource(preview_sessions, preview_id, grant, url)
+        # Avoid emitting a second, plain-text JSON copy of a potentially 4 MiB body.
+        return CallToolResult(content=[], structured_content=result)
+
+    @tool(meta={"ui": {"visibility": ["app"]}})
+    def close_map_preview(preview_id: str) -> dict[str, bool]:
+        """Internal: revoke one preview session; safe to call repeatedly."""
+        return preview_sessions.close(preview_id)
+
     # -- live desktop session -------------------------------------------------
     # These talk to the Jupyter relay GeoLibre Desktop already runs. They do
     # not write the project file; the user saves in the app when the session
@@ -2244,7 +2403,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         workspace = Workspace(args.root)
-    except WorkspaceError as exc:
+        server = build_server(workspace)
+    except ValueError as exc:
         # stdout carries the protocol on stdio, so diagnostics go to stderr.
         print(f"geolibre-mcp: {exc}", file=sys.stderr)
         return 2
@@ -2252,7 +2412,7 @@ def main(argv: list[str] | None = None) -> int:
         f"geolibre-mcp {__version__} serving {os.pathsep.join(str(r) for r in workspace.roots)}",
         file=sys.stderr,
     )
-    build_server(workspace).run(transport=args.transport)
+    server.run(transport=args.transport)
     return 0
 
 

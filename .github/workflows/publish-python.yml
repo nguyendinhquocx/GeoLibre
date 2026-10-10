@@ -8,8 +8,10 @@ on:
     paths:
       - "python/**"
       - "apps/geolibre-desktop/src/**"
+      - "apps/geolibre-mcp-app/**"
       - "packages/**"
       - "scripts/build-embed.mjs"
+      - "scripts/build-mcp-app.mjs"
       - ".github/workflows/publish-python.yml"
   workflow_dispatch:
 

@@ -22,6 +22,7 @@ Pick by what the data **is**:
 | A PMTiles archive, or a vector tile service | `add_tiles_layer` | `kind="pmtiles"` (with `tile_type`) or `kind="vector-tiles"`. |
 | A WMS or WMTS endpoint | `add_ogc_layer` | `service="wms"` or `"wmts"`. |
 | A LAS/LAZ/COPC/EPT point cloud | `add_lidar_layer` | COPC and EPT stream by level of detail; the app's Point Cloud Annotation plugin can label it. |
+| An ICESat-2 (ATL06, ATL08) or GEDI (L2A, L2B, L4A) `.h5` granule | `add_spaceborne_lidar_layer` | Local file in the workspace; needs `geolibre[spaceborne]`. `bbox` for a regional subset of a GEDI orbit. |
 | An OGC 3D Tiles tileset | `add_3d_tiles_layer` | `altitude_offset` to sit it on the ground; `ion_asset_id` instead of `url` for a Cesium Ion tileset. |
 | A Cesium Ion asset (tileset or imagery) | `add_cesium_ion_layer` | 3D globe only: pair it with `set_renderer` / `primaryRenderer: "cesium"`. `kind="imagery"` for imagery. |
 | A CZML (Cesium Language) dynamic scene: orbits, tracks, moving models | `add_czml_layer` | 3D globe only: `url` for a `.czml` document, or `data` for its packet array inline. The globe follows the document's `clock`. |
@@ -86,6 +87,9 @@ add_ogc_layer(path, name, service, endpoint, layers=None, styles="",
 add_tiles_layer(path, name, url, kind="pmtiles", tile_type="vector",
                 source_layers=None, style=None, index=None)
 add_lidar_layer(path, name, url, index=None)
+add_spaceborne_lidar_layer(path, input_file, name=None, beams=None, fields=None,
+                           quality_filter=True, bbox=None, max_points=100000,
+                           color_by=None, index=None)
 add_3d_tiles_layer(path, name, url=None, ion_asset_id=None, altitude_offset=0, index=None)
 add_cesium_ion_layer(path, name, asset_id, kind="3d-tiles", altitude_offset=0, index=None)
 add_czml_layer(path, name, url=None, data=None, index=None)
@@ -288,6 +292,45 @@ add_swipe(path, left_layers, right_layers, orientation="vertical",
   string `__basemap__` refers to the basemap.
 
 Positions are `top-left`, `top-right`, `bottom-left`, `bottom-right`.
+
+### Preview
+
+```text
+show_map(path)
+get_map_preview(path)
+approve_map_origin(preview_id, origin)
+fetch_map_resource(preview_id, grant, url)
+close_map_preview(preview_id)
+```
+
+`show_map` renders the project inline in MCP Apps clients. The other preview
+tools are app-only plumbing; never call them directly. The preview asks for
+consent in one panel listing the project's known origins, with Allow all and
+Block all actions. Newly discovered hosts are batched into that panel and still
+require approval before the Python MCP server requests public HTTP/S resources.
+The destination sees the
+server machine's IP, not necessarily the browser's. No external browser
+network access or fixed host allowlist is needed; the host must permit
+App-to-server tool calls.
+
+The host must also enforce app-only visibility; it is not server-side
+authentication. A client ignoring that metadata can expose the redacted
+project and approval tools to the model. Server-side grant and public-address
+checks still apply.
+
+Consent is not persisted. Preview sessions expire after 30 minutes of
+inactivity; successful origin approval and resource authorization refresh the
+idle timeout. Origin grants still last five minutes and renew only for
+already-approved origins. Closing the preview revokes its grants.
+Private/LAN/loopback/link-local destinations,
+known credential-like URL parameters, redirects, compressed responses, and
+resource bodies larger than 4 MiB or slower than 15 seconds are rejected. Use
+the direct destination URL for a redirect. Reopen with `show_map` to change
+consent or replace an expired session.
+
+Credential detection is name-based and heuristic; do not supply projects with
+secrets in custom fields or vendor-specific parameters. The server caps active
+previews at 64; closing one frees a slot, and abandoned sessions expire.
 
 ### Export
 

@@ -20,6 +20,13 @@ import {
   maplibreSourceCoopPlugin,
 } from "../packages/plugins/src/plugins/maplibre-source-coop";
 import { osmBasemapPlugin } from "../packages/plugins/src/plugins/osm-basemap";
+import { maplibreFieldsOfTheWorldPlugin } from "../packages/plugins/src/plugins/maplibre-fields-of-the-world";
+import { maplibreOpenAerialMapPlugin } from "../packages/plugins/src/plugins/maplibre-openaerialmap";
+import { maplibreSatelliteEmbeddingsPlugin } from "../packages/plugins/src/plugins/maplibre-satellite-embeddings";
+import { maplibreVantorPlugin } from "../packages/plugins/src/plugins/maplibre-vantor";
+import { maplibreEarthaccessPlugin } from "../packages/plugins/src/plugins/maplibre-earthaccess";
+import { maplibreUsgsDemPlugin } from "../packages/plugins/src/plugins/maplibre-usgs-dem";
+import { maplibreUsgsNldiPlugin } from "../packages/plugins/src/plugins/maplibre-usgs-nldi";
 import { cartoLightPlugin } from "../packages/plugins/src/plugins/carto-light";
 import {
   isExternalPluginManifest,
@@ -113,19 +120,44 @@ describe("Tier 1 built-in plugin engine support audit", () => {
 
   // The STAC plugins come out of the same createStacPlugin factory, so they
   // are audited together: footprints, bbox drawing and picking use the
-  // native GeoJSON APIs shared by MapLibre and Mapbox.
-  it("declares MapLibre, Mapbox and ArcGIS support on the STAC catalog plugins", () => {
+  // native GeoJSON APIs shared by MapLibre and Mapbox, which the ArcGIS and
+  // Cesium control hosts record and answer.
+  it("declares every engine on the STAC catalog plugins", () => {
     for (const plugin of [
       maplibreStacCatalogsPlugin,
       maplibrePlanetOpenDataPlugin,
       maplibrePortolanPlugin,
     ]) {
-      assert.deepEqual(plugin.engines, ["maplibre", "mapbox", "arcgis"]);
-      assert.equal(isPluginEngineSupported(plugin, "mapbox"), true);
-      assert.equal(isPluginEngineSupported(plugin, "arcgis"), true);
-      assert.equal(isPluginEngineSupported(plugin, "maplibre"), true);
-      assert.equal(isPluginEngineSupported(plugin, "cesium"), false);
+      assert.deepEqual(plugin.engines, ["maplibre", "mapbox", "arcgis", "cesium"]);
+      for (const engine of ["maplibre", "mapbox", "arcgis", "cesium"] as const)
+        assert.equal(isPluginEngineSupported(plugin, engine), true, `${plugin.id} on ${engine}`);
     }
+  });
+
+  // Catalog panels whose footprints and imagery reach the map through the
+  // control map and the store, which the globe's control host records and
+  // draws (#3088's model).
+  it("declares Cesium on the store-backed imagery catalogs", () => {
+    for (const plugin of [
+      maplibreFieldsOfTheWorldPlugin,
+      maplibreOpenAerialMapPlugin,
+      maplibreSatelliteEmbeddingsPlugin,
+      maplibreVantorPlugin,
+      maplibreEarthaccessPlugin,
+    ])
+      assert.equal(isPluginEngineSupported(plugin, "cesium"), true, plugin.id);
+  });
+
+  // USGS 3DEP read the map through `app.getMap()` alone, so it was
+  // MapLibre-only in practice; it now goes through the control map.
+  it("declares every engine on USGS 3DEP", () => {
+    assert.deepEqual(maplibreUsgsDemPlugin.engines, ["maplibre", "mapbox", "arcgis", "cesium"]);
+  });
+
+  // NLDI's trace and basin are GeoJSON overlays the control maps record, and
+  // its hover popup goes through `createMapPopup`.
+  it("declares every engine on USGS NLDI", () => {
+    assert.deepEqual(maplibreUsgsNldiPlugin.engines, ["maplibre", "mapbox", "arcgis", "cesium"]);
   });
 
   it("defaults MapLibre-only plugins without explicit engines to maplibre", () => {

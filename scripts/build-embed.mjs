@@ -12,8 +12,7 @@
 //     builds CDN-load it too by default; override with `GEOLIBRE_PGLITE_CDN=0`
 //     on any target to force-bundle it for a fully offline build.
 //
-// Output: apps/geolibre-desktop/dist-embed/ -> copied to
-// python/src/geolibre/static/app/.
+// Output: apps/geolibre-desktop/dist-embed/ -> python/src/geolibre/static/app/
 
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";

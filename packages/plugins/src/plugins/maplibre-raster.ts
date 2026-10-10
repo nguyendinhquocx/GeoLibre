@@ -6,6 +6,7 @@ import {
   styleValue,
   useAppStore,
   installCogTilerDatumShift,
+  patchJpegCogSource,
 } from "@geolibre/core";
 import type { Layer } from "@deck.gl/core";
 import type { Map as MapboxMap } from "mapbox-gl";
@@ -39,7 +40,6 @@ import {
   unwireRasterStoreSync,
   wireRasterStoreSync,
 } from "./raster-layer-sync";
-import { isAbbreviatedJpegCompression } from "./cog-compression";
 import {
   activateRasterClassification,
   disposeAllRasterClassification,
@@ -47,7 +47,6 @@ import {
 } from "./raster-symbology-texture";
 import { disposeAllPaletteLegends, disposePaletteLegend } from "./raster-palette";
 import { isNonTiledRasterError } from "./non-tiled-raster-error";
-import { convertTiffYCbCrToRgb } from "./tiff-ycbcr";
 import { readableStacLayerHref } from "./stac-signing";
 import { configureMapboxRasterEngine } from "./raster-mapbox-compat";
 import { focusPanel, restorePanelFocus } from "./panel-focus";
@@ -184,31 +183,6 @@ type CogTilerModule = {
   /** cog-tiler-wasm >= 0.3.6: where lerc's wasm is served from. */
   configureLercDecoder?: (options: { wasmUrl?: string | null }) => void;
   [key: string]: unknown;
-};
-type GeoTiffImage = {
-  fileDirectory?: {
-    PhotometricInterpretation?: number;
-    getValue?: (tag: number) => unknown;
-    hasTag?: (tag: number) => boolean;
-    loadValue?: (tag: number) => Promise<unknown>;
-  };
-  readRasters: (options: {
-    window: [number, number, number, number];
-  }) => Promise<ArrayLike<ArrayLike<number>>>;
-};
-type CogSourceInternals = {
-  levels?: Array<{ compression?: string }>;
-  tiff?: unknown;
-  _tiffImage?: (level: number) => Promise<GeoTiffImage>;
-  _assembleWindow?: (
-    level: number,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    band?: number,
-  ) => Promise<ArrayLike<number>>;
-  geolibreJpegTablesPatched?: boolean;
 };
 type RasterTileArray = {
   bands?: unknown[];
@@ -391,6 +365,20 @@ export function openRasterLayerPanel(app: GeoLibreAppAPI): void {
 }
 
 /**
+ * Whether the primary renderer draws `cog` store records itself, so a raster
+ * is imported through the store (`native-raster-import.ts`) rather than the
+ * maplibre-gl-raster control.
+ *
+ * @param app - The GeoLibre app API.
+ * @returns True on the ArcGIS view and the Cesium globe.
+ */
+function drawsCogNatively(app: GeoLibreAppAPI): boolean {
+  const renderer = app.getMapRenderer?.();
+  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
+  return renderer === "arcgis" || renderer === "cesium";
+}
+
+/**
  * Adds a raster (GeoTIFF/COG) to the map from a remote URL or a local File,
  * mounting the raster control on first use and zooming to the new layer. Used by
  * the map drag and drop handler. The control's `rasteradd` event syncs the layer
@@ -421,10 +409,11 @@ export async function addRasterToMap(
     zoomTo?: boolean;
   } = {},
 ): Promise<string> {
-  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
-  if (app.getMapRenderer?.() === "arcgis") {
-    const { addArcgisRaster } = await import("./arcgis-raster-import");
-    return addArcgisRaster(app, source, options);
+  // The ArcGIS view and the Cesium globe draw `cog` records natively and have
+  // no MapLibre custom layer for this control to render through.
+  if (drawsCogNatively(app)) {
+    const { addNativeRaster } = await import("./native-raster-import");
+    return addNativeRaster(app, source, options);
   }
   // `s3://` sources and private-bucket object URLs are read through a
   // presigned URL; the store sync maps it back to `source`. Signed before the
@@ -746,10 +735,9 @@ export function readRasterWindow(
  * @param app - The GeoLibre app API.
  */
 export function restoreRasterLayers(app: GeoLibreAppAPI): void {
-  // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
-  if (app.getMapRenderer?.() === "arcgis") {
-    void import("./arcgis-raster-import")
-      .then(({ restoreArcgisRasterFiles }) => restoreArcgisRasterFiles(localRasterFileReader))
+  if (drawsCogNatively(app)) {
+    void import("./native-raster-import")
+      .then(({ restoreNativeRasterFiles }) => restoreNativeRasterFiles(localRasterFileReader))
       .catch(console.error);
     return;
   }
@@ -966,7 +954,7 @@ async function ensureRasterControl(app: GeoLibreAppAPI): Promise<RasterControl |
   const RasterControlClass = await getRasterControlClass();
 
   // A Mapbox check: null on the other engines, ArcGIS included (whose COGs
-  // take addArcgisRaster and never mount this control). engine-audit-allow: arcgis-null-map
+  // take addNativeRaster and never mount this control). engine-audit-allow: arcgis-null-map
   rasterControl ??= createRasterControl(RasterControlClass, !!app.getMapboxMap?.());
 
   if (!rasterControlMounted) {
@@ -1075,66 +1063,6 @@ async function configureLercWasmUrl(module: CogTilerModule): Promise<void> {
       error,
     );
   }
-}
-
-function patchJpegCogSource(source: unknown): unknown {
-  const cog = source as CogSourceInternals;
-  if (
-    cog.geolibreJpegTablesPatched ||
-    !isAbbreviatedJpegCompression(cog.levels?.[0]?.compression) ||
-    !cog.tiff ||
-    !cog._tiffImage ||
-    !cog._assembleWindow
-  ) {
-    return source;
-  }
-
-  const windowCache = new Map<string, Promise<ArrayLike<ArrayLike<number>>>>();
-  cog._assembleWindow = async (level, x, y, width, height, band = 0) => {
-    const key = `${level}/${x}/${y}/${width}/${height}`;
-    let decoded = windowCache.get(key);
-    if (!decoded) {
-      decoded = cog._tiffImage!(level).then(async (image) => {
-        const rasters = await image.readRasters({
-          window: [x, y, x + width, y + height],
-        });
-        // geotiff.js expands the chroma subsampling but deliberately returns
-        // the TIFF's native Y/Cb/Cr samples. The renderer expects RGB bands,
-        // like the GPU engine, so perform the TIFF/JPEG color transform once
-        // for the shared three-band window.
-        const photometric =
-          image.fileDirectory?.PhotometricInterpretation ?? image.fileDirectory?.getValue?.(262);
-        if (photometric !== 6 || rasters.length < 3) {
-          return rasters;
-        }
-        const directory = image.fileDirectory;
-        const readTag = async (tag: number): Promise<ArrayLike<number> | undefined> => {
-          if (directory?.hasTag?.(tag) === false) return undefined;
-          const value = directory?.loadValue
-            ? await directory.loadValue(tag)
-            : directory?.getValue?.(tag);
-          return value as ArrayLike<number> | undefined;
-        };
-        const [coefficients, referenceBlackWhite] = await Promise.all([readTag(529), readTag(532)]);
-        return convertTiffYCbCrToRgb(
-          rasters[0],
-          rasters[1],
-          rasters[2],
-          coefficients,
-          referenceBlackWhite,
-        );
-      });
-      windowCache.set(key, decoded);
-      void decoded.catch(() => {
-        if (windowCache.get(key) === decoded) windowCache.delete(key);
-      });
-      if (windowCache.size > 32) windowCache.delete(windowCache.keys().next().value!);
-    }
-    const rasters = await decoded;
-    return rasters[band] ?? rasters[0];
-  };
-  cog.geolibreJpegTablesPatched = true;
-  return source;
 }
 
 function getRasterControlClass(): Promise<RasterControlConstructor> {

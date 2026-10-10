@@ -5,6 +5,7 @@ import {
   effectiveLayerRenderState,
   getActiveEllipsoid,
   isPopupHoverEnabled,
+  normalizeArcgisWkid,
   resolvePopupMaxWidth,
   useAppStore,
   type MapProjection,
@@ -35,6 +36,7 @@ import {
 } from "./arcgis-engine";
 import {
   ensureArcgisCss,
+  loadArcgisProjectOperator,
   loadArcgisSceneSdk,
   loadArcgisSdk,
   redactArcgisError,
@@ -143,7 +145,11 @@ export function ArcgisCanvas({
   // A split pane's toggle overrides the shared projection for that pane only.
   const [paneProjection, setPaneProjection] = useState<MapProjection | null>(null);
   const projection = (viewId ? paneProjection : null) ?? sharedProjection;
-  const sceneMode = arcgisSceneMode(projection, terrainEnabled);
+  // The flat map's projection (issue #2708); a globe ignores it, and it keeps
+  // a flat map a MapView even with terrain on.
+  const storedWkid = normalizeArcgisWkid(useAppStore((s) => s.preferences.map.arcgisWkid));
+  const sceneMode = arcgisSceneMode(projection, terrainEnabled, storedWkid !== undefined);
+  const wkid = sceneMode === "2d" ? storedWkid : undefined;
   useEffect(() => {
     let cancelled = false;
     let terrainRestoreError: string | null = null;
@@ -169,8 +175,9 @@ export function ArcgisCanvas({
       loadArcgisSdk(),
       sceneMode === "2d" ? Promise.resolve(undefined) : loadArcgisSceneSdk(),
       ensureArcgisCss(dark ? "dark" : "light"),
+      wkid === undefined ? Promise.resolve(undefined) : loadArcgisProjectOperator(),
     ])
-      .then(([sdk, scene]) => {
+      .then(([sdk, scene, , projectOperator]) => {
         if (cancelled || !element.isConnected) return;
         // Past this point the modules are in; a failure below is not one a
         // reload fixes, so it gets no Retry.
@@ -210,6 +217,7 @@ export function ArcgisCanvas({
             })
           : new sdk.MapView({
               ...common,
+              ...(wkid === undefined ? {} : { spatialReference: { wkid } }),
               rotation: bearingToRotation(view.bearing),
               // Fractional zooms are what the shared camera carries; snapping
               // would nudge every synchronized pane to the nearest level.
@@ -219,6 +227,7 @@ export function ArcgisCanvas({
           deckOverlay: !viewId,
           domControls: !viewId,
           hasApiKey: Boolean(apiKey?.trim()),
+          ...(projectOperator ? { projectOperator } : {}),
           onTerrainSourceChange: (source, band) => {
             if (!cancelled) {
               terrainSource.current = { source, band };
@@ -315,10 +324,7 @@ export function ArcgisCanvas({
         // is a box anchored above the clicked point.
         const identify = createArcgisIdentify({
           identifyFeaturesAt: (point, layerId) => current.identifyFeaturesAt(point, layerId),
-          toLngLat: (point) => {
-            const at = mapView.toMap(point);
-            return at ? [at.longitude, at.latitude] : null;
-          },
+          toLngLat: (point) => current.lngLatOf(mapView.toMap(point)),
           zoom: () => current.readView().zoom,
           showPopup: (lngLat, content, maxWidth, onClose) => {
             removePopup();
@@ -375,11 +381,8 @@ export function ArcgisCanvas({
           : attachFeatureSelection(arcgisFeatureSelectionMap(current, mapView), {
               state: featureSelection,
               featureIdAtPoint: (layer, point) => {
-                const at = mapView.toMap(point);
-                return at
-                  ? (current.identifyFeatures([at.longitude, at.latitude], layer.id)[0]
-                      ?.featureId ?? null)
-                  : null;
+                const at = current.lngLatOf(mapView.toMap(point));
+                return at ? (current.identifyFeatures(at, layer.id)[0]?.featureId ?? null) : null;
               },
               onDiagnostic: (event) => diagnosticRef.current?.(event),
               onEnd: () => {
@@ -802,9 +805,7 @@ export function ArcgisCanvas({
           mapView.on("pointer-move", (event) => {
             if (viewId) return;
             const point = mapView.toMap({ x: event.x, y: event.y });
-            const coords: [number, number] | null = point
-              ? [point.longitude, point.latitude]
-              : null;
+            const coords = current.lngLatOf(point);
             groundZ = typeof point?.z === "number" && Number.isFinite(point.z) ? point.z : null;
             useAppStore.getState().setPointerCoords(coords);
             pointerElevation?.update(coords);
@@ -825,8 +826,8 @@ export function ArcgisCanvas({
             if (!useAppStore.getState().identifyLayerId) {
               // A click elsewhere closes the photo popup, as MapLibre's does.
               removePhotoPopup();
-              const at = mapView.toMap({ x: event.x, y: event.y });
-              if (at) showPhotoAt([at.longitude, at.latitude]);
+              const at = current.lngLatOf(mapView.toMap({ x: event.x, y: event.y }));
+              if (at) showPhotoAt(at);
               return;
             }
             identify.click({ x: event.x, y: event.y });
@@ -951,7 +952,7 @@ export function ArcgisCanvas({
         retiring.current.push({ element, engine });
       } else element.remove();
     };
-  }, [apiKey, viewId, engineRef, sceneMode]);
+  }, [apiKey, viewId, engineRef, sceneMode, wkid]);
   // Declared after the effect above so an unmount runs its cleanup (which
   // queues the last view) before this flushes every queued view.
   useEffect(

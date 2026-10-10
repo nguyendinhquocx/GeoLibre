@@ -6,10 +6,11 @@ other) at it and you can ask for a map in words: the server writes a real
 `.geolibre.json` project you open in the desktop app, the web app, or the
 `geolibre` Jupyter widget, and can export it as a standalone HTML page.
 
-The file tools are **headless**. They need no browser, no running GeoLibre
-instance, and no bundled web build. They build project files with the same
-[project builders](python.md) the Python package uses, so a project they write
-is byte-for-byte the kind the app already loads.
+The project-authoring tools are **headless**. They need no browser, no running
+GeoLibre instance, and no bundled web build. They build project files with the
+same [project builders](python.md) the Python package uses, so a project they
+write is byte-for-byte the kind the app already loads. The optional `show_map`
+in-chat preview uses a bundled MCP App view.
 
 The `live_*` tools are the other half. They speak the desktop Notebook relay
 ([Notebook panel](notebook.md)), so a command from an MCP client moves the map
@@ -73,6 +74,133 @@ into a virtualenv), give the interpreter instead:
 }
 ```
 
+## In-chat map previews
+
+Call `show_map(path="city.geolibre.json")` after creating or changing a project.
+Clients supporting [MCP Apps](https://apps.extensions.modelcontextprotocol.io/)
+render an interactive, **read-only** map inline: saved camera, GeoLibre layer
+styling, pan/zoom, and click-to-identify. Other clients receive a text/structured
+summary without inlined feature data. Neither preview tool writes the project.
+
+The App uses the workspace `@geolibre/core` and `@geolibre/map/headless`
+renderer, not a hosted-viewer iframe. It draws MapLibre-native layers (inline
+GeoJSON, raster/WMS/WMTS/XYZ tiles, vector tiles, and image overlays). Everything
+else in the project is named in a status notice instead of silently missing:
+plugin-rendered layers (point clouds, 3D Tiles, COG, ArcGIS, PMTiles, DuckDB,
+deck.gl), desktop-local sources (MBTiles, `file:` paths), video overlays,
+Z-elevated GeoJSON, active plugins, legends, map controls, additional map views,
+and a non-MapLibre primary renderer. Mapbox basemaps are blank because
+credentials are stripped. Configured popup image fields show their URL as text,
+because the shared popup renderer would load the image outside the approval
+gate below.
+
+The status bar shows loading progress, and failures that need action: a failed
+project load, a basemap style that could not load (the preview falls back to a
+blank background and still draws the project's layers), and per-source tile
+errors, counted rather than repeated. Rendered content stays visible.
+
+The host must support App-to-server tool calls (`serverTools`): the preview
+loads the credential-redacted project through app-only `get_map_preview`, then
+uses app-only tools to approve origins, fetch resource bytes, and close the
+preview session. Do not call those tools directly; full feature data is not
+part of `show_map`'s model-visible result. Hosts without this capability show
+an explanation rather than receiving feature data through the summary.
+
+App-only tool visibility requires a compliant host that honors
+`ui.visibility: ["app"]`. It is not server-side authentication: a client that
+ignores this metadata can expose the redacted project and approval/fetch tools
+to the model. The consent UI is therefore not an independent server-side
+security boundary. Grant, public-address, and resource-limit checks remain
+enforced by the server regardless of the caller.
+
+### Network access
+
+The preview supports public HTTP and HTTPS resources, including WMS endpoints
+and hosts discovered inside remotely fetched style documents. One consent panel
+lists the origins known from the basemap and visible, renderable layer sources
+up front. **Allow all** or **Block all** applies to that list, including sources
+that begin loading after the basemap style. No resource request is sent before
+approval; blocking leaves inline data available over a blank map background.
+New origins discovered inside remote styles are batched into the same panel,
+not silently approved by an earlier decision. Already-blocked origins stay
+blocked. The panel supports light/dark themes, narrow views, and keyboard use.
+It uses GeoLibre's shared web/desktop palette from `@geolibre/ui/theme.css`:
+blue primary actions and slate/navy dark surfaces. The host selects light or
+dark mode; it does not replace GeoLibre's color scheme.
+
+Approved resources are fetched by the **GeoLibre Python MCP server**, not the
+browser. The destination sees the server machine's IP address, which may differ
+from the browser's IP; the prompt makes this explicit. Resource bytes travel
+back through app-only MCP tool calls. The bundled view declares no external
+CSP origins, so browser CORS, mixed-content restrictions, and desktop hosts'
+wildcard-CSP normalization do not govern these resource requests. The host
+must still permit the App's server-tool calls.
+
+Consent is scoped to one preview and is not persisted. Server-side previews
+expire after 30 minutes of inactivity; successful origin approval and resource
+authorization refresh that idle timeout. Origin grants still expire after five
+minutes and are renewed only for origins already allowed in that preview.
+Closing the preview revokes its grants. Call `show_map` again to choose
+differently or reopen an idle-expired session.
+
+The server allows at most 64 active preview sessions. It refuses new sessions
+at that limit rather than evicting a live preview and revoking its grants.
+Closing a preview frees its slot; abandoned sessions retain theirs until the
+30-minute idle expiry.
+
+The server checks DNS addresses and connects only to the checked public IPs,
+with HTTPS certificate/hostname verification using system trust plus certifi's
+public CA bundle. Loopback, private/LAN, link-local, reserved, and multicast
+targets are rejected, even after approval; **private-network services are not
+supported by this preview**.
+
+Known credentials in project URLs and source configuration are redacted before
+the App receives them, and known credential-like resource URL parameters are
+rejected. These name-based checks are heuristic, not a guarantee that every
+vendor-specific secret is detected. Conservative keys such as `key` and `sr`
+are rejected even when used for a non-secret value; use a public URL without
+these parameters. Do not preview projects containing secrets in custom fields
+or URL parameters. No cookies, caller headers, environment proxies, or browser
+credentials are forwarded.
+
+Redirects fail closed: use and approve the direct destination URL instead.
+Each resource body is limited to 4 MiB (about 5.3 MiB when base64-encoded for
+transport) and a 15-second network deadline. An oversized `Content-Length` is
+rejected before reading the body; the streaming limit also applies when the
+length is missing or understated. The server requests identity encoding and
+rejects compressed responses. Video sources inside a fetched style are removed
+because MapLibre loads video outside the consent-controlled request path.
+
+After updating a checkout, run these commands from the monorepo root.
+Install JavaScript dependencies and rebuild the view before the editable Python
+install, whose build hook can build any missing frontend assets:
+
+```bash
+npm install
+npm run build:mcp-app
+python -m pip install -e "python[mcp]"
+```
+
+Use the Python executable configured in your desktop client's MCP server
+command. Fully quit and reopen the client, then make a fresh `show_map` call:
+an already-mounted preview can retain the previous HTML and tool definitions.
+
+### Building from a checkout
+
+Published wheels include `geolibre/static/mcp/show-map.html`. From a checkout,
+run `npm install` and `npm run build:mcp-app` to build, scan, and stage the
+single-file MCP App without building the Jupyter app. `npm run build:embed`
+independently builds and stages the Jupyter/web app.
+
+The Python packaging hook runs each frontend build only when its own staged
+output is missing. Set `GEOLIBRE_FORCE_JS_BUILD=1` to rebuild both from a full
+checkout. Prebuilt sdists can produce wheels without Node or the monorepo
+sources. Both frontend build outputs and pre-staged package assets are scanned
+for credentials before packaging.
+
+The consent panel uses a named vanilla Lucide icon rendered directly into SVG
+DOM nodes, keeping React's server renderer out of the single-file preview.
+
 ## The workspace
 
 Every path in every tool call is resolved against the allowed roots before the
@@ -114,6 +242,7 @@ Give it a directory meant for maps, not your home directory.
 | `add_tiles_layer` | PMTiles archives and vector tile services. |
 | `add_ogc_layer` | WMS and WMTS endpoints. |
 | `add_lidar_layer` | LAS/LAZ/COPC/EPT point clouds by URL. |
+| `add_spaceborne_lidar_layer` | ICESat-2 (ATL06, ATL08) or GEDI (L2A, L2B, L4A) footprints from a local HDF5 granule (needs `geolibre[spaceborne]`). |
 | `add_3d_tiles_layer` | OGC 3D Tiles tilesets, by URL or Cesium Ion asset id. |
 | `add_cesium_ion_layer` | Cesium Ion assets (tileset or imagery) by id; rendered by the 3D globe only. |
 | `add_czml_layer` | A CZML (Cesium Language) dynamic 3D scene, by URL or inline packets; rendered by the 3D globe only. |
