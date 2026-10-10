@@ -2,15 +2,32 @@ import { useAppStore } from "@geolibre/core";
 import {
   applyObjectFeatures,
   computeObjectFeatures,
+  type ObiaFeatureTable,
   type ObiaIndexBands,
+  type ObiaToolCall,
 } from "@geolibre/processing";
 import { Button, Label, Select } from "@geolibre/ui";
 import { Loader2, Ruler } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
+import { obiaErrorMessage } from "../../../lib/obia/obia-errors";
 import { useObiaSession } from "../../../lib/obia/obia-session";
+import { ObiaRestoreError, ensureObiaLabels, obiaRunEnv } from "../../../lib/obia/obia-persistence";
+import {
+  DEFAULT_OBIA_NATIVE_PARAMS,
+  isNativeMethod,
+  nativeSegmentation,
+  obiaLocalPath,
+  runNativeMeasure,
+} from "../../../lib/obia/obia-native";
 import { obiaSourceBands } from "../../../lib/obia/obia-source";
-import { ObiaStatus, ObiaStepHeading } from "./ObiaFields";
+import {
+  ObiaRunProgress,
+  ObiaStatus,
+  ObiaStepHeading,
+  isObiaCancel,
+  useObiaRun,
+} from "./ObiaFields";
 
 /**
  * Default band roles for the spectral indices: a 4-band image whose bands were
@@ -42,6 +59,7 @@ export function ObiaMeasureStep(): ReactElement | null {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const runningRef = useRef(false);
+  const progress = useObiaRun();
 
   const bands = segmentation?.bandIndexes ?? [];
   const bandKey = bands.join(",");
@@ -69,10 +87,49 @@ export function ObiaMeasureStep(): ReactElement | null {
     runningRef.current = true;
     setRunning(true);
     setError(null);
+    const run = progress.begin();
+    // GLCM texture has no native implementation; a native run measures without it.
+    const measuredOptions = isNativeMethod(segmentation.method)
+      ? { ...options, textureBand: undefined }
+      : options;
     try {
-      const image = await obiaSourceBands(sourceLayer, segmentation.bandIndexes);
-      if (!image) throw new Error(t("obia.error.readImage"));
-      const { table, calls } = await computeObjectFeatures(segmentation.labels, image, options);
+      let table: ObiaFeatureTable;
+      let calls: ObiaToolCall[];
+      if (isNativeMethod(segmentation.method)) {
+        // Natively segmented: measure in the sidecar too, on its labels.
+        const path = obiaLocalPath(sourceLayer);
+        if (!path) throw new Error(t("obia.native.needsLocalFile"));
+        const request = nativeSegmentation(
+          path,
+          segmentation.bandIndexes,
+          segmentation.area,
+          segmentation.method,
+          segmentation.nativeParams ?? DEFAULT_OBIA_NATIVE_PARAMS,
+        );
+        const measured = await runNativeMeasure(
+          request,
+          measuredOptions,
+          segmentation.nativeJobId ?? null,
+          run,
+        );
+        // The sidecar segments again when it no longer has the labels; if the
+        // image changed since, the objects differ from the saved ones.
+        if (measured.objectCount !== segmentation.objectCount) {
+          throw new ObiaRestoreError("source-changed");
+        }
+        table = measured.table;
+        calls = [measured.call];
+      } else {
+        const image = await obiaSourceBands(
+          sourceLayer,
+          segmentation.bandIndexes,
+          segmentation.area,
+        );
+        if (!image) throw new Error(t("obia.error.readImage"));
+        // A reloaded project rebuilds the label raster it did not save.
+        const labels = await ensureObiaLabels(run);
+        ({ table, calls } = await computeObjectFeatures(labels, image, measuredOptions, run));
+      }
       // A re-segmentation while the tools ran makes this table describe
       // objects that are gone; drop it rather than write it anywhere.
       if (useObiaSession.getState().segmentation?.finishedAt !== segmentation.finishedAt) {
@@ -96,19 +153,28 @@ export function ObiaMeasureStep(): ReactElement | null {
       setFeatures({
         segmentationAt: segmentation.finishedAt,
         table,
-        options: { ...options },
+        options: { ...measuredOptions },
         calls,
+        env: obiaRunEnv(),
         finishedAt: new Date().toISOString(),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("obia.measure.error.failed"));
+      setError(
+        isObiaCancel(err)
+          ? t("obia.progress.cancelled")
+          : obiaErrorMessage(err, t, t("obia.measure.error.failed")),
+      );
     } finally {
+      progress.end();
       runningRef.current = false;
       setRunning(false);
     }
-  }, [segmentation, layers, options, updateLayer, setFeatures, t]);
+  }, [segmentation, layers, options, updateLayer, setFeatures, progress, t]);
 
   if (!segmentation) return null;
+  const native = isNativeMethod(segmentation.method);
+  // A coarser level's features come from the level below; it is not re-measured.
+  const merged = Boolean(segmentation.merge);
 
   const roles = options.indices;
   const roleSelect = (role: keyof ObiaIndexBands, label: string) => (
@@ -197,7 +263,8 @@ export function ObiaMeasureStep(): ReactElement | null {
           </Label>
           <Select
             id="obia-feat-texture"
-            value={options.textureBand != null ? String(options.textureBand) : ""}
+            disabled={native}
+            value={!native && options.textureBand != null ? String(options.textureBand) : ""}
             onChange={(event) =>
               setOptions({
                 textureBand: event.target.value ? Number(event.target.value) : undefined,
@@ -212,6 +279,11 @@ export function ObiaMeasureStep(): ReactElement | null {
             ))}
           </Select>
         </div>
+        {native && (
+          <p className="-mt-1 text-xs text-muted-foreground">
+            {t("obia.measure.textureBrowserOnly")}
+          </p>
+        )}
         {checkbox(
           "obia-feat-context",
           options.context,
@@ -225,7 +297,11 @@ export function ObiaMeasureStep(): ReactElement | null {
           onClick={() => void handleMeasure()}
           disabled={
             running ||
-            (!options.spectral && !options.shape && options.textureBand == null && !options.context)
+            merged ||
+            (!options.spectral &&
+              !options.shape &&
+              (native || options.textureBand == null) &&
+              !options.context)
           }
           className="gap-2"
           data-testid="obia-measure"
@@ -234,6 +310,12 @@ export function ObiaMeasureStep(): ReactElement | null {
           {running ? t("obia.measure.running") : t("obia.measure.run")}
         </Button>
       </div>
+      {merged && <p className="text-xs text-muted-foreground">{t("obia.measure.mergedLevel")}</p>}
+      <ObiaRunProgress
+        step={progress.step}
+        startedAt={progress.startedAt}
+        onCancel={progress.cancel}
+      />
 
       <ObiaStatus
         error={error}

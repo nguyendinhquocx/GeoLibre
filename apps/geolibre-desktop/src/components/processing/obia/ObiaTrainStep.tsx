@@ -47,7 +47,7 @@ export function labelStylePatch(layer: GeoLibreLayer, classes: readonly ObiaClas
 }
 
 /**
- * Step 3: define land-cover classes and label objects as training or
+ * Step 4: define land-cover classes and label objects as training or
  * validation samples. Objects are picked with GeoLibre's selection (the map
  * selection tools or the attribute table), then assigned to a class.
  */
@@ -198,6 +198,9 @@ export function ObiaTrainStep(): ReactElement | null {
       next = labelObjects(next, ids, { className, role: "validation" });
     }
     writeObjects(next);
+    useObiaSession
+      .getState()
+      .addSplit({ fraction: holdout / 100, seed, moved: held.size, at: new Date().toISOString() });
     setMessage(t("obia.train.split", { count: held.size }));
   };
 
@@ -205,7 +208,7 @@ export function ObiaTrainStep(): ReactElement | null {
 
   return (
     <section className="flex flex-col gap-3 border-t pt-3">
-      <ObiaStepHeading index={3} title={t("obia.steps.train")} />
+      <ObiaStepHeading index={4} title={t("obia.steps.train")} />
       <p className="text-xs text-muted-foreground">{t("obia.train.hint")}</p>
 
       <div

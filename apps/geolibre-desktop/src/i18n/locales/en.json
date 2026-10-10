@@ -7414,9 +7414,12 @@
     "steps": {
       "segment": "Segment",
       "measure": "Measure",
+      "levels": "Levels",
       "train": "Label samples",
       "classify": "Classify",
-      "accuracy": "Assess accuracy"
+      "accuracy": "Assess accuracy",
+      "export": "Export",
+      "batch": "Apply to other images"
     },
     "image": "Image",
     "imagePlaceholder": "Choose a raster layer",
@@ -7426,9 +7429,38 @@
     "bands": "Bands",
     "bandN": "Band {{index}}",
     "bandsHint": "Segmentation uses the selected bands, each standardized so no band dominates.",
+    "area": {
+      "label": "Area",
+      "image": "Whole image",
+      "view": "Current map view",
+      "full": "Reads {{width}} × {{height}} pixels at full resolution ({{size}} {{unit}}).",
+      "overview": "Reads {{width}} × {{height}} pixels from an overview, at {{size}} {{unit}} per pixel: at full resolution the image is over the {{max}} pixel limit. Segment the current map view for full resolution.",
+      "overviewView": "Reads {{width}} × {{height}} pixels from an overview, at {{size}} {{unit}} per pixel: at full resolution this view is over the {{max}} pixel limit. Zoom in for full resolution.",
+      "tooLarge": "Even the coarsest overview gives {{width}} × {{height}} pixels, over the {{max}} pixel limit. Zoom in and segment the current map view, or clip the image.",
+      "outside": "The current map view does not overlap this image.",
+      "noCrs": "This image's coordinate system is not recognized, so only the whole image can be segmented."
+    },
     "method": "Method",
     "methodRegionGrowing": "Seeded region growing (Whitebox)",
+    "methodFelzenszwalb": "Felzenszwalb graph method (browser)",
     "methodNote": "Pixels join a region while they stay within the threshold of its seed in standardized band space, then objects below the minimum size merge into their most similar neighbor. This is not eCognition multiresolution segmentation, so its scale values do not transfer.",
+    "methodNoteFelzenszwalb": "Neighboring pixels join while their difference stays below the objects' internal variation, scaled by Scale; objects under the minimum size merge into a neighbor. The same method as the desktop's native Felzenszwalb, run in the browser on up to {{max}} pixels.",
+    "native": {
+      "slic": "SLIC superpixels (desktop, native)",
+      "felzenszwalb": "Felzenszwalb graph (desktop, native)",
+      "note": "Runs natively in the desktop app's processing server with scikit-image, on up to {{max}} pixels, and measures objects there too.",
+      "offer": "For images too large for the browser, the desktop app can also segment natively with scikit-image (SLIC or Felzenszwalb).",
+      "needsDesktop": "Native methods need GeoLibre's processing server: use the desktop app.",
+      "unavailable": "The desktop app's native OBIA runtime (scikit-image) is unavailable. Check the processing server.",
+      "needsLocalFile": "Native methods read the image from its file: add it from a local GeoTIFF.",
+      "slicSize": "Object size (pixels)",
+      "compactness": "Compactness",
+      "slicHint": "Superpixels of about this many pixels. Larger compactness gives more regular, square objects; smaller follows the image more closely.",
+      "scale": "Scale",
+      "sigma": "Smoothing (sigma)",
+      "felzenszwalbHint": "Larger scale gives larger objects. Sigma smooths the image first; the minimum size merges smaller objects into a neighbor.",
+      "installing": "Installing scikit-image into the processing server for the native methods; this takes a minute."
+    },
     "threshold": "Similarity threshold",
     "thresholdHint": "Larger values give fewer, larger objects.",
     "minArea": "Minimum object size (pixels)",
@@ -7447,7 +7479,12 @@
       "tooManyBands_one": "{{count}} band of this image needs more memory than the in-browser workbench allows. Clip the image to a smaller area.",
       "tooManyBands_other": "{{count}} bands of this image need more memory than the in-browser workbench allows. Select fewer bands, or clip the image.",
       "noSuchBand": "The image has no band {{index}}.",
-      "failed": "Segmentation failed."
+      "missingFields_one": "This image lacks {{count}} of the features the classifier uses. Measure it with the same feature options.",
+      "missingFields_other": "This image lacks {{count}} of the features the classifier uses. Measure it with the same feature options.",
+      "sourceMissing": "The image these objects were segmented from is no longer in the project. Segment again.",
+      "sourceChanged": "The image no longer segments into the same objects, so it changed since the objects were made. Segment again.",
+      "failed": "Segmentation failed.",
+      "emptyArea": "The area to segment does not overlap the image."
     },
     "measure": {
       "hint": "Measure each object on the original bands. The values are written to the objects layer, where the attribute table, styling and the classifier can use them.",
@@ -7469,6 +7506,132 @@
         "layersMissing": "The source image or the objects layer was removed. Segment again.",
         "resegmented": "The objects were segmented again while measuring, so these values were discarded. Measure the new objects.",
         "failed": "Measuring the objects failed."
+      },
+      "textureBrowserOnly": "GLCM texture is measured only for objects segmented in the browser.",
+      "mergedLevel": "This level's features come from the level below: switch to level 1 to measure again (that discards the levels built on it)."
+    },
+    "levels": {
+      "hint": "Merge this level's objects into coarser ones: neighbors merge, most alike first, until the next merge would make an object too varied. Each object of a coarser level contains whole objects of the level below, so the levels nest.",
+      "workOn": "Work on",
+      "base": "Level {{level}}: {{count}} objects (segmentation)",
+      "merged": "Level {{level}}: {{count}} objects (merged at scale {{scale}})",
+      "scale": "Scale",
+      "scaleHint": "Larger scale gives larger, more varied objects.",
+      "buildFromTop": "Build coarser levels from the coarsest one.",
+      "build": "Build coarser level",
+      "layerName": "{{name}} level {{level}}",
+      "error": {
+        "failed": "Could not build the level.",
+        "noFeatures": "Measure spectral statistics first: merging compares the objects' band means and spreads.",
+        "tooLarge": "The objects are too large to merge in the browser.",
+        "notTop": "Build coarser levels from the coarsest one.",
+        "tooDeep": "The hierarchy has at most 32 levels.",
+        "badScale": "The scale must be a positive number.",
+        "changed": "The objects, their features or the level changed while the level was being built, so it was discarded. Build it again.",
+        "objectsMissing": "This level's objects layer was removed."
+      },
+      "context": {
+        "title": "Context features",
+        "hint": "Add features from each object's surroundings: its contrast with its neighbors (band means), its parent's features and class in the level above, and the share of each class among its children in the level below. Rules and the classifier can then use them, for example parent_is_water = 1. Run again after classifying another level.",
+        "run": "Add context features",
+        "result_one": "{{count}} context feature added.",
+        "result_other": "{{count}} context features added.",
+        "failed": "Could not compute the context features."
+      },
+      "mapped": "Level {{level}}: {{count}} objects (from a level mapping)"
+    },
+    "import": {
+      "title": "Import from other software",
+      "hint": "Bring in what another OBIA tool exported, such as eCognition: its objects (polygons, burned onto the image's grid so the steps can use them), samples, classes, feature table and level mapping. Add vector files as map layers first.",
+      "objects": "Objects",
+      "layer": "Layer",
+      "chooseLayer": "Choose a layer",
+      "idField": "Object id field",
+      "numberInOrder": "Number in order",
+      "importObjects": "Import objects",
+      "samples": "Samples",
+      "classField": "Class field",
+      "roleField": "Role field",
+      "noRoleField": "None (use the role)",
+      "chooseField": "Choose a field",
+      "role": "Role",
+      "importSamples": "Import samples",
+      "classSchema": "Class list (JSON or CSV)…",
+      "featureTable": "Feature table (CSV)…",
+      "levelMapping": "Level mapping (CSV)…",
+      "objectsDone_one": "Imported {{count}} object (left out, as not a polygon, too small or outside the image: {{skipped}}).",
+      "objectsDone_other": "Imported {{count}} objects (left out, as not a polygon, too small or outside the image: {{skipped}}).",
+      "samplesDone_one": "Labeled {{count}} object from the samples (samples without a class or outside the objects: {{missed}}).",
+      "samplesDone_other": "Labeled {{count}} objects from the samples (samples without a class or outside the objects: {{missed}}).",
+      "samplesConflicts_one": "{{count}} object had conflicting samples and kept the first one's label.",
+      "samplesConflicts_other": "{{count}} objects had conflicting samples and kept the first one's label.",
+      "classesDone_one": "Imported {{count}} class.",
+      "classesDone_other": "Imported {{count}} classes.",
+      "featuresDone_one": "Imported {{count}} feature (objects matched: {{objects}}).",
+      "featuresDone_other": "Imported {{count}} features (objects matched: {{objects}}).",
+      "featuresUnmatched_one": "{{count}} row matched no object.",
+      "featuresUnmatched_other": "{{count}} rows matched no object.",
+      "mappingDone_one": "Built level {{level}} from the mapping: {{count}} object.",
+      "mappingDone_other": "Built level {{level}} from the mapping: {{count}} objects.",
+      "mappingUnmapped_one": "{{count}} object had no parent in the file and became its own.",
+      "mappingUnmapped_other": "{{count}} objects had no parent in the file and became their own.",
+      "error": {
+        "failed": "Could not import.",
+        "noImage": "Choose the image under Segment first.",
+        "noLayer": "Choose a layer and its fields.",
+        "noObjects": "Segment or import objects first.",
+        "no-crs": "The image's coordinate system is not recognized, so polygons cannot be placed on it.",
+        "no-polygons": "The layer has no polygons.",
+        "no-objects": "No polygon covers the image.",
+        "bad-file": "The file is not in a format the workbench reads: see the user guide.",
+        "no-ids": "The id field must hold positive whole numbers.",
+        "no-image": "Could not read the image.",
+        "dup-ids": "The id field must hold a different number for each object.",
+        "big-ids": "Object ids must be at most 16,777,216: renumber them first.",
+        "no-match": "No row of the table matches an object's segment_id.",
+        "mapping-conflict": "The mapping gives an object two different parents.",
+        "changed": "The objects changed during the import, so it was discarded. Import again."
+      },
+      "ecognition": {
+        "title": "eCognition rule set",
+        "hint": "Convert an eCognition rule set (.dcp) or project (.dpr) to a ruleset: its class assignments, class descriptions and loops convert, other processes are listed. Segmentation is not converted: segment under Segment instead. See Coming from eCognition in the user guide.",
+        "open": "eCognition rule set (.dcp, .dpr)…",
+        "summary_one": "{{name}}: converted processes: {{converted}} of {{count}}.",
+        "summary_other": "{{name}}: converted processes: {{converted}} of {{count}}.",
+        "layers": "Image layers",
+        "band": "Band {{band}}",
+        "segmentation": "Segmentation to redo under Segment: {{names}}",
+        "levels": "The rule set works on several levels ({{levels}}); the converted processes run on the level you work on.",
+        "notComputed": "Features the workbench does not compute, kept by their eCognition name (import them in a feature table; ✓ marks ones the objects have): {{features}}",
+        "skipped_one": "Not converted: {{count}} process",
+        "skipped_other": "Not converted: {{count}} processes",
+        "reason": {
+          "inactive": "inactive in the rule set",
+          "segmentation": "segmentation",
+          "output": "export or display",
+          "algorithm": "algorithm not supported",
+          "domain": "domain not supported",
+          "condition": "condition not supported",
+          "description": "class description not supported",
+          "children": "child processes of a process that is not a container"
+        },
+        "use": "Use as ruleset",
+        "used": "The ruleset is in the Classify step, with its classes added.",
+        "nothing": "No process converted.",
+        "error": {
+          "not-ruleset": "The file holds no eCognition process tree.",
+          "encrypted": "The rule set is encrypted, so it cannot be read.",
+          "too-large": "The file is over 128 MB, too large to read in the workbench.",
+          "encoding": "The file is not in the text encoding it declares, so its names cannot be read reliably."
+        }
+      }
+    },
+    "context": {
+      "error": {
+        "noFeatures": "Measure the objects first.",
+        "noLinks": "This level's objects have no links to their parents (obia_parent): build the level above again.",
+        "noSizes": "Class shares need the size of the level below's objects: measure it with spectral or shape features.",
+        "noAbove": "Classify the level above first."
       }
     },
     "train": {
@@ -7506,7 +7669,9 @@
       "method": "Classifier",
       "methods": {
         "random-forest": "Random forest",
-        "rules": "Threshold rules"
+        "rules": "Threshold rules",
+        "inherit": "Inherit from level above",
+        "ruleset": "Ruleset"
       },
       "rfHint_one": "Trains on {{count}} training sample and predicts a class for every object. The engine fixes the random seed, so the same inputs give the same result.",
       "rfHint_other": "Trains on {{count}} training samples and predicts a class for every object. The engine fixes the random seed, so the same inputs give the same result.",
@@ -7530,7 +7695,28 @@
         "incompleteRule": "Give every rule a feature and a class, or remove it.",
         "remeasured": "The objects were measured again while classifying, so these predictions were discarded. Classify again.",
         "failed": "Classification failed."
-      }
+      },
+      "inheritHint": "Give each object the class of its parent in level {{level}}. To refine within a parent class, classify with rules on the context features instead (for example parent_is_water = 1).",
+      "inheritNeedsLevel": "Build and classify a coarser level first: objects inherit their parent’s class."
+    },
+    "ruleset": {
+      "hint": "A ruleset runs processes in order, as in eCognition: \"assign\" gives a class to the objects of a domain, \"unassign\" leaves them unclassified, \"fuzzy\" classifies them by fuzzy class descriptions (membership functions combined with and, or or mean), and \"loop\" repeats its processes until nothing changes. A domain selects objects by current class (\"\" for unclassified) and feature conditions; conditions can also read nb_border_<class>, the share of an object's border with neighbors of that class, recomputed between processes. See the user guide for the format.",
+      "label": "Ruleset (JSON)",
+      "example": "Insert example",
+      "load": "Open…",
+      "save": "Save…",
+      "empty": "Write a ruleset, or insert the example.",
+      "valid_one": "Valid: {{count}} process.",
+      "valid_other": "Valid: {{count}} processes.",
+      "invalid": "The ruleset is not valid: {{error}}",
+      "fromCurrent": "Start from the current classification (otherwise every object starts unclassified)",
+      "log_one": "{{count}} object changed",
+      "log_other": "{{count}} objects changed",
+      "logLoop_one": "{{count}} object changed (passes: {{iterations}})",
+      "logLoop_other": "{{count}} objects changed (passes: {{iterations}})",
+      "loadFailed": "Could not open the ruleset.",
+      "saveFailed": "Could not save the ruleset.",
+      "tooLong": "The ruleset ran more than {{max}} processes without settling: check that its loops can stop changing classes."
     },
     "accuracy": {
       "noValidation": "Label some objects as Validation samples (or Split the training samples) to score the classification against data it never trained on.",
@@ -7551,6 +7737,71 @@
       "error": {
         "save": "Saving the report failed."
       }
+    },
+    "export": {
+      "hint": "The objects layer is the vector result: its obia_predicted field holds each object's class, and its layer menu exports it. Here you can also burn the classes onto the image grid.",
+      "addToMap": "Add classified raster",
+      "saveCodes": "Save class codes (GeoTIFF)",
+      "saveLegend": "Save legend (CSV)",
+      "layerName": "{{name}} classified",
+      "added": "Classified raster added to the map.",
+      "saved": "Saved.",
+      "error": {
+        "failed": "Export failed."
+      }
+    },
+    "batch": {
+      "hintForest": "Segment, measure and classify other images with the same bands and settings. The random forest is trained on this image's training samples, so the other images must have the same bands in the same order.",
+      "hintRules": "Segment, measure and classify other images with the same bands, settings and rules.",
+      "noTargets": "Add another raster layer to apply this workflow to it.",
+      "images": "Images",
+      "runNone": "Apply",
+      "run_one": "Apply to {{count}} image",
+      "run_other": "Apply to {{count}} images",
+      "running": "Image {{index}} of {{total}}…",
+      "result_one": "{{count}} object ({{summary}})",
+      "result_other": "{{count}} objects ({{summary}})",
+      "error": {
+        "failed": "Could not apply the workflow.",
+        "readImage": "Could not read the image.",
+        "onImage": "{{name}}: {{message}}",
+        "changed": "The image was segmented again while applying, so the run stopped.",
+        "tooLarge": "The image is over the pixel limit even at its coarsest overview. Clip it first."
+      },
+      "levelOneOnly": "Applying to other images uses level 1: switch to it under Levels.",
+      "inheritUnsupported": "Inherited classes come from a level above, which other images do not have: classify with a random forest or rules to apply the workflow.",
+      "contextUnsupported": "The classifier uses context features (from the object hierarchy), which other images do not have: classify without them to apply the workflow.",
+      "fromCurrentUnsupported": "The ruleset started from the current classification, which other images do not have: run it without that option to apply the workflow."
+    },
+    "provenance": {
+      "title": "Provenance",
+      "image": "Image",
+      "imageSize": "{{width}} × {{height}} pixels, bands {{bands}}",
+      "area": "Pixels {{x0}} to {{x1}} across and {{y0}} to {{y1}} down, at full resolution ({{size}} per pixel)",
+      "areaOverview": "Pixels {{x0}} to {{x1}} across and {{y0}} to {{y1}} down (full-resolution grid), read from overview {{level}} ({{size}} per pixel)",
+      "env": "geolibre-wasm {{engine}}, GeoLibre {{app}}",
+      "labelsPending": "Label raster not loaded; it is rebuilt from these settings when a step needs it.",
+      "splits": "Hold-out splits",
+      "level": "Level {{level}}: level {{from}} merged at scale {{scale}}",
+      "split_one": "{{percent}}% held out with seed {{seed}}: {{count}} sample moved",
+      "split_other": "{{percent}}% held out with seed {{seed}}: {{count}} samples moved",
+      "forest_one": "Random forest, {{trees}} trees, {{fields}} features, {{count}} training sample; the engine fixes the seed",
+      "forest_other": "Random forest, {{trees}} trees, {{fields}} features, {{count}} training samples; the engine fixes the seed",
+      "rules_one": "{{count}} rule, default class {{defaultClass}}",
+      "rules_other": "{{count}} rules, default class {{defaultClass}}",
+      "copy": "Copy as JSON",
+      "copied": "Copied.",
+      "copyFailed": "Could not copy to the clipboard.",
+      "batch": "Applied to {{name}}",
+      "inherit": "Inherited from level {{level}}",
+      "ruleset_one": "Ruleset of {{count}} process",
+      "ruleset_other": "Ruleset of {{count}} processes"
+    },
+    "progress": {
+      "starting": "Starting… {{seconds}} s",
+      "step": "Running {{tool}}… {{seconds}} s",
+      "cancel": "Cancel",
+      "cancelled": "Cancelled."
     }
   },
   "pluginPanel": {

@@ -1,6 +1,14 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
-import { fromArrayBuffer } from "geotiff";
-import { MAX_CLIENT_RASTER_BYTES, readRasterData, writeRasterBands } from "./raster-client";
+import { fromArrayBuffer, type GeoTIFF, type GeoTIFFImage } from "geotiff";
+import { withGeoKeysDatumShift } from "@geolibre/core";
+import {
+  MAX_CLIENT_RASTER_BYTES,
+  padShortSampleFormat,
+  readRasterData,
+  type RasterData,
+  writeRasterBands,
+  writeUint8Bands,
+} from "./raster-client";
 import { runWasmToolInBackground } from "./wasm-tool-runner";
 
 /**
@@ -14,7 +22,13 @@ import { runWasmToolInBackground } from "./wasm-tool-runner";
  */
 
 /** Why an OBIA call refused its input, for the UI to translate. */
-export type ObiaErrorCode = "image-too-large" | "too-many-bands" | "no-such-band" | "no-bands";
+export type ObiaErrorCode =
+  | "image-too-large"
+  | "too-many-bands"
+  | "no-such-band"
+  | "no-bands"
+  | "empty-area"
+  | "missing-fields";
 
 /**
  * An input the workbench rejects, with a stable `code` and `params` the app
@@ -209,12 +223,24 @@ function toolFailure(tool: string, stdout: readonly string[]): Error {
   return new Error(`${tool} failed${detail ? `: ${detail}` : ""}`);
 }
 
+/**
+ * How a long OBIA call reports and stops: `signal` cancels it (the running
+ * WASM tool is terminated and the call rejects with an `AbortError`), and
+ * `onStep` is told the id of each tool as it starts.
+ */
+export interface ObiaRunOptions {
+  signal?: AbortSignal;
+  onStep?: (tool: string) => void;
+}
+
 async function runTool(
   tool: string,
   args: string[],
   input: Record<string, Uint8Array>,
+  run: ObiaRunOptions = {},
 ): Promise<Record<string, Uint8Array>> {
-  const result = await runWasmToolInBackground({ tool, args, input });
+  run.onStep?.(tool);
+  const result = await runWasmToolInBackground({ tool, args, input }, { signal: run.signal });
   if (result.exitCode !== 0) throw toolFailure(tool, result.stdout);
   return result.files;
 }
@@ -263,6 +289,353 @@ export function dissolveSegmentPolygons(
   return { type: "FeatureCollection", features };
 }
 
+// --- Reading part of a large image -------------------------------------------
+
+/** A pixel window `[x0, y0, x1, y1)` in full-resolution pixel coordinates. */
+export type ObiaPixelWindow = [number, number, number, number];
+
+/**
+ * The part of an image the workbench reads: a full-resolution pixel window
+ * and the resolution level to read it at (0 = full resolution, n = the n-th
+ * overview). Recorded with a segmentation so later steps, and a reloaded
+ * project, read exactly the same pixels.
+ */
+export interface ObiaReadArea {
+  level: number;
+  window: ObiaPixelWindow;
+}
+
+/** Size of one resolution level of a GeoTIFF. */
+export interface ObiaImageLevel {
+  width: number;
+  height: number;
+}
+
+/**
+ * The full-resolution image and its overviews, largest first. Mask IFDs
+ * (internal nodata masks) are left out; they are not image levels.
+ */
+async function levelImages(tiff: GeoTIFF): Promise<GeoTIFFImage[]> {
+  const count = await tiff.getImageCount();
+  const images: GeoTIFFImage[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const image = await tiff.getImage(index);
+    const subfileType = Number(image.fileDirectory.getValue("NewSubfileType") ?? 0);
+    if (index > 0 && subfileType & 4) continue; // a transparency mask
+    images.push(image);
+  }
+  return images.sort((a, b) => b.getWidth() - a.getWidth());
+}
+
+/**
+ * Header facts of a GeoTIFF the workbench plans a read from: its resolution
+ * levels and band count. Reads only the header (and, for a URL, only the
+ * byte ranges holding it).
+ *
+ * @param tiff An opened GeoTIFF.
+ */
+export async function readImageLevels(
+  tiff: GeoTIFF,
+): Promise<{ levels: ObiaImageLevel[]; bandCount: number; dataType: string }> {
+  const images = await levelImages(tiff);
+  const first = images[0];
+  const bits = first.getBitsPerSample();
+  const format = Number(
+    (first.fileDirectory.getValue("SampleFormat") as ArrayLike<number> | undefined)?.[0] ?? 1,
+  );
+  const kind = format === 3 ? "Float" : format === 2 ? "Int" : "UInt";
+  return {
+    levels: images.map((image) => ({ width: image.getWidth(), height: image.getHeight() })),
+    bandCount: first.getSamplesPerPixel(),
+    dataType: `${kind}${bits}`,
+  };
+}
+
+/**
+ * The window at a resolution level: the full-resolution window scaled to the
+ * level's grid, rounded outwards and clamped to it.
+ */
+function levelWindow(
+  levels: readonly ObiaImageLevel[],
+  level: number,
+  window: ObiaPixelWindow,
+): ObiaPixelWindow {
+  const full = levels[0];
+  const { width, height } = levels[level];
+  const sx = full.width / width;
+  const sy = full.height / height;
+  return [
+    Math.max(0, Math.floor(window[0] / sx)),
+    Math.max(0, Math.floor(window[1] / sy)),
+    Math.min(width, Math.ceil(window[2] / sx)),
+    Math.min(height, Math.ceil(window[3] / sy)),
+  ];
+}
+
+/**
+ * Choose the finest resolution level at which a window fits the workbench's
+ * pixel limit.
+ *
+ * @param levels Resolution levels, full resolution first ({@link readImageLevels}).
+ * @param window The full-resolution pixel window to read.
+ * @param maxPixels Pixel limit, {@link OBIA_MAX_PIXELS} by default.
+ * @returns The level and the size read at it, or null when even the coarsest
+ *   level is over the limit (or the window is empty).
+ */
+export function planImageRead(
+  levels: readonly ObiaImageLevel[],
+  window: ObiaPixelWindow,
+  maxPixels = OBIA_MAX_PIXELS,
+): { level: number; width: number; height: number } | null {
+  for (let level = 0; level < levels.length; level += 1) {
+    const [x0, y0, x1, y1] = levelWindow(levels, level, window);
+    const width = x1 - x0;
+    const height = y1 - y0;
+    if (width <= 0 || height <= 0) return null;
+    if (width * height <= maxPixels) return { level, width, height };
+  }
+  return null;
+}
+
+/**
+ * Read a window of a GeoTIFF at one resolution level into the single-band
+ * rasters the OBIA tools read, georeferenced to the window, so a large image
+ * (or a remote COG, read by byte ranges) is never decoded in full.
+ *
+ * @param tiff An opened GeoTIFF (`fromUrl` reads only the tiles it needs).
+ * @param bandIndexes 1-based bands to read, in this order.
+ * @param area The full-resolution window and level to read it at.
+ * @throws ObiaError when the window at that level is over the pixel limit,
+ *   empty, or asks for a band the image lacks.
+ */
+export async function readImageWindow(
+  tiff: GeoTIFF,
+  bandIndexes: readonly number[],
+  area: ObiaReadArea,
+): Promise<ObiaImage> {
+  if (!bandIndexes.length) throw new ObiaError("no-bands", "Choose at least one band to segment.");
+  const images = await levelImages(tiff);
+  const full = images[0];
+  const image = images[Math.min(Math.max(0, Math.round(area.level)), images.length - 1)];
+  const levels = images.map((item) => ({ width: item.getWidth(), height: item.getHeight() }));
+  const window = levelWindow(levels, images.indexOf(image), area.window);
+  const width = window[2] - window[0];
+  const height = window[3] - window[1];
+  if (width <= 0 || height <= 0) {
+    throw new ObiaError("empty-area", "The area to read does not overlap the image.");
+  }
+  if (width * height > OBIA_MAX_PIXELS) {
+    throw new ObiaError(
+      "image-too-large",
+      `This image has ${width} x ${height} pixels, over the workbench's limit of ${OBIA_MAX_PIXELS.toLocaleString("en-US")} pixels. Clip it to a smaller area first.`,
+      { width, height, max: OBIA_MAX_PIXELS },
+    );
+  }
+  const bandCount = image.getSamplesPerPixel();
+  const missing = bandIndexes.find(
+    (index) => !Number.isInteger(index) || index < 1 || index > bandCount,
+  );
+  if (missing !== undefined) {
+    throw new ObiaError("no-such-band", `The image has no band ${missing}.`, { index: missing });
+  }
+  // The decoder holds each chosen band as Float32; refuse up front, with a
+  // translatable error, a selection it would reject for memory.
+  if (
+    width * height * bandIndexes.length * Float32Array.BYTES_PER_ELEMENT >
+    MAX_CLIENT_RASTER_BYTES
+  ) {
+    throw new ObiaError(
+      "too-many-bands",
+      `${bandIndexes.length} bands of this image need more memory than the in-browser workbench allows. Select fewer bands, or clip the image.`,
+      { bands: bandIndexes.length },
+    );
+  }
+  padShortSampleFormat(image);
+  const result = await image.readRasters({
+    window,
+    samples: bandIndexes.map((index) => index - 1),
+  });
+  const rawBands = (Array.isArray(result) ? result : [result]) as ArrayLike<number>[];
+  // Georeference the window: the full-resolution origin, stepped by the
+  // level's pixel size (overviews carry no geotransform of their own).
+  const [originX, originY] = full.getOrigin();
+  const [fullResX, fullResY] = full.getResolution();
+  const resX = fullResX * (full.getWidth() / image.getWidth());
+  const resY = fullResY * (full.getHeight() / image.getHeight());
+  const noData = full.getGDALNoData();
+  const grid = {
+    width,
+    height,
+    originX: originX + window[0] * resX,
+    originY: originY + window[1] * resY,
+    resX: Math.abs(resX),
+    resY: Math.abs(resY),
+    flipX: resX < 0,
+    flipY: resY > 0,
+    nodata: noData != null && Number.isFinite(noData) ? noData : null,
+    geoKeys: (full.getGeoKeys() as Record<string, unknown>) ?? {},
+  };
+  const bands = bandIndexes.map((index, i) => ({
+    index,
+    bytes: new Uint8Array(writeRasterBands({ ...grid, bands: [Float32Array.from(rawBands[i])] })),
+  }));
+  return { width, height, bandCount, nodata: grid.nodata, bands };
+}
+
+/**
+ * Fingerprint a label raster: the number of distinct objects (positive
+ * labels) and a hash of every pixel's label. Two label rasters with the same
+ * fingerprint describe the same objects, which is how a reloaded project
+ * checks that a rebuilt segmentation still matches its saved objects.
+ *
+ * @param labels Label raster (GeoTIFF).
+ * @returns The object count and a 32-bit FNV-1a hash of the labels, as hex.
+ */
+export async function fingerprintSegmentLabels(
+  labels: Uint8Array,
+): Promise<{ objectCount: number; hash: string }> {
+  const raster = await readRasterData(toArrayBuffer(labels));
+  const ids = new Set<number>();
+  let hash = 0x811c9dc5;
+  for (const value of raster.bands[0]) {
+    const label = value > 0 && value !== raster.nodata ? value : 0;
+    if (label) ids.add(label);
+    // Hash the label's four bytes, so ids above 255 hash distinctly.
+    for (let shift = 0; shift < 32; shift += 8) {
+      hash ^= (label >>> shift) & 0xff;
+      hash = Math.imul(hash, 0x01000193);
+    }
+  }
+  return { objectCount: ids.size, hash: (hash >>> 0).toString(16).padStart(8, "0") };
+}
+
+/**
+ * Run the region-growing segmentation alone, returning the label raster. The
+ * tool is deterministic, so the same image and parameters give the same
+ * labels, which is how a reloaded project rebuilds labels it did not save.
+ *
+ * @param image Bands from {@link splitImageBands}.
+ * @param params Region-growing parameters.
+ */
+export async function segmentLabels(
+  image: ObiaImage,
+  params: RegionGrowingParams,
+  run: ObiaRunOptions = {},
+): Promise<{ labels: Uint8Array; tool: string; args: string[] }> {
+  if (!image.bands.length) {
+    throw new ObiaError("no-bands", "Choose at least one band to segment.");
+  }
+  const { paths, input } = stageBands(image.bands);
+  const tool = "image_segmentation";
+  const args = regionGrowingArgs(paths, params);
+  const files = await runTool(tool, args, input, run);
+  const labels = files["segments.tif"];
+  if (!labels) throw new Error(`${tool} did not write a segment raster.`);
+  return { labels, tool, args };
+}
+
+/**
+ * Degrees per pixel of the stand-in grid the polygonizer traces pixels on:
+ * 1e-3, or less for a raster so large it would leave valid latitudes
+ * (the grid spans at most 80 degrees).
+ */
+const pixelGridStep = (width: number, height: number) =>
+  Math.min(1e-3, 80 / Math.max(width, height));
+
+/**
+ * Pixel (column, row) to WGS84 for a raster, through its geokeys' CRS with the
+ * datum shift GeoLibre adds where the EPSG tables leave it out, which is how
+ * the raster is drawn on the map; null when the CRS cannot be resolved.
+ */
+async function pixelToWgs84(
+  raster: RasterData,
+): Promise<((col: number, row: number) => Position) | null> {
+  if (!Object.keys(raster.geoKeys ?? {}).length) return null;
+  try {
+    const [{ toProj4 }, { default: proj4 }] = await Promise.all([
+      import("geotiff-geokeys-to-proj4"),
+      import("proj4"),
+    ]);
+    const resolved = toProj4(raster.geoKeys as never);
+    if (!resolved.proj4 || resolved.errors?.CRSNotSupported) return null;
+    const definition = withGeoKeysDatumShift(
+      resolved.proj4.replace(/\+axis=\w+\s*/g, ""),
+      raster.geoKeys,
+    );
+    const converter = proj4(definition, "EPSG:4326");
+    const { originX, originY, resX, resY, flipX, flipY } = raster;
+    return (col, row) =>
+      converter.forward([
+        originX + (flipX ? -col : col) * resX,
+        flipY ? originY + row * resY : originY - row * resY,
+      ]);
+  } catch {
+    return null;
+  }
+}
+
+/** A geometry's positions mapped through `fn`. */
+function mapPositions(geometry: Polygon | MultiPolygon, fn: (p: Position) => Position) {
+  if (geometry.type === "Polygon") {
+    geometry.coordinates = geometry.coordinates.map((ring) => ring.map(fn));
+  } else {
+    geometry.coordinates = geometry.coordinates.map((poly) => poly.map((ring) => ring.map(fn)));
+  }
+}
+
+/**
+ * Polygonize a label raster into one feature per object (WGS84, `id` and
+ * `segment_id` set to the label), as the segmentation step does.
+ *
+ * The polygonizer traces the pixels on a stand-in geographic grid, and the
+ * vertices are then placed through the raster's own CRS (with its datum
+ * shift), so the objects line up with the raster as drawn whatever the datum.
+ *
+ * @param labels Label raster (GeoTIFF).
+ * @param run Cancellation and progress.
+ */
+export async function polygonizeLabels(
+  labels: Uint8Array,
+  run: ObiaRunOptions = {},
+): Promise<FeatureCollection> {
+  const raster = await readRasterData(toArrayBuffer(labels.slice()));
+  const place = await pixelToWgs84(raster);
+  const step = pixelGridStep(raster.width, raster.height);
+  const input = place
+    ? new Uint8Array(
+        writeRasterBands({
+          ...raster,
+          originX: 0,
+          originY: 0,
+          resX: step,
+          resY: step,
+          flipX: false,
+          flipY: false,
+          geoKeys: { GTModelTypeGeoKey: 2, GTRasterTypeGeoKey: 1, GeographicTypeGeoKey: 4326 },
+        }),
+      )
+    : labels;
+  const polygonFiles = await runTool(
+    "segments_to_polygons",
+    ["--segments=/work/segments.tif", "--output=/work/segments.geojson"],
+    { "segments.tif": input },
+    run,
+  );
+  const geojson = polygonFiles["segments.geojson"];
+  if (!geojson) throw new Error("segments_to_polygons did not write polygons.");
+  const pieces = JSON.parse(new TextDecoder().decode(geojson)) as FeatureCollection;
+  if (place) {
+    const toWorld = ([x, y]: Position) => place(x / step, -y / step);
+    for (const feature of pieces.features) {
+      const geometry = feature.geometry;
+      if (geometry?.type === "Polygon" || geometry?.type === "MultiPolygon") {
+        mapPositions(geometry, toWorld);
+      }
+    }
+  }
+  return dissolveSegmentPolygons(pieces);
+}
+
 /**
  * Segment an image into objects with seeded region growing and polygonize the
  * labels. Runs entirely in the browser.
@@ -273,26 +646,10 @@ export function dissolveSegmentPolygons(
 export async function segmentImage(
   image: ObiaImage,
   params: RegionGrowingParams,
+  run: ObiaRunOptions = {},
 ): Promise<ObiaSegmentation> {
-  if (!image.bands.length) {
-    throw new ObiaError("no-bands", "Choose at least one band to segment.");
-  }
-  const { paths, input } = stageBands(image.bands);
-  const tool = "image_segmentation";
-  const args = regionGrowingArgs(paths, params);
-  const files = await runTool(tool, args, input);
-  const labels = files["segments.tif"];
-  if (!labels) throw new Error(`${tool} did not write a segment raster.`);
-
-  const polygonFiles = await runTool(
-    "segments_to_polygons",
-    ["--segments=/work/segments.tif", "--output=/work/segments.geojson"],
-    { "segments.tif": labels },
-  );
-  const geojson = polygonFiles["segments.geojson"];
-  if (!geojson) throw new Error("segments_to_polygons did not write polygons.");
-  const pieces = JSON.parse(new TextDecoder().decode(geojson)) as FeatureCollection;
-  const objects = dissolveSegmentPolygons(pieces);
+  const { labels, tool, args } = await segmentLabels(image, params, run);
+  const objects = await polygonizeLabels(labels, run);
   const objectCount = objects.features.length;
   return {
     labels,
@@ -425,6 +782,28 @@ function normalizedDifference(a: number | null, b: number | null): number | null
 }
 
 /**
+ * The feature table of the sidecar's native measurement (`features.csv`),
+ * whose columns already match the browser engine's, with the band-mean
+ * indices added the same way {@link computeObjectFeatures} adds them.
+ *
+ * @param csvText The `features.csv` text.
+ * @param bandIndexes 1-based source bands that were measured.
+ * @param indices Bands for the derived indices, when wanted.
+ */
+export function nativeFeatureTable(
+  csvText: string,
+  bandIndexes: readonly number[],
+  indices?: ObiaIndexBands,
+): ObiaFeatureTable {
+  const table: ObiaFeatureTable = { fields: [], rows: new Map() };
+  csvToTable(parseObiaCsv(csvText), (field) => field, table);
+  if (indices && table.fields.some((field) => field.startsWith("mean_b"))) {
+    addSpectralIndices(table, bandIndexes, indices);
+  }
+  return table;
+}
+
+/**
  * Add per-object indices computed from the band means: brightness (mean of
  * the band means), NDVI from red/NIR, and NDWI (McFeeters) from green/NIR.
  *
@@ -474,6 +853,7 @@ export async function computeObjectFeatures(
   labels: Uint8Array,
   image: ObiaImage,
   options: ObiaFeatureOptions,
+  runOptions: ObiaRunOptions = {},
 ): Promise<{ table: ObiaFeatureTable; calls: ObiaToolCall[] }> {
   const table: ObiaFeatureTable = { fields: [], rows: new Map() };
   const calls: ObiaToolCall[] = [];
@@ -490,7 +870,7 @@ export async function computeObjectFeatures(
     files: Record<string, Uint8Array>,
     rename: (field: string) => string | null,
   ) => {
-    const out = await runTool(tool, args, files);
+    const out = await runTool(tool, args, files, runOptions);
     calls.push({ tool, args });
     csvToTable(decode(out["features.csv"], tool), rename, table);
   };
@@ -867,6 +1247,7 @@ export async function classifyRandomForest(
   table: ObiaFeatureTable,
   samples: readonly ObiaSample[],
   options: { fields: readonly string[]; trees: number },
+  run: ObiaRunOptions = {},
 ): Promise<ObiaClassification> {
   const training = samples.filter(
     (sample) => sample.role === "training" && table.rows.has(sample.segmentId),
@@ -890,10 +1271,15 @@ export async function classifyRandomForest(
     "--output=/work/predictions.csv",
   ];
   const encoder = new TextEncoder();
-  const files = await runTool(tool, args, {
-    "features.csv": encoder.encode(csv),
-    "training.csv": encoder.encode(`${trainingCsv}\n`),
-  });
+  const files = await runTool(
+    tool,
+    args,
+    {
+      "features.csv": encoder.encode(csv),
+      "training.csv": encoder.encode(`${trainingCsv}\n`),
+    },
+    run,
+  );
   return {
     predictions: readPredictions(files["predictions.csv"], tool, tokens.name),
     fields,
@@ -901,6 +1287,92 @@ export async function classifyRandomForest(
     trainingCount: training.length,
     call: { tool, args },
   };
+}
+
+/**
+ * Train a random forest on one image's training samples and predict another
+ * image's objects (batch processing). Both images' objects go into one table,
+ * the target's ids shifted past the source's so they cannot collide; only the
+ * source's training samples train the forest, and only target predictions are
+ * returned (with their own ids).
+ *
+ * @param sourceTable Features of the image the samples were labeled on.
+ * @param samples Labeled source objects; only training samples are used.
+ * @param targetTable Features of the image to classify, measured the same way.
+ * @param options Feature columns and number of trees.
+ */
+export async function classifyRandomForestTransfer(
+  sourceTable: ObiaFeatureTable,
+  samples: readonly ObiaSample[],
+  targetTable: ObiaFeatureTable,
+  options: { fields: readonly string[]; trees: number },
+  run: ObiaRunOptions = {},
+): Promise<ObiaClassification> {
+  // The forest must see the same features on both images; a feature missing
+  // from either would silently change what it was trained on.
+  const missing = options.fields.filter(
+    (field) => !sourceTable.fields.includes(field) || !targetTable.fields.includes(field),
+  );
+  if (missing.length || !options.fields.length) {
+    throw new ObiaError(
+      "missing-fields",
+      `The image lacks ${missing.length} of the classifier's features (${missing.join(", ")}). Measure it with the same feature options.`,
+      { count: missing.length },
+    );
+  }
+  const fields = [...options.fields];
+  const training = samples.filter((sample) => sample.role === "training");
+  const trainingIds = new Set(training.map((sample) => sample.segmentId));
+  // Fill missing values with the training rows' means, here rather than in
+  // classifyRandomForest, whose means would also cover the target's rows: the
+  // forest must not learn from values that depend on the other image.
+  const means: Record<string, number> = {};
+  for (const field of fields) {
+    let sum = 0;
+    let count = 0;
+    for (const [id, row] of sourceTable.rows) {
+      const value = row[field];
+      if (trainingIds.has(id) && value != null && Number.isFinite(value)) {
+        sum += value;
+        count += 1;
+      }
+    }
+    means[field] = count ? sum / count : 0;
+  }
+  const imputed: Record<string, number> = {};
+  const filled = (row: Record<string, number | null>) => {
+    const out: Record<string, number | null> = {};
+    for (const field of fields) {
+      const value = row[field];
+      if (value == null || !Number.isFinite(value)) {
+        out[field] = means[field];
+        imputed[field] = (imputed[field] ?? 0) + 1;
+      } else {
+        out[field] = value;
+      }
+    }
+    return out;
+  };
+  // A loop, not Math.max(...ids): a large segmentation has more ids than a
+  // call can take as arguments.
+  let maxId = 0;
+  for (const id of sourceTable.rows.keys()) if (id > maxId) maxId = id;
+  const offset = maxId + 1;
+  const rows = new Map<number, Record<string, number | null>>();
+  // Only the labeled source objects are needed to train.
+  for (const [id, row] of sourceTable.rows) if (trainingIds.has(id)) rows.set(id, filled(row));
+  for (const [id, row] of targetTable.rows) rows.set(id + offset, filled(row));
+  const result = await classifyRandomForest(
+    { fields, rows },
+    training,
+    { fields, trees: options.trees },
+    run,
+  );
+  const predictions = new Map<number, string>();
+  for (const [id, name] of result.predictions) {
+    if (id >= offset) predictions.set(id - offset, name);
+  }
+  return { ...result, predictions, imputed };
 }
 
 /**
@@ -915,6 +1387,7 @@ export async function classifyByRules(
   table: ObiaFeatureTable,
   rules: readonly ObiaRule[],
   defaultClass: string,
+  run: ObiaRunOptions = {},
 ): Promise<ObiaClassification> {
   if (!rules.length) throw new Error("Add at least one rule.");
   if (rules.some((rule) => !Number.isFinite(rule.value))) {
@@ -943,10 +1416,15 @@ export async function classifyByRules(
     "--output=/work/predictions.csv",
   ];
   const encoder = new TextEncoder();
-  const files = await runTool(tool, args, {
-    "features.csv": encoder.encode(csv),
-    "rules.csv": encoder.encode(`${rulesCsv}\n`),
-  });
+  const files = await runTool(
+    tool,
+    args,
+    {
+      "features.csv": encoder.encode(csv),
+      "rules.csv": encoder.encode(`${rulesCsv}\n`),
+    },
+    run,
+  );
   return {
     predictions: readPredictions(files["predictions.csv"], tool, tokens.name),
     fields,
@@ -1122,4 +1600,97 @@ export function accuracyReportCsv(report: ObiaAccuracyReport): string {
     lines.push(`area_weighted_accuracy,${report.areaWeightedAccuracy.toFixed(4)}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+// --- Export -----------------------------------------------------------------
+
+/** One class of a classified raster. */
+export interface ObiaLegendEntry {
+  /** Pixel value (1-based; 0 is NoData). */
+  code: number;
+  className: string;
+  color: string;
+}
+
+/** A classification burned onto the segmentation's pixel grid. */
+export interface ObiaClassifiedRaster {
+  /** Single-band uint8 GeoTIFF of class codes, 0 = NoData. */
+  codes: Uint8Array;
+  /** 3-band uint8 GeoTIFF in the class colors, 0 = NoData, for display. */
+  rgb: Uint8Array;
+  legend: ObiaLegendEntry[];
+}
+
+function hexToRgb(color: string): [number, number, number] {
+  // The class color picker writes #rrggbb; accept the #rgb shorthand too.
+  const match = color.trim().match(/^#?([0-9a-f]{6}|[0-9a-f]{3})$/i);
+  if (!match) return [128, 128, 128];
+  const hex =
+    match[1].length === 3 ? [...match[1]].map((digit) => digit + digit).join("") : match[1];
+  const n = parseInt(hex, 16);
+  // Keep every channel above 0 so a class color never reads as NoData.
+  return [Math.max(1, (n >> 16) & 255), Math.max(1, (n >> 8) & 255), Math.max(1, n & 255)];
+}
+
+/**
+ * Burn object predictions onto the label raster's grid: a class-code raster
+ * for analysis and an RGB rendering in the class colors for display.
+ *
+ * @param labels Label raster from {@link segmentImage}.
+ * @param predictions Predicted class per object.
+ * @param classes Class colors; codes follow this order, then any other
+ *   predicted class (e.g. a rules default class) alphabetically, in gray.
+ */
+export async function classifiedRaster(
+  labels: Uint8Array,
+  predictions: ReadonlyMap<number, string>,
+  classes: readonly ObiaClass[],
+): Promise<ObiaClassifiedRaster> {
+  const grid = await readRasterData(toArrayBuffer(labels));
+  // Codes follow the class list, predicted or not, so a code keeps its
+  // meaning from run to run; other predicted names (a rules default) follow.
+  const predicted = new Set(predictions.values());
+  const names = [
+    ...classes.map((cls) => cls.name),
+    ...[...predicted].filter((name) => !classes.some((cls) => cls.name === name)).sort(),
+  ];
+  if (names.length > 255) throw new Error("A classified raster holds at most 255 classes.");
+  const legend = names.map((className, i) => ({
+    code: i + 1,
+    className,
+    color: classes.find((cls) => cls.name === className)?.color ?? "#9ca3af",
+  }));
+  const codeOf = new Map(legend.map((entry) => [entry.className, entry.code]));
+  const objectCode = new Map<number, number>();
+  for (const [id, name] of predictions) objectCode.set(id, codeOf.get(name) ?? 0);
+  const rgbOf = legend.map((entry) => hexToRgb(entry.color));
+
+  const pixels = grid.width * grid.height;
+  const codes = new Uint8Array(pixels);
+  const r = new Uint8Array(pixels);
+  const g = new Uint8Array(pixels);
+  const b = new Uint8Array(pixels);
+  const band = grid.bands[0];
+  for (let p = 0; p < pixels; p += 1) {
+    const label = band[p];
+    if (!(label > 0) || label === grid.nodata) continue;
+    const code = objectCode.get(Math.round(label)) ?? 0;
+    if (!code) continue;
+    codes[p] = code;
+    const [cr, cg, cb] = rgbOf[code - 1];
+    r[p] = cr;
+    g[p] = cg;
+    b[p] = cb;
+  }
+  return {
+    codes: new Uint8Array(writeUint8Bands(grid, [codes], 0)),
+    rgb: new Uint8Array(writeUint8Bands(grid, [r, g, b], 0)),
+    legend,
+  };
+}
+
+/** The legend as CSV (`code,class,color`). */
+export function legendCsv(legend: readonly ObiaLegendEntry[]): string {
+  const rows = legend.map((e) => `${e.code},${csvCell(e.className)},${csvCell(e.color)}`);
+  return `${["code,class,color", ...rows].join("\n")}\n`;
 }

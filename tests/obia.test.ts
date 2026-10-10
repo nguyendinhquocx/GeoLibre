@@ -3,11 +3,18 @@ import { readFileSync } from "node:fs";
 import { before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { FeatureCollection } from "geojson";
-import { writeArrayBuffer } from "geotiff";
+import { fromArrayBuffer, writeArrayBuffer } from "geotiff";
 import { featureSelectionId } from "@geolibre/core";
 import { initTools, runTool } from "geolibre-wasm/tools";
 import {
+  classifiedRaster,
   csvCell,
+  fingerprintSegmentLabels,
+  planImageRead,
+  nativeFeatureTable,
+  readImageWindow,
+  legendCsv,
+  readRasterData,
   accuracyReportCsv,
   assessAccuracy,
   applyPredictions,
@@ -31,8 +38,8 @@ import {
   splitImageBands,
   stageBands,
   ObiaError,
-  readRasterData,
   tableForAllObjects,
+  classifyRandomForestTransfer,
 } from "@geolibre/processing";
 
 /** A 3 x 2, 3-band Float32 GeoTIFF with band b holding values b*10 + pixel. */
@@ -586,6 +593,223 @@ describe("assessAccuracy", () => {
   });
 });
 
+describe("reading part of a large image", () => {
+  const levels = [
+    { width: 9222, height: 5089 },
+    { width: 4611, height: 2545 },
+    { width: 2306, height: 1273 },
+  ];
+
+  it("picks the finest level at which the window fits the limit", () => {
+    assert.deepEqual(planImageRead(levels, [0, 0, 9222, 5089]), {
+      level: 1,
+      width: 4611,
+      height: 2545,
+    });
+    // A small window reads at full resolution.
+    assert.deepEqual(planImageRead(levels, [100, 200, 1100, 1200]), {
+      level: 0,
+      width: 1000,
+      height: 1000,
+    });
+    // Over the limit even at the coarsest level, or empty.
+    assert.equal(planImageRead(levels, [0, 0, 9222, 5089], 1000), null);
+    assert.equal(planImageRead(levels, [10, 10, 10, 20]), null);
+  });
+
+  it("reads a georeferenced window of the chosen bands", async () => {
+    // 4 x 3, 2 bands: band b holds b*100 + pixel index.
+    const width = 4;
+    const height = 3;
+    const values = new Float32Array(width * height * 2);
+    for (let p = 0; p < width * height; p += 1) {
+      values[p * 2] = 100 + p;
+      values[p * 2 + 1] = 200 + p;
+    }
+    const tiff = await fromArrayBuffer(
+      writeArrayBuffer(values, {
+        width,
+        height,
+        SamplesPerPixel: 2,
+        ModelPixelScale: [10, 10, 0],
+        ModelTiepoint: [0, 0, 0, 500000, 4000000, 0],
+        ProjectedCSTypeGeoKey: 32617,
+        GTModelTypeGeoKey: 1,
+      } as Parameters<typeof writeArrayBuffer>[1]) as ArrayBuffer,
+    );
+    const image = await readImageWindow(tiff, [2], { level: 0, window: [1, 1, 3, 3] });
+    assert.equal(image.width, 2);
+    assert.equal(image.height, 2);
+    assert.deepEqual(
+      image.bands.map((band) => band.index),
+      [2],
+    );
+    const band = await readRasterData(image.bands[0].bytes.buffer as ArrayBuffer);
+    assert.deepEqual(Array.from(band.bands[0]), [205, 206, 209, 210]);
+    assert.equal(band.originX, 500010);
+    assert.equal(band.originY, 3999990);
+    assert.equal(band.resX, 10);
+    await assert.rejects(
+      readImageWindow(tiff, [3], { level: 0, window: [0, 0, 4, 3] }),
+      (err: ObiaError) => err.code === "no-such-band",
+    );
+    await assert.rejects(
+      readImageWindow(tiff, [1], { level: 0, window: [4, 0, 4, 3] }),
+      (err: ObiaError) => err.code === "empty-area",
+    );
+  });
+
+  it("reads a window from an overview, georeferenced at its pixel size", async () => {
+    // 8 x 4 with values 0..7 by column, 10 m pixels; a 2x averaged overview.
+    const bytes = readFileSync(
+      fileURLToPath(new URL("./fixtures/obia-overview.tif", import.meta.url)),
+    );
+    const tiff = await fromArrayBuffer(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    );
+    // Full-resolution columns 2-7 at level 1: overview columns 1-3.
+    const image = await readImageWindow(tiff, [1], { level: 1, window: [2, 0, 8, 4] });
+    assert.equal(image.width, 3);
+    assert.equal(image.height, 2);
+    const band = await readRasterData(image.bands[0].bytes.buffer as ArrayBuffer);
+    assert.deepEqual(Array.from(band.bands[0]), [2.5, 4.5, 6.5, 2.5, 4.5, 6.5]);
+    assert.equal(band.resX, 20);
+    assert.equal(band.originX, 500020);
+    assert.equal(band.originY, 4000000);
+  });
+});
+
+describe("nativeFeatureTable", () => {
+  it("reads the sidecar's features and adds the band-mean indices", () => {
+    const table = nativeFeatureTable(
+      "segment_id,mean_b1,mean_b4,area_px\n1,10,30,12\n2,40,,5\n",
+      [1, 4],
+      { red: 1, nir: 4 },
+    );
+    assert.deepEqual(table.fields, ["mean_b1", "mean_b4", "area_px", "brightness", "ndvi"]);
+    assert.equal(table.rows.get(1)?.ndvi, 0.5);
+    assert.equal(table.rows.get(2)?.mean_b4, null);
+    assert.equal(table.rows.get(2)?.ndvi, null);
+  });
+});
+
+describe("fingerprintSegmentLabels", () => {
+  const raster = (values: number[]) =>
+    new Uint8Array(
+      writeArrayBuffer(new Float32Array(values), {
+        width: 3,
+        height: 2,
+        ModelPixelScale: [1, 1, 0],
+        ModelTiepoint: [0, 0, 0, 500000, 4000000, 0],
+        ProjectedCSTypeGeoKey: 32617,
+        GTModelTypeGeoKey: 1,
+      } as Parameters<typeof writeArrayBuffer>[1]) as ArrayBuffer,
+    );
+
+  it("counts objects and tells apart rasters with the same count", async () => {
+    const a = await fingerprintSegmentLabels(raster([1, 1, 2, 3, 0, 2]));
+    const same = await fingerprintSegmentLabels(raster([1, 1, 2, 3, 0, 2]));
+    // Same three objects, different boundaries.
+    const moved = await fingerprintSegmentLabels(raster([1, 2, 2, 3, 0, 2]));
+    assert.equal(a.objectCount, 3);
+    assert.deepEqual(same, a);
+    assert.equal(moved.objectCount, 3);
+    assert.notEqual(moved.hash, a.hash);
+    assert.match(a.hash, /^[0-9a-f]{8}$/);
+  });
+});
+
+describe("classifiedRaster", () => {
+  it("burns predictions onto the label grid as codes and class colors", async () => {
+    // Labels: objects 1, 1, 2 / 3, 0 (NoData), 2.
+    const labels = new Uint8Array(
+      writeArrayBuffer(new Float32Array([1, 1, 2, 3, 0, 2]), {
+        width: 3,
+        height: 2,
+        ModelPixelScale: [1, 1, 0],
+        ModelTiepoint: [0, 0, 0, 500000, 4000000, 0],
+        ProjectedCSTypeGeoKey: 32617,
+        GTModelTypeGeoKey: 1,
+      } as Parameters<typeof writeArrayBuffer>[1]) as ArrayBuffer,
+    );
+    const result = await classifiedRaster(
+      labels,
+      new Map([
+        [1, "water"],
+        [2, "trees, shrubs"],
+        [3, "unclassified"],
+      ]),
+      [
+        { name: "trees, shrubs", color: "#16a34a" },
+        { name: "water", color: "#000000" },
+      ],
+    );
+    assert.deepEqual(result.legend, [
+      { code: 1, className: "trees, shrubs", color: "#16a34a" },
+      { code: 2, className: "water", color: "#000000" },
+      { code: 3, className: "unclassified", color: "#9ca3af" },
+    ]);
+    const codes = await readRasterData(result.codes.buffer as ArrayBuffer);
+    assert.deepEqual(Array.from(codes.bands[0]), [2, 2, 1, 3, 0, 1]);
+    assert.equal(codes.nodata, 0);
+    assert.equal(codes.originX, 500000);
+    const rgb = await readRasterData(result.rgb.buffer as ArrayBuffer);
+    assert.equal(rgb.bands.length, 3);
+    // A black class color is lifted to 1 so it is not NoData; NoData stays 0.
+    assert.deepEqual(Array.from(rgb.bands[0]), [1, 1, 22, 156, 0, 22]);
+    assert.equal(
+      legendCsv(result.legend),
+      'code,class,color\n1,"trees, shrubs",#16a34a\n2,water,#000000\n3,unclassified,#9ca3af\n',
+    );
+  });
+
+  it("reads #rgb shorthand class colors", async () => {
+    const labels = new Uint8Array(
+      writeArrayBuffer(new Float32Array([1, 1]), {
+        width: 2,
+        height: 1,
+        ModelPixelScale: [1, 1, 0],
+        ModelTiepoint: [0, 0, 0, 0, 0, 0],
+      } as Parameters<typeof writeArrayBuffer>[1]) as ArrayBuffer,
+    );
+    const result = await classifiedRaster(labels, new Map([[1, "roof"]]), [
+      { name: "roof", color: "#a5c" },
+    ]);
+    const rgb = await readRasterData(result.rgb.buffer as ArrayBuffer);
+    assert.deepEqual(
+      rgb.bands.map((band) => band[0]),
+      [0xaa, 0x55, 0xcc],
+    );
+  });
+
+  it("keeps class codes stable when a class is not predicted", async () => {
+    const labels = new Uint8Array(
+      writeArrayBuffer(new Float32Array([1, 1]), {
+        width: 2,
+        height: 1,
+        ModelPixelScale: [1, 1, 0],
+        ModelTiepoint: [0, 0, 0, 0, 0, 0],
+      } as Parameters<typeof writeArrayBuffer>[1]) as ArrayBuffer,
+    );
+    const result = await classifiedRaster(labels, new Map([[1, "c"]]), [
+      { name: "a", color: "#111111" },
+      { name: "b", color: "#222222" },
+      { name: "c", color: "#333333" },
+    ]);
+    assert.deepEqual(
+      result.legend.map((e) => [e.code, e.className]),
+      [
+        [1, "a"],
+        [2, "b"],
+        [3, "c"],
+      ],
+    );
+    const codes = await readRasterData(result.codes.buffer as ArrayBuffer);
+    assert.deepEqual(Array.from(codes.bands[0]), [3, 3]);
+    assert.equal(legendCsv([]), "code,class,color\n");
+  });
+});
+
 describe("classifyByRules with missing values", () => {
   before(async () => {
     await initTools(
@@ -694,5 +918,94 @@ describe("tableForAllObjects", () => {
     assert.deepEqual([...all.rows.keys()].sort(), [1, 2]);
     assert.deepEqual(all.rows.get(2), {});
     assert.equal(table.rows.size, 1, "the input table is not modified");
+  });
+});
+
+describe("classifyRandomForestTransfer", () => {
+  before(async () => {
+    await initTools(
+      readFileSync(
+        fileURLToPath(new URL("../node_modules/geolibre-wasm/geolibre-cli.wasm", import.meta.url)),
+      ),
+    );
+  });
+
+  it("trains on one image's samples and predicts another image's objects", async () => {
+    // Source: ids 1-6, dark (low b1) objects are "veg". Target: ids 1-4, same ids.
+    const row = (b1: number) => ({ b1, b2: 100 - b1 }) as Record<string, number | null>;
+    const source = {
+      fields: ["b1", "b2"],
+      rows: new Map([1, 2, 3, 4, 5, 6].map((id) => [id, row(id <= 3 ? 10 + id : 90 + id)])),
+    };
+    const target = {
+      fields: ["b1", "b2"],
+      rows: new Map([
+        [1, row(95)],
+        [2, row(12)],
+        [3, row(91)],
+        [4, row(11)],
+      ]),
+    };
+    const samples = [1, 2, 3, 4, 5, 6].map((id) => ({
+      segmentId: id,
+      className: id <= 3 ? "veg" : "roof",
+      role: "training" as const,
+    }));
+    const result = await classifyRandomForestTransfer(source, samples, target, {
+      fields: ["b1", "b2"],
+      trees: 50,
+    });
+    assert.deepEqual(
+      [...result.predictions].sort((a, b) => a[0] - b[0]),
+      [
+        [1, "roof"],
+        [2, "veg"],
+        [3, "roof"],
+        [4, "veg"],
+      ],
+    );
+  });
+
+  it("fills missing values from the training rows only", async () => {
+    const source = {
+      fields: ["b1"],
+      rows: new Map<number, Record<string, number | null>>([
+        [1, { b1: 10 }],
+        [2, { b1: 90 }],
+        [3, { b1: 1000 }], // not a training row: must not move the fill value
+      ]),
+    };
+    const target = {
+      fields: ["b1"],
+      rows: new Map<number, Record<string, number | null>>([
+        [1, { b1: null }],
+        [2, { b1: 12 }],
+      ]),
+    };
+    const result = await classifyRandomForestTransfer(
+      source,
+      [
+        { segmentId: 1, className: "veg", role: "training" },
+        { segmentId: 2, className: "roof", role: "training" },
+      ],
+      target,
+      { fields: ["b1"], trees: 10 },
+    );
+    assert.deepEqual(result.imputed, { b1: 1 });
+    assert.equal(result.predictions.get(2), "veg");
+  });
+
+  it("refuses a target that lacks a feature the forest uses", async () => {
+    const source = { fields: ["b1", "b2"], rows: new Map([[1, { b1: 1, b2: 2 }]]) };
+    const target = { fields: ["b1"], rows: new Map([[1, { b1: 1 }]]) };
+    await assert.rejects(
+      classifyRandomForestTransfer(
+        source,
+        [{ segmentId: 1, className: "veg", role: "training" }],
+        target,
+        { fields: ["b1", "b2"], trees: 10 },
+      ),
+      (err: ObiaError) => err.code === "missing-fields" && err.params.count === 1,
+    );
   });
 });
