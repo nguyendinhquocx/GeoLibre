@@ -30,6 +30,8 @@ export interface PaletteCommands {
    * empty palette still opens on the short list of actions.
    */
   toolCommands: Command[];
+  /** Processing-menu commands, deduplicated across the fixed and per-tool lists. */
+  processingCommands: Command[];
 }
 
 /**
@@ -135,5 +137,14 @@ export function usePaletteCommands({
     [allTools, deploymentCapabilities, appPrivileges, uiProfile, mobile],
   );
 
-  return { commands: fixed, toolCommands };
+  const processingCommands = useMemo(() => {
+    const byId = new Map<string, Command>();
+    for (const command of fixed) {
+      if (command.id.startsWith("proc.")) byId.set(command.id, command);
+    }
+    for (const command of toolCommands) byId.set(command.id, command);
+    return [...byId.values()];
+  }, [fixed, toolCommands]);
+
+  return { commands: fixed, toolCommands, processingCommands };
 }

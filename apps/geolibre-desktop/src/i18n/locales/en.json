@@ -5643,6 +5643,13 @@
       "chooseOutputFile": "Choose output file"
     },
     "searchTools": "Search tools",
+    "menuSearch": {
+      "searchLabel": "Search processing tools",
+      "searchPlaceholder": "Search processing tools…",
+      "resultsLabel": "Matching processing tools",
+      "noMatches": "No matching processing tools",
+      "resultsTruncated": "Showing the first {{count}} matching tools"
+    },
     "refreshCatalog": "Refresh catalog",
     "increaseValue": "Increase value",
     "decreaseValue": "Decrease value",
