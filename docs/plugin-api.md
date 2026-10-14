@@ -140,6 +140,10 @@ export interface GeoLibreAppAPI {
     data: FeatureCollection,
     sourcePath?: string
   ) => string;
+  // Replace a GeoJSON layer's features in place, or remove a layer.
+  // See "Updating and removing layers".
+  updateGeoJsonLayer?: (layerId: string, data: FeatureCollection) => boolean;
+  removeLayer?: (layerId: string) => void;
   listLayers?: () => GeoLibreLayerSummary[];
   getLayerFeatures?: (layerId: string) => Feature<Geometry | null>[];
   // Dress a layer with an SLD, QML or Mapbox GL style. See "Layer styles".
@@ -313,6 +317,12 @@ export interface GeoLibreAppAPI {
   ) => void;
   // Credential storage (see "Saving credentials" below).
   credentials?: GeoLibrePluginCredentials;
+  // OAuth authorization-code sign-in (see "Signing in with OAuth" below).
+  getOAuthRedirectUri?: () => string;
+  authorizeInPopup?: (
+    authorizationUrl: string,
+    options?: { timeoutMs?: number }
+  ) => Promise<string>;
   // Top toolbar menus (see "Toolbar menus" below).
   registerToolbarMenu?: (menu: GeoLibreToolbarMenu) => () => void;
   unregisterToolbarMenu?: (id: string) => void;
@@ -760,6 +770,29 @@ Replacing one active selection gesture with another keeps
 
 Both methods are optional so plugins remain compatible with older hosts.
 
+
+## Updating and removing layers
+
+A plugin that shows data held elsewhere, such as records in a remote service, can keep its layer current without removing and re-adding it. `updateGeoJsonLayer` replaces a GeoJSON layer's features, as saving a GeoEditor session or refreshing a layer does: the layer keeps its id, name, place in the layer order, group, style and visibility. `removeLayer` removes a layer the way the Layers panel does.
+
+```typescript
+const layerId = app.addGeoJsonLayer("Survey records", await fetchRecords());
+
+async function refresh() {
+  // false when the layer is gone, isn't GeoJSON, or is being edited.
+  if (!app.updateGeoJsonLayer?.(layerId, await fetchRecords())) {
+    // Retry after the edit session ends, or tell the user.
+  }
+}
+
+function deactivate() {
+  app.removeLayer?.(layerId);
+}
+```
+
+- **Edit sessions win.** While the layer is open in the GeoEditor, `updateGeoJsonLayer` returns `false` and changes nothing, so the user's unsaved edits aren't overwritten.
+- **Removal is complete.** `removeLayer` clears the selection, legend and other references to the layer, and ends a GeoEditor session on it without saving. Unknown ids are ignored.
+- Both are optional, so call them with optional chaining for older hosts.
 
 ## Layer groups
 
@@ -1371,6 +1404,37 @@ const where = app.credentials?.location(); // "keychain" | "browser", for UI cop
 - **Never put secrets in `getProjectState`.** Plugin settings are saved in project files and shared or exported with them.
 - **Built-in plugins use it too.** The Hugging Face, Mapillary and God's Eye View tokens moved from their own `localStorage` keys to `app.credentials`; the host migrates an existing plaintext value on first launch and removes it only after the new write succeeds.
 
+## Signing in with OAuth
+
+A plugin that signs users in to a service with OAuth 2.0 (authorization code with PKCE) can let GeoLibre run the browser round trip. `app.authorizeInPopup` sends the user to the provider's authorization page and resolves with the code from the redirect: on the web it opens a popup that comes back through the app's `oauth-callback.html`, and on the desktop it opens the system browser and receives the app's custom-scheme callback. The plugin builds the authorization URL, keeps the PKCE verifier, and exchanges the code for tokens itself, so no client secret or token passes through the host.
+
+```typescript
+const redirectUri = app.getOAuthRedirectUri?.(); // register this with the provider
+const state = crypto.randomUUID();
+const verifier = createCodeVerifier(); // your PKCE helpers
+const authorizationUrl = new URL(`${server}/o/authorize/`);
+authorizationUrl.search = new URLSearchParams({
+  response_type: "code",
+  client_id: clientId,
+  redirect_uri: redirectUri,
+  state,
+  code_challenge: await createCodeChallenge(verifier), // compute before the click
+  code_challenge_method: "S256",
+}).toString();
+
+signInButton.onclick = async () => {
+  const code = await app.authorizeInPopup?.(authorizationUrl.toString()); // no await before this
+  const tokens = await exchangeCode(code, verifier, redirectUri); // POST to the token endpoint
+  app.credentials?.set("refresh-token", tokens.refresh_token);
+};
+```
+
+- **Call it from a click handler, before any `await`.** Browsers only allow a popup opened as part of a user gesture, so build the URL (including the PKCE challenge) ahead of time.
+- **The request must carry `state` and the app's redirect URI.** `redirect_uri` must equal `app.getOAuthRedirectUri()`, which is the callback page on the web (it follows the site's base path) and `org.geolibre.desktop:/oauth/callback` on the desktop; register both with the provider if the plugin runs in both. A callback is accepted only from that popup, at the app's origin, with the request's `state`.
+- **Failures** reject with an error whose `reason` is `invalid-request` (no `state`, another redirect URI, not an HTTP(S) URL, or a `timeoutMs` that isn't a positive number of milliseconds up to 2,147,483,647), `popup-blocked`, `already-pending`, `access-denied`, `invalid-callback`, `cancelled` (the popup was closed), `timeout` (five minutes by default; pass `{ timeoutMs }`), `restart-required` (the desktop callback receiver is not running), or `launch-failed` (the desktop app could not open the system browser).
+- **One plugin sign-in at a time.** A second call while one is in progress rejects with `already-pending` and leaves the first alone. On the desktop the deep-link receiver is shared with the app's own sign-ins, so those wait for each other too; on the web, the app's ArcGIS sign-in uses its own popup and can run alongside a plugin's.
+- **The token request is the plugin's.** Use `app.nativeFetch` on the desktop if the token endpoint does not allow cross-origin requests, and keep refresh tokens in `app.credentials`.
+
 ## Signing in with a session cookie
 
 A service that signs users in with a session cookie does not work from the desktop app's webview. The page runs at `tauri://localhost`, so a cookie the service sets is third-party, and WebKit (macOS, Linux) drops it: the login request returns 200 and the next request returns 401. On the desktop, `app.nativeFetch` sends requests through the app's native HTTP client instead. It has the `fetch` signature, takes any method and body, is not subject to CORS, and keeps cookies in a jar that lasts the app session.
@@ -1387,6 +1451,23 @@ const user = await (await http(`${server}/api/v1/users/current`)).json(); // sen
 - **Cookies stay native.** Set-Cookie headers are not exposed to JavaScript, and `credentials` has no effect: every request sends whatever the jar holds for that host.
 - **One jar for the session.** It is shared by every plugin and cleared when the app restarts, so a plugin should be ready to sign in again.
 - **Limits:** request and response bodies up to 64 MiB, a 120 second timeout, and no link-local or cloud-metadata addresses. `AbortSignal` cancels the native request.
+
+### Expected responses
+
+Diagnostics records a request that fails, or answers with a 4xx or 5xx status, as an error, and users see those errors. Some protocols use error statuses for normal answers: an OAuth device sign-in polls the token endpoint, which answers `400 authorization_pending` until the user approves ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628#section-3.5)). Mark such requests with a client-only header, and Diagnostics records them as info:
+
+```typescript
+const http = app.nativeFetch ?? fetch;
+await http(`${server}/o/token/`, {
+  method: "POST",
+  headers: { "x-geolibre-expected-status": "400" }, // comma-separated statuses
+  body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code, client_id }),
+});
+```
+
+- **`x-geolibre-expected-status`** lists the statuses that are expected; any other failure is still an error.
+- **`x-geolibre-optional-resource`** (any value) marks the whole request as optional, so any failure, including a network error, is recorded as info.
+- **Neither reaches the server.** Both `app.nativeFetch` and the browser's `fetch` in GeoLibre remove them before sending, so they don't need to be allowed by the server's CORS settings.
 
 ## Floating panels
 

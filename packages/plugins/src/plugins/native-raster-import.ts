@@ -76,24 +76,38 @@ export async function addNativeRaster(
   return id;
 }
 
-/** Restore desktop file references without mounting the MapLibre raster control (see {@link addNativeRaster}). */
+/**
+ * Restore desktop file references without mounting the MapLibre raster control
+ * (see {@link addNativeRaster}).
+ *
+ * @param reader - The host's local-path reader; `null` in the browser.
+ * @returns The names of local rasters whose data could not be reloaded: no
+ *   recorded path, no reader, or a read that failed (GeoLibre#3120).
+ */
 export async function restoreNativeRasterFiles(
   reader: LocalRasterFileReader | null,
-): Promise<void> {
-  if (!reader) return;
+): Promise<string[]> {
+  const unrestorable: string[] = [];
+  const generation = useAppStore.getState().projectGeneration;
   for (const layer of useAppStore.getState().layers) {
     const path = layer.metadata.localFilePath;
     if (
       layer.type !== "cog" ||
+      layer.metadata.rasterSource !== "file" ||
       layer.source.url ||
-      layer.metadata.localBytesUrl ||
-      typeof path !== "string"
+      layer.metadata.localBytesUrl
     )
       continue;
+    // An earlier iteration's read may have let the user replace the project.
+    const current = () =>
+      useAppStore.getState().layers.find((candidate) => candidate.id === layer.id) === layer;
+    if (!reader || typeof path !== "string" || !path) {
+      if (current()) unrestorable.push(layer.name);
+      continue;
+    }
     try {
       const source = await reader(path);
-      if (useAppStore.getState().layers.find((current) => current.id === layer.id) !== layer)
-        continue;
+      if (!current()) continue;
       const url = typeof source === "string" ? source : URL.createObjectURL(source);
       useAppStore.getState().updateLayer(layer.id, {
         metadata: { ...layer.metadata, localBytesUrl: url },
@@ -101,6 +115,12 @@ export async function restoreNativeRasterFiles(
       if (typeof source !== "string") retainFile(layer.id, url);
     } catch (error) {
       console.warn(`[GeoLibre] Could not reopen raster ${layer.name}`, error);
+      // Not for a layer the user removed (or a project they replaced) while
+      // the read was pending: the warning would describe the wrong project.
+      if (current()) unrestorable.push(layer.name);
     }
   }
+  // A project opened while a read was pending is not the one these names
+  // came from, so report nothing rather than describe the wrong project.
+  return useAppStore.getState().projectGeneration === generation ? unrestorable : [];
 }

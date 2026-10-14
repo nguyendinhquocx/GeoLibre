@@ -11,13 +11,13 @@ const localLayer = () =>
     type: "cog",
     geojson: undefined,
     source: { type: "raster" },
-    metadata: { localFilePath: "/data/dem.tif" },
+    metadata: { rasterSource: "file", localFilePath: "/data/dem.tif" },
   });
 
 it("retains restored file bytes until the layer is removed and skips already-restored sources", async () => {
   const layer = localLayer();
   useAppStore.setState({ layers: [layer] });
-  await restoreNativeRasterFiles(null);
+  assert.deepEqual(await restoreNativeRasterFiles(null), [layer.name]);
   assert.equal(useAppStore.getState().layers[0], layer);
   let reads = 0;
   const reader = async (path: string) => {
@@ -25,7 +25,7 @@ it("retains restored file bytes until the layer is removed and skips already-res
     assert.equal(path, "/data/dem.tif");
     return new File(["raster bytes"], "dem.tif");
   };
-  await restoreNativeRasterFiles(reader);
+  assert.deepEqual(await restoreNativeRasterFiles(reader), []);
   const restored = useAppStore.getState().layers[0];
   const url = String(restored.metadata.localBytesUrl);
   assert.ok(url.startsWith("blob:"));
@@ -63,14 +63,28 @@ it("skips remote sources and local layers without a saved path", async () => {
   useAppStore.setState({
     layers: [
       { ...localLayer(), source: { type: "raster", url: "https://example.test/a.tif" } },
-      { ...localLayer(), id: "no-path", metadata: {} },
+      { ...localLayer(), id: "no-path", metadata: { rasterSource: "file" } },
+      // A url-less cog that never came from a local file is not reported.
+      { ...localLayer(), id: "not-a-file", metadata: {} },
     ],
   });
   let reads = 0;
-  await restoreNativeRasterFiles(async () => {
+  const unrestorable = await restoreNativeRasterFiles(async () => {
     reads++;
     return new File([], "unused.tif");
   });
   assert.equal(reads, 0);
-  assert.equal(useAppStore.getState().layers.length, 2);
+  // The path-less local raster has nothing to reload from, so it is reported.
+  assert.deepEqual(unrestorable, [localLayer().name]);
+  assert.equal(useAppStore.getState().layers.length, 3);
+});
+
+it("reports a local raster whose saved file can no longer be read", async () => {
+  const layer = localLayer();
+  useAppStore.setState({ layers: [layer] });
+  const unrestorable = await restoreNativeRasterFiles(async () => {
+    throw new Error("missing");
+  });
+  assert.deepEqual(unrestorable, [layer.name]);
+  assert.equal(useAppStore.getState().layers[0].metadata.localBytesUrl, undefined);
 });
