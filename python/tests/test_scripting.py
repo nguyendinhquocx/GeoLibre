@@ -480,6 +480,30 @@ def test_redact_credentials_keeps_the_first_party_map_controls():
     assert "some-third-party-plugin" not in settings
 
 
+def test_redact_credentials_keeps_only_the_geolens_publish_keys():
+    """The GeoLens plugin lists explicit sub-keys, so a stored key never publishes."""
+    saved = {
+        "serverUrl": "https://demo.getgeolens.com",
+        "mapKey": "geolibre-map-0b7d4e1f-6a2c-4f88-9d3e-5c1a2b8e7f90",
+        "layerKeys": {"layer-1": "geolibre-7c2f1c0e-3b0a-4d6e-9a53-1f0d9d6a2b11"},
+    }
+    safe = redact_credentials(
+        {
+            "plugins": {
+                "settings": {
+                    "maplibre-gl-geolens": {
+                        **saved,
+                        "apiKey": "gl-live-secret",
+                        "session": "bearer-secret",
+                    }
+                }
+            }
+        }
+    )
+    assert safe["plugins"]["settings"]["maplibre-gl-geolens"] == saved
+    assert "secret" not in json.dumps(safe)
+
+
 def test_redact_credentials_drops_the_custom_html_panel():
     """The HTML panel is hand-authored, so it can carry a credentialed URL."""
     safe = redact_credentials(

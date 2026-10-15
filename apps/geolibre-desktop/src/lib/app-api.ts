@@ -29,10 +29,12 @@ import type {
   GeoLibreCogRenderEngine,
   GeoLibreDeckGL,
   GeoLibreDownloadFolder,
+  GeoLibreEditSessionChange,
   GeoLibreExternalNativeLayerRegistration,
   GeoLibreFileDialogOptions,
   GeoLibreRasterWindowOptions,
   GeoLibreTileLayerOptions,
+  GeoLibreVectorTileLayerOptions,
   GeoLibreWmsLayerOptions,
   GeoLibreZarrLayerOptions,
   GeoLibreZarrQueryGeometry,
@@ -57,6 +59,7 @@ import { cogEngineDefaults } from "./cog-render-engine";
 import { appendDiagnostic } from "./diagnostics";
 import { createExternalNativeStoreLayer } from "./external-native-layer";
 import { resolvePluginAssetUrlForLoadedPlugin } from "./external-plugins";
+import { startGeometryEditSession } from "./geometry-edit-session";
 import { isDesktopRuntime } from "./is-mobile";
 import { fetchNativeWithWebviewFallback } from "./native-fetch-fallback";
 import { fetchUrlBytes } from "./native-http";
@@ -71,6 +74,11 @@ import { createPluginLocaleApi, type PluginLocaleI18n } from "./plugin-locale";
 import { createPluginHttpSend, createPluginNativeFetch } from "./plugin-native-fetch";
 import { authorizeInPopup, getPluginOAuthRedirectUri } from "./plugin-oauth";
 import { openProjectFromUrlForPlugin } from "./plugin-open-project";
+import {
+  clearLayerRequestHeaders,
+  setPluginLayerRequestHeaders,
+} from "./plugin-tile-request-headers";
+import { addPluginVectorTileLayer } from "./plugin-vector-tile-layer";
 import { createRemoteDownload, type RemoteDownloadProgress } from "./remote-download";
 import { requestSpaceborneLidarGranule } from "./spaceborne-lidar-handoff";
 import { addPluginWfsLayer } from "./plugin-wfs-layer";
@@ -129,6 +137,11 @@ export interface AppApiHost extends Pick<
   | "closeFloatingPanel"
   | "getOpenFloatingPanels"
   | "getGeometryEditTargetLayerId"
+  | "getLastGeometryEditEnd"
+  | "subscribeGeometryEdit"
+  | "isPluginEngineSupported"
+  | "maplibreGeoEditorPlugin"
+  | "startLayerGeometryEdit"
 > {
   /** The shared plugin manager, for `activatePlugin`/`deactivatePlugin`. */
   plugins: Pick<
@@ -273,8 +286,10 @@ export function createAppAPI(
     removeLayer: (layerId: string) => {
       const state = useAppStore.getState();
       if (state.layers.some((layer) => layer.id === layerId)) {
-        // A plugin-painted native layer's bridge lives outside the store.
+        // A plugin-painted native layer's bridge and a tile layer's request
+        // headers live outside the store.
         clearExternalNativePaintBridge(layerId);
+        clearLayerRequestHeaders(layerId);
         state.removeLayer(layerId);
       }
     },
@@ -299,6 +314,50 @@ export function createAppAPI(
         unsubscribePlugins();
       };
     },
+    getEditSessionLayerId: () => host.getGeometryEditTargetLayerId(),
+    onEditSessionChange: (callback: (change: GeoLibreEditSessionChange) => void) => {
+      let previousLayerId = host.getGeometryEditTargetLayerId();
+      let previousEnd = host.getLastGeometryEditEnd();
+      // A switch delivers an end and a start together; a callback that throws
+      // on the end must still get the start.
+      const deliver = (change: GeoLibreEditSessionChange) => {
+        try {
+          callback(change);
+        } catch (error) {
+          console.error("An onEditSessionChange callback failed:", error);
+        }
+      };
+      return host.subscribeGeometryEdit(() => {
+        const layerId = host.getGeometryEditTargetLayerId();
+        const end = host.getLastGeometryEditEnd();
+        // A new end record with the same layer still active means the session
+        // ended and restarted on that layer between two notifications.
+        if (layerId === previousLayerId && end === previousEnd) return;
+        // Remember the delivered state first, so a callback that changes the
+        // session (or a nested notification) cannot emit it twice.
+        const endedLayerId = previousLayerId;
+        // Only an end recorded since the last notification describes this
+        // session; an older record for the same layer belongs to an earlier one.
+        const endIsNew = end !== previousEnd;
+        previousLayerId = layerId;
+        previousEnd = end;
+        if (endedLayerId) {
+          deliver({
+            layerId: endedLayerId,
+            state: "ended",
+            saved: endIsNew && end?.layerId === endedLayerId && end.saved,
+          });
+        }
+        if (layerId) deliver({ layerId, state: "started" });
+      });
+    },
+    startEditSession: async (layerId: string) =>
+      (await startGeometryEditSession(layerId, {
+        app: api,
+        manager,
+        map: mapControllerRef?.current,
+        geoEditor: host,
+      })) === "started",
     addTileLayer: (name: string, url: string, options?: GeoLibreTileLayerOptions) =>
       store.addTileLayer(
         name,
@@ -315,6 +374,10 @@ export function createAppAPI(
         { type: "wmts", tiles: [url], url, ...tileLayerStoreOptions("addWmtsLayer", options) },
         options?.beforeLayerId ?? null,
       ),
+    addVectorTileLayer: (name: string, url: string, options: GeoLibreVectorTileLayerOptions) =>
+      addPluginVectorTileLayer(name, url, options),
+    setLayerRequestHeaders: (layerId: string, headers: Record<string, string> | null) =>
+      setPluginLayerRequestHeaders(layerId, headers),
     addWmsLayer: (name: string, options: GeoLibreWmsLayerOptions) => {
       const {
         beforeLayerId,

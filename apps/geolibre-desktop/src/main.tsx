@@ -67,6 +67,7 @@ import { notify } from "./lib/notify";
 import { isDesktopRuntime, isWindows } from "./lib/is-mobile";
 import { isTauri } from "./lib/is-tauri";
 import { installStaleChunkReload } from "./lib/stale-chunk-reload";
+import { isNewBuildDeployed, offerAppUpdate, watchForAppUpdates } from "./lib/app-update";
 import { resolveAuthGate, type AuthGateConfig } from "./lib/auth-gate";
 import { getInitialThemeMode } from "./hooks/useThemeMode";
 import { KeychainWaitScreen } from "./components/common/KeychainWaitScreen";
@@ -278,18 +279,55 @@ function loadAuthGate(
 //
 // `onNeedReload` takes over that reload flow: the new worker still activates and
 // claims the page (skipWaiting + clientsClaim), so its fresh precache serves
-// every subsequent request, but we do NOT force a reload. Page recovery is
-// delegated to installStaleChunkReload above, which reloads on-demand when a
-// stale lazy chunk 404s (cooldown-guarded; if sessionStorage is blocked it
-// skips the reload and lets the preload error surface instead). That keeps
-// the user's session/map state intact and removes the self-refresh loop.
+// every subsequent request, but we do NOT force a reload. Instead the user is
+// offered one (offerAppUpdate) whenever a worker takes control and the deployed
+// index.html loads a different build than this page. That is driven by the
+// browser's own `controllerchange`, not `onNeedReload`, because workbox only
+// reports the first update a page sees: a tab left open across two deploys
+// would miss the second. The build check also screens out the first install
+// (same build) and the spurious `/demo/` activations described above.
+// installStaleChunkReload above remains the on-demand recovery path when a
+// stale lazy chunk 404s before the user acts (cooldown-guarded; if
+// sessionStorage is blocked it skips the reload and lets the preload error
+// surface instead). That keeps the user's session/map state intact and removes
+// the self-refresh loop.
+const runningEntryUrl =
+  document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src ?? null;
+async function offerReloadIfNewBuild(): Promise<void> {
+  const isNew = await isNewBuildDeployed({
+    currentEntryUrl: runningEntryUrl,
+    fetchText: async (url) => {
+      const response = await fetch(url, { cache: "no-cache" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.text();
+    },
+  });
+  if (!isNew) return;
+  await i18nReady;
+  offerAppUpdate({
+    showInfo: notify.info,
+    message: i18n.t("notifications.appUpdateAvailable"),
+    reloadLabel: i18n.t("notifications.appUpdateReload"),
+    reload: () => window.location.reload(),
+  });
+}
 registerSW({
   immediate: true,
   onNeedReload() {
-    // Intentionally a no-op: the updated SW is already in control, so let the
-    // refreshed shell load on the user's next page load rather than yanking the
-    // page out from under them. See installStaleChunkReload for the on-demand
-    // recovery path when a now-deleted lazy chunk is actually requested.
+    // Intentionally a no-op that suppresses workbox's forced reload; the
+    // controllerchange listener below offers the reload instead.
+  },
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      void offerReloadIfNewBuild();
+    });
+    // Watches for the page's lifetime, so the returned stop function is unused.
+    watchForAppUpdates(registration, {
+      document,
+      setInterval: (handler, ms) => window.setInterval(handler, ms),
+      clearInterval: (handle) => window.clearInterval(handle),
+    });
   },
   onRegisterError(error) {
     // Registration can fail in production (non-secure origin, scope conflict).

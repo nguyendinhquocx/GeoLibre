@@ -68,6 +68,11 @@ export const PUBLISHABLE_PLUGIN_SETTINGS: Readonly<Record<string, readonly strin
   // user text. Source URLs are values, so the sweep below still scrubs a
   // credentialed one.
   "geolibre-point-cloud-annotation": null,
+  // The server URL, the map's publish key and a layer-id-to-dataset-key map.
+  // The sub-keys are listed rather than the blob, so a key a later change stores
+  // here is dropped instead of published. Publish keys are identifiers, not
+  // credentials.
+  "maplibre-gl-geolens": ["serverUrl", "mapKey", "layerKeys"],
 };
 
 export interface CredentialRedactionResult {

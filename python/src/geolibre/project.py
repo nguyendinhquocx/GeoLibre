@@ -2935,6 +2935,10 @@ PUBLISHABLE_PLUGIN_SETTINGS: dict[str, tuple[str, ...] | None] = {
     # Point class edits keyed by (node key, index): compressed numbers, no user
     # text. Source URLs are values, so the caller's scrub still covers them.
     "geolibre-point-cloud-annotation": None,
+    # The server URL, the map's publish key and a layer-id-to-dataset-key map.
+    # The sub-keys are listed rather than the blob, so a key a later change
+    # stores here is dropped instead of published.
+    "maplibre-gl-geolens": ("serverUrl", "mapKey", "layerKeys"),
 }
 
 # Plugins the app activates by default (``activeByDefault: true`` in

@@ -167,6 +167,12 @@ export interface GeoLibreAppAPI {
   onActiveMapToolChange?: (
     callback: (tool: GeoLibreActiveMapTool) => void
   ) => () => void;
+  // GeoEditor sessions on a layer. See "GeoEditor sessions".
+  getEditSessionLayerId?: () => string | null;
+  onEditSessionChange?: (
+    callback: (change: GeoLibreEditSessionChange) => void
+  ) => () => void;
+  startEditSession?: (layerId: string) => Promise<boolean>;
   // Native raster/tile layers (see "Raster and tile layers" below). Each
   // returns the new layer's id and the layer appears in the Layers panel and
   // persists with the project, like addGeoJsonLayer does for vector data.
@@ -180,6 +186,15 @@ export interface GeoLibreAppAPI {
     url: string,
     options?: GeoLibreTileLayerOptions
   ) => string;
+  addVectorTileLayer?: (
+    name: string,
+    url: string,
+    options: GeoLibreVectorTileLayerOptions
+  ) => string;
+  setLayerRequestHeaders?: (
+    layerId: string,
+    headers: Record<string, string> | null
+  ) => boolean;
   addWmsLayer?: (name: string, options: GeoLibreWmsLayerOptions) => string;
   addWfsLayer?: (name: string, options: GeoLibreWfsLayerOptions) => Promise<string>;
   // Native client-side COG (reads the GeoTIFF directly; band/rescale/colormap/
@@ -770,6 +785,30 @@ Replacing one active selection gesture with another keeps
 
 Both methods are optional so plugins remain compatible with older hosts.
 
+## GeoEditor sessions
+
+A plugin whose layer users edit in the GeoEditor can follow those sessions, for example to offer to sync the changes to a server when the user finishes, and can open one for the user.
+
+```typescript
+const unsubscribe = app.onEditSessionChange?.((change) => {
+  // `saved` is only on an "ended" change.
+  if (change.layerId === myLayerId && change.state === "ended" && change.saved) {
+    offerToSync(app.getLayerFeatures?.(myLayerId) ?? []);
+  }
+});
+
+// From a "Draw the location" button in the plugin's panel:
+if (!(await app.startEditSession?.(myLayerId))) {
+  showMessage("This layer can't be edited here.");
+}
+```
+
+- **`getEditSessionLayerId`** returns the layer open in the GeoEditor, or `null`.
+- **`onEditSessionChange`** reports `{ layerId, state: "started" }`, and `{ layerId, state: "ended", saved }` when the session ends. `saved` is only on an `"ended"` change, and is `false` when the user cancelled, or the layer was removed mid-session. A callback that throws is logged, and still gets the next change (such as the new session's start on a switch). Switching to another layer reports the old session's end, then the new one's start. It doesn't call back immediately; read `getEditSessionLayerId` for the current state.
+- **`startEditSession`** opens a session the way a layer's **Edit geometry** action does, activating the GeoEditor if it's off and saving an open session on another layer first. It resolves `false` on a renderer the editor doesn't support, for a layer that isn't an editable vector layer, or if the GeoEditor can't be activated. Overlapping calls run one after another. Starting saves and ends any open session first, so after overlapping calls the open session is the last call's, but only if that call resolved `true`. A call still waiting for earlier ones after a minute gives up and resolves `false`.
+
+All three are optional, so call them with optional chaining for older hosts.
+
 
 ## Updating and removing layers
 
@@ -987,6 +1026,52 @@ const layerId = await app.addWfsLayer?.("Roads", {
 The helpers are typed optional for forward-compatibility with host variants, so call them with optional chaining (`app.addTileLayer?.(...)`).
 
 > **Desktop (Tauri) note:** The desktop app enforces a Content Security Policy. Its `connect-src` allows any `https:` or `http:` host, so tile and data requests from a plugin reach their server, but `script-src` only allows the app itself, `blob:` URLs and a short list of version-pinned CDN paths. A plugin that injects a `<script>` or `import()`s a module from another host is blocked; bundle that code into the plugin instead. A bundled (first-party) plugin can add the path to `script-src` in `apps/geolibre-desktop/src-tauri/tauri.conf.json` (see [Desktop CSP `script-src` allowlist](maintenance.md#desktop-csp-script-src-allowlist)). The web build is unaffected.
+
+### Vector tile layers
+
+`addVectorTileLayer` adds a vector tile (MVT) layer from a tile URL template (`{z}`/`{x}`/`{y}`) or a TileJSON URL and returns its id. The layer is the same as one added from **Add Data → OGC Vector Tiles**: it appears in the Layers panel, takes the Style panel's controls, and persists with the project. Vector tiles carry no styling, so name the tileset's source layers to draw; GeoLibre reads the geometry type and attribute names from the tiles it loads.
+
+```typescript
+export interface GeoLibreVectorTileLayerOptions {
+  sourceLayers: string[]; // at least one
+  bounds?: [number, number, number, number]; // [west, south, east, north] in WGS84
+  minzoom?: number; // 0-24
+  maxzoom?: number; // 0-24; overzoomed beyond it
+  visible?: boolean; // default true
+  opacity?: number; // default 1
+  beforeLayerId?: string; // insert beneath this layer
+  metadata?: Record<string, unknown>; // provenance merged into layer.metadata
+  headers?: Record<string, string>; // sent with tile requests; see below
+}
+
+const layerId = app.addVectorTileLayer?.("Sites", "https://tiles.example.org/sites/{z}/{x}/{y}.pbf", {
+  sourceLayers: ["sites"],
+  maxzoom: 14,
+});
+```
+
+The URL must be absolute HTTP(S), and a template needs all three of `{z}`, `{x}` and `{y}`, written in lowercase (a URL with none is read as TileJSON). Other placeholders such as `{s}` or `{-y}` aren't recognized; for a TMS tileset, serve or rewrite an XYZ template. It throws when that isn't so, `name` is blank or not a string, `sourceLayers` is missing, empty or holds a blank name, `bounds` is not four numbers, the zoom range is out of bounds or inverted, or `opacity` is outside 0–1. The layer's `metadata.sourceKind` is `"plugin-vector-tiles"`; metadata keys GeoLibre uses to decide how a layer is drawn (`sourceKind`, `customLayerType`, `nativeLayerIds`, `sourceIds`, `sourceId`, `externalNativeLayer`, `externalDeckLayer`, `controlOwnsPaint`, `nativeFillExtrusion`) are dropped from `options.metadata`. With a TileJSON URL, MapLibre reads the zoom range from the TileJSON, so `minzoom` and `maxzoom` throw there; `bounds` is still kept as the extent **Zoom to layer** uses. `bounds` must lie within ±180° and ±90° with `west` ≤ `east` and `south` ≤ `north` (an extent can't cross the antimeridian). Tiles are drawn on MapLibre, Mapbox and the ArcGIS renderer, and draped on the Cesium globe, like other vector tile layers.
+
+### Authenticated tile requests
+
+A tile service that needs the signed-in user (an `Authorization` header, an API key header) can't take credentials in the tile URL without leaking them into the saved project. Pass `headers` to `addVectorTileLayer`, or call `setLayerRequestHeaders` for any tile layer (from `addVectorTileLayer`, `addTileLayer`, `addWmtsLayer` or Add Data), and GeoLibre adds them to the requests whose URL starts with the layer's tile template up to its first `{`, or with its TileJSON URL.
+
+```typescript
+const layerId = app.addVectorTileLayer?.("Sites", tilesUrl, {
+  sourceLayers: ["sites"],
+  headers: { Authorization: `Bearer ${accessToken}` },
+});
+
+// After a token refresh: the next tile request carries the new token.
+app.setLayerRequestHeaders?.(layerId, { Authorization: `Bearer ${newAccessToken}` });
+```
+
+- **Session only, and tied to the layer.** Headers are held in memory, never written to the layer, a saved project or a share. They're dropped when the layer is removed, whichever way (the Layers panel, undo, `removeLayer`), when its tile URL changes to another host or path (a token in the query string after the placeholders can change), and when another project opens. A layer that comes back (redo, or a reopened project) needs them set again; `setLayerRequestHeaders(layerId, null)` stops sending them, for example when the plugin deactivates.
+- **Scoped to one host.** The tile template must have a fixed host and the start of a path before its first `{`: `https://tiles.example.org/{z}/{x}/{y}.pbf` works, but `https://{s}.tiles.example.org/...` or `https://{z}.example.org/...` doesn't, since its match would be `https://` and the headers would reach every server. Those throw rather than register.
+- **One transform for everyone.** GeoLibre builds its MapLibre maps with a single `transformRequest` that adds the registered headers, and GeoLens's private rasters use it too, so don't call `getMap().setTransformRequest`: it would replace GeoLibre's and stop every layer's headers.
+- **MapLibre only.** The Mapbox, ArcGIS and Cesium renderers request tiles without them, and so does the desktop app's native WMS route, which fetches WMS tiles outside MapLibre.
+- **CORS.** A header turns a tile request into one the browser preflights, so the service must allow the app's origin and the header (for example `Access-Control-Allow-Headers: Authorization`).
+- `setLayerRequestHeaders` returns false when there is no such layer or it has no tile URL. It throws on a header name that isn't a valid token or that the browser sets itself (`Cookie`, `Host`, `Origin`, `Sec-*`, `Proxy-*` and the rest of the Fetch standard's forbidden names), a name given twice in different cases, a value with a line break or a character above U+00FF, or an unscoped tile URL.
 
 ## Zarr layers
 
@@ -1899,8 +1984,8 @@ only for the shared surface; a mapbox-gl map has none of MapLibre's extensions:
   MapLibre-only (Overture Maps instead asks `maplibre-gl-overture-maps` for
   plain `.pmtiles` URLs, which mapbox-gl 3.30+ reads through its own tile
   provider). `setTransformRequest` — Mapbox takes `transformRequest`
-  only at construction, so GeoLens private rasters (whose API key is injected
-  per request) are MapLibre-only. Custom `CustomLayerInterface` layers
+  only at construction, so tile request headers (`setLayerRequestHeaders`,
+  GeoLens private rasters) are MapLibre-only. Custom `CustomLayerInterface` layers
   (`capabilities.customLayers` is false on Mapbox). The terrain camera helpers
   (`calculateCameraOptionsFromCameraLngLatAltRotation`,
   `getCenterClampedToGround`): Mapbox kept the free camera those replaced, so
