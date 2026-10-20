@@ -3009,6 +3009,7 @@
       "showBrowserPanel": "Show Browser panel",
       "showCommentsPanel": "Show Comments panel",
       "compactLayerList": "Compact Layers panel (show layer controls only on the selected layer)",
+      "bottomPanelsUnderMap": "Keep bottom panels under the map",
       "showAttributePanel": "Show Attribute panel",
       "urlParamsNote": "URL layout parameters still apply when present in shared viewer links."
     },
@@ -8367,7 +8368,7 @@
       "footerDeck": "Changes apply live to the raster layer opacity.",
       "footerMaplibre": "Changes apply live to MapLibre raster paint properties.",
       "valueAria": "{{label}} value",
-      "editValueAria": "Edit {{label}} value"
+      "editValueAria": "{{value}} — Edit {{label}} value"
     },
     "visibility": {
       "minZoom": "Min zoom",
@@ -9120,7 +9121,7 @@
     "opacityExactHint": "Double-click to enter an exact value",
     "opacityFor": "Opacity for {{name}}",
     "opacityValueInputAria": "{{label}} value",
-    "opacityValueEditAria": "Edit {{label}} value",
+    "opacityValueEditAria": "{{value}} — Edit {{label}} value",
     "backgroundOpacity": "Background opacity",
     "newGroup": "New group",
     "basemaps": "Basemaps",

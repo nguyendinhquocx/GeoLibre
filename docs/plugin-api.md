@@ -1642,7 +1642,8 @@ If instead you want a plugin compiled into the main JS bundle (no `plugin.json`,
   "entry": "dist/index.js",
   "description": "Optional short description",
   "style": "dist/style.css",
-  "engines": ["maplibre", "cesium"]
+  "engines": ["maplibre", "cesium"],
+  "assistant": { "description": "Search the example catalogue and add its layers." }
 }
 ```
 
@@ -1727,7 +1728,7 @@ export default {
   version: "1.0.0",
   activate(app) {
     // Share this function with the panel's Add button.
-    async function addCities(input) {
+    async function addCities(input, context) {
       if (
         !input ||
         typeof input !== "object" ||
@@ -1736,7 +1737,8 @@ export default {
         throw new Error("name must be a string");
       }
       const response = await fetch(
-        "https://raw.githubusercontent.com/opengeos/leafmap/master/examples/data/us_cities.geojson"
+        "https://raw.githubusercontent.com/opengeos/leafmap/master/examples/data/us_cities.geojson",
+        { signal: context?.signal }
       );
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
       const data = await response.json();
@@ -1768,6 +1770,14 @@ or a promise of it; a callback returning `undefined` produces `null`. Thrown
 errors become assistant tool error results. Omitting `inputSchema` describes an
 empty object with no additional properties.
 
+**Honour Stop with `context.signal`.** The callback's second argument is
+`{ signal }`, an `AbortSignal` that aborts when the user stops the assistant.
+The assistant cannot interrupt a tool that is already running, so a tool that
+waits on the network should pass `signal` to `fetch` (or check `signal.aborted`
+between steps); otherwise the assistant stays busy until the tool finishes.
+Older hosts call the callback without a second argument, so read it as
+`context?.signal`.
+
 Built-in plugins that already import the SDK can instead call
 `app.registerAssistantTool(tool({ name, description, inputSchema, callback }))`,
 using the SDK's `tool()` factory with a zod schema for automatic validation. Both
@@ -1792,6 +1802,37 @@ plugins, whose registrations no cleanup path would reach.
 The assistant refreshes its tools before the next prompt while retaining its
 conversation history. Plugin callbacks execute plugin-authored code, like a
 panel button; they should use the app API to update layers and other app state.
+
+### Letting the assistant turn your plugin on
+
+Tools exist only while the plugin is on, so on their own the assistant cannot
+tell that an installed plugin which is off could serve a request. Declare
+`assistant` to fix that: set it in `plugin.json` (it is copied onto the exported
+plugin when the plugin does not set its own) or on the plugin object.
+
+```json
+"assistant": { "description": "Search the example catalogue and add its layers." }
+```
+
+`description` is required, at most 300 characters, and should say in one
+sentence what the plugin's tools do and which data they cover: it is all the
+model sees while the plugin is off. While at least one installed plugin with
+this declaration is off (and supported by the current renderer, and not hidden
+by the UI profile), the assistant gets a host tool, `activate_plugin`, whose
+description lists each such plugin by id, name and description. Calling it turns
+the plugin on exactly as the Plugins menu does: the same activation, recorded in
+the project's plugin state, and your `activate` may open your panel as usual.
+The tools the plugin registers during activation are added to the running
+agent, so the model calls them in the same turn. That includes tools registered
+from a deferred mount, in one step or several: the host waits until no new tool
+has appeared for 250 ms, and never more than 3 seconds in total. A plugin that
+registers nothing holds the turn for the full 3 seconds, so register promptly. The tool result lists them and repeats your
+`registerAssistantGuidance` text, which reaches the system prompt from the next
+message on.
+
+The declaration does not register anything by itself: keep registering your
+tools from `activate`. A plugin that declares `assistant` but registers no tools
+is turned on and reports an empty tool list.
 
 ### Progressive tool disclosure
 
