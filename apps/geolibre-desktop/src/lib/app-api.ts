@@ -70,6 +70,7 @@ import { createPluginLayerGroupActions } from "./plugin-layer-groups";
 import { pluginLayerMetadata } from "./plugin-layer-metadata";
 import { createPluginLayerQueries } from "./plugin-layer-queries";
 import { createPluginLayerStyleActions } from "./plugin-layer-style";
+import { createPluginLayerVisibilityActions } from "./plugin-layer-visibility";
 import { createPluginLocaleApi, type PluginLocaleI18n } from "./plugin-locale";
 import { createPluginHttpSend, createPluginNativeFetch } from "./plugin-native-fetch";
 import { authorizeInPopup, getPluginOAuthRedirectUri } from "./plugin-oauth";
@@ -592,6 +593,7 @@ export function createAppAPI(
     queryOvertureFeatures: host.queryOvertureFeatures,
     ...createPluginLayerGroupActions(),
     ...createPluginLayerStyleActions(),
+    ...createPluginLayerVisibilityActions(),
     fitBounds: (bounds: [number, number, number, number]) =>
       mapControllerRef?.current?.fitBounds(bounds),
     getViewBounds: () => mapControllerRef?.current?.getViewBounds() ?? null,

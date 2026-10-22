@@ -663,6 +663,11 @@ export interface GeoLibreAppAPI {
    * service does, e.g. with the SLD a GeoServer returns for WMS `GetStyles`.
    */
   importLayerStyle?: (layerId: string, text: string) => GeoLibreImportLayerStyleResult;
+  /**
+   * Show or hide a layer, like the Layers panel's eye button: the store is updated,
+   * so the panel and the map stay in step. Throws for an unknown layer id.
+   */
+  setLayerVisibility?: (layerId: string, visible: boolean) => void;
   getSelectedFeatures?: () => Feature<Geometry | null>[];
   getSelectedLayerId?: () => string | null;
   readRasterWindow?: (

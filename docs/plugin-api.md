@@ -151,6 +151,8 @@ export interface GeoLibreAppAPI {
     layerId: string,
     text: string
   ) => GeoLibreImportLayerStyleResult;
+  // Show or hide a layer like the Layers panel's eye. See "Layer visibility".
+  setLayerVisibility?: (layerId: string, visible: boolean) => void;
   getSelectedFeatures?: () => Feature<Geometry | null>[];
   getSelectedLayerId?: () => string | null;
   // Sample a raster layer over a geographic window. See "Sampling raster
@@ -868,6 +870,15 @@ const roots = groups.filter((group) => group.parentId === null);
 Group visibility and opacity are **combined** with each child layer's own: a hidden group hides its children on the map without touching their individual `visible` flags, and group opacity multiplies into each child's. `removeLayerGroup` through this API removes only the folder, never its contents: the layers it held move to the panel root, and any groups nested inside it are reparented to the removed folder's own parent.
 
 These methods are typed optional for forward-compatibility with host variants, so call them with optional chaining.
+
+## Layer visibility
+
+`setLayerVisibility` shows or hides a layer the way the Layers panel's eye button does. It updates the layer store, so the eye icon, the map and a saved project all agree; hiding the MapLibre layer directly would leave the panel showing it as visible until the next sync turned it back on. It accepts any layer id, not only the plugin's own, throws for an unknown one, and throws a `TypeError` when `visible` is not a boolean. Read the current state with `listLayers`.
+
+```typescript
+// After turning a raster into outlines, show only the outlines.
+app.setLayerVisibility?.(rasterLayerId, false);
+```
 
 ## Layer styles
 

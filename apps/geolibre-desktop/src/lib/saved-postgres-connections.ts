@@ -347,14 +347,43 @@ function rememberKeychainPostgresConnections(connections: string[]): void {
   void queueCredentialChanges(postgresConnectionSecrets(previous), postgresConnectionSecrets(next));
 }
 
+/**
+ * The saved connections whose masked label is `label`. Several can match:
+ * the label hides only the password (e.g. before/after a rotation).
+ */
+export function savedPostgresConnectionsWithLabel(label: string): string[] {
+  return readSavedPostgresConnections().filter(
+    (connection) => savedPostgresConnectionLabel(connection) === label,
+  );
+}
+
+// The password stops at `/`, `?` and `#` (a URI must percent-encode them in
+// userinfo), so a port followed by an `@` in the query is not taken for one.
+const USERINFO_PASSWORD = /(:\/\/[^:\s/?#@]+:)[^@\s/?#]+@/;
+
 export function savedPostgresConnectionLabel(connectionString: string): string {
   try {
     const url = new URL(connectionString);
+    // Chromium (and Android WebView) before 130 parsed non-special schemes
+    // like `postgresql:` as an opaque path: no host, and the password stays
+    // in the path. Mask the raw string then (also covers `postgres:///db`).
+    if (!url.host) {
+      return connectionString
+        .replace(USERINFO_PASSWORD, "$1****@")
+        .replace(/([?&](?:ssl)?password=)[^&#]*/gi, "$1****");
+    }
     if (url.password) url.password = "****";
+    // libpq URIs also take the password as a query parameter. Only rewrite
+    // the query when one is present: re-serializing it can change unrelated
+    // escapes, and the label is a lookup key persisted in projects.
+    const secretKeys = [...url.searchParams.keys()].filter((key) =>
+      /^(password|sslpassword)$/i.test(key),
+    );
+    for (const key of secretKeys) url.searchParams.set(key, "****");
     return url.toString();
   } catch {
     return connectionString
-      .replace(/(:\/\/[^:\s/@]+:)[^@\s]+@/, "$1****@")
+      .replace(USERINFO_PASSWORD, "$1****@")
       .replace(/(password\s*=\s*)('[^']*'|[^\s]+)/gi, "$1****");
   }
 }

@@ -5,6 +5,7 @@ import { SKETCHES_SOURCE_KIND } from "@geolibre/plugins/geo-editor-geometry";
 import type { GeoLibreSelection } from "@geolibre/plugins";
 import { createPluginLayerGroupActions } from "../apps/geolibre-desktop/src/lib/plugin-layer-groups";
 import { createPluginLayerQueries } from "../apps/geolibre-desktop/src/lib/plugin-layer-queries";
+import { createPluginLayerVisibilityActions } from "../apps/geolibre-desktop/src/lib/plugin-layer-visibility";
 import { NULL_GEOMETRY } from "./helpers/null-geometry";
 
 // These exercise `createPluginLayerQueries`, which `createAppAPI` spreads into
@@ -297,6 +298,44 @@ describe("external plugin layer-group API", () => {
     assert.deepEqual(
       app.listLayers().map((layer) => layer.id),
       [layerId],
+    );
+  });
+});
+
+describe("external plugin layer-visibility API", () => {
+  beforeEach(() => {
+    useAppStore.getState().newProject({ name: "Plugin visibility API" });
+  });
+
+  it("hides and shows a layer, as the Layers panel's eye does", () => {
+    const layerId = useAppStore.getState().addGeoJsonLayer("Change map", {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", id: "A", properties: {}, geometry: NULL_GEOMETRY }],
+    });
+    const app = { ...createPluginLayerVisibilityActions(), ...createPluginLayerQueries() };
+
+    app.setLayerVisibility(layerId, false);
+    assert.equal(app.listLayers()[0]?.visible, false);
+    app.setLayerVisibility(layerId, true);
+    assert.equal(app.listLayers()[0]?.visible, true);
+  });
+
+  it("rejects a visibility that is not a boolean and leaves the layer as it was", () => {
+    const layerId = useAppStore.getState().addGeoJsonLayer("Change map", {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", id: "A", properties: {}, geometry: NULL_GEOMETRY }],
+    });
+    const app = { ...createPluginLayerVisibilityActions(), ...createPluginLayerQueries() };
+    // An untyped JavaScript plugin can pass anything; a truthy string must not reach the store.
+    assert.throws(() => app.setLayerVisibility(layerId, "false" as unknown as boolean), TypeError);
+    assert.equal(app.listLayers()[0]?.visible, true);
+  });
+
+  it("throws for an unknown layer id", () => {
+    const app = createPluginLayerVisibilityActions();
+    assert.throws(
+      () => app.setLayerVisibility("missing-layer", false),
+      /No layer with id "missing-layer"/,
     );
   });
 });
