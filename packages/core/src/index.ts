@@ -46,6 +46,7 @@ export * from "./pixel-format";
 export * from "./s3";
 export * from "./print-layout-config";
 export { createSampleStoryMap } from "./storymap-sample";
+export * from "./storymap-duration";
 export {
   applyStoryLayerOpacity,
   isStoryHiddenLayer,

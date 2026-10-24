@@ -2510,6 +2510,52 @@ describe("MapboxEngine search result lifecycle", () => {
 });
 
 describe("MapboxEngine story camera", () => {
+  it("reports an instant chapter arrival before rotation, exactly once", () => {
+    const { engine, map } = makeEngine();
+    const events: string[] = [];
+    let movement: object | undefined;
+    map.jumpTo = ((_view: object, event: object) => {
+      movement = event;
+      map.fire("moveend", event);
+    }) as typeof map.jumpTo;
+    Object.assign(map, { rotateTo: () => events.push("rotate") });
+    engine.applyStoryChapterCamera({ center: [1, 2], zoom: 3 }, "jumpTo", true, () =>
+      events.push("arrive"),
+    );
+    map.fire("moveend", movement);
+    assert.deepEqual(events, ["arrive", "rotate"]);
+  });
+
+  it("cancels stale arrivals and rotation on pause without restoring layer styles", () => {
+    const { engine, map } = makeEngine();
+    const events: string[] = [];
+    const movements: object[] = [];
+    map.flyTo = ((_view: object, event: object) => void movements.push(event)) as typeof map.flyTo;
+    Object.assign(map, { rotateTo: () => events.push("rotate"), stop: () => events.push("stop") });
+    engine.restoreLayerStyles = () => assert.fail("pausing must not restore layer styles");
+    engine.applyStoryChapterCamera({ center: [1, 2], zoom: 3 }, "flyTo", true, () =>
+      events.push("old"),
+    );
+    engine.applyStoryChapterCamera({ center: [3, 4], zoom: 5 }, "flyTo", true, () =>
+      events.push("arrive"),
+    );
+    map.fire("moveend", movements[0]);
+    assert.deepEqual(events, []);
+    engine.stopStoryCamera();
+    map.fire("moveend", movements[1]);
+    assert.deepEqual(events, ["stop"]);
+  });
+
+  it("lets the arrival callback stop playback before rotation begins", () => {
+    const { engine, map } = makeEngine();
+    map.jumpTo = ((_view: object, event: object) =>
+      map.fire("moveend", event)) as typeof map.jumpTo;
+    Object.assign(map, { rotateTo: () => assert.fail("rotation must remain paused") });
+    engine.applyStoryChapterCamera({ center: [1, 2], zoom: 3 }, "jumpTo", true, () =>
+      engine.stopStoryCamera(),
+    );
+  });
+
   it("leaves an absent pitch or bearing out so mapbox-gl keeps the camera's", () => {
     // mapbox-gl tests `"bearing" in options`, so an own undefined key would be
     // read as a NaN target rather than "keep the current value".

@@ -158,7 +158,7 @@ widths) is deliberately not stored.
 
 ## Story map
 
-A story map turns the project into a scroll-driven narrative. Each chapter
+A story map turns the project into a chapter-based narrative. Each chapter
 captures a camera view plus text, and can fade project layers in or out on
 enter/exit. The section is omitted entirely when the project has no chapters.
 
@@ -184,6 +184,7 @@ enter/exit. The section is omitted entirely when the project has no chapters.
       "location": { "center": [-122.4194, 37.7749], "zoom": 11, "pitch": 45, "bearing": 0 },
       "mapAnimation": "flyTo",
       "rotateAnimation": false,
+      "durationSeconds": 15,
       "onChapterEnter": [{ "layerId": "layer-a", "opacity": 1, "duration": 2000 }],
       "onChapterExit": [{ "layerId": "layer-a", "opacity": 0 }]
     }
@@ -195,6 +196,12 @@ enter/exit. The section is omitted entirely when the project has no chapters.
 `flyTo`, `easeTo`, or `jumpTo`. Layer opacity changes reference project layer
 ids. Build and present story maps from **Project → Story Map**, or export a
 self-contained HTML page for static hosting.
+
+`durationSeconds` is an optional chapter dwell time for in-app autoplay. The
+countdown starts after the camera reaches the chapter view. Omitted or invalid
+values use 15 seconds; finite values are clamped to 1–3600 seconds. Existing
+projects and story JSON/CSV files without this field remain valid. This field
+does not change the standalone HTML export's scroll-driven playback.
 
 ## Dashboard widgets
 
@@ -648,7 +655,7 @@ under `geolibre:metadata`, beside the `geo` key.
 | `wmts`           | Supported for WMTS raster tile templates                                                           |
 | `raster`         | Supported for raster tile templates; with `source.ionAssetId` and `metadata.sourceKind: "cesium-ion"`, a Cesium Ion imagery asset the 3D globe loads with the app's Ion token (3D only) |
 | `vector-tiles`   | Supported for MapLibre vector tile sources                                                         |
-| `mbtiles`        | Supported in the desktop app through a local MapLibre protocol                                     |
+| `mbtiles`        | Desktop: local MapLibre protocol over Tauri. Browser: in-memory sql.js, not restored on reopen    |
 | `arcgis`         | Supported for ArcGIS VectorTileServer layers (FeatureServer layers are saved as `geojson`, and MapServer/ImageServer layers as `raster`) |
 | `pmtiles`        | Supported through the Components plugin                                                            |
 | `cog`            | Supported for COG and GeoTIFF raster layers                                                        |

@@ -3,6 +3,10 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
   DEFAULT_STORY_MAP,
+  DEFAULT_STORY_CHAPTER_DURATION_SECONDS,
+  MIN_STORY_CHAPTER_DURATION_SECONDS,
+  MAX_STORY_CHAPTER_DURATION_SECONDS,
+  normalizeStoryChapterDurationSeconds,
   createSampleStoryMap,
   parseStoryMapCsv,
   parseStoryMapJson,
@@ -855,6 +859,7 @@ function ChapterCard({
   onPreview,
   onCompose,
 }: ChapterCardProps) {
+  const [durationDraft, setDurationDraft] = useState<string | null>(null);
   // A chapter without a pitch/bearing keeps the camera's; show those as 0.
   const { center, zoom, pitch = 0, bearing = 0 } = chapter.location;
   return (
@@ -970,6 +975,30 @@ function ChapterCard({
               </Select>
             </Field>
           </div>
+
+          <Field label={t("storymap.field.durationSeconds")}>
+            <Input
+              type="number"
+              min={MIN_STORY_CHAPTER_DURATION_SECONDS}
+              max={MAX_STORY_CHAPTER_DURATION_SECONDS}
+              step="any"
+              className="max-w-40"
+              aria-label={t("storymap.field.durationSeconds")}
+              value={durationDraft ?? chapter.durationSeconds ?? ""}
+              placeholder={String(DEFAULT_STORY_CHAPTER_DURATION_SECONDS)}
+              onChange={(event) => setDurationDraft(event.target.value)}
+              onBlur={(event) => {
+                onUpdate({
+                  durationSeconds:
+                    event.target.value === ""
+                      ? undefined
+                      : normalizeStoryChapterDurationSeconds(event.target.valueAsNumber),
+                });
+                setDurationDraft(null);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">{t("storymap.field.durationHint")}</p>
+          </Field>
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
             <label className="flex items-center gap-2">

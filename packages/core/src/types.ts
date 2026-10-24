@@ -2015,7 +2015,7 @@ export interface StoryLayerOpacityChange {
   duration?: number;
 }
 
-/** A single scene in a scroll-driven story map. */
+/** A single scene in a story map. */
 export interface StoryChapter {
   id: string;
   title: string;
@@ -2029,6 +2029,8 @@ export interface StoryChapter {
   mapAnimation: StoryChapterAnimation;
   /** Slowly rotate the camera once the transition settles. */
   rotateAnimation: boolean;
+  /** Autoplay dwell time after the camera arrives, in seconds (1–3600; default 15). */
+  durationSeconds?: number;
   onChapterEnter: StoryLayerOpacityChange[];
   onChapterExit: StoryLayerOpacityChange[];
 }
@@ -2050,7 +2052,7 @@ export type StorySlideMode = "none" | "blank" | "black" | "global" | "adjacent";
 /** A start/closing slide that is actually shown (every mode except `"none"`). */
 export type StoryActiveSlideMode = Exclude<StorySlideMode, "none">;
 
-/** Scroll-driven story map authored on top of a GeoLibre project. */
+/** Story map authored on top of a GeoLibre project. */
 export interface StoryMap {
   title: string;
   subtitle: string;

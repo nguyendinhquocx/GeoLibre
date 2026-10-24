@@ -13,13 +13,24 @@ import { useTranslation } from "react-i18next";
 import * as maplibregl from "maplibre-gl";
 import {
   useAppStore,
+  normalizeStoryChapterDurationSeconds,
   type StoryActiveSlideMode,
   type StoryChapter,
   type StoryMap,
 } from "@geolibre/core";
 import type { MapEngine } from "@geolibre/map";
 import { Button, cn } from "@geolibre/ui";
-import { GripVertical, List, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  GripVertical,
+  List,
+  Pause,
+  Play,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { sanitizeStoryHtml } from "../../lib/sanitize-html";
 import {
   STORY_END_STEP_ID,
@@ -29,13 +40,21 @@ import {
   storySlideCoverColor,
 } from "../../lib/storymap-constants";
 import { createStoryMapMarker, type StoryMapMarker } from "./storymap-engine";
+import {
+  StoryMapPresentationTools,
+  createPresentationToolsSession,
+} from "./StoryMapPresentationTools";
+import {
+  StoryPresentationPlayback,
+  type PresentationPlaybackState,
+} from "./storymap-presentation-playback";
 
 interface StoryMapPresenterProps {
   mapControllerRef: RefObject<MapEngine | null>;
   mapReadyGeneration: number;
 }
 
-/** One scroll step in the presentation: a chapter card or an intro/outro slide. */
+/** One presentation step: a chapter card or an intro/outro slide. */
 type PresenterStep =
   | { key: string; kind: "chapter"; chapter: StoryChapter; chapterIndex: number }
   | {
@@ -46,7 +65,7 @@ type PresenterStep =
     };
 
 /**
- * Expand a story into its ordered scroll steps, inserting the optional start and
+ * Expand a story into its ordered steps, inserting the optional start and
  * closing slides around the chapters (#998).
  */
 function buildPresenterSteps(story: StoryMap): PresenterStep[] {
@@ -89,12 +108,8 @@ const INSET_POSITION_CLASS: Record<string, string> = {
 };
 
 /**
- * Full-screen scroll-driven presentation overlay for a story map.
- *
- * Drives the live GeoLibre map underneath: as the reader scrolls each chapter
- * into view the map flies to the chapter's camera and applies its layer fades,
- * mirroring the standalone storytelling template. Rendering nothing unless a
- * presentation is active keeps it inert the rest of the time.
+ * Interactive presentation over the live map. Chapters advance explicitly or
+ * on a timer; map gestures always pause playback and give control to the user.
  */
 export function StoryMapPresenter({
   mapControllerRef,
@@ -105,23 +120,45 @@ export function StoryMapPresenter({
   const setPresenting = useAppStore((s) => s.setStorymapPresenting);
   const setPanelOpen = useAppStore((s) => s.setStorymapPanelOpen);
   const storymap = useAppStore((s) => s.storymap);
+  const playbackRef = useRef<StoryPresentationPlayback | null>(null);
+  const toolsSessionRef = useRef(createPresentationToolsSession());
+  const [playback, setPlayback] = useState<PresentationPlaybackState>({
+    index: 0,
+    phase: "paused",
+    remainingSeconds: 15,
+    started: false,
+  });
+  const [hasDraft, setHasDraft] = useState(false);
+  const draftRef = useRef(false);
+  const onDraftChange = useCallback((draft: boolean) => {
+    draftRef.current = draft;
+    setHasDraft(draft);
+  }, []);
+  const pause = useCallback(() => playbackRef.current?.pause(), []);
+  // style.load also bumps the generation. Rebind only when the engine itself
+  // changes, otherwise changing basemaps would restart a talk at chapter one.
+  const presentationEngine = useMemo(
+    () => mapControllerRef.current,
+    [mapControllerRef, mapReadyGeneration],
+  );
+  const resumeStepRef = useRef<number | null>(null);
 
   // Exit the presentation, reopening the editor when it was launched from there
   // so the user lands back in the editor instead of the bare map (#918). Reads
   // the flag before clearing it via setPresenting(false).
   const exitPresentation = useCallback(() => {
+    if (draftRef.current) return;
+    playbackRef.current?.dispose();
     const reopenEditor = useAppStore.getState().ui.storymapReturnToEditor;
     setPresenting(false);
     if (reopenEditor) setPanelOpen(true);
   }, [setPanelOpen, setPresenting]);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const insetRef = useRef<HTMLDivElement>(null);
   const insetMapRef = useRef<maplibregl.Map | null>(null);
   const insetMarkerRef = useRef<maplibregl.Marker | null>(null);
   const markerRef = useRef<StoryMapMarker | null>(null);
-  // Active scroll step (chapters + slides); -1 before the first enter.
-  const activeStepRef = useRef<number>(-1);
   // Last chapter entered (skipping slides), so layer-fade replay still steps
   // through chapters in order even when slides sit between them.
   const activeChapterRef = useRef<number>(-1);
@@ -132,35 +169,17 @@ export function StoryMapPresenter({
   // stays visible.
   const [coverColor, setCoverColor] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(true);
+  const [cardOpen, setCardOpen] = useState(true);
 
   // Memoized so the render path and `hasChapters` get a stable reference.
   const chapters = useMemo(() => storymap?.chapters ?? [], [storymap]);
-  // The ordered scroll steps, recomputed when the story changes (it is frozen
+  // The ordered presentation steps, recomputed when the story changes (it is frozen
   // during a presentation, so this is stable while presenting).
   const steps = useMemo(() => (storymap ? buildPresenterSteps(storymap) : []), [storymap]);
   const hasChapters = presenting && chapters.length > 0;
 
-  // Scroll a step into view; the IntersectionObserver then activates it and
-  // flies the camera, so clicking the nav reuses the same scroll-driven path.
-  // Holds the playback effect's enterStep so the nav pane can drive the camera
-  // deterministically rather than waiting on a scroll-triggered observer.
-  const enterStepRef = useRef<(index: number) => void>(() => {});
-  // While true, the scroll observer ignores transient intersections caused by a
-  // programmatic jump so they can't override the target we just entered.
-  const jumpingRef = useRef(false);
   const goToStep = useCallback((stepIndex: number) => {
-    const step = scrollRef.current?.querySelector<HTMLElement>(`[data-step-index="${stepIndex}"]`);
-    // Center the card, not the step: the step carries a tall bottom padding, so
-    // centering it would push the card (and its drag bar) above the viewport.
-    const target = step?.querySelector<HTMLElement>(".glsm-card") ?? step;
-    jumpingRef.current = true;
-    target?.scrollIntoView({ block: "center" });
-    // Enter the target directly so its camera move always runs, then let the
-    // observer take over once the programmatic scroll has settled.
-    enterStepRef.current(stepIndex);
-    window.setTimeout(() => {
-      jumpingRef.current = false;
-    }, 500);
+    if (!draftRef.current) playbackRef.current?.select(stepIndex);
   }, []);
 
   // Per-chapter drag offset / explicit size so the reader can move and resize a
@@ -186,7 +205,7 @@ export function StoryMapPresenter({
       const rect = cardEl?.getBoundingClientRect();
       // Bounds of the visible map area and the card's flow (un-offset) position,
       // captured once so a drag can be clamped to keep the title bar reachable.
-      const viewport = scrollRef.current?.getBoundingClientRect() ?? null;
+      const viewport = stageRef.current?.getBoundingClientRect() ?? null;
       const baseDx = existing?.dx ?? 0;
       const baseDy = existing?.dy ?? 0;
       const flowLeft = rect ? rect.left - baseDx : 0;
@@ -286,6 +305,7 @@ export function StoryMapPresenter({
     // Start with the chapter list collapsed when the author chose discoverable
     // chapters, so the itinerary is not revealed up front (#995).
     setNavOpen(!story.hideChapterNav);
+    setCardOpen(true);
     const first = buildPresenterSteps(story)[0];
     if (first?.kind === "slide") {
       setActiveChapter(-1);
@@ -296,19 +316,17 @@ export function StoryMapPresenter({
     }
   }, [hasChapters]);
 
-  // Set up scroll observation and the live map side-effects while presenting.
+  // The presentation owns timing and story side-effects, never normal map input.
   useEffect(() => {
     if (!hasChapters) return;
-    const controller = mapControllerRef.current;
-    const container = scrollRef.current;
+    const controller = presentationEngine;
+    const container = stageRef.current;
     const story = storymapRef.current;
     if (!controller?.getRenderSurface() || !container || !story) return;
     // Frozen snapshot for this presentation run (edits are blocked while
     // presenting), shadowing the outer memoized `chapters`/`steps` deliberately.
     const chapters = story.chapters;
     const steps = buildPresenterSteps(story);
-
-    const stepEls = Array.from(container.querySelectorAll<HTMLElement>("[data-step-index]"));
 
     // Main-map marker, created once and moved per chapter.
     if (story.showMarkers) {
@@ -368,7 +386,12 @@ export function StoryMapPresenter({
       if (insetMarker) insetMarker.style.visibility = value;
     };
 
-    const enterChapter = (chapter: StoryChapter, index: number) => {
+    const enterChapter = (
+      chapter: StoryChapter,
+      index: number,
+      automatic: boolean,
+      arrived: () => void,
+    ) => {
       const previous = activeChapterRef.current;
       activeChapterRef.current = index;
       setActiveChapter(index);
@@ -379,7 +402,8 @@ export function StoryMapPresenter({
       controller.applyStoryChapterCamera(
         chapter.location,
         chapter.mapAnimation || "flyTo",
-        chapter.rotateAnimation,
+        automatic && chapter.rotateAnimation,
+        arrived,
       );
       // Re-show the marker in case it was hidden by a preceding global slide.
       setMarkersVisible(true);
@@ -387,7 +411,7 @@ export function StoryMapPresenter({
 
       // Replay the chapters between the old and new position as if scrolled
       // through (exit the one we leave, then enter+exit each skipped chapter in
-      // order) so a fast scroll or nav jump reaches the same layer state as
+      // order) so a nav jump reaches the same layer state as
       // stepping one chapter at a time, without firing exits for chapters whose
       // enter never ran. `previous` is -1 before the first chapter (e.g. jumping
       // straight from the start slide to chapter N), which replays 0..N-1 so the
@@ -403,18 +427,24 @@ export function StoryMapPresenter({
           applyEffects(chapters[i]?.onChapterExit ?? [], pending);
         }
       }
-      applyEffects(chapter.onChapterEnter, pending);
-      useAppStore.getState().setStorymapLayerOpacity(pending);
+      if (previous !== index) {
+        applyEffects(chapter.onChapterEnter, pending);
+        useAppStore.getState().setStorymapLayerOpacity(pending);
+      }
     };
 
-    const enterSlide = (step: Extract<PresenterStep, { kind: "slide" }>) => {
+    const enterSlide = (step: Extract<PresenterStep, { kind: "slide" }>, arrived: () => void) => {
       // A slide is not a chapter, so clear the nav highlight. Keep
       // `activeChapterRef` pointing at the last real chapter (it is the replay
       // anchor): a closing "hold" slide keeps that state, and jumping from a
       // slide back to a chapter still replays the intermediate chapters' fades.
       setActiveChapter(-1);
       setCoverColor(storySlideCoverColor(step.mode, story.theme));
-      if (step.mode === "blank" || step.mode === "black") return;
+      if (step.mode === "blank" || step.mode === "black") {
+        controller.stopStoryCamera();
+        arrived();
+        return;
+      }
       // Global zooms out to the whole map; "adjacent" previews/holds the
       // neighboring chapter's camera with all text hidden.
       const location =
@@ -423,7 +453,7 @@ export function StoryMapPresenter({
           : step.position === "start"
             ? (chapters[0]?.location ?? STORY_GLOBAL_VIEW)
             : (chapters[chapters.length - 1]?.location ?? STORY_GLOBAL_VIEW);
-      controller.applyStoryChapterCamera(location, "flyTo", false);
+      controller.applyStoryChapterCamera(location, "flyTo", false, arrived);
       // The global overview shows no marker; the adjacent preview keeps the
       // chapter's marker and moves it to that chapter.
       if (step.mode === "global") {
@@ -434,65 +464,85 @@ export function StoryMapPresenter({
       }
     };
 
-    const enterStep = (index: number) => {
-      if (index === activeStepRef.current) return;
+    const enterStep = (index: number, automatic: boolean, arrived: () => void) => {
       const step = steps[index];
       if (!step) return;
-      activeStepRef.current = index;
-
-      stepEls.forEach((el, i) => el.classList.toggle("glsm-active", i === index));
 
       if (step.kind === "chapter") {
-        enterChapter(step.chapter, step.chapterIndex);
+        enterChapter(step.chapter, step.chapterIndex, automatic, arrived);
       } else {
-        enterSlide(step);
+        enterSlide(step, arrived);
       }
     };
-    // Expose enterStep so the nav pane can jump directly.
-    enterStepRef.current = enterStep;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // Ignore intersections triggered by a programmatic nav jump; the jump
-        // already entered the target directly.
-        if (jumpingRef.current) return;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const index = Number((entry.target as HTMLElement).dataset.stepIndex);
-          if (Number.isFinite(index)) enterStep(index);
-        }
-      },
-      {
-        root: container,
-        // Treat a step as active once it crosses the vertical center.
-        rootMargin: "-45% 0px -45% 0px",
-        threshold: 0,
-      },
+    const player = new StoryPresentationPlayback(
+      steps.map((step) =>
+        normalizeStoryChapterDurationSeconds(
+          step.kind === "chapter" ? step.chapter.durationSeconds : undefined,
+        ),
+      ),
+      enterStep,
+      () => controller.stopStoryCamera(),
+      setPlayback,
     );
-    for (const el of stepEls) observer.observe(el);
+    playbackRef.current = player;
+    player.initialize(resumeStepRef.current ?? 0, resumeStepRef.current !== null);
+    resumeStepRef.current = null;
 
-    // Kick off the first step immediately.
-    enterStep(0);
+    // Capture gestures before the renderer handles them, cancelling pending
+    // flight/rotation callbacks before a user's view can be overwritten.
+    const onMapInput = (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-story-ui], .glsm-card")) return;
+      player.pause();
+    };
+    // Include the shell's search box and menus, which live outside the map.
+    // Otherwise their flyTo/fitBounds could be overwritten by the next timer.
+    document.addEventListener("pointerdown", onMapInput, true);
+    document.addEventListener("wheel", onMapInput, { capture: true, passive: true });
+    const onFocus = (event: FocusEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("input, textarea, select, [contenteditable=true]")
+      )
+        onMapInput(event);
+    };
+    document.addEventListener("focusin", onFocus);
+    const onVisibility = () => {
+      if (document.hidden) player.pause();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      observer.disconnect();
+      document.removeEventListener("pointerdown", onMapInput, true);
+      gestureCleanupRef.current?.();
+      document.removeEventListener("wheel", onMapInput, true);
+      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      const continuing = useAppStore.getState().ui.storymapPresenting;
+      resumeStepRef.current = continuing ? player.snapshot.index : null;
+      player.dispose();
+      if (playbackRef.current === player) playbackRef.current = null;
       markerRef.current?.remove();
       markerRef.current = null;
       insetMarkerRef.current?.remove();
       insetMarkerRef.current = null;
       insetMapRef.current?.remove();
       insetMapRef.current = null;
-      activeStepRef.current = -1;
       activeChapterRef.current = -1;
       // Reset nav highlight (mirroring activeChapterRef = -1), slide cover, and
       // any card drag/resize so the next presentation starts clean.
       setActiveChapter(-1);
       setCoverColor(null);
-      setCardLayouts({});
+      if (!continuing) setCardLayouts({});
+      if (!continuing) {
+        toolsSessionRef.current = createPresentationToolsSession();
+        draftRef.current = false;
+        setHasDraft(false);
+      }
       // Undo any direct opacity changes made during playback.
       controller.restoreLayerStyles();
     };
-  }, [hasChapters, mapControllerRef, mapReadyGeneration]);
+  }, [hasChapters, presentationEngine]);
 
   // Allow Escape to exit the presentation. The presenter owns the key while it
   // is up: it listens in the capture phase and stops propagation, so on-map
@@ -504,8 +554,13 @@ export function StoryMapPresenter({
   useEffect(() => {
     if (!presenting) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
       const target = event.target instanceof Element ? event.target : null;
+      if (
+        (event.key === "Enter" || event.code === "Space") &&
+        target?.closest("button") &&
+        !target.closest("[data-story-ui], .glsm-card")
+      )
+        playbackRef.current?.pause();
       if (
         target?.closest(
           '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="combobox"], input, textarea, select, [contenteditable="true"]',
@@ -513,8 +568,32 @@ export function StoryMapPresenter({
       ) {
         return;
       }
-      event.stopPropagation();
-      exitPresentation();
+      if (event.key === "Escape") {
+        if (draftRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        exitPresentation();
+      } else if (event.key === "PageDown" || event.key === "PageUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!draftRef.current) {
+          const player = playbackRef.current;
+          if (player) player.select(player.snapshot.index + (event.key === "PageDown" ? 1 : -1));
+        }
+      } else if (event.code === "Space" && !target?.closest("button, a")) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (draftRef.current) return;
+        const player = playbackRef.current;
+        if (player?.snapshot.phase === "playing" || player?.snapshot.phase === "moving")
+          player.pause();
+        else player?.play();
+      } else if (
+        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "+", "-", "="].includes(event.key)
+      ) {
+        // Keep the renderer's native navigation keys, but stop automatic moves.
+        if (!target?.closest("[data-story-ui]")) playbackRef.current?.pause();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -538,22 +617,49 @@ export function StoryMapPresenter({
   const theme = storymap?.theme ?? "dark";
   const themeClass = theme === "light" ? "glsm-light" : "glsm-dark";
   // Chapters sit after the optional start slide, so a chapter's nav entry maps
-  // to its scroll-step index by this offset.
+  // to its step index by this offset.
   const startOffset = storymap && storymap.startSlide !== "none" ? 1 : 0;
   // A start/closing slide is showing (no chapter highlighted). Slides are
   // documented as text-free, so the persistent story header/footer hide while
   // one is active (a blank/black cover already hides them; this also clears the
   // title/byline/footer for global/adjacent slides). visibility (not display)
-  // keeps their layout so scroll positions and the step observer are unaffected.
+  // keeps the title area stable as the presenter switches between steps.
   const slideActive = activeChapter === -1;
+  const automatic = playback.phase === "playing" || playback.phase === "moving";
+  const playLabel = automatic
+    ? t("storymap.playback.pause")
+    : playback.phase === "ended"
+      ? t("storymap.playback.restart")
+      : !playback.started
+        ? t("storymap.playback.play")
+        : playback.index === steps.length - 1
+          ? t("storymap.playback.finish")
+          : t("storymap.playback.playNext");
+  const statusLabel =
+    playback.phase === "playing"
+      ? t("storymap.playback.countdown", { seconds: playback.remainingSeconds })
+      : playback.phase === "moving"
+        ? t("storymap.playback.moving")
+        : playback.phase === "ended"
+          ? t("storymap.playback.ended")
+          : t("storymap.playback.paused");
 
   return createPortal(
-    // The scroll surface captures the wheel so scrolling navigates chapters.
-    // The map controls are lifted above it (see StoryMapStyles) so they stay
-    // clickable even though the story drives the camera.
-    <div className="absolute inset-0 z-[70] overflow-hidden">
-      <div className="absolute left-3 top-3 z-[72] flex items-center gap-2">
-        <Button variant="secondary" size="sm" className="shadow-md" onClick={exitPresentation}>
+    <div
+      className="pointer-events-none absolute inset-0 z-[70] overflow-hidden"
+      data-testid="story-presentation"
+    >
+      <div
+        data-story-ui
+        className="pointer-events-auto absolute start-3 top-3 z-[72] flex items-center gap-2"
+      >
+        <Button
+          variant="secondary"
+          size="sm"
+          className="shadow-md"
+          disabled={hasDraft}
+          onClick={exitPresentation}
+        >
           <X className="me-1 h-4 w-4" />
           {t("storymap.exitPresentation")}
         </Button>
@@ -567,20 +673,34 @@ export function StoryMapPresenter({
         >
           <List className="h-4 w-4" />
         </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8 shadow-md"
+          title={t("storymap.playback.toggleCard")}
+          aria-label={t("storymap.playback.toggleCard")}
+          aria-pressed={cardOpen}
+          onClick={() => setCardOpen((open) => !open)}
+        >
+          <FileText className="h-4 w-4" />
+        </Button>
       </div>
 
       {navOpen ? (
         <nav
+          data-story-ui
           aria-label={t("storymap.chapterNav")}
-          className="absolute left-3 top-14 z-[72] max-h-[calc(100%-4.5rem)] w-52 overflow-y-auto rounded-md border map-glass p-1.5 shadow-lg"
+          className="pointer-events-auto absolute start-3 top-14 z-[72] max-h-[calc(100%-10rem)] w-52 overflow-y-auto rounded-md border map-glass p-1.5 shadow-lg"
         >
           {chapters.map((chapter, index) => (
             <button
               key={chapter.id}
               type="button"
+              disabled={hasDraft}
+              aria-current={index === activeChapter ? "step" : undefined}
               onClick={() => goToStep(index + startOffset)}
               className={cn(
-                "flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs transition-colors",
+                "flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs transition-colors disabled:opacity-50",
                 index === activeChapter
                   ? "bg-primary/15 font-medium text-foreground"
                   : "text-muted-foreground hover:bg-muted",
@@ -602,6 +722,85 @@ export function StoryMapPresenter({
         </nav>
       ) : null}
 
+      {presentationEngine && (
+        <div data-story-ui>
+          <StoryMapPresentationTools
+            engine={presentationEngine}
+            session={toolsSessionRef.current}
+            chapterId={steps[playback.index]?.key ?? ""}
+            chapterTitle={chapters[activeChapter]?.title}
+            disabled={slideActive}
+            onInteract={pause}
+            onDraftChange={onDraftChange}
+          />
+        </div>
+      )}
+
+      <div
+        data-story-ui
+        role="toolbar"
+        aria-label={t("storymap.playback.controls")}
+        className="pointer-events-auto absolute bottom-4 start-1/2 z-[74] flex w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-lg border map-glass px-3 py-2 shadow-lg rtl:translate-x-1/2"
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={hasDraft || playback.index <= 0}
+          aria-label={t("storymap.playback.previous")}
+          title={t("storymap.playback.previous")}
+          onClick={() => goToStep(playback.index - 1)}
+        >
+          <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
+        </Button>
+        <Button
+          size="sm"
+          disabled={hasDraft}
+          onClick={() => (automatic ? pause() : playbackRef.current?.play())}
+        >
+          {automatic ? <Pause className="me-1 h-4 w-4" /> : <Play className="me-1 h-4 w-4" />}
+          {playLabel}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={hasDraft || playback.index >= steps.length - 1}
+          aria-label={t("storymap.playback.next")}
+          title={t("storymap.playback.next")}
+          onClick={() => goToStep(playback.index + 1)}
+        >
+          <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={hasDraft}
+          onClick={() => playbackRef.current?.resetView()}
+          title={t("storymap.playback.resetView")}
+        >
+          <RotateCcw className="me-1 h-4 w-4" />
+          {t("storymap.playback.resetView")}
+        </Button>
+        <span
+          className="px-2 text-xs tabular-nums text-muted-foreground"
+          data-testid="story-playback-status"
+          role="status"
+        >
+          {activeChapter >= 0
+            ? t("storymap.playback.position", {
+                current: activeChapter + 1,
+                total: chapters.length,
+              })
+            : t("storymap.playback.slide")}
+          {" · "}
+          {statusLabel}
+        </span>
+        {hasDraft ? (
+          <span className="w-full text-center text-xs text-amber-600" role="status">
+            {t("storymap.playback.finishDrawing")}
+          </span>
+        ) : null}
+      </div>
+
       {storymap?.inset ? (
         // The inner div is the MapLibre container; MapLibre stamps it with
         // `.maplibregl-map { position: relative }`, so keep the corner
@@ -617,7 +816,7 @@ export function StoryMapPresenter({
 
       {/* Solid cover for a blank/black start or closing slide (#998). Painted
           over the map (and inset) but below the Exit/nav controls, and
-          pointer-events:none so the wheel still scrolls the story underneath. */}
+          pointer-events:none so the renderer remains available underneath. */}
       {coverColor ? (
         <div
           className="pointer-events-none absolute inset-0 z-[71]"
@@ -628,13 +827,16 @@ export function StoryMapPresenter({
       <StoryMapStyles />
 
       <div
-        ref={scrollRef}
-        className={cn("glsm-scroll absolute inset-0 overflow-y-auto", navOpen && "glsm-with-nav")}
+        ref={stageRef}
+        className={cn(
+          "glsm-stage pointer-events-none absolute inset-0",
+          navOpen && "glsm-with-nav",
+        )}
       >
         {storymap && (storymap.title || storymap.subtitle || storymap.byline) ? (
           <div
             className={`glsm-header ${themeClass}`}
-            style={slideActive ? { visibility: "hidden" } : undefined}
+            style={slideActive || !cardOpen ? { visibility: "hidden" } : undefined}
           >
             {storymap.title ? <h1>{storymap.title}</h1> : null}
             {storymap.subtitle ? <h2>{storymap.subtitle}</h2> : null}
@@ -644,14 +846,17 @@ export function StoryMapPresenter({
 
         <div className="glsm-features">
           {steps.map((step, stepIndex) => {
-            // Start/closing slides are empty scroll targets; their visual
+            // Start/closing slides are text-free presentation steps; their visual
             // treatment (cover or camera) is driven by the playback effect.
             if (step.kind === "slide") {
               return (
                 <div
                   key={step.key}
                   data-step-index={stepIndex}
-                  className="glsm-step glsm-slide-step"
+                  className={cn(
+                    "glsm-step glsm-slide-step",
+                    stepIndex === playback.index && "glsm-active",
+                  )}
                 />
               );
             }
@@ -667,24 +872,29 @@ export function StoryMapPresenter({
                 key={chapter.id}
                 data-step-index={stepIndex}
                 data-chapter-index={step.chapterIndex}
-                className={`glsm-step ${ALIGNMENT_CLASS[chapter.alignment]} ${
+                className={`glsm-step ${stepIndex === playback.index ? "glsm-active" : ""} ${ALIGNMENT_CLASS[chapter.alignment]} ${
                   chapter.hidden ? "glsm-hidden" : ""
                 }`}
+                style={!cardOpen ? { visibility: "hidden" } : undefined}
               >
                 <div className={`glsm-card ${themeClass}`} style={cardStyle}>
-                  <div
+                  <button
+                    type="button"
                     className="glsm-card-bar"
                     onPointerDown={(e) =>
                       startGesture(e, chapter.id, "drag", e.currentTarget.parentElement)
                     }
                     onDoubleClick={() => resetCard(chapter.id)}
+                    onClick={(event) => {
+                      if (event.detail === 0) resetCard(chapter.id);
+                    }}
                     title={t("storymap.dragHint")}
                   >
                     <GripVertical className="glsm-grip" />
                     <span className="glsm-card-title">
                       {chapter.title || t("storymap.untitledChapter")}
                     </span>
-                  </div>
+                  </button>
                   <div className="glsm-card-body">
                     {chapter.image ? <img src={chapter.image} alt={chapter.title} /> : null}
                     {chapter.description ? (
@@ -713,7 +923,7 @@ export function StoryMapPresenter({
         {storymap?.footer ? (
           <div
             className={`glsm-footer ${themeClass}`}
-            style={slideActive ? { visibility: "hidden" } : undefined}
+            style={slideActive || !cardOpen ? { visibility: "hidden" } : undefined}
           >
             <p dangerouslySetInnerHTML={{ __html: sanitizeStoryHtml(storymap.footer) }} />
           </div>
@@ -724,59 +934,50 @@ export function StoryMapPresenter({
   );
 }
 
-/** Scoped styles mirroring the standalone storytelling template. */
+/** Presentation chrome never blocks gestures outside a card or control. */
 function StoryMapStyles() {
   return (
     <style>{`
-      /* Widths are percentages of the overlay (which is sized to the map
-         canvas, not the viewport) so panels and images never spill past the
-         map. The scroll surface captures the wheel so scrolling advances
-         chapters; the scrollbar is hidden so it cannot cover the map controls,
-         which are lifted above the overlay to stay clickable. */
-      /* Lift the whole control layer (a positioned z-index:2 stacking context)
-         above the overlay; it is pointer-events:none, so only its buttons take
-         clicks while scroll/clicks elsewhere still reach the overlay. */
+      /* Only controls and the current chapter card intercept input. */
       .maplibregl-control-container { z-index: 73; }
-      .glsm-scroll { scrollbar-width: none; }
-      .glsm-scroll::-webkit-scrollbar { width: 0; height: 0; }
       /* Reserve room for the navigation pane so panels never slide under it. */
-      .glsm-with-nav { padding-left: 14rem; }
-      @media (max-width: 900px) { .glsm-with-nav { padding-left: 0; } }
-      .glsm-scroll a, .glsm-scroll a:hover, .glsm-scroll a:visited { color: #0071bc; }
+      .glsm-stage { padding-top: 4rem; }
+      .glsm-with-nav { padding-inline-start: 14rem; }
+      @media (max-width: 900px) { .glsm-with-nav { padding-inline-start: 0; } }
+      .glsm-stage a, .glsm-stage a:hover, .glsm-stage a:visited { color: #0071bc; }
       /* Decorative text only; never intercept pointers meant for cards/map. */
-      .glsm-header { margin: auto; width: 100%; position: relative; z-index: 5; pointer-events: none; }
+      .glsm-header { margin: 0 auto; width: fit-content; max-width: 65%; position: relative; z-index: 5; pointer-events: none; border-radius: 6px; }
       /* Explicit sizes: the app's CSS reset would otherwise shrink headings to inherit. */
       .glsm-header h1, .glsm-header h2, .glsm-header p { margin: 0; padding: 1vh 2%; text-align: center; }
-      .glsm-header h1 { font-size: 2rem; font-weight: 700; line-height: 1.2; }
-      .glsm-header h2 { font-size: 1.3rem; font-weight: 600; line-height: 1.3; }
-      .glsm-header p { font-size: 1rem; }
-      .glsm-footer { width: 100%; min-height: 5vh; padding: 2vh 0; text-align: center; line-height: 22px; font-size: 13px; position: relative; z-index: 5; }
+      .glsm-header h1 { font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
+      .glsm-header h2 { font-size: .85rem; font-weight: 500; line-height: 1.3; }
+      .glsm-header p { font-size: .75rem; }
+      .glsm-footer { max-width: 60%; padding: 3px 12px; text-align: center; line-height: 18px; font-size: 11px; position: absolute; bottom: 5rem; inset-inline-end: 1rem; z-index: 5; border-radius: 4px; }
       .glsm-footer p { margin: 0; padding: 0 5%; }
-      .glsm-features { padding-top: 10vh; padding-bottom: 45vh; }
+      .glsm-features { padding-top: 2vh; }
       .glsm-hidden { visibility: hidden; }
-      /* Start/closing slides are empty full-height scroll targets (#998). */
-      .glsm-slide-step { min-height: 85vh; padding-bottom: 0; }
+      .glsm-slide-step { pointer-events: none; }
       .glsm-centered { width: 50%; margin: 0 auto; }
-      .glsm-lefty { width: 33%; margin-left: 5%; }
-      .glsm-righty { width: 33%; margin-left: 62%; }
+      .glsm-lefty { width: 33%; margin-inline-start: 3%; }
+      .glsm-righty { width: 33%; margin-inline-start: 62%; }
       .glsm-fully { width: 80%; margin: 0 auto; }
       .glsm-light { color: #444; background-color: #fafafa; }
       .glsm-dark { color: #fafafa; background-color: #444; }
-      .glsm-step { padding-bottom: 45vh; opacity: 0.25; transition: opacity 0.3s; }
-      .glsm-step.glsm-active { opacity: 0.95; }
+      .glsm-step { display: none; }
+      .glsm-step.glsm-active { display: block; }
       /* Each chapter renders as a movable, resizable card. */
       /* z-index keeps a dragged card above the (z-index:5) header it overlaps. */
-      .glsm-card { position: relative; z-index: 6; display: flex; flex-direction: column; max-height: 60vh; line-height: 22px; font-size: 14px; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; }
-      .glsm-card-bar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; cursor: move; touch-action: none; user-select: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid rgba(127,127,127,0.25); }
+      .glsm-card { pointer-events: auto; position: relative; z-index: 64; display: flex; flex-direction: column; max-height: min(50vh, 480px); line-height: 22px; font-size: 14px; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; }
+      .glsm-card-bar { display: flex; width: 100%; text-align: start; align-items: center; gap: 6px; padding: 7px 10px; cursor: move; touch-action: none; user-select: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid rgba(127,127,127,0.25); }
       .glsm-grip { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.55; }
       .glsm-card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .glsm-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 18px; }
+      .glsm-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px; }
       .glsm-card-body img { width: 100%; max-height: 38vh; object-fit: cover; border-radius: 2px; }
       .glsm-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
       .glsm-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; opacity: 0.5; }
       .glsm-inset-marker { width: 12px; height: 12px; background-color: #ff6b6b; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
       @media (max-width: 750px) {
-        .glsm-centered, .glsm-lefty, .glsm-righty, .glsm-fully { width: 90vw; margin: 0 auto; }
+        .glsm-centered, .glsm-lefty, .glsm-righty, .glsm-fully { width: 65%; margin-inline-start: 32%; }
       }
     `}</style>
   );

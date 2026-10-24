@@ -230,6 +230,8 @@ export class MapController implements MapEngine {
   readonly kind = "maplibre" as const;
   readonly capabilities: MapEngineCapabilities = MAPLIBRE_CAPABILITIES;
   private map: maplibregl.Map | null = null;
+  /** Presentation overrides survive ordinary layer syncs without changing project data. */
+  private readonly storyOpacities = new Map<string, number>();
   /** Whether {@link clampViewToPreferences} has a clamp queued on `moveend`. */
   private pendingViewClamp = false;
   /**
@@ -586,9 +588,10 @@ export class MapController implements MapEngine {
    */
   setStoryLayerOpacity(layerId: string, opacity: number, durationMs?: number): void {
     if (!this.map) return;
+    const clamped = Math.min(1, Math.max(0, opacity));
+    this.storyOpacities.set(layerId, clamped);
     const layer = this.syncedLayers.find((item) => item.id === layerId);
     if (!layer) return;
-    const clamped = Math.min(1, Math.max(0, opacity));
     for (const nativeId of this.getStoryStyleLayerIds(layer)) {
       const styleLayer = this.map.getLayer(nativeId);
       if (!styleLayer) continue;
@@ -639,14 +642,8 @@ export class MapController implements MapEngine {
    * changes made during story-map playback by {@link setStoryLayerOpacity}.
    */
   restoreLayerStyles(): void {
-    // Invalidate any pending story rotation and halt an in-flight camera move so
-    // a deferred rotateTo cannot fire after the presenter has exited.
-    this.storyCameraToken++;
-    if (this.pendingRotateHandler) {
-      this.map?.off("moveend", this.pendingRotateHandler);
-      this.pendingRotateHandler = null;
-    }
-    this.map?.stop();
+    this.stopStoryCamera();
+    this.storyOpacities.clear();
     // Clear any opacity transitions left over from playback first, otherwise the
     // restored values animate back in (potentially over a multi-second fade).
     if (this.map) {
@@ -665,13 +662,12 @@ export class MapController implements MapEngine {
     this.syncLayers(this.syncedLayers);
   }
 
-  /** Token guarding deferred story rotations against later chapter changes. */
+  /** Token guarding deferred arrival and rotation against later chapter changes. */
   private storyCameraToken = 0;
   /**
-   * The rotate-on-settle `moveend` listener currently awaiting its move, kept so
+   * The arrival/rotate-on-settle listener currently awaiting its move, kept so
    * it can be detached deterministically (on the next chapter or on presenter
-   * exit) instead of relying solely on self-removal, which never fires for an
-   * instant move whose `moveend` precedes attachment.
+   * exit) instead of relying solely on self-removal after an eventual moveend.
    */
   private pendingRotateHandler:
     | ((event: maplibregl.MapLibreEvent & { storyCameraToken?: number }) => void)
@@ -688,13 +684,18 @@ export class MapController implements MapEngine {
    * @param location Target camera (center, zoom, pitch, bearing).
    * @param animation MapLibre camera method to use.
    * @param rotate When true, slowly rotate 180° after the move settles.
+   * @param onArrive Runs after the initial transition, before optional rotation.
    */
   applyStoryChapterCamera(
     location: StoryChapterLocation,
     animation: StoryChapterAnimation = "flyTo",
     rotate = false,
+    onArrive?: () => void,
   ): void {
-    if (!this.map) return;
+    if (!this.map) {
+      onArrive?.();
+      return;
+    }
     const map = this.map;
     // Bump the token first so any pending rotation from a prior chapter is
     // invalidated. We do NOT call map.stop() here: flyTo/easeTo already
@@ -717,16 +718,7 @@ export class MapController implements MapEngine {
     // (Camera._afterEase), so the token survives cancellation. The
     // pendingRotateHandler cleanup above and in restoreLayerStyles is the
     // backstop should that ever change, so handlers cannot leak regardless.
-    map[animation](
-      {
-        center: location.center,
-        zoom: location.zoom,
-        pitch: location.pitch,
-        bearing: location.bearing,
-      },
-      { storyCameraToken: token },
-    );
-    if (rotate) {
+    if (rotate || onArrive) {
       const onMoveEnd = (event: maplibregl.MapLibreEvent & { storyCameraToken?: number }) => {
         // Only detach once the token matches. Stay attached through any
         // preceding moveend (e.g. the deferred moveend of a halted prior
@@ -738,14 +730,37 @@ export class MapController implements MapEngine {
           this.pendingRotateHandler = null;
         }
         if (this.storyCameraToken !== token || !this.map) return;
-        this.map.rotateTo(this.map.getBearing() + 180, {
-          duration: 30000,
-          easing: (time) => time,
-        });
+        onArrive?.();
+        // The callback may pause playback or select another chapter.
+        if (rotate && this.storyCameraToken === token && this.map) {
+          this.map.rotateTo(this.map.getBearing() + 180, {
+            duration: 30000,
+            easing: (time) => time,
+          });
+        }
       };
       this.pendingRotateHandler = onMoveEnd;
       map.on("moveend", onMoveEnd);
     }
+    // Register first: jumpTo and reduced-motion transitions settle synchronously.
+    map[animation](
+      {
+        center: location.center,
+        zoom: location.zoom,
+        pitch: location.pitch,
+        bearing: location.bearing,
+      },
+      { storyCameraToken: token },
+    );
+  }
+
+  stopStoryCamera(): void {
+    this.storyCameraToken++;
+    if (this.pendingRotateHandler) {
+      this.map?.off("moveend", this.pendingRotateHandler);
+      this.pendingRotateHandler = null;
+    }
+    this.map?.stop();
   }
 
   /**
@@ -754,6 +769,11 @@ export class MapController implements MapEngine {
    * @param location Target camera (center, zoom, pitch, bearing).
    */
   flyToView(location: StoryChapterLocation): void {
+    this.storyCameraToken++;
+    if (this.pendingRotateHandler) {
+      this.map?.off("moveend", this.pendingRotateHandler);
+      this.pendingRotateHandler = null;
+    }
     this.map?.flyTo(
       {
         center: location.center,
@@ -852,6 +872,8 @@ export class MapController implements MapEngine {
   }
 
   destroy(): void {
+    this.stopStoryCamera();
+    this.storyOpacities.clear();
     for (const dispose of this.searchDisposers) dispose();
     this.extentDrawingDispose?.();
     this.removeNavigationControl();
@@ -1204,6 +1226,9 @@ export class MapController implements MapEngine {
 
     const nextIds = layers.map((l) => l.id);
     const nextIdSet = new Set(nextIds);
+    for (const id of this.storyOpacities.keys()) {
+      if (!nextIdSet.has(id)) this.storyOpacities.delete(id);
+    }
     const previousLayers = new Map(this.syncedLayers.map((layer) => [layer.id, layer]));
     // Built once for the whole pass: every removal below asks the same question of the same list.
     const survivingSourceIds = externalSourceIdsFor(layers);
@@ -1229,6 +1254,11 @@ export class MapController implements MapEngine {
     }
     this.layerIds = nextIds;
     this.syncedLayers = layers;
+    // Saving a presentation annotation (or changing another layer) syncs the
+    // whole stack. Preserve chapter fades on the original layers, including
+    // companion symbology and plugin-owned native layers. Keep syncedLayers
+    // unmodified so exiting can restore the actual project opacity.
+    for (const [id, opacity] of this.storyOpacities) this.setStoryLayerOpacity(id, opacity);
     // Blend modes are read inside the render loop rather than from a paint
     // property, so a mode that changed without any other paint change still
     // needs a frame asking for it. The repaint is gated on THIS controller's
@@ -1651,7 +1681,7 @@ export class MapController implements MapEngine {
     };
   }
   stopCamera(): void {
-    this.map?.stop();
+    this.stopStoryCamera();
   }
   suspendNavigation(): () => void {
     const map = this.map;

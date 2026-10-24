@@ -354,6 +354,8 @@ export class CesiumEngine implements MapEngine {
    * correction (see {@link adoptLandedFlight}).
    */
   private flightPending = false;
+  /** Invalidates a story arrival callback when playback is paused or replaced. */
+  private storyCameraToken = 0;
 
   /**
    * Zoom bounds from the project's `MapPreferences`, in MapLibre zoom levels.
@@ -453,6 +455,7 @@ export class CesiumEngine implements MapEngine {
   // ---------------------------------------------------------------- lifecycle
 
   destroy(): void {
+    this.stopStoryCamera();
     this.terrainRequest++;
     this.cogTerrainRequest++;
     this.terrainProvider?.destroy();
@@ -536,16 +539,27 @@ export class CesiumEngine implements MapEngine {
     location: StoryChapterLocation,
     animation: StoryChapterAnimation = "flyTo",
     _rotate = false,
+    onArrive?: () => void,
   ): void {
-    // Auto-rotation is MapLibre-only for now: it drives a per-frame bearing tick
-    // against the 2D map, and the globe has no equivalent hook yet.
+    this.stopStoryCamera();
+    const token = this.storyCameraToken;
+    let arrived = false;
+    const arrive = () => {
+      if (arrived || token !== this.storyCameraToken) return;
+      arrived = true;
+      onArrive?.();
+    };
+    // Story auto-rotation is not implemented on the globe yet. Arrival still
+    // completes normally, so playback does not wait for an unsupported orbit.
     // An absent pitch/bearing keeps the current one, as MapLibre does.
     const view = storyLocationView(location, this.readView());
     if (animation === "jumpTo") {
-      this.applyView(view);
+      const applied = this.applyView(view);
+      if (applied) void applied.then(arrive);
+      else arrive();
       return;
     }
-    this.animateTo(view, animation === "easeTo" ? EASE_SECONDS : FLY_SECONDS);
+    this.animateTo(view, animation === "easeTo" ? EASE_SECONDS : FLY_SECONDS, arrive);
   }
 
   flyTo(camera: FlyToCamera): void {
@@ -1058,6 +1072,10 @@ export class CesiumEngine implements MapEngine {
     return this.live()?.camera.moveEnd.addEventListener(listener) ?? (() => {});
   }
   stopCamera(): void {
+    this.stopStoryCamera();
+  }
+  stopStoryCamera(): void {
+    this.storyCameraToken++;
     this.live()?.camera.cancelFlight();
     this.settleStillFlight();
   }
@@ -1594,9 +1612,12 @@ export class CesiumEngine implements MapEngine {
    * clicks behave differently depending on which renderer is drawing, which is
    * precisely what #2260 exists to prevent.
    */
-  private animateTo(view: MapViewState, seconds?: number): void {
+  private animateTo(view: MapViewState, seconds?: number, onArrive?: () => void): void {
     const viewer = this.live();
-    if (!viewer || this.isMorphing()) return;
+    if (!viewer || this.isMorphing()) {
+      onArrive?.();
+      return;
+    }
     this.startFlight();
     // Cesium has no "ease to a MapLibre view" primitive, so the flight is
     // expressed the same way applyView expresses a placement — a lookAt in the
@@ -1642,7 +1663,10 @@ export class CesiumEngine implements MapEngine {
           range,
         ),
         duration: seconds ?? EASE_SECONDS,
-        complete: () => this.settleStillFlight(),
+        complete: () => {
+          this.settleStillFlight();
+          onArrive?.();
+        },
       },
     );
   }

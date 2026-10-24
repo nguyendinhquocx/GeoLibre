@@ -1,7 +1,9 @@
 # Story Maps
 
-Story maps turn a project into a scroll-driven narrative. As the reader scrolls,
-the map flies between chapters, and project layers can fade in and out. The
+Story maps turn a project into a chapter-based narrative. The map moves between
+saved views, and project layers can fade in and out. In-app presentations offer
+manual navigation and autoplay, with the presenter always able to take control.
+Standalone HTML exports retain their scroll-driven reading experience. The
 feature is inspired by the
 [maplibre-gl-storymaps](https://github.com/opengeos/maplibre-gl-storymaps)
 template. Authoring and the in-app presentation run locally, though basemap
@@ -16,7 +18,7 @@ project.
 
 !!! tip "Try it instantly"
     When the story is empty, click **Load sample story** to populate a five-city
-    world tour. Hit **Present** and scroll to see it in action, then edit or
+    world tour. Hit **Present** and use **Play automatically** to see it in action, then edit or
     replace the chapters with your own.
 
 ![The Story Map builder, with the story settings above and the chapter list below](https://assets.geolibre.app/images/geolibre-story-map.webp)
@@ -49,6 +51,9 @@ chapter has:
 - **Hide panel** keeps the map transition but hides the text (useful for a pure
   map beat).
 - **Rotate camera** slowly spins the view after the transition settles.
+- **Stay duration (seconds)** controls how long autoplay stays at this chapter
+  after the camera arrives. Leave it empty for the default of 15 seconds. Values
+  from 1 to 3600 seconds are supported, including fractional seconds.
 
 Use **Set to current view** to re-capture the camera after panning, zooming, or
 tilting the map, and the map-pin button to fly to a chapter while editing.
@@ -66,10 +71,13 @@ chapter**:
 
 The CSV columns are `id, title, description, image, alignment, hidden, lng, lat,
 zoom, pitch, bearing, mapAnimation, rotateAnimation, onChapterEnter,
-onChapterExit`. Columns are matched by name, so order is flexible and you only
-need the ones you use; `lng`/`lat` set the chapter center, and missing ids are
+onChapterExit, durationSeconds`. Columns are matched by name, so order is
+flexible and you only need the ones you use; `lng`/`lat` set the chapter center,
+and missing ids are
 generated on import. The `onChapterEnter`/`onChapterExit` columns hold JSON and
-can be left blank when authoring by hand.
+can be left blank when authoring by hand. The optional `durationSeconds` column
+sets the autoplay dwell time in seconds. A missing or blank cell keeps the
+15-second default, so older CSV and JSON stories remain compatible.
 
 ### Layer effects
 
@@ -80,19 +88,60 @@ progresses.
 
 ## Present
 
-Click **Present** to start the scroll-driven presentation over the live map.
-Scroll to move between chapters; press **Esc** or **Exit** to return to editing.
+Click **Present** to open a presentation over the live map. It starts paused;
+use **Play automatically** to begin moving through the story. The countdown for each
+chapter starts after its camera transition finishes. Playback ends at the last
+step without looping. Press **Esc** or **Exit** to return to editing.
 
 ![A story map in presentation mode, with the chapter navigation pane, a chapter card, and the inset minimap over the live map](https://assets.geolibre.app/images/geolibre-story-map-present.webp)
 
 A **navigation pane** on the left lists every chapter for a quick overview;
 click any entry to jump straight to it. Toggle the pane with the list button next
 to **Exit**. The map controls (navigation, fullscreen, globe, layer control)
-stay usable during the presentation.
+stay usable during the presentation. Selecting a chapter, **Previous**, or
+**Next** switches to that step and pauses, so a live discussion does not trigger
+an unexpected advance.
+
+### Pause and take control
+
+Click **Pause** to stop the countdown, camera movement, and rotation at their
+current position. Panning, zooming, rotating, searching, or starting a map tool
+also pauses playback before the interaction. Playback never resumes because
+the mouse has been idle.
+
+While paused, explore a location and explain it at your own pace. **Return to
+chapter view** restores the authored camera and stays paused; exploring the map
+does not overwrite the saved chapter. When the explanation is finished, choose
+**Autoplay next chapter** to move directly to the following step and continue
+automatic playback. This does not replay the chapter you just discussed.
+
+The mouse wheel over the map zooms it; over a chapter card it scrolls the text.
+Use the chapter list or playback controls to change steps.
 
 Each chapter card is **movable and resizable**: drag its title bar to reposition
 it (double-click the bar to reset), or drag the bottom-right corner to resize, so
 you can move a card aside and explore the map beneath it.
+
+### Temporary annotations and measurements
+
+Open **Presentation tools** to search for a place or latitude/longitude, place
+a pin or text label, draw a line or area, or measure distance and area. Coordinate
+searches are parsed locally; place names use the project's geocoding provider.
+Measurements are surface distances and areas and do not include terrain height.
+
+While drawing, click to add vertices and choose **Finish** or **Cancel drawing**.
+Finish or cancel before changing chapters or exiting. Temporary drawing does not
+edit the project's existing features. Switching chapters hides the current
+chapter's marks and restores them when you return; switching rendering engines
+also preserves marks and unfinished drawings within the current presentation.
+
+Choose **Save as result layer** to keep a chapter's annotations as GeoJSON in the
+project, then save the project file normally. Unsaved temporary annotations are
+cleared when the presentation ends. Use the text toggle beside **Exit** to hide
+the story text and leave more space for discussion.
+
+**Space** plays or pauses, **Page Up / Page Down** navigate manually, and **Esc**
+exits. These shortcuts do not override text inputs or open dialogs.
 
 ## Handout (PDF)
 
@@ -115,3 +164,8 @@ story without GeoLibre. In-memory GeoJSON layers referenced by chapter effects
 are inlined so the exported story behaves like the in-app preview. The page is a
 single static file you can host anywhere (GitHub Pages, Netlify, S3, or any web
 server).
+
+The HTML export remains a separate scroll-driven player. The in-app autoplay
+controls, interactive presentation tools, and temporary annotations are not
+included in that export. Basemap tiles, remote images, and CDN scripts still
+require access to their original URLs.

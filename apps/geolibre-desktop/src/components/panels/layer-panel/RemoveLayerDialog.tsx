@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@geolibre/core";
 import type { GeoLibreLayer } from "@geolibre/core";
@@ -22,6 +23,14 @@ interface RemoveLayerDialogProps {
 export function RemoveLayerDialog({ layer, onClose }: RemoveLayerDialogProps) {
   const { t } = useTranslation();
   const removeLayer = useAppStore((s) => s.removeLayer);
+  const removeButtonRef = useRef<HTMLButtonElement>(null);
+  const handleRemove = () => {
+    if (!layer) return;
+    // Drop the removed layer's PostGIS session state so credentials don't outlive it.
+    unregisterPostgisConnection(layer.id);
+    removeLayer(layer.id);
+    onClose();
+  };
   return (
     <Dialog
       open={!!layer}
@@ -29,7 +38,32 @@ export function RemoveLayerDialog({ layer, onClose }: RemoveLayerDialogProps) {
         if (!open) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent
+        onOpenAutoFocus={(event) => {
+          if (!removeButtonRef.current) return;
+          event.preventDefault();
+          removeButtonRef.current.focus();
+        }}
+        onKeyDown={(event) => {
+          // Only the focused Remove button confirms, so Delete on Cancel or
+          // the close button never removes the layer.
+          if (
+            event.target !== removeButtonRef.current ||
+            event.key !== "Delete" ||
+            event.defaultPrevented ||
+            event.repeat ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          handleRemove();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t("layers.removeLayerConfirmTitle")}</DialogTitle>
           <DialogDescription>
@@ -42,18 +76,7 @@ export function RemoveLayerDialog({ layer, onClose }: RemoveLayerDialogProps) {
           <Button type="button" variant="ghost" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => {
-              if (!layer) return;
-              // Drop the removed layer's PostGIS session state (connection
-              // string, baseline keys) so credentials don't outlive it.
-              unregisterPostgisConnection(layer.id);
-              removeLayer(layer.id);
-              onClose();
-            }}
-          >
+          <Button ref={removeButtonRef} type="button" variant="destructive" onClick={handleRemove}>
             {t("common.remove")}
           </Button>
         </div>

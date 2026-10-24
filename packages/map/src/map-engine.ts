@@ -74,12 +74,19 @@ export interface MapEngine {
   flyTo(camera: FlyToCamera): void;
   /** Animate to a story-chapter location. */
   flyToView(location: StoryChapterLocation): void;
-  /** Apply a story chapter's camera, optionally animated and auto-rotating. */
+  /**
+   * Apply a story chapter's camera, optionally animated and auto-rotating.
+   * `onArrive` runs once after the initial transition, before optional rotation.
+   * A superseding chapter or {@link stopStoryCamera} cancels a pending callback.
+   */
   applyStoryChapterCamera(
     location: StoryChapterLocation,
     animation?: StoryChapterAnimation,
     rotate?: boolean,
+    onArrive?: () => void,
   ): void;
+  /** Stop story movement and pending arrival/rotation, preserving layer styles. */
+  stopStoryCamera(): void;
   zoomIn(): void;
   zoomOut(): void;
   /** Reset bearing to north, keeping the current pitch. */

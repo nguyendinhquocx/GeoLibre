@@ -3,6 +3,7 @@ import { normalizeMapCrs } from "./map-crs";
 import { normalizeCesiumBasemap } from "./cesium-imagery";
 import { parseCesiumIonAssetId } from "./cesium-ion";
 import { redactUrlCredentials } from "./credentials";
+import { normalizeStoryChapterDurationSeconds } from "./storymap-duration";
 import { v4 as uuidv4 } from "uuid";
 import {
   DEFAULT_BASEMAP,
@@ -773,6 +774,10 @@ function normalizeStoryChapter(chapter: unknown): StoryChapter | null {
       ? (candidate.mapAnimation as StoryChapterAnimation)
       : "flyTo",
     rotateAnimation: normalizeBoolean(candidate.rotateAnimation, false),
+    // Leave old files unchanged; absent/invalid timings use the playback default.
+    ...(typeof candidate.durationSeconds === "number" && Number.isFinite(candidate.durationSeconds)
+      ? { durationSeconds: normalizeStoryChapterDurationSeconds(candidate.durationSeconds) }
+      : {}),
     onChapterEnter: normalizeOpacityChanges(candidate.onChapterEnter),
     onChapterExit: normalizeOpacityChanges(candidate.onChapterExit),
   };

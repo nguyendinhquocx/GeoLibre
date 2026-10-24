@@ -59,6 +59,7 @@ function makeFakes() {
       lookAtTransform: () => {},
       flyTo: () => {},
       flyToBoundingSphere: () => {},
+      cancelFlight: () => {},
       getPickRay: () => ({ ray: true }),
       pickEllipsoid: () => ({ x: 0, y: 0, z: 0 }),
     },

@@ -569,15 +569,19 @@ export class MapboxEngine implements MapEngine {
     location: StoryChapterLocation,
     animation: StoryChapterAnimation = "flyTo",
     rotate = false,
+    onArrive?: () => void,
   ): void {
     const map = this.map;
-    if (!map) return;
+    if (!map) {
+      onArrive?.();
+      return;
+    }
     const token = ++this.storyCameraToken;
     if (this.pendingStoryRotate) {
       map.off("moveend", this.pendingStoryRotate);
       this.pendingStoryRotate = null;
     }
-    if (!rotate) {
+    if (!rotate && !onArrive) {
       map[animation](
         { ...storyCameraOptions(location), duration: 800 },
         { storyCameraToken: token },
@@ -589,10 +593,13 @@ export class MapboxEngine implements MapEngine {
       map.off("moveend", onMoveEnd);
       if (this.pendingStoryRotate === onMoveEnd) this.pendingStoryRotate = null;
       if (this.storyCameraToken !== token || !this.map) return;
-      this.map.rotateTo(this.map.getBearing() + 180, {
-        duration: 30000,
-        easing: (time) => time,
-      });
+      onArrive?.();
+      if (rotate && this.storyCameraToken === token && this.map) {
+        this.map.rotateTo(this.map.getBearing() + 180, {
+          duration: 30000,
+          easing: (time) => time,
+        });
+      }
     };
     // Listen before moving: jumpTo fires its moveend synchronously.
     this.pendingStoryRotate = onMoveEnd;
@@ -1423,12 +1430,7 @@ export class MapboxEngine implements MapEngine {
     }
   }
   restoreLayerStyles(): void {
-    this.storyCameraToken++;
-    if (this.pendingStoryRotate) {
-      this.map?.off("moveend", this.pendingStoryRotate);
-      this.pendingStoryRotate = null;
-    }
-    this.map?.stop();
+    this.stopStoryCamera();
     // Clear the fade transitions first, otherwise the restored opacities
     // animate back in over the last chapter's duration (MapLibre's
     // `restoreLayerStyles` does the same).
@@ -1722,6 +1724,9 @@ export class MapboxEngine implements MapEngine {
     };
   }
   stopCamera(): void {
+    this.stopStoryCamera();
+  }
+  stopStoryCamera(): void {
     this.storyCameraToken++;
     if (this.pendingStoryRotate) {
       this.map?.off("moveend", this.pendingStoryRotate);

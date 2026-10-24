@@ -54,6 +54,7 @@ const CSV_HEADERS = [
   "rotateAnimation",
   "onChapterEnter",
   "onChapterExit",
+  "durationSeconds",
 ] as const;
 
 /**
@@ -86,6 +87,7 @@ export function serializeStoryMapCsv(storymap: StoryMap): string {
         String(c.rotateAnimation),
         JSON.stringify(c.onChapterEnter),
         JSON.stringify(c.onChapterExit),
+        String(c.durationSeconds ?? ""),
       ]
         .map(csvEscape)
         .join(","),
@@ -151,6 +153,8 @@ export function parseStoryMapCsv(text: string, base?: StoryMap | null): StoryMap
         },
         mapAnimation: get("mapanimation").trim() || "flyTo",
         rotateAnimation: bool("rotateanimation"),
+        // An absent/blank cell means the default, not Number("") === 0.
+        durationSeconds: get("durationseconds").trim() ? Number(get("durationseconds")) : undefined,
         onChapterEnter: jsonArray("onchapterenter"),
         onChapterExit: jsonArray("onchapterexit"),
       };

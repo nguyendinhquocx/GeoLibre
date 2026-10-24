@@ -523,6 +523,35 @@ describe("CesiumEngine camera publishing", () => {
     engine.destroy();
   });
 
+  it("reports story arrival only on successful flight completion and only once", () => {
+    const fakes = makeViewer();
+    const engine = new CesiumEngine(makeCesium(), fakes.viewer);
+    let arrived = 0;
+    engine.applyStoryChapterCamera({ center: [30, 10], zoom: 8 }, "flyTo", false, () => arrived++);
+    assert.equal(arrived, 0);
+    const flight = fakes.flights.at(-1) as { complete: () => void };
+    flight.complete();
+    flight.complete();
+    assert.equal(arrived, 1);
+    engine.destroy();
+  });
+
+  it("drops late story arrivals when paused or replaced", () => {
+    const fakes = makeViewer();
+    const engine = new CesiumEngine(makeCesium(), fakes.viewer);
+    engine.restoreLayerStyles = () => assert.fail("pausing must not restore styles");
+    let arrived = 0;
+    engine.applyStoryChapterCamera({ center: [30, 10], zoom: 8 }, "flyTo", false, () => arrived++);
+    const first = fakes.flights.at(-1) as { complete: () => void };
+    engine.applyStoryChapterCamera({ center: [31, 11], zoom: 9 }, "flyTo", false, () => arrived++);
+    first.complete();
+    assert.equal(arrived, 0);
+    engine.stopStoryCamera();
+    (fakes.flights.at(-1) as { complete: () => void }).complete();
+    assert.equal(arrived, 0);
+    engine.destroy();
+  });
+
   it("keeps the camera's orientation for a chapter without pitch or bearing", () => {
     const fakes = makeViewer();
     const engine = new CesiumEngine(makeCesium(), fakes.viewer);
