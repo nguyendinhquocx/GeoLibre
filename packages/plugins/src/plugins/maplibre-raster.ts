@@ -1196,7 +1196,12 @@ function createRasterControl(
     });
   }
   for (const event of ["rasteradd", "rasterchange", "rasterremove"] as const) {
-    control.on(event, () => syncRasterLayersToStoreForRuntime(control));
+    control.on(event, () => {
+      // Engine changes and async WASM readiness can fire before saved rasters
+      // are restored. An empty rasterchange is not a layer removal.
+      if (event === "rasterchange" && control.getRasters().length === 0) return;
+      syncRasterLayersToStoreForRuntime(control);
+    });
   }
   // Free the per-layer classification GPU texture when its raster is dropped.
   // The control owns the File-backed bytes blob (source.objectUrl) and revokes
@@ -1278,8 +1283,13 @@ function createRasterControl(
   // Safe: expand()/collapse() delegate to toggle(), which flips
   // _state.collapsed BEFORE emitting the event (re-verified against v0.12.0) --
   // re-verify that ordering when bumping the dependency.
-  const panelStateSyncHandler: RasterControlEventHandler = () =>
+  // An empty control has no layer to record the panel state on, so syncing
+  // could only prune store layers -- including saved rasters whose local files
+  // a restore is still reading. Only rasterremove may do that.
+  const panelStateSyncHandler: RasterControlEventHandler = () => {
+    if (control.getRasters().length === 0) return;
     syncRasterLayersToStoreForRuntime(control);
+  };
   control.on("expand", panelStateSyncHandler);
   control.on("collapse", panelStateSyncHandler);
   wireRasterStoreSync(control);

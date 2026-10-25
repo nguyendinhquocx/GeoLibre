@@ -543,6 +543,7 @@ function solveLinear(m: number[][], b: number[]): number[] | null {
  */
 class EffectsEngine {
   private readonly map: MapLibreMap;
+  private globeProjection: boolean;
   private readonly mapRoot: HTMLElement | null;
   private readonly spaceCanvas: HTMLCanvasElement;
   private readonly starsCanvas: HTMLCanvasElement;
@@ -569,14 +570,18 @@ class EffectsEngine {
   private height = 0;
   private dpr = 1;
   private starsDirty = true;
+  private spaceDirty = true;
+  private haloDirty = true;
   private settings: EffectsSettings;
 
   private rafId: number | null = null;
+  private cometTimer: number | null = null;
   private lastFrameTime = -Infinity;
   private destroyed = false;
 
   constructor(map: MapLibreMap, settings: EffectsSettings) {
     this.map = map;
+    this.globeProjection = isGlobeProjection(map);
     this.settings = settings;
     this.mapCanvas = map.getCanvas();
     // Either 2D engine: mapbox-gl names the same elements with its own prefix,
@@ -590,10 +595,10 @@ class EffectsEngine {
       ) ?? null;
     this.previousControlContainerZIndex = this.controlContainer?.style.zIndex ?? "";
     this.overlayStyle = this.ensureOverlayStyle();
-    this.spaceCanvas = this.createCanvas(0);
-    this.starsCanvas = this.createCanvas(1);
-    this.cometCanvas = this.createCanvas(2);
-    this.haloCanvas = this.createCanvas(3);
+    this.spaceCanvas = this.createCanvas(0, "space");
+    this.starsCanvas = this.createCanvas(1, "stars");
+    this.cometCanvas = this.createCanvas(2, "comets");
+    this.haloCanvas = this.createCanvas(3, "halo");
     this.spaceCtx = this.spaceCanvas.getContext("2d")!;
     this.starsCtx = this.starsCanvas.getContext("2d")!;
     this.cometCtx = this.cometCanvas.getContext("2d")!;
@@ -613,12 +618,16 @@ class EffectsEngine {
     this.handleResize = this.handleResize.bind(this);
     this.handleVisibility = this.handleVisibility.bind(this);
     this.handleMapChange = this.handleMapChange.bind(this);
+    this.handleRender = this.handleRender.bind(this);
     this.tick = this.tick.bind(this);
 
     map.on("resize", this.handleResize);
     // "move" already fires for pan, zoom, pitch, and rotate, so it covers every
     // camera change; no separate "zoom" listener is needed.
     map.on("move", this.handleMapChange);
+    // Direct setProjection calls do not emit a camera move.
+    map.on("projectiontransition", this.handleMapChange);
+    map.on("render", this.handleRender);
     document.addEventListener("visibilitychange", this.handleVisibility);
 
     this.handleResize();
@@ -632,13 +641,14 @@ class EffectsEngine {
 
   /**
    * Swap in new appearance settings. The space gradient is size-cached, so drop
-   * it to rebuild with the new color on the next frame; the halo is rebuilt
-   * every frame already. Restart the loop in case it idled (a settings change
-   * can arrive while the map sits still in globe mode).
+   * it to rebuild with the new color on the next frame. Restart the loop in
+   * case it idled (settings can change while the map sits still in globe mode).
    */
   applySettings(settings: EffectsSettings): void {
     this.settings = settings;
     this.spaceGradient = null;
+    this.spaceDirty = true;
+    this.haloDirty = true;
     if (!document.hidden) this.start();
   }
 
@@ -647,6 +657,8 @@ class EffectsEngine {
     this.stop();
     this.map.off("resize", this.handleResize);
     this.map.off("move", this.handleMapChange);
+    this.map.off("projectiontransition", this.handleMapChange);
+    this.map.off("render", this.handleRender);
     document.removeEventListener("visibilitychange", this.handleVisibility);
     this.mapCanvas.style.zIndex = this.previousMapCanvasZIndex;
     if (this.controlContainer) {
@@ -671,9 +683,10 @@ class EffectsEngine {
     return style;
   }
 
-  private createCanvas(zIndex: number): HTMLCanvasElement {
+  private createCanvas(zIndex: number, layer: string): HTMLCanvasElement {
     const canvas = document.createElement("canvas");
     canvas.className = "geolibre-effects-canvas";
+    canvas.dataset.effectsLayer = layer;
     canvas.style.position = "absolute";
     canvas.style.top = "0";
     canvas.style.left = "0";
@@ -692,11 +705,22 @@ class EffectsEngine {
     }
   }
 
-  // A move restarts a loop that stopped because the map was not in globe mode.
+  // A move invalidates the camera-dependent layers and wakes the idle loop.
   // MapLibre's "move" fires for pan, zoom, pitch, and rotate.
   private handleMapChange(): void {
     this.starsDirty = true;
+    this.haloDirty = true;
     if (!document.hidden) this.start();
+  }
+
+  private handleRender(): void {
+    // Mapbox has no projectiontransition event, but setProjection schedules a
+    // render. Only a changed projection wakes the effects, so unrelated map
+    // frames never invalidate the cached canvases.
+    const globe = isGlobeProjection(this.map);
+    if (globe === this.globeProjection) return;
+    this.globeProjection = globe;
+    this.handleMapChange();
   }
 
   private handleResize(): void {
@@ -717,6 +741,9 @@ class EffectsEngine {
     this.starfield = null; // regenerate at the new size on the next frame
     this.spaceGradient = null; // rebuild for the new dimensions
     this.starsDirty = true;
+    this.spaceDirty = true;
+    this.haloDirty = true;
+    if (!document.hidden) this.start();
   }
 
   private start(): void {
@@ -725,9 +752,24 @@ class EffectsEngine {
   }
 
   private stop(): void {
-    if (this.rafId === null) return;
-    window.cancelAnimationFrame(this.rafId);
+    if (this.rafId !== null) window.cancelAnimationFrame(this.rafId);
     this.rafId = null;
+    if (this.cometTimer !== null) window.clearTimeout(this.cometTimer);
+    this.cometTimer = null;
+    this.lastFrameTime = -Infinity;
+  }
+
+  private scheduleComet(): void {
+    if (this.cometTimer !== null) return;
+    // Same geometric waiting-time distribution as a 0.5% chance per 60 Hz
+    // frame, without polling or touching any canvases between comets.
+    const frames = Math.floor(Math.log(1 - Math.random()) / Math.log(0.995)) + 1;
+    this.cometTimer = window.setTimeout(() => {
+      this.cometTimer = null;
+      if (this.destroyed || document.hidden || !isGlobeProjection(this.map)) return;
+      this.comets.push(this.spawnComet());
+      this.start();
+    }, frames * EFFECTS_FRAME_MS);
   }
 
   private clear(): void {
@@ -814,12 +856,6 @@ class EffectsEngine {
   }
 
   private updateAndDrawComets(frameScale: number): void {
-    // Preserve the original ~0.5% chance per 60 Hz frame when frames are skipped.
-    const spawnChance = 1 - Math.pow(1 - 0.005, frameScale);
-    if (this.comets.length === 0 && Math.random() < spawnChance) {
-      this.comets.push(this.spawnComet());
-    }
-
     const ctx = this.cometCtx;
     const survivors: Comet[] = [];
     for (const comet of this.comets) {
@@ -940,29 +976,45 @@ class EffectsEngine {
       : EFFECTS_FRAME_MS;
     this.lastFrameTime = nextFrameTime;
 
-    this.clear();
-
     if (!isGlobeProjection(this.map)) {
+      this.clear();
       this.starsCtx.clearRect(0, 0, this.width, this.height);
+      this.spaceDirty = this.starsDirty = this.haloDirty = true;
+      this.comets = [];
+      this.stop();
       // Not globe: idle without burning frames. A later move (handleMapChange)
       // restarts the loop when the globe comes back.
       return;
     }
 
-    this.drawSpaceBackground();
+    if (this.spaceDirty) {
+      this.drawSpaceBackground();
+      this.spaceDirty = false;
+    }
     if (this.starsDirty) {
       this.drawStarfield();
       this.starsDirty = false;
     }
-    this.updateAndDrawComets(elapsed / EFFECTS_FRAME_MS);
+    if (this.comets.length > 0) {
+      this.cometCtx.clearRect(0, 0, this.width, this.height);
+      this.updateAndDrawComets(elapsed / EFFECTS_FRAME_MS);
+    }
     // The atmospheric halo is Earth-only — other celestial bodies (Moon, Mars,
     // Pluto, …) are airless or don't share Earth's blue glow, so we keep the
     // space backdrop, starfield, and comets but skip the halo for them.
-    if (getActiveEllipsoid().id === "earth") {
-      this.drawHalo(getGeoglifyGlobeCircle(this.map));
+    if (this.haloDirty) {
+      this.haloCtx.clearRect(0, 0, this.width, this.height);
+      if (getActiveEllipsoid().id === "earth") {
+        this.drawHalo(getGeoglifyGlobeCircle(this.map));
+      }
+      this.haloDirty = false;
     }
 
-    this.start();
+    if (this.comets.length > 0) this.start();
+    else {
+      this.lastFrameTime = -Infinity;
+      this.scheduleComet();
+    }
   }
 }
 

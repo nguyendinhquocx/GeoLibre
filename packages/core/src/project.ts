@@ -68,6 +68,7 @@ import {
 import { DEFAULT_LAYER_GROUP_OPACITY, normalizeGroupContiguity } from "./layer-groups";
 import { normalizeStyleLibraryEntries } from "./style-library";
 import { normalizeLayerCapabilities } from "./capabilities";
+import { withRasterSourceDefaults } from "./raster-source-defaults";
 import { validateMapExpression } from "./expressions";
 import { normalizeLayerDescriptiveMetadata } from "./layer-descriptive-metadata";
 import {
@@ -1853,6 +1854,12 @@ function withoutZarrHeaders(layer: GeoLibreLayer): GeoLibreLayer {
   return { ...layer, source };
 }
 
+function withoutRuntimeGeoArrow(layer: GeoLibreLayer): GeoLibreLayer {
+  if (layer.geoarrow === undefined) return layer;
+  const { geoarrow: _geoarrow, ...rest } = layer;
+  return rest;
+}
+
 /**
  * Strip the session-only state every serializer must leave out, whether or not
  * the project came through `projectFromStore`.
@@ -1861,11 +1868,11 @@ function withoutZarrHeaders(layer: GeoLibreLayer): GeoLibreLayer {
  * @returns The layer as it may be written to a project file.
  */
 function portableLayer(layer: GeoLibreLayer): GeoLibreLayer {
-  return withoutZarrHeaders(withoutLocalRasterBytes(layer));
+  return withoutRuntimeGeoArrow(withoutZarrHeaders(withoutLocalRasterBytes(layer)));
 }
 
 function normalizeLayer(layer: GeoLibreLayer): GeoLibreLayer {
-  layer = withoutLocalRasterBytes(layer);
+  layer = withRasterSourceDefaults(withoutLocalRasterBytes(layer));
   // `capabilities` is split off the spread rather than overwritten: a raw value
   // that normalizes to nothing (`{}`, an array, a string, an object with no
   // boolean flag) must not survive into the normalized layer and be written
@@ -1874,6 +1881,7 @@ function normalizeLayer(layer: GeoLibreLayer): GeoLibreLayer {
     capabilities: rawCapabilities,
     filterExpression: rawFilterExpression,
     descriptiveMetadata: rawDescriptiveMetadata,
+    geoarrow: _rawGeoarrow,
     ...rest
   } = layer;
   const capabilities = normalizeLayerCapabilities(rawCapabilities);
@@ -1886,6 +1894,8 @@ function normalizeLayer(layer: GeoLibreLayer): GeoLibreLayer {
     validateMapExpression(JSON.stringify(rawFilterExpression), { expectedType: "boolean" }).ok
       ? rawFilterExpression
       : undefined;
+  // Batches are runtime caches. A hydrated batch cannot be verified against
+  // the saved GeoJSON, so always discard it to avoid rendering stale data.
   return {
     ...rest,
     style: { ...DEFAULT_LAYER_STYLE, ...layer.style },
@@ -2395,6 +2405,7 @@ export function hydrateProjectLayer(
   project: Pick<GeoLibreProject, "styles">,
   layer: GeoLibreLayer,
 ): GeoLibreLayer {
+  layer = withRasterSourceDefaults(layer);
   const topLevel = project.styles?.[layer.id];
   return {
     ...layer,
