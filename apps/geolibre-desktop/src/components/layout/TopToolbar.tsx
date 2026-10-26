@@ -85,6 +85,7 @@ import {
   resetRuntimeControlsForNewProject,
 } from "./toolbar/toolbar-actions";
 import { ViewMenu } from "./toolbar/ViewMenu";
+import { handleMenubarKeyDown } from "./toolbar/menubarKeyboard";
 
 interface TopToolbarProps {
   compact?: boolean;
@@ -300,8 +301,11 @@ export function TopToolbar({
     renderLabel: renderToolbarLabel,
   };
 
+  // The header's key handler only routes arrow keys between the menu buttons inside.
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <header
+      onKeyDown={handleMenubarKeyDown}
       className={cn(
         // One row at every width: menus that don't fit scroll horizontally
         // instead of wrapping onto a second row (#871).

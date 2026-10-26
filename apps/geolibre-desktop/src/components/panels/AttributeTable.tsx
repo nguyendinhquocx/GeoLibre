@@ -191,7 +191,8 @@ const MAX_ATTRIBUTE_COLUMN_WIDTH = 520;
 const ESTIMATED_ROW_HEIGHT = 37;
 /** Sticky header plus horizontal scrollbar: the table's non-row height, in px. */
 const ATTRIBUTE_TABLE_CHROME_HEIGHT = 58;
-const DEFAULT_TABLE_HEIGHT = 192;
+// Tall enough to keep a few rows visible when the toolbar wraps on laptop widths.
+const DEFAULT_TABLE_HEIGHT = 240;
 const MIN_TABLE_HEIGHT = 96;
 const MAX_TABLE_HEIGHT = 520;
 
@@ -1902,7 +1903,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
       ref={tableSectionRef}
       aria-label={t("attributeTable.title")}
       data-collapsed={collapsed || undefined}
-      className="geolibre-attribute-table-panel relative flex shrink-0 flex-col border-t bg-card"
+      className="geolibre-attribute-table-panel @container relative flex shrink-0 flex-col border-t bg-card"
       style={{ height: collapsed ? undefined : tableHeight }}
     >
       {!collapsed ? (
@@ -1918,7 +1919,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
         ref={tableResizeGuideRef}
         className="pointer-events-none fixed left-0 right-0 z-50 hidden h-px bg-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
       />
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5 md:flex-nowrap">
+      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5">
         <TableProperties className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-semibold">{t("attributeTable.title")}</span>
         {layer ? (
@@ -1997,7 +1998,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
           onClick={toggleEditing}
         >
           <Pencil className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">{t("attributeTable.buttons.edit")}</span>
+          <span className="hidden @[112rem]:inline">{t("attributeTable.buttons.edit")}</span>
         </Button>
         <Button
           variant="default"
@@ -2019,7 +2020,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
           onClick={saveDrafts}
         >
           <Save className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">{t("common.save")}</span>
+          <span className="hidden @[112rem]:inline">{t("common.save")}</span>
         </Button>
         {canManageColumns && !isEditing ? (
           <Button
@@ -2031,7 +2032,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={openAddColumn}
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("attributeTable.addField")}</span>
+            <span className="hidden @[112rem]:inline">{t("attributeTable.addField")}</span>
           </Button>
         ) : null}
         {canManageColumns && !isEditing ? (
@@ -2044,7 +2045,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={openCalculator}
           >
             <Calculator className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("attributeTable.buttons.calculate")}</span>
+            <span className="hidden @[112rem]:inline">{t("attributeTable.buttons.calculate")}</span>
           </Button>
         ) : null}
         {canManageColumns && !isEditing ? (
@@ -2058,7 +2059,9 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
                 aria-label={t("attributeTable.manageFields")}
               >
                 <Columns3 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t("attributeTable.buttons.fields")}</span>
+                <span className="hidden @[112rem]:inline">
+                  {t("attributeTable.buttons.fields")}
+                </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
@@ -2105,7 +2108,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={() => setExplorerOpen(true)}
           >
             <Telescope className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("attributeTable.buttons.explore")}</span>
+            <span className="hidden @[112rem]:inline">{t("attributeTable.buttons.explore")}</span>
           </Button>
         ) : null}
         {!isEditing ? (
@@ -2123,7 +2126,9 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={() => setStatsOpen(true)}
           >
             <Sigma className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("attributeTable.buttons.statistics")}</span>
+            <span className="hidden @[112rem]:inline">
+              {t("attributeTable.buttons.statistics")}
+            </span>
           </Button>
         ) : null}
         {!isEditing ? (
@@ -2141,7 +2146,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={() => setChartOpen(true)}
           >
             <ChartColumn className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("attributeTable.charts")}</span>
+            <span className="hidden @[112rem]:inline">{t("attributeTable.charts")}</span>
           </Button>
         ) : null}
         {!isEditing ? (
@@ -2154,7 +2159,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={() => setDashboardOpen(true)}
           >
             <LayoutDashboard className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("attributeTable.dashboard")}</span>
+            <span className="hidden @[112rem]:inline">{t("attributeTable.dashboard")}</span>
           </Button>
         ) : null}
         {!isEditing && canRefreshLayer && layer ? (
@@ -2175,7 +2180,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             onClick={() => void refreshLayerRows(layer)}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingLayer ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">{t("attributeTable.buttons.refresh")}</span>
+            <span className="hidden @[112rem]:inline">{t("attributeTable.buttons.refresh")}</span>
           </Button>
         ) : null}
         <DropdownMenu>
@@ -2195,7 +2200,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
               disabled={!layer?.geojson || !layerCaps.export}
             >
               <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t("attributeTable.buttons.export")}</span>
+              <span className="hidden @[112rem]:inline">{t("attributeTable.buttons.export")}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

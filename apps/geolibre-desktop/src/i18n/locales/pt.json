@@ -2945,7 +2945,8 @@
       "viewUnavailable": "A vista atual do mapa não está disponível.",
       "selectError": "Não foi possível ler o projeto selecionado.",
       "restoring": "Abrindo o seu projeto de inicialização…",
-      "loadWarning": "O projeto de inicialização não está disponível. O GeoLibre abriu o espaço de trabalho padrão."
+      "loadWarning": "O projeto de inicialização não está disponível. O GeoLibre abriu o espaço de trabalho padrão.",
+      "storedCopyWarning": "O GeoLibre não conseguiu ler o arquivo do projeto e abriu a cópia mantida da última vez que o projeto foi aberto ou salvo. Alterações feitas no arquivo desde então podem estar faltando. Abra o arquivo novamente com «Abrir projeto a partir de arquivo» para carregar o conteúdo atual."
     },
     "map": {
       "constraintsTitle": "Restrições do mapa",
@@ -3459,6 +3460,9 @@
       "haloExtentHint": "A distância que o brilho atmosférico alcança além do globo. Valores mais baixos mantêm os dados próximos à superfície; valores mais altos criam um halo amplo e etéreo.",
       "haloOpacity": "Intensidade do halo",
       "spaceColor": "Cor do espaço",
+      "showStars": "Estrelas",
+      "showMilkyWay": "Via Láctea",
+      "showConstellations": "Linhas das constelações",
       "reset": "Redefinir para os padrões",
       "globeOnly": "Os efeitos atmosféricos só estão disponíveis quando a visualização de Globo está ativada."
     },
@@ -3599,7 +3603,7 @@
     "command": {
       "projectNew": "Novo projeto",
       "projectStarterExamples": "Abrir exemplos iniciais",
-      "projectOpenFile": "Abrir projeto de arquivo",
+      "projectOpenFile": "Abrir projeto a partir de arquivo",
       "projectOpenUrl": "Abrir projeto de URL",
       "projectSave": "Salvar projeto",
       "projectSaveAs": "Salvar projeto como…",
@@ -3687,7 +3691,7 @@
       "wfs": "Camada WFS",
       "wmts": "Camada WMTS",
       "ogcFeatures": "OGC API - Features",
-      "ogcVectorTiles": "OGC Vector Tiles",
+      "ogcVectorTiles": "OGC vector tiles",
       "arcgis": "Camada ArcGIS",
       "georss": "Camada GeoRSS",
       "geoBoundaries": "Limites administrativos",
@@ -3975,7 +3979,7 @@
       "georeferencing": "Georreferenciamento",
       "vectorLayer": "Camada vetorial",
       "cadLayer": "Camada CAD (DXF/DWG)",
-      "gdbLayer": "File Geodatabase (GDB)",
+      "gdbLayer": "File geodatabase (GDB)",
       "rasterLayer": "Camada raster",
       "osmPbfLayer": "Camada OSM PBF",
       "vtpkLayer": "Camada ArcGIS VTPK/TPKX",
@@ -3988,7 +3992,7 @@
       "netcdfHdf": "NetCDF / HDF",
       "spaceborneLidarLayer": "ICESat-2 / GEDI",
       "lidarLayer": "Camada LiDAR",
-      "splattingLayer": "Gaussian Splatting",
+      "splattingLayer": "Gaussian splatting",
       "threeDTilesLayer": "Camada 3D Tiles",
       "duckdbLayer": "Camada DuckDB",
       "whitebox": "Whitebox",
@@ -5551,7 +5555,7 @@
     }
   },
   "storymap": {
-    "title": "Story Map",
+    "title": "Story map",
     "description": "Crie uma história com rolagem a partir de capítulos do mapa. Cada capítulo captura uma visualização de câmera e texto.",
     "chapters": "Capítulos ({{count}})",
     "addChapter": "Adicionar capítulo",
@@ -5881,9 +5885,84 @@
       "importInvalid": "Esse ficheiro não contém um grafo de modelo.",
       "importUnsupported": "Esse ficheiro não é um modelo do GeoLibre.",
       "rasterOutputUnsupported": "«{{name}}» é um resultado raster que esta versão não consegue adicionar ao mapa.",
+      "outputUnsupported": "«{{name}}» é um valor {{kind}}, que não pode ser adicionado ao mapa.",
       "portNeedsVector": "«{{port}}» precisa de dados vetoriais, mas chegou um raster.",
+      "portCannotTake": "«{{port}}» não aceita um valor {{kind}}.",
       "toolNoOutput": "«{{tool}}» não produziu qualquer resultado.",
-      "toolNoUsableOutput": "«{{tool}}» não produziu qualquer resultado utilizável."
+      "toolNoUsableOutput": "«{{tool}}» não produziu qualquer resultado utilizável.",
+      "controlFlow": {
+        "heading": "Fluxo de controlo",
+        "add": {
+          "iterateFeatures": "Iterar feiç.",
+          "iterateFeaturesTitle": "Iterar feições: executa o fluxo de trabalho para cada feição vetorial",
+          "iterateRasters": "Iterar rast.",
+          "iterateRastersTitle": "Iterar rasters: executa o fluxo de trabalho para cada raster",
+          "switch": "Se/Senão",
+          "switchTitle": "Ramificação condicional: ramificação condicional se/senão",
+          "merge": "Unir ramos",
+          "mergeTitle": "União condicional: reúne ramos alternativos",
+          "collect": "Recolher",
+          "collectTitle": "Recolher resultados: reúne as saídas das iterações do ciclo"
+        },
+        "kinds": {
+          "iterateFeatures": "Iterar feições",
+          "iterateRasters": "Iterar rasters",
+          "collectResults": "Recolher resultados",
+          "conditionalSwitch": "Ramificação condicional",
+          "conditionalMerge": "União condicional"
+        },
+        "switch": {
+          "description": "Avalia uma condição e encaminha os dados para o ramo Verdadeiro ou Falso.",
+          "conditionType": "Tipo de condição",
+          "typeCompare": "Comparação de valor / propriedade",
+          "typeBoolean": "Verificação booleana",
+          "typeNullCheck": "Verificação de nulo / vazio",
+          "property": "Propriedade da feição / chave de metadados (opcional)",
+          "propertyPlaceholder": "ex.: category, feature_count ou area",
+          "operator": "Operador",
+          "opEqual": "== (igual a)",
+          "opNotEqual": "!= (diferente de)",
+          "opLess": "< (menor que)",
+          "opLessOrEqual": "<= (menor ou igual a)",
+          "opGreater": "> (maior que)",
+          "opGreaterOrEqual": ">= (maior ou igual a)",
+          "opContains": "contém",
+          "opStartsWith": "começa com",
+          "opEndsWith": "termina com",
+          "opIsEmpty": "está vazio",
+          "opNotEmpty": "não está vazio",
+          "opIsNull": "é nulo",
+          "opNotNull": "não é nulo",
+          "value": "Valor alvo",
+          "valuePlaceholder": "ex.: 50, urban ou true"
+        },
+        "iterate": {
+          "featuresDescription": "Itera sobre cada feição da coleção vetorial.",
+          "rastersDescription": "Itera sobre cada conjunto de dados raster da coleção.",
+          "maxIterations": "Limite máximo de iterações",
+          "stopOnError": "Parar em caso de erro"
+        },
+        "collectDescription": "Reúne e achata os resultados produzidos por cada iteração do ciclo numa coleção final.",
+        "mergeDescription": "Reúne as saídas dos ramos Verdadeiro e Falso num único fluxo de dados ativo.",
+        "ports": {
+          "featureCollection": "Coleção de feições",
+          "currentFeature": "Feição atual",
+          "index": "Índice",
+          "totalCount": "Contagem total",
+          "rasterCollection": "Coleção de rasters",
+          "currentRaster": "Raster atual",
+          "rasterName": "Nome do raster",
+          "itemToCollect": "Item a recolher",
+          "collectedResults": "Resultados recolhidos",
+          "count": "Contagem",
+          "conditionValue": "Valor da condição",
+          "trueBranch": "Ramo Verdadeiro",
+          "falseBranch": "Ramo Falso",
+          "trueResult": "Resultado Verdadeiro",
+          "falseResult": "Resultado Falso",
+          "activeOutput": "Saída ativa"
+        }
+      }
     },
     "parameterField": {
       "selectLayer": "Selecionar uma camada...",
@@ -10074,7 +10153,7 @@
       "toggleLayerAria": "Alternar {{name}}"
     },
     "geolibre-osm-downloader": {
-      "title": "OSM Downloader",
+      "title": "OSM downloader",
       "hint": "Baixe recursos do OpenStreetMap da área atual do mapa usando a Overpass API pública.",
       "attribution": "Dados © colaboradores do OpenStreetMap, disponíveis sob a licença ODbL.",
       "featureType": "Tipo de recurso",

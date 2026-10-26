@@ -27,7 +27,7 @@ export function useProjectUrlLoader(): ProjectUrlLoadState {
     const abortController = new AbortController();
     setState({
       error: null,
-      message: "Loading project from URL...",
+      message: "Loading project from URL…",
       status: "loading",
     });
 

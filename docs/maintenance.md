@@ -579,6 +579,19 @@ two stretch inverses above) and run `tests/raster-symbology.test.ts`.
 curves out of the published chunk and fails if the order, a curve or the
 strength changes.
 
+### `maplibre-gl-raster` — pixel inspector click guard
+
+`guardRasterInspectorClicks` (`packages/plugins/src/plugins/maplibre-raster.ts`)
+wraps the private `RasterControl._inspector._onClick` once after mount, so the
+pixel inspector ignores a click that a drawing map tool (Measure, the Geo
+Editor) has claimed through `isMapClickClaimed` (#3237). It works only because
+the inspector's `enable()` and `disable()` both read `this._onClick` at call
+time; if upstream binds a copy instead, the guard is skipped (the inspector
+opens on measure clicks again) or, worse, `disable()` stops unbinding it.
+`tests/upstream-contracts.test.ts` reads the published chunk and fails if the
+field, the arrow property or either binding moves. Better still, upstream a
+click-filter option and delete the wrap.
+
 ### `maplibre-gl-raster` — checked by the compiler
 
 `GeoLibreCogRenderEngine` (`packages/plugins/src/types.ts`) mirrors the
@@ -882,6 +895,17 @@ replacement.
 service URLs from arbitrary hosts (XYZ, WMS/WMTS, ArcGIS, STAC, PMTiles), and
 some of those hosts are plain-HTTP servers on a LAN, so no fixed host list can
 cover them. `img-src` keeps `https:` for the same reason.
+
+**`style-src` is exempt from Tauri's asset CSP rewrite.** At build time Tauri
+hashes every inline `<style>` in `index.html` into `style-src` and adds a
+nonce. A hash or nonce makes the browser ignore `'unsafe-inline'`, so the
+`<style>` elements that external plugins and several libraries inject at
+runtime are blocked, and only in the packaged app (#3210, after the startup
+placeholder style landed in `index.html`). `"dangerousDisableAssetCspModification":
+["style-src"]` keeps the policy as written. That deliberately lets
+`'unsafe-inline'` cover every inline style again, which is how 3.4.0 and earlier
+behaved; `script-src` still gets Tauri's nonces and hashes.
+`tests/tauri-csp.test.ts` fails if the exemption is dropped or widened.
 
 ### `httpx` (`backend/geolibre_server_api/pyproject.toml`) — private transport pool
 

@@ -2140,7 +2140,7 @@ export interface ProcessingModelStep {
  * raster nodes exchange GeoTIFF bytes. A port declaring `"any"` accepts either
  * and is resolved to a concrete kind at run time by whatever is wired into it.
  */
-export type ModelPortKind = "vector" | "raster" | "any";
+export type ModelPortKind = "vector" | "raster" | "raster-collection" | "boolean" | "any";
 
 /** One connection point on a {@link ModelGraphNode}. */
 export interface ModelGraphPort {
@@ -2158,9 +2158,19 @@ export interface ModelGraphPort {
 
 /**
  * What a node does. `input` sources an existing project layer, `tool` runs a
- * processing algorithm, and `output` names a result to add back to the map.
+ * processing algorithm, `output` names a result to add back to the map,
+ * `iterate-features` and `iterate-rasters` execute loops, `collect-results` gathers
+ * iteration outputs, and `conditional-switch` / `conditional-merge` route execution.
  */
-export type ModelGraphNodeKind = "input" | "tool" | "output";
+export type ModelGraphNodeKind =
+  | "input"
+  | "tool"
+  | "output"
+  | "iterate-features"
+  | "iterate-rasters"
+  | "collect-results"
+  | "conditional-switch"
+  | "conditional-merge";
 
 /** One node on the Model Builder canvas. */
 export interface ModelGraphNode {
@@ -2179,10 +2189,12 @@ export interface ModelGraphNode {
   toolId?: string;
   /** `tool` nodes: which registry resolves {@link toolId}. */
   provider?: ModelToolProvider;
-  /** `tool` nodes: parameter values for everything not supplied by an edge. */
+  /** `tool` / control nodes: parameter values for configuration. */
   parameters?: Record<string, unknown>;
   /** `output` nodes: the layer name given to the result added to the map. */
   name?: string;
+  /** Optional nested body graph for iterator nodes. */
+  body?: ProcessingModelGraph;
 }
 
 /**
@@ -2620,9 +2632,23 @@ export interface ProjectInteraction {
   identify?: string | string[] | null;
   /**
    * Map control or toolbar panel name (`"search"`, `"bookmark"`, `"globe"`,
-   * ...) to whether it starts shown. Unknown names are ignored on open.
+   * ...) to whether it starts shown, or to a {@link ProjectControlSetting}
+   * that also carries the control's options. Unknown names are ignored on open.
    */
-  controls?: Record<string, boolean>;
+  controls?: Record<string, boolean | ProjectControlSetting>;
+}
+
+/**
+ * A control's startup state with options, for example
+ * `{ "visible": true, "collapsed": true, "distanceUnit": "feet" }` for the
+ * Measure panel (issue #3241). Measure takes `collapsed`, `distanceUnit` and
+ * `areaUnit`; Minimap takes `collapsed`, `zoomOffset`, `width` and `height`.
+ */
+export interface ProjectControlSetting {
+  /** Whether the control starts shown. */
+  visible: boolean;
+  /** Control-specific options; the app validates them when it applies them. */
+  [option: string]: string | number | boolean;
 }
 
 export type CommentAnchor =
