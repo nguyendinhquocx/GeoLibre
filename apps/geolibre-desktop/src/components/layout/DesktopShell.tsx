@@ -36,6 +36,7 @@ import { useScreenshotReadiness } from "../../hooks/useScreenshotReadiness";
 import i18n from "../../i18n";
 import {
   createAppAPI,
+  getPluginManager,
   useExternalPluginsReady,
   useProjectPluginTrust,
   useSwipeSplitViewExclusivity,
@@ -43,8 +44,10 @@ import {
 } from "../../hooks/usePlugins";
 import type { DataUrlLoadState } from "../../hooks/useDataUrlLoader";
 import { wikipediaLang } from "../../lib/knowledge";
+import { isMapClickModeActive } from "../../lib/map-click-modes";
 import { lidarOutputForMap } from "../../lib/lidar-export";
 import { useLineOfSightTool } from "../../lib/line-of-sight-store";
+import { bindNetcdfProfileSamplesToProject } from "../../lib/netcdf-profile-store";
 import { projectUrlFromLocation } from "../../lib/project-url";
 import { useEmbedBridge } from "../../hooks/useEmbedBridge";
 import { useRasterIdentify } from "../../hooks/useRasterIdentify";
@@ -339,6 +342,9 @@ export function DesktopShell({
     mapControllerRef,
     collaboration,
     mapReadyGeneration,
+    // A Directions or Reverse Geocode click places a waypoint or runs a
+    // lookup; it must not also open the comment dialog (#3256).
+    isMapClickModeActive: () => isMapClickModeActive(getPluginManager()),
   });
   const [showResolvedComments, setShowResolvedComments] = useState(false);
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
@@ -364,6 +370,9 @@ export function DesktopShell({
   useRasterIdentify();
   useNetcdfIdentify(mapControllerRef, mapReadyGeneration);
   useCogSpectralIdentify(mapControllerRef, mapReadyGeneration);
+  // The sampled pixels (markers + profile) those two hooks record live outside
+  // the project, so New/Open and removing the inspected layer clear them here.
+  useEffect(() => bindNetcdfProfileSamplesToProject(useAppStore), []);
   useRasterViewportStretch(mapControllerRef, mapReadyGeneration);
   useTerrainRestore(mapControllerRef, mapReadyGeneration, projectGeneration);
   useScriptControlRestore(mapControllerRef, mapReadyGeneration, projectGeneration);

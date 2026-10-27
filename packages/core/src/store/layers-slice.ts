@@ -40,6 +40,7 @@ import {
   type LayerVirtualField,
 } from "../types";
 import { featureCollectionToGeoArrow, type GeoArrowBatch } from "../geoarrow";
+import { resolveLayerTileAddress } from "../tile-address";
 import { hasSimpleStyleProperties } from "../vector-color";
 import {
   cascadeJoinRefreshForRemoved,
@@ -568,6 +569,9 @@ export const createLayersSlice: SliceCreator<LayersSlice> = (set, get) => ({
     if (tiles.length === 0) {
       throw new Error("addTileLayer requires at least one non-empty tile URL template.");
     }
+    // {-y} is accepted on XYZ templates. Reject a template that names both
+    // row tokens before the layer is stored.
+    resolveLayerTileAddress({ type, source: { scheme: options.scheme } }, tiles);
     // MapLibre's addSource throws synchronously when maxzoom < minzoom, and
     // syncRasterTileLayer does not catch it, which would strand a layer in
     // the store with no rendered source. Reject the bad range up front.

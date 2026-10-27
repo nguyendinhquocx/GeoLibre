@@ -14,6 +14,7 @@ import {
   labelFieldTextField,
   normalizeHexColor,
   ruleBasedVisibilityFilter,
+  resolveLayerTileAddress,
   styleValue,
   transformGeojsonElevation,
   type GeoLibreLayer,
@@ -1725,6 +1726,7 @@ function templateTileSource(
   layer: GeoLibreLayer,
   templates: string[],
   viaProtocol = false,
+  schemeOverride?: "xyz" | "tms",
 ): ArcgisTileTemplateSource | null {
   const { scheme, tileSize, minzoom, maxzoom } = layer.source as {
     scheme?: unknown;
@@ -1732,13 +1734,14 @@ function templateTileSource(
     minzoom?: unknown;
     maxzoom?: unknown;
   };
+  const tileScheme = schemeOverride ?? (scheme === "tms" ? "tms" : "xyz");
   const finite = (value: unknown): value is number =>
     typeof value === "number" && Number.isFinite(value);
   const size = finite(tileSize) && tileSize > 0 ? tileSize : 256;
   // MapLibre's own defaults (0 and 22) change nothing the plain path draws.
   if (
     !viaProtocol &&
-    scheme !== "tms" &&
+    tileScheme !== "tms" &&
     size === 256 &&
     !(finite(minzoom) && minzoom > 0) &&
     !(finite(maxzoom) && maxzoom < 22) &&
@@ -1754,7 +1757,7 @@ function templateTileSource(
   const layerBounds = bounds(layer);
   return {
     templates,
-    scheme: scheme === "tms" ? "tms" : "xyz",
+    scheme: tileScheme,
     tileSize: size,
     minzoom: finite(minzoom) ? Math.max(0, minzoom) : 0,
     maxzoom: finite(maxzoom) ? Math.max(0, maxzoom) : 22,
@@ -2126,7 +2129,9 @@ export function compileArcgisLayer(
   if (layer.type === "wms" && tiles.length && isWmsGetMap(tiles[0]) && proxied[0] === tiles[0])
     return { ...base, kind: "wms", ...wmsLayerFromTemplate(proxied[0]) };
   if (classifyLayer(layer) === "raster-tiles" && (tiles.length || url)) {
-    const templates = proxied.length ? proxied : [url!];
+    const addressed = resolveLayerTileAddress(layer, proxied.length ? proxied : [url!]);
+    const templates = addressed.tiles;
+    const schemeOverride = addressed.scheme;
     // `geolibre-wms://` (the desktop's CORS-exempt WMS fetcher), `cog://` and
     // friends are MapLibre protocol handlers. The template-tile layer asks the
     // registered handler for each tile, as the globe does; a scheme with no
@@ -2136,7 +2141,12 @@ export function compileArcgisLayer(
       throw new Error("MapLibre custom tile protocols are not supported by the ArcGIS renderer");
     const copyright =
       typeof layer.source.attribution === "string" ? { copyright: layer.source.attribution } : {};
-    const tileSource = templateTileSource(layer, templates, protocols.some(Boolean));
+    const tileSource = templateTileSource(
+      layer,
+      templates,
+      protocols.some(Boolean),
+      schemeOverride,
+    );
     // An ArcGIS export/tile template (the ArcGIS Layer panel's raster path) is
     // still a plain tile template; the SDK's own service classes are used only
     // for records that name the service itself (the `arcgis` type above).

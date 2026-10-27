@@ -17,6 +17,8 @@ import {
   type LabelStyle,
   type LayerStyle,
   documentLocale,
+  isTileAddressError,
+  resolveLayerTileAddress,
 } from "@geolibre/core";
 import {
   normalizePMTilesUrl,
@@ -2847,9 +2849,21 @@ function resolveTextFontFromStyle(map: maplibregl.Map): string[] {
 function syncRasterTileLayer(map: maplibregl.Map, layer: GeoLibreLayer, beforeId?: string): void {
   const src = sourceId(layer.id);
   const lid = `layer-${layer.id}-raster`;
-  const tiles = getRenderableRasterTiles(map, layer);
+  const rawTiles = getRenderableRasterTiles(map, layer);
   const tileSize = numberSource(layer.source.tileSize) ?? 256;
-  if (tiles.length === 0) return;
+  if (rawTiles.length === 0) return;
+  // A saved template that mixes {y} and {-y} must not abort the rest of the
+  // layer pass. New layers are rejected before they are stored.
+  let addressed: ReturnType<typeof resolveLayerTileAddress>;
+  try {
+    addressed = resolveLayerTileAddress(layer, rawTiles);
+  } catch (error) {
+    if (!isTileAddressError(error)) throw error;
+    console.warn(
+      `[GeoLibre] skipping layer "${layer.name || layer.id}": a tile template can use {y} or {-y}, not both.`,
+    );
+    return;
+  }
   if (!map.getSource(src)) {
     const bounds = boundsSource(layer.source.bounds);
     const minzoom = numberSource(layer.source.minzoom);
@@ -2857,12 +2871,12 @@ function syncRasterTileLayer(map: maplibregl.Map, layer: GeoLibreLayer, beforeId
     const attribution = stringSource(layer.source.attribution);
     map.addSource(src, {
       type: "raster",
-      tiles,
+      tiles: addressed.tiles,
       tileSize,
       ...(minzoom !== undefined ? { minzoom } : {}),
       ...(maxzoom !== undefined ? { maxzoom } : {}),
       ...(bounds ? { bounds } : {}),
-      ...(layer.source.scheme === "tms" ? { scheme: "tms" as const } : {}),
+      ...(addressed.scheme === "tms" ? { scheme: "tms" as const } : {}),
       ...(attribution ? { attribution } : {}),
     });
   }

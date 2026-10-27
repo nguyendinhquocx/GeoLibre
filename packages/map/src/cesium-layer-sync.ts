@@ -22,6 +22,7 @@ import {
   ruleBasedVisibilityFilter,
   transformGeojsonElevation,
   resolveProjectHeaderReferences,
+  resolveLayerTileAddress,
   useAppStore,
   type GeoLibreLayer,
   type LayerStyle,
@@ -1225,8 +1226,11 @@ function tileTemplateImageryProvider(
   layer: GeoLibreLayer,
   makeResource: ImageryResourceFactory,
 ): ImageryProvider {
-  const url = firstTile(layer);
-  if (!url) throw new Error("no tile URL template");
+  const rawUrl = firstTile(layer);
+  if (!rawUrl) throw new Error("no tile URL template");
+  const addressed = resolveLayerTileAddress(layer, [rawUrl]);
+  const url = addressed.tiles[0] ?? rawUrl;
+  const tileScheme = addressed.scheme;
   const maxLevel = Number(layer.source.maxzoom);
   const minLevel = Number(layer.source.minzoom);
   const scheme = protocolScheme(url);
@@ -1252,7 +1256,7 @@ function tileTemplateImageryProvider(
       throw new Error(`no MapLibre protocol handler registered for "${scheme}://"`);
     return new ProtocolImageryProvider(Cesium, {
       template: url,
-      scheme: layer.source.scheme === "tms" ? "tms" : "xyz",
+      scheme: tileScheme,
       tileWidth,
       tileHeight: tileWidth,
       rectangle,
@@ -1262,7 +1266,7 @@ function tileTemplateImageryProvider(
     });
   }
   let finalUrl = url;
-  if (layer.source.scheme === "tms") {
+  if (tileScheme === "tms") {
     finalUrl = finalUrl.replace(/\{y\}/g, "{-y}");
   }
   const resource = makeResource(finalUrl);

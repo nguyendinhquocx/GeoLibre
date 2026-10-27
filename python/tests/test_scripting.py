@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import json
 import sys
+import threading
+import time
 import types
 
 import pytest
@@ -97,6 +100,111 @@ def test_wait_for_result_times_out(monkeypatch):
     slot = {"done": False, "ok": False, "value": None, "error": None}
     with pytest.raises(TimeoutError, match="timed out"):
         Map._wait_for_result(slot, "getCenter", 0.05)
+
+
+# -- _wait_for_result fallback (no kernel pump, e.g. inside Shiny) ----------
+
+
+def _resolve_slot_later(slot, delay=0.1):
+    """Resolve a pending-result slot from another thread after `delay` seconds."""
+
+    def resolve():
+        time.sleep(delay)
+        slot["done"] = True
+        slot["ok"] = True
+
+    t = threading.Thread(target=resolve, daemon=True)
+    t.start()
+    return t
+
+
+def test_wait_for_result_sleep_polls_when_no_jupyter_ui_poll(monkeypatch):
+    # Without jupyter_ui_poll (and no event loop on this thread), fall back to
+    # a plain sleep-poll -- the reply is delivered by a loop on another thread.
+    monkeypatch.setitem(sys.modules, "jupyter_ui_poll", None)
+    slot = {"done": False, "ok": False, "value": None, "error": None}
+    t = _resolve_slot_later(slot)
+    Map._wait_for_result(slot, "getCenter", 5)
+    t.join()
+    assert slot["done"]
+
+
+def test_wait_for_result_sleep_poll_times_out(monkeypatch):
+    monkeypatch.setitem(sys.modules, "jupyter_ui_poll", None)
+    slot = {"done": False, "ok": False, "value": None, "error": None}
+    with pytest.raises(TimeoutError, match="timed out"):
+        Map._wait_for_result(slot, "getCenter", 0.05)
+
+
+def test_wait_for_result_raises_on_event_loop_thread_without_pump(monkeypatch):
+    # Blocking a thread that runs an event loop would freeze the loop that
+    # delivers the reply, so it must raise guidance instead of hanging.
+    monkeypatch.setitem(sys.modules, "jupyter_ui_poll", None)
+    slot = {"done": False, "ok": False, "value": None, "error": None}
+
+    async def main():
+        Map._wait_for_result(slot, "flyTo", 5)
+
+    with pytest.raises(RuntimeError, match="worker thread"):
+        asyncio.run(main())
+
+
+def test_wait_for_result_falls_back_when_ui_events_has_no_kernel(monkeypatch):
+    # jupyter_ui_poll importable but no live kernel to pump (its ui_events
+    # raises): fall back to the sleep-poll rather than erroring.
+    @contextlib.contextmanager
+    def broken_ui_events():
+        raise AttributeError("'NoneType' object has no attribute 'kernel'")
+        yield
+
+    monkeypatch.setitem(
+        sys.modules,
+        "jupyter_ui_poll",
+        types.SimpleNamespace(ui_events=broken_ui_events),
+    )
+    slot = {"done": False, "ok": False, "value": None, "error": None}
+    t = _resolve_slot_later(slot)
+    Map._wait_for_result(slot, "getCenter", 5)
+    t.join()
+    assert slot["done"]
+
+
+def test_wait_for_result_falls_back_when_ui_events_raises_on_call(monkeypatch):
+    # The no-kernel AttributeError can come from calling ui_events() itself,
+    # before its context manager is entered; that call must fall back too.
+    def broken_ui_events():
+        raise AttributeError("'NoneType' object has no attribute 'kernel'")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "jupyter_ui_poll",
+        types.SimpleNamespace(ui_events=broken_ui_events),
+    )
+    slot = {"done": False, "ok": False, "value": None, "error": None}
+    t = _resolve_slot_later(slot)
+    Map._wait_for_result(slot, "getCenter", 5)
+    t.join()
+    assert slot["done"]
+
+
+def test_wait_for_result_propagates_errors_raised_while_pumping(monkeypatch):
+    # Only "no kernel" should trigger the fallback. A failure inside the pump
+    # loop is a real error and must surface, not be swallowed into a sleep-poll.
+    def failing_poll(_n=1):
+        raise AttributeError("reply handler broke")
+
+    @contextlib.contextmanager
+    def pump_that_fails():
+        yield failing_poll
+
+    monkeypatch.setitem(
+        sys.modules,
+        "jupyter_ui_poll",
+        types.SimpleNamespace(ui_events=pump_that_fails),
+    )
+    slot = {"done": False, "ok": False, "value": None, "error": None}
+    with pytest.raises(AttributeError, match="reply handler broke"):
+        Map._wait_for_result(slot, "getCenter", 5)
 
 
 def test_result_for_unknown_request_is_ignored(m):

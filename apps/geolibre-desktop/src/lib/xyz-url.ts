@@ -1,4 +1,4 @@
-import type { GeoLibreLayer, GeoLibreProject } from "@geolibre/core";
+import { resolveTileAddress, type GeoLibreLayer, type GeoLibreProject } from "@geolibre/core";
 import { invoke } from "@tauri-apps/api/core";
 import { addProtocol, type RequestParameters } from "maplibre-gl";
 import { fetchUrlBytes, resolveUrlRedirect } from "./native-http";
@@ -35,6 +35,8 @@ export interface XyzTileJsonSource {
 
 export function normalizeTileUrlTemplate(url: string): string {
   return url
+    .replace(/%7B-y%7D/gi, "{-y}")
+    .replace(/\{-y\}/gi, "{-y}")
     .replace(/%7B([xyz])%7D/gi, (_, placeholder: string) => {
       return `{${placeholder.toLowerCase()}}`;
     })
@@ -44,14 +46,18 @@ export function normalizeTileUrlTemplate(url: string): string {
 }
 
 export function hasXyzTilePlaceholders(url: string): boolean {
-  return ["x", "y", "z"].every((placeholder) => url.includes(`{${placeholder}}`));
+  return (
+    url.includes("{z}") && url.includes("{x}") && (url.includes("{y}") || url.includes("{-y}"))
+  );
 }
 
 export function createXyzTileUrlTemplate(url: string): ResolvedXyzTileUrl {
   const originalUrl = normalizeTileUrlTemplate(url.trim());
   if (!hasXyzTilePlaceholders(originalUrl)) {
-    throw new Error("Enter an XYZ tile URL template with {z}, {x}, and {y} placeholders.");
+    throw new Error("Enter an XYZ tile URL template with {z}, {x}, and {y} or {-y} placeholders.");
   }
+  // {-y} is a row flip, validated here and applied when the layer is drawn.
+  resolveTileAddress([originalUrl]);
 
   return {
     originalUrl,
@@ -68,12 +74,9 @@ export async function resolveXyzTileUrlTemplate(
   signal?.throwIfAborted();
   const originalUrl = normalizeTileUrlTemplate(url.trim());
   if (hasXyzTilePlaceholders(originalUrl)) {
-    return {
-      originalUrl,
-      redirected: false,
-      renderUrl: renderableXyzTileUrl(originalUrl),
-      url: originalUrl,
-    };
+    // Same check as addTileLayer: a template that names both row tokens is
+    // rejected here, before the form stores the layer.
+    return createXyzTileUrlTemplate(originalUrl);
   }
 
   return resolveShortXyzUrl(originalUrl, signal);
@@ -228,13 +231,6 @@ function getSavedXyzUrl(layer: GeoLibreLayer): string | null {
   return null;
 }
 
-function renderableXyzTileUrl(url: string): string {
-  // Tauri allows HTTPS image tiles via CSP, so keep the browser/WebView tile
-  // path. Routing every XYZ tile through IPC makes slow tile servers affect
-  // desktop responsiveness.
-  return url;
-}
-
 function parseXyzTileRequest(request: RequestParameters): string {
   const url = new URL(request.url);
   const template = url.searchParams.get("url");
@@ -368,7 +364,7 @@ export function parseXyzTileJson(value: unknown): XyzTileJsonSource {
     if (typeof tile !== "string") throw new Error("Invalid TileJSON tile URL.");
     const url = normalizeTileUrlTemplate(tile.trim());
     if (!isHttpUrl(url) || !hasXyzTilePlaceholders(url)) {
-      throw new Error("TileJSON tile URLs must use HTTP(S) and contain {z}, {x}, and {y}.");
+      throw new Error("TileJSON tile URLs must use HTTP(S) and contain {z}, {x}, and {y} or {-y}.");
     }
     // Check syntax as well as the protocol prefix.
     try {
@@ -378,6 +374,10 @@ export function parseXyzTileJson(value: unknown): XyzTileJsonSource {
     }
     return url;
   });
+  // One scheme covers every template, so the list cannot mix {y} and {-y}.
+  // The stored tiles and scheme stay as written. "tms" and {-y} are two flips
+  // and cancel to an XYZ row when the layer is drawn.
+  resolveTileAddress(tiles, record.scheme === "tms" ? "tms" : "xyz");
   const source: XyzTileJsonSource = { tiles };
   const bounds = record.bounds;
   if (
