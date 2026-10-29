@@ -44,19 +44,20 @@ const SHIFTS: DatumShift[] = [
   {
     datum: "DHDN",
     datums: [6314],
-    crs: [4314, 3068, ...range(31466, 31469)],
+    // 5676-5679: the Gauss-Kruger zones 2 to 5 with east-north axes.
+    crs: [4314, 3068, ...range(31466, 31469), ...range(5676, 5679)],
     towgs84: "598.1,73.7,418.2,0.202,0.045,-2.455,6.7",
   },
   {
     datum: "Amersfoort",
     datums: [6289],
-    crs: [4289, 28992],
+    crs: [4289, 28991, 28992],
     towgs84: "565.417,50.3319,465.552,-0.398957,0.343988,-1.8774,4.0725",
   },
   {
     datum: "CH1903",
     datums: [6149],
-    crs: [4149, 21781],
+    crs: [4149, 21781, 21782],
     towgs84: "674.4,15.1,405.3,0,0,0,0",
   },
   {
@@ -68,7 +69,7 @@ const SHIFTS: DatumShift[] = [
   {
     datum: "Belge 1972",
     datums: [6313],
-    crs: [4313, 31370],
+    crs: [4313, 31300, 31370],
     towgs84: "-106.8686,52.2978,-103.7239,0.3366,-0.457,1.8422,-1.2747",
   },
   {
@@ -80,7 +81,8 @@ const SHIFTS: DatumShift[] = [
   {
     datum: "Monte Mario",
     datums: [6265],
-    crs: [4265, 3003, 3004],
+    // 5659: TM Emilia-Romagna, the region's own grid.
+    crs: [4265, 3003, 3004, 5659],
     towgs84: "-104.1,-49.1,-9.9,0.971,-2.917,0.714,-11.68",
   },
   {

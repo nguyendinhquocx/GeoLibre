@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { tool } from "@strands-agents/sdk";
 import { z } from "zod";
-import { getExternalNativePaintBridge, useAppStore } from "@geolibre/core";
+import {
+  getExternalNativePaintBridge,
+  registerS3UrlSigner,
+  unsignedSourceUrl,
+  useAppStore,
+} from "@geolibre/core";
 import type { MapEngine } from "@geolibre/map";
 import { tileRequestHeadersFor } from "@geolibre/map/tile-request-headers";
 import { createAppAPI, type AppApiHost } from "../apps/geolibre-desktop/src/lib/app-api";
@@ -202,6 +207,8 @@ function fakeHost(overrides: Partial<AppApiHost> = {}): { host: AppApiHost; call
     isPluginEngineSupported: () => true,
     maplibreGeoEditorPlugin: {},
     startLayerGeometryEdit: unused("startLayerGeometryEdit"),
+    addLidarLayerFromUrl: unused("addLidarLayerFromUrl"),
+    addLidarLayerFromBytes: unused("addLidarLayerFromBytes"),
     ...overrides,
   } as unknown as AppApiHost;
   return { host, calls };
@@ -718,6 +725,210 @@ describe("plugin app API edit sessions", () => {
     );
     const tiles = notEditable.addTileLayer("Tiles", "https://tiles.example.com/{z}/{x}/{y}.png");
     assert.equal(await notEditable.startEditSession(tiles), false);
+  });
+});
+
+describe("plugin app API S3 URL resolution", () => {
+  afterEach(() => registerS3UrlSigner(null));
+
+  it("presigns covered buckets, reads others anonymously, and leaves other URLs alone", async () => {
+    const signed: string[] = [];
+    registerS3UrlSigner({
+      covers: (bucket) => bucket === "private",
+      connections: () => [],
+      presign: async (location) => {
+        signed.push(`${location.bucket}/${location.key}`);
+        return {
+          href: `https://private.s3.amazonaws.com/${location.key}?X-Amz-Signature=sig`,
+          expiresAt: Date.now() + 60_000,
+        };
+      },
+    });
+    const api = createAppAPI(undefined, fakeHost().host);
+
+    const href = await api.resolveReadableUrl("s3://private/datasets/a/index.json");
+    assert.equal(
+      href,
+      "https://private.s3.amazonaws.com/datasets/a/index.json?X-Amz-Signature=sig",
+    );
+    // The host remembers the source, so nothing it saves keeps the signature.
+    assert.equal(unsignedSourceUrl(href), "s3://private/datasets/a/index.json");
+    assert.equal(
+      await api.resolveReadableUrl("s3://public-bucket/x/tile.bin"),
+      "https://public-bucket.s3.amazonaws.com/x/tile.bin",
+    );
+    assert.equal(
+      await api.resolveReadableUrl(" https://example.com/a.json "),
+      "https://example.com/a.json",
+    );
+    assert.deepEqual(signed, ["private/datasets/a/index.json"]);
+  });
+
+  it("rejects a missing URL and passes credential failures through", async () => {
+    registerS3UrlSigner({
+      covers: () => true,
+      connections: () => [],
+      presign: async () => {
+        throw new Error("The SSO session has expired.");
+      },
+    });
+    const api = createAppAPI(undefined, fakeHost().host);
+    await assert.rejects(api.resolveReadableUrl("  "), /non-empty string/);
+    await assert.rejects(api.resolveReadableUrl(42 as unknown as string), /non-empty string/);
+    await assert.rejects(api.resolveReadableUrl("s3://private/a.json"), /SSO session has expired/);
+    await assert.rejects(
+      api.resolveReadableUrl("s3://private/a.json", {} as AbortSignal),
+      /must be an AbortSignal/,
+    );
+  });
+
+  it("never returns a URL once the signal aborts", async () => {
+    let presigned = 0;
+    let finishLookup: () => void = () => undefined;
+    registerS3UrlSigner({
+      covers: () => true,
+      connections: () => [],
+      // A credential lookup that ignores the signal, like an SSO refresh.
+      presign: async (location) => {
+        presigned += 1;
+        await new Promise<void>((resolve) => (finishLookup = resolve));
+        return { href: `https://b.s3.amazonaws.com/${location.key}?sig`, expiresAt: Infinity };
+      },
+    });
+    const api = createAppAPI(undefined, fakeHost().host);
+
+    await assert.rejects(
+      api.resolveReadableUrl("s3://private/a.json", AbortSignal.abort()),
+      (error: Error) => error.name === "AbortError",
+    );
+    assert.equal(presigned, 0);
+
+    const controller = new AbortController();
+    const pending = api.resolveReadableUrl("s3://private/a.json", controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    // Rejects while the lookup is still pending, not once it finishes.
+    await assert.rejects(pending, (error: Error) => error.name === "AbortError");
+    finishLookup();
+    assert.equal(presigned, 1);
+    // null means no signal, as an optional argument usually does in JS.
+    assert.equal(
+      await api.resolveReadableUrl(" https://example.com/a.json", null as unknown as AbortSignal),
+      "https://example.com/a.json",
+    );
+  });
+});
+
+describe("plugin app API point clouds", () => {
+  beforeEach(() => {
+    useAppStore.getState().newProject({ name: "App API point clouds" });
+  });
+
+  /** A layer like the one the LiDAR control's load handler adds. */
+  const addStoreLayer = (name: string) =>
+    useAppStore.getState().addGeoJsonLayer(name, { type: "FeatureCollection", features: [] });
+  const layerName = (id: string) =>
+    useAppStore.getState().layers.find((layer) => layer.id === id)?.name;
+
+  it("streams a URL through the shared LiDAR control and names the layer", async () => {
+    const calls: unknown[][] = [];
+    const { host } = fakeHost({
+      addLidarLayerFromUrl: async (app, url, options) => {
+        calls.push([app, url, options]);
+        return addStoreLayer("survey.copc.laz");
+      },
+    });
+    const api = createAppAPI(undefined, host);
+
+    const id = await api.addPointCloudLayer("  https://example.com/survey.copc.laz ", {
+      name: "Survey",
+    });
+    assert.deepEqual(calls, [[api, "https://example.com/survey.copc.laz", { fit: true }]]);
+    assert.equal(layerName(id), "Survey");
+
+    const kept = await api.addPointCloudLayer("https://example.com/survey.copc.laz", {
+      zoomTo: false,
+    });
+    assert.deepEqual(calls[1]?.[2], { fit: false });
+    // Without a name the layer keeps the one the LiDAR control gave it.
+    assert.equal(layerName(kept), "survey.copc.laz");
+  });
+
+  it("loads bytes and files under their file name", async () => {
+    const calls: { bytes: unknown; options: unknown }[] = [];
+    const { host } = fakeHost({
+      addLidarLayerFromBytes: async (_app, bytes, options) => {
+        calls.push({ bytes, options });
+        return addStoreLayer(options.name);
+      },
+    });
+    const api = createAppAPI(undefined, host);
+
+    const buffer = new ArrayBuffer(8);
+    await api.addPointCloudLayer(buffer, { fileName: "tile.laz" });
+    const view = calls[0]?.bytes;
+    assert.ok(view instanceof Uint8Array && view.buffer === buffer, "bytes are viewed, not copied");
+    assert.deepEqual(calls[0]?.options, { name: "tile.laz", fileName: "tile.laz", fit: true });
+
+    const file = new File([new Uint8Array(4)], "tile.copc.laz");
+    await api.addPointCloudLayer(file, { name: "Tile", zoomTo: false });
+    assert.equal(calls[1]?.bytes, file, "a File is passed through so a COPC streams");
+    assert.deepEqual(calls[1]?.options, { name: "Tile", fileName: "tile.copc.laz", fit: false });
+  });
+
+  it("rejects sources and options it cannot load, before touching the LiDAR control", async () => {
+    const api = createAppAPI(undefined, fakeHost().host);
+    const bytes = new Uint8Array(4);
+    const cases: [string, () => Promise<string>, RegExp][] = [
+      ["an empty URL", () => api.addPointCloudLayer("  "), /URL is empty/],
+      ["bytes without a file name", () => api.addPointCloudLayer(bytes), /options\.fileName/],
+      [
+        "a file name that is not a point cloud",
+        () => api.addPointCloudLayer(bytes, { fileName: "tile.tif" }),
+        /not a point cloud file name/,
+      ],
+      [
+        "a name that is not a string",
+        () => api.addPointCloudLayer(bytes, { fileName: "a.las", name: 7 as unknown as string }),
+        /options\.name must be a string/,
+      ],
+      [
+        "a source of another type",
+        () => api.addPointCloudLayer({} as unknown as string),
+        /must be a URL, a File/,
+      ],
+    ];
+    for (const [label, call, message] of cases) {
+      await assert.rejects(call, message, label);
+    }
+  });
+
+  it("rejects when the LiDAR control could not be opened", async () => {
+    const { host } = fakeHost({ addLidarLayerFromUrl: async () => null });
+    const api = createAppAPI(undefined, host);
+    await assert.rejects(
+      api.addPointCloudLayer("https://example.com/a.laz"),
+      /could not be opened/,
+    );
+  });
+
+  it("passes the LiDAR control's load errors through", async () => {
+    const { host } = fakeHost({
+      addLidarLayerFromUrl: async () => {
+        throw new Error("Enter a valid HTTP or HTTPS LiDAR URL.");
+      },
+    });
+    const api = createAppAPI(undefined, host);
+    await assert.rejects(api.addPointCloudLayer("ftp://example.com/a.laz"), /valid HTTP/);
+  });
+
+  it("memoizes the shared maplibre-gl-lidar module", async () => {
+    const api = createAppAPI(undefined, fakeHost().host);
+    const first = api.getMaplibreGlLidar();
+    assert.equal(api.getMaplibreGlLidar(), first);
+    // The module may not load under node (it expects a browser); only the
+    // memoization is under test here.
+    await first.catch(() => undefined);
   });
 });
 

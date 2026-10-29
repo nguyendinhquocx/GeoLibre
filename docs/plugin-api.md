@@ -214,6 +214,12 @@ export interface GeoLibreAppAPI {
     url: string,
     options: GeoLibreZarrLayerOptions
   ) => Promise<string>;
+  // LAS/LAZ/COPC/EPT through the host's own LiDAR layer. Resolves with the new
+  // layer's id (see "Point cloud layers" below).
+  addPointCloudLayer?: (
+    source: string | File | ArrayBuffer | Uint8Array,
+    options?: GeoLibrePointCloudLayerOptions
+  ) => Promise<string>;
   setZarrLayerSelector?: (
     layerId: string,
     selector: Record<string, number | string>
@@ -250,6 +256,8 @@ export interface GeoLibreAppAPI {
   getActiveBasemap: () => string;
   onBasemapChange: (callback: (styleUrl: string) => void) => () => void;
   fetchArrayBuffer?: (url: string) => Promise<ArrayBuffer>;
+  // Presign private S3 objects through a configured connection (see "Reading S3 objects").
+  resolveReadableUrl?: (url: string, signal?: AbortSignal) => Promise<string>;
   // Desktop only: fetch through the native client (see "Signing in with a session cookie").
   nativeFetch?: typeof globalThis.fetch;
   fitBounds?: (bounds: [number, number, number, number]) => void;
@@ -326,6 +334,8 @@ export interface GeoLibreAppAPI {
   ) => boolean;
   getDeckGL?: () => Promise<GeoLibreDeckGL>;
   getProj4?: () => Promise<typeof Proj4>;
+  // The host's own maplibre-gl-lidar module (see "Point cloud layers" below).
+  getMaplibreGlLidar?: () => Promise<typeof import("maplibre-gl-lidar")>;
   // Right-sidebar panels (see "Right sidebar panels" below).
   registerRightPanel?: (panel: GeoLibreRightPanelRegistration) => () => void;
   unregisterRightPanel?: (id: string) => void;
@@ -1211,6 +1221,41 @@ A `selector` passed here only scopes the read: the layer keeps rendering the sli
 
 The panel can also open a store from a folder on disk, via a **Browse folder** button next to the Zarr URL. It appears in the desktop app and in browsers with the File System Access API (Chromium), since reading a folder needs a filesystem API the plugin cannot supply; elsewhere the panel is unchanged. A local cube binds to the Time Slider like a remote one — its CF `units` are read out of the folder, because its recorded URL is an identifier rather than an address.
 
+## Point cloud layers
+
+`addPointCloudLayer` adds a point cloud as a GeoLibre LiDAR layer, the same way **Add Data → LiDAR**, the `?data=` deep link and dropping a file on the map do. The host's LiDAR control renders it, it is listed in the Layers panel, and the user styles it in the LiDAR panel. The source is one of:
+
+- An HTTP(S) or `s3://` URL of a LAS/LAZ file, a **COPC** file (streamed by octree node for the current view), or an EPT `ept.json`. A URL layer is saved with the project and re-streamed when the project is reopened.
+- A `File`, `ArrayBuffer` or `Uint8Array`, loaded in memory. Pass `fileName` (a `File` uses its own name); its extension picks the loader, so a `.copc.laz` name streams the cloud by octree node.
+
+```typescript
+export interface GeoLibrePointCloudLayerOptions {
+  name?: string; // Layers panel name (default: the URL's file name, or fileName)
+  fileName?: string; // loader file name for a File or bytes (.las, .laz, .copc.laz)
+  zoomTo?: boolean; // fly to the point cloud once it loads (default true)
+}
+
+const id = await app.addPointCloudLayer?.("https://example.com/survey.copc.laz", {
+  name: "Survey",
+  zoomTo: false,
+});
+// The id works with the other layer methods: setLayerVisibility, removeLayer, ...
+```
+
+It resolves with the new layer's id once the point cloud has loaded, and rejects when the source is invalid or cannot be read (for example, a server that does not allow this origin through CORS). The URL must serve byte ranges for COPC streaming.
+
+### Drawing point clouds yourself
+
+For points the LiDAR layer does not model, or a custom point renderer, call `app.getMaplibreGlLidar()` to get **GeoLibre's own** `maplibre-gl-lidar` module instead of bundling it. Its `PointCloudLoader` and `CopcStreamingLoader` decode LAS/LAZ/COPC with the LAZ WebAssembly the host already serves, and its `LidarControl`, `LidarLayerAdapter` and `DeckOverlay` render on the host's single deck.gl instance. A bundled copy fails twice over: it carries a second deck.gl/luma.gl, which throws (luma.gl: "already initialized"), and it has to serve its own WebAssembly, which a plugin installed from a desktop folder cannot do (`resolvePluginAssetUrl` returns `null` there). For plain deck.gl layers, `app.getDeckGL()` is enough.
+
+```typescript
+const lidar = await app.getMaplibreGlLidar?.();
+if (!lidar) throw new Error("This plugin requires a host with getMaplibreGlLidar support.");
+const loader = new lidar.PointCloudLoader();
+```
+
+Both members are typed optional for forward-compatibility; call them with optional chaining.
+
 ## Driving a layer's own time dimension from the Time Slider
 
 The Time Slider understands three kinds of temporal layer. Two are built in: a **vector** layer filtered by a timestamp property, and a **raster time series** of dated sources the dock steps between. The third is for a layer that is _one store_ with time as an **internal dimension** — a Zarr data cube, or a plugin's own frame-based layer — where the timeline picks a slice rather than a source.
@@ -1540,6 +1585,34 @@ Built-in plugins (in `packages/plugins`) follow the same contract with two helpe
 - `pluginDisplayTitle(app, pluginId, name)` returns a panel-title getter that reads `toolbar.plugin.<pluginId>`, the plugin's name as the Plugins menu shows it, so the dock header and the menu entry stay in the same language.
 
 Their strings live in GeoLibre's bundled catalogs (`apps/geolibre-desktop/src/i18n/locales/*.json`) rather than in `registerTranslations`, and the catalog test requires every locale to carry them (see `docs/i18n.md`).
+
+## Reading S3 objects
+
+`app.resolveReadableUrl(url)` turns a data URL into one a plain HTTP reader can read, the same way GeoLibre's own layers do. A plugin that reads files from S3 (an index and the files it lists, images, tiles) calls it for each URL and hands the result to `fetch`, an `<img>`, or a loader:
+
+- An `s3://` (or S3 HTTPS) URL in a bucket a configured **S3 connection** (Settings → Cloud storage) covers resolves to a **presigned** HTTPS URL. On the desktop a connection can use an AWS profile (including SSO), the environment, or an instance role; in the browser only access keys.
+- Any other `s3://` URL resolves to its public HTTPS object URL (anonymous read). An `s3://` URL with an invalid bucket name is returned unchanged; one whose key has a `.` or `..` segment rejects, since no URL can address it.
+- Every other URL is returned unchanged (surrounding whitespace is trimmed), so a plugin can call it for every URL it reads.
+
+It takes an optional `AbortSignal` as its second argument and rejects once that signal aborts.
+
+```typescript
+const resolve = (url: string) => app.resolveReadableUrl?.(url) ?? Promise.resolve(url);
+
+const indexUrl = "s3://my-bucket/datasets/a/index.json"; // chosen by the user
+const index = await (await fetch(await resolve(indexUrl))).json();
+// Resolve each file against the s3:// URL when you read it.
+const image = document.createElement("img");
+// The preview sits beside the index, so append its name to the index's folder.
+image.src = await resolve(indexUrl.slice(0, indexUrl.lastIndexOf("/") + 1) + index.preview);
+```
+
+The snippet appends the file name as written. An `s3://` URL takes its key literally, so a space or a `%` needs no encoding, but a `?` or `#` ends the key there. For a key that contains either, pass the object's S3 HTTPS URL with the key percent-encoded instead (`https://my-bucket.s3.amazonaws.com/datasets/a/a%23b.png` for the key `datasets/a/a#b.png`). Check names with `..` or a leading `/` before appending them.
+
+- **Secrets never reach the plugin**, only signed URLs. A signed URL does carry the access key ID, and with temporary credentials the session token, but never the secret key. It is still a read capability: a plugin can ask for any object in a bucket a connection covers, not only the ones the user picked, so install only plugins you trust with that data (plugins run with the app's full trust, as everywhere else in this API).
+- **Signed URLs expire** within 12 hours (sooner with temporary credentials); a connection set to anonymous access returns a plain, non-expiring public URL. Resolve again when you need a URL instead of storing it, and save the `s3://` URL, never a signed one, in project state.
+- It rejects when the bucket is covered but its credentials cannot be resolved (an expired SSO session, for example). Show the message; the user fixes the connection in Settings.
+- The bucket's CORS rules still apply to `fetch` in the webview. On the desktop, `app.fetchArrayBuffer(signedUrl)` tries the native HTTP client first, which CORS does not restrict; it falls back to the webview (where CORS applies) for 401/403 responses and for hosts the native client cannot reach. `<img>` elements need no CORS.
 
 ## Saving credentials
 

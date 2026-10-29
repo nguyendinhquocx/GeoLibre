@@ -388,6 +388,26 @@ export interface GeoLibreCogLayerOptions {
 }
 
 /**
+ * Options for {@link GeoLibreAppAPI.addPointCloudLayer}: a LAS/LAZ/COPC file or
+ * an EPT dataset rendered by the host's own LiDAR layer.
+ */
+export interface GeoLibrePointCloudLayerOptions {
+  /**
+   * Name shown in the Layers panel. Defaults to the file name in the URL, or to
+   * {@link fileName} for a `File` or bytes.
+   */
+  name?: string;
+  /**
+   * File name the loader sees for a `File` or bytes source; its extension picks
+   * the loader (`.las`, `.laz`, and `.copc.laz`, which streams by octree node).
+   * Required for bytes. Defaults to the `File`'s own name. Ignored for a URL.
+   */
+  fileName?: string;
+  /** Fly the map to the point cloud once it loads (default `true`). */
+  zoomTo?: boolean;
+}
+
+/**
  * Options for {@link GeoLibreAppAPI.addZarrLayer}: a Zarr store rendered by the
  * host's own `@carbonplan/zarr-layer` instance, mirrored into the Layers panel.
  *
@@ -973,6 +993,28 @@ export interface GeoLibreAppAPI {
   onLayersChanged?: (callback: (layerIds: string[]) => void) => () => void;
   fetchArrayBuffer?: (url: string) => Promise<ArrayBuffer>;
   /**
+   * Turn a data URL into one a plain HTTP reader (`fetch`, an `<img>`, a
+   * loader) can read, the way GeoLibre's own layers do:
+   *
+   * - an `s3://` (or S3 HTTPS) URL in a bucket a configured S3 connection
+   *   covers resolves to a **presigned** HTTPS URL, signed with that
+   *   connection's credentials (access keys; on desktop also AWS profiles
+   *   including SSO, the environment, and instance roles);
+   * - any other `s3://` URL resolves to its public HTTPS object URL (a key
+   *   with a `.` or `..` segment rejects: no URL can address it);
+   * - every other URL is returned unchanged (surrounding whitespace trimmed).
+   *
+   * Credentials never reach the plugin, only the signed URL. Signed URLs
+   * expire (in at most 12 hours, sooner with temporary credentials), so resolve
+   * again when you need the URL rather than storing it, and never persist one:
+   * save the `s3://` URL instead. Rejects when the bucket is covered but its
+   * credentials cannot be resolved (an expired SSO session, say), or `signal`
+   * aborts.
+   *
+   * Typed optional for forward-compatibility, so call it with optional chaining.
+   */
+  resolveReadableUrl?: (url: string, signal?: AbortSignal) => Promise<string>;
+  /**
    * A `fetch` that runs through the desktop app's native HTTP client: any
    * method, no CORS, and a cookie jar kept for the app session. Desktop only;
    * undefined in the browser and Jupyter builds.
@@ -1016,6 +1058,27 @@ export interface GeoLibreAppAPI {
     fileName: string,
     headers?: Record<string, string>,
   ) => void;
+  /**
+   * Add a point cloud as a GeoLibre LiDAR layer, the way Add Data → LiDAR does:
+   * the host's LiDAR control renders it, it is listed in the Layers panel, and
+   * the user styles it in the LiDAR panel. A URL may be HTTP(S) or `s3://`, and
+   * point at a LAS/LAZ file, a COPC file (streamed by octree node for the
+   * view), or an EPT `ept.json`; a URL layer is saved with the project and
+   * re-streamed when it is reopened. A `File` or bytes source loads in memory
+   * and needs a `fileName` (or the `File`'s name) ending in `.las` or `.laz`.
+   *
+   * Resolves with the new layer's id, which works with {@link removeLayer} and
+   * the other layer methods. Rejects when the source is invalid, or the point
+   * cloud cannot be read (a server without CORS for this origin, say).
+   *
+   * Typed optional for forward-compatibility, so call it with optional chaining.
+   * To draw points the LiDAR layer does not model, render them yourself with
+   * {@link getMaplibreGlLidar} or {@link getDeckGL}.
+   */
+  addPointCloudLayer?: (
+    source: string | File | ArrayBuffer | Uint8Array,
+    options?: GeoLibrePointCloudLayerOptions,
+  ) => Promise<string>;
   /**
    * Ask the user for a folder to save several downloads into, for
    * {@link downloadRemoteFile}'s `"folder"` target. Resolves null when the user
@@ -1314,6 +1377,21 @@ export interface GeoLibreAppAPI {
    * forward-compatibility, so plugins should call it with optional chaining.
    */
   getMaplibreGlRaster?: () => Promise<typeof import("maplibre-gl-raster")>;
+  /**
+   * Resolve GeoLibre's own `maplibre-gl-lidar` module so an external plugin can
+   * read and draw point clouds through the host's instance instead of bundling
+   * its own: its `PointCloudLoader` and `CopcStreamingLoader` decode LAS/LAZ/COPC
+   * with the LAZ WebAssembly the host already serves, and its `LidarControl`,
+   * `LidarLayerAdapter`, and `DeckOverlay` render on the host's single deck.gl
+   * instance. A bundled copy carries a second deck.gl/luma.gl, which throws
+   * (luma.gl: "already initialized"), and must ship its own WebAssembly, which a
+   * desktop install cannot always serve. Use it for points the LiDAR layer does
+   * not model, or a custom point renderer; for a plain point cloud layer use
+   * {@link addPointCloudLayer}. Always present on the GeoLibre desktop and web
+   * hosts; typed optional for forward-compatibility, so plugins should call it
+   * with optional chaining.
+   */
+  getMaplibreGlLidar?: () => Promise<typeof import("maplibre-gl-lidar")>;
   /**
    * Resolve the host's shared proj4 module namespace instead of bundling a copy.
    * Its `default` export is the callable library. Pass CRS definitions directly

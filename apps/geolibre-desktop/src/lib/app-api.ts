@@ -35,6 +35,7 @@ import type {
   GeoLibreEditSessionChange,
   GeoLibreExternalNativeLayerRegistration,
   GeoLibreFileDialogOptions,
+  GeoLibrePointCloudLayerOptions,
   GeoLibreRasterWindowOptions,
   GeoLibreTileLayerOptions,
   GeoLibreVectorTileLayerOptions,
@@ -58,6 +59,7 @@ import {
 } from "../components/layout/add-data/helpers";
 import { ensureFileExtension, useFileNamePrompt } from "../hooks/useFileNamePrompt";
 import type { buildProjectEgressSnapshot } from "./build-project-snapshot";
+import { abortReason, untilAborted } from "./abortable";
 import { cogEngineDefaults } from "./cog-render-engine";
 import { appendDiagnostic } from "./diagnostics";
 import { createExternalNativeStoreLayer } from "./external-native-layer";
@@ -80,6 +82,7 @@ import { createPluginMapCrsApi } from "./plugin-map-crs";
 import { createPluginHttpSend, createPluginNativeFetch } from "./plugin-native-fetch";
 import { authorizeInPopup, getPluginOAuthRedirectUri } from "./plugin-oauth";
 import { openProjectFromUrlForPlugin } from "./plugin-open-project";
+import { addPluginPointCloudLayer } from "./plugin-point-cloud-layer";
 import {
   clearLayerRequestHeaders,
   setPluginLayerRequestHeaders,
@@ -151,6 +154,8 @@ export interface AppApiHost extends Pick<
   | "isPluginEngineSupported"
   | "maplibreGeoEditorPlugin"
   | "startLayerGeometryEdit"
+  | "addLidarLayerFromUrl"
+  | "addLidarLayerFromBytes"
 > {
   /** The shared plugin manager, for `activatePlugin`/`deactivatePlugin`. */
   plugins: Pick<
@@ -565,6 +570,21 @@ export function createAppAPI(
         }
       }),
     fetchArrayBuffer: fetchRemoteArrayBuffer,
+    // The host's own URL resolution, so a plugin reads private S3 objects
+    // through a configured connection without ever seeing its credentials.
+    resolveReadableUrl: (url: string, signal?: AbortSignal) => {
+      // External plugins call through a JS boundary TypeScript cannot check.
+      if (typeof url !== "string" || !url.trim()) {
+        return Promise.reject(new TypeError("resolveReadableUrl: url must be a non-empty string."));
+      }
+      if (signal != null && !isAbortSignalLike(signal)) {
+        return Promise.reject(new TypeError("resolveReadableUrl: signal must be an AbortSignal."));
+      }
+      const abort = signal ?? undefined;
+      // Skip the lookup once aborted, and never return a URL after an abort.
+      if (abort?.aborted) return Promise.reject(abortReason(abort));
+      return untilAborted(resolveReadableUrl(url.trim(), abort), abort);
+    },
     nativeFetch: isTauriRuntime() ? pluginNativeFetch() : undefined,
     downloadRemoteFile: isDesktopRuntime()
       ? createRemoteDownload(invoke, () => new Channel<RemoteDownloadProgress>())
@@ -576,6 +596,12 @@ export function createAppAPI(
       requestSpaceborneLidarGranule({ url, fileName, ...(headers ? { headers } : {}) }),
     openSpaceborneLidarGranule: (data: ArrayBuffer, fileName: string) =>
       requestSpaceborneLidarGranule({ data, fileName }),
+    // Point clouds go through the components plugin's shared LiDAR control,
+    // like Add Data → LiDAR, so the layer is listed, styled and saved as usual.
+    addPointCloudLayer: (
+      source: string | File | ArrayBuffer | Uint8Array,
+      options?: GeoLibrePointCloudLayerOptions,
+    ) => addPluginPointCloudLayer(api, host, source, options),
     resolvePluginAssetUrl: resolvePluginAssetUrlForLoadedPlugin,
     activatePlugin: async (pluginId: string, state?: unknown) => {
       const activated = await manager.activate(pluginId, api);
@@ -902,6 +928,16 @@ export function createAppAPI(
           throw error;
         }));
     })(),
+    // Same for maplibre-gl-lidar: its loaders decode LAZ with the WebAssembly
+    // the host serves, and its layers render on the host's deck.gl instance.
+    getMaplibreGlLidar: (() => {
+      let cached: Promise<typeof import("maplibre-gl-lidar")> | undefined;
+      return () =>
+        (cached ??= import("maplibre-gl-lidar").catch((error) => {
+          cached = undefined;
+          throw error;
+        }));
+    })(),
     // Share the host's proj4 instance; memoize loads but allow retry after failure.
     getProj4: (() => {
       let cached: Promise<typeof Proj4> | undefined;
@@ -991,6 +1027,17 @@ export async function fetchRemoteArrayBuffer(url: string): Promise<ArrayBuffer> 
     );
   }
   return fetchWebviewArrayBuffer(url);
+}
+
+/** Whether `value` quacks like an `AbortSignal` (it may come from another realm). */
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  const signal = value as AbortSignal | null;
+  return (
+    typeof signal === "object" &&
+    signal !== null &&
+    typeof signal.aborted === "boolean" &&
+    typeof signal.addEventListener === "function"
+  );
 }
 
 /** The webview's own fetch, through the dev raster proxy in local development. */

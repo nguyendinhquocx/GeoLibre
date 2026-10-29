@@ -40,6 +40,35 @@ describe("datum shifts", () => {
     assert.ok(metres(fixed, PROJ_LONLAT) < 2);
   });
 
+  it("shifts the other CRSs on a listed datum, not only its main grid", () => {
+    // PROJ 9.8.1 (pyproj 3.8, best available transformation) for the centre of
+    // each CRS's area of use: the projected point and the lon/lat it maps to.
+    const cases: [number, number[], number[]][] = [
+      [5659, [657266.278, 922283.48], [10.975, 44.435]], // Monte Mario / TM Emilia-Romagna
+      [5676, [2547649.712, 5703045.701], [6.685, 51.46]], // DHDN / 3-degree GK zone 2 (E-N)
+      [5677, [3500423.031, 5671670.91], [9.005, 51.18]], // zone 3 (E-N)
+      [5678, [4500456.637, 5650531.068], [12.005, 50.99]], // zone 4 (E-N)
+      [5679, [5402325.267, 5401677.636], [13.67, 48.745]], // zone 5 (E-N)
+      [21782, [160449.469, 25945.462], [9.555, 47.165]], // CH1903 / LV03C-G
+      [28991, [-12107.807, 7783.867], [5.21, 52.225]], // Amersfoort / RD Old
+      [31300, [156512.079, 132694.211], [4.45, 50.505]], // BD72 / Belge Lambert 72
+    ];
+    for (const [code, xy, lonLat] of cases) {
+      const raw = (toProj4({ ProjectedCSTypeGeoKey: code } as never).proj4 ?? "").replace(
+        /\+axis=\w+\s*/g,
+        "",
+      );
+      assert.notEqual(raw, "", `EPSG:${code} has no proj4 definition`);
+      assert.doesNotMatch(raw, /towgs84/, `EPSG:${code}`);
+      // 75 to 180 m off without the shift, within 2 m with it (the documented tolerance).
+      assert.ok(metres(proj4(raw, "EPSG:4326", xy), lonLat) > 70, `EPSG:${code}`);
+      assert.ok(
+        metres(proj4(withDatumShift(raw, code), "EPSG:4326", xy), lonLat) < 2,
+        `EPSG:${code}`,
+      );
+    }
+  });
+
   it("leaves definitions that already shift, and codes it does not know", () => {
     assert.equal(withDatumShift("+proj=tmerc +towgs84=1,2,3", 27700), "+proj=tmerc +towgs84=1,2,3");
     assert.equal(

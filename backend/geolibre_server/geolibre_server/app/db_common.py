@@ -10,7 +10,12 @@ from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException
 
-from geolibre_server import vector_ops
+# Editable database layers (PostGIS, SQL Server) are read whole into one
+# GeoJSON response and diffed whole on write-back, so they need a cap, but a
+# far higher one than the geoprocessing payload cap in vector_ops: a 1.2M-point
+# table reads in about ten seconds. Deployments can move it with the env var.
+DB_MAX_FEATURES_ENV = "GEOLIBRE_DB_MAX_FEATURES"
+DEFAULT_DB_MAX_FEATURES = 1_000_000
 
 # Explicit opt-in only. Desktop spawns a loopback-bound, token-authenticated
 # sidecar for the same local user; shared deployments leave the variable
@@ -143,15 +148,62 @@ def json_safe(value: Any) -> Any:
     return str(value)
 
 
+def db_max_features() -> int:
+    """Return the feature cap for editable database layers.
+
+    Read on every call rather than at import, so the value can be set at runtime.
+
+    Returns:
+        The positive integer in ``GEOLIBRE_DB_MAX_FEATURES``, or
+        :data:`DEFAULT_DB_MAX_FEATURES` when it is unset or blank.
+
+    Raises:
+        HTTPException: 500 when the variable is not a positive integer below
+            the bigint range.
+    """
+    raw = os.environ.get(DB_MAX_FEATURES_ENV, "").strip()
+    if not raw:
+        return DEFAULT_DB_MAX_FEATURES
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    # The cap is bound into LIMIT / TOP (?), so it must fit a bigint.
+    if value <= 0 or value >= 2**63 - 1:
+        raise HTTPException(status_code=500, detail=f"{DB_MAX_FEATURES_ENV} is invalid")
+    return value
+
+
+def feature_limit_error(
+    limit: int, action: str, hint: str = "", subject: str = "Table"
+) -> HTTPException:
+    """Build the HTTP 413 raised when a table or payload exceeds the cap.
+
+    Args:
+        limit: The cap that was exceeded.
+        action: What was refused, e.g. ``"editable layers"``.
+        hint: An optional extra sentence naming an alternative.
+        subject: What exceeded the cap, ``"Table"`` or ``"Layer"``.
+
+    Returns:
+        The exception, naming the setting that raises the cap.
+    """
+    parts = (
+        f"{subject} exceeds the {limit}-feature limit for {action}.",
+        hint.strip(),
+        f"To allow more, set {DB_MAX_FEATURES_ENV} on the processing server.",
+    )
+    return HTTPException(status_code=413, detail=" ".join(part for part in parts if part))
+
+
 def require_features(geojson: Optional[dict]) -> list[dict]:
     """Validate that a GeoJSON payload contains a non-empty, bounded feature list."""
     features = geojson.get("features") if geojson else None
     if not isinstance(features, list) or not features:
         raise HTTPException(status_code=400, detail="No features to write.")
-    if len(features) > vector_ops.MAX_FEATURES:
-        raise HTTPException(
-            status_code=413, detail=f"Layer exceeds the {vector_ops.MAX_FEATURES}-feature limit"
-        )
+    limit = db_max_features()
+    if len(features) > limit:
+        raise feature_limit_error(limit, "editable write-back", subject="Layer")
     return features
 
 

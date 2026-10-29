@@ -132,6 +132,8 @@ import {
   subscribeGeometryEdit,
   isPluginEngineSupported,
   startLayerGeometryEdit,
+  addLidarLayerFromUrl,
+  addLidarLayerFromBytes,
   setArcGisPortalAuth,
   setLocalizedErrorTranslator,
 } from "@geolibre/plugins";
@@ -1246,6 +1248,8 @@ const appApiHost: AppApiHost = {
   isPluginEngineSupported,
   maplibreGeoEditorPlugin,
   startLayerGeometryEdit,
+  addLidarLayerFromUrl,
+  addLidarLayerFromBytes,
 };
 
 /**
