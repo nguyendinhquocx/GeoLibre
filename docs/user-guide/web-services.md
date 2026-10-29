@@ -38,6 +38,7 @@ They are grouped together because they behave the same way, not because they sha
 | [US Federal GIS](#us-federal-gis) | US federal agencies | The public GIS portals of 24 federal agencies, from the Census Bureau and NOAA to USGS and FEMA |
 | [US State GIS](#us-state-gis) | US state GIS offices | The public GIS data portals of all 50 states and DC |
 | [US Local GIS](#us-local-gis) | US cities and counties | The GIS and open-data portals of about 150 large US cities, counties, and regional agencies |
+| [India GIS](#india-gis) | DataMeet, GADM, geoBoundaries | Open national, state, and city boundary datasets for India |
 | [Socrata](#socrata) | Socrata | Government open-data portals |
 | [CKAN](#ckan) | HDX | Humanitarian Data Exchange resources |
 | [STAC Catalogs](#stac-catalogs) | any STAC | Any STAC API or static catalog, via STAC Index |
@@ -263,6 +264,15 @@ Browses the public GIS and open-data portals of large US cities and counties, pl
 - About three quarters of the portals are ArcGIS Hub sites, which behave as in [US State GIS](#us-state-gis): feature services add as vector layers, map and image services as raster layers, and Download saves feature services as GeoJSON.
 - The rest are [Socrata](#socrata) portals, which many of the largest cities use (New York, Chicago, San Francisco, Seattle, Austin, Dallas). There the panel lists only datasets with a geometry column and adds each one as GeoJSON, zooming to what was loaded. A Socrata export is capped at 50,000 features, so a city-wide incident log arrives as its first 50,000 rows; filter it on the portal first for a complete subset. Socrata cannot search by extent, so **Search the current map area** is unavailable for those portals, and the result count is the number found so far rather than a total.
 - Portals on other platforms (CKAN, OpenDataSoft, or custom sites such as Boston's or Pittsburgh's main portals) cannot be searched and are not listed, though their ArcGIS Hub sites are where one exists. Every listed portal was checked to return datasets in September 2026; `npm run check:gis-portals` repeats the check.
+
+## India GIS
+
+Lists open boundary and municipal datasets for India, grouped by region: national boundaries, then state and city portals (Delhi, Bengaluru, Chennai, Hyderabad, Mumbai, Ahmedabad, Chandigarh, and others).
+
+- Choose a region, then a portal; the panel lists its datasets immediately. Type a keyword to filter them by title and description. **Search the current map area** does not apply.
+- No Indian government portal offers a catalog the panel can search, so each portal is a fixed list of GeoJSON files, and every card names where its file comes from: [DataMeet](https://datameet.org/) (the national outline and city wards), [GADM](https://gadm.org/) (states, districts, and sub-districts, with older boundaries), or [geoBoundaries](https://www.geoboundaries.org/). **Open portal** opens the government agency's own site.
+- A state's district card loads only that state's districts from the all-India GADM file; **Download** saves the whole file.
+- `npm run check:gis-portals -- india` downloads every file and checks that it is GeoJSON in longitude and latitude.
 
 ## Socrata
 

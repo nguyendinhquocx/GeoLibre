@@ -1,3 +1,4 @@
+import type { Feature } from "geojson";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
 import { addArcGISLayer } from "./arcgis-layer";
 import {
@@ -125,6 +126,12 @@ export interface ArcGisHubCatalog {
    * since the Socrata catalog has no spatial search.
    */
   socrataDomain?: string;
+  /**
+   * A fixed list of GeoJSON datasets, for a portal with no searchable catalog.
+   * Takes the place of `siteId`/`orgId`: the panel filters the list by keyword
+   * locally, and the "current map area" filter does not apply.
+   */
+  items?: readonly ArcGisHubItem[];
 }
 
 /** A group of catalogs picked together, such as one state's portals. */
@@ -212,6 +219,11 @@ export interface ArcGisHubPluginConfig {
    * catalog's site.
    */
   catalogSets?: readonly ArcGisHubCatalogSet[];
+  /**
+   * Initial catalog set id selected before the user has saved a choice in
+   * `localStorage`. When omitted, the picker starts on its placeholder option.
+   */
+  defaultCatalogSetId?: string;
 }
 
 /** A catalog panel plugin plus the hook that translates its labels. */
@@ -328,20 +340,28 @@ export function createArcGisHubPlugin(config: ArcGisHubPluginConfig): ArcGisHubP
     pickerRestored = true;
     try {
       const raw = globalThis.localStorage?.getItem(pickerStorageKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw) as { set?: unknown; catalogs?: unknown };
-      const set = catalogSets.find((candidate) => candidate.id === saved.set);
-      if (set) selectedSetId = set.id;
-      if (saved.catalogs && typeof saved.catalogs === "object") {
-        for (const [setId, catalogId] of Object.entries(saved.catalogs)) {
-          const owner = catalogSets.find((candidate) => candidate.id === setId);
-          if (owner?.catalogs.some((catalog) => catalog.id === catalogId)) {
-            selectedCatalogIds.set(setId, catalogId as string);
+      if (raw) {
+        const saved = JSON.parse(raw) as { set?: unknown; catalogs?: unknown };
+        const set = catalogSets.find((candidate) => candidate.id === saved.set);
+        if (set) selectedSetId = set.id;
+        if (saved.catalogs && typeof saved.catalogs === "object") {
+          for (const [setId, catalogId] of Object.entries(saved.catalogs)) {
+            const owner = catalogSets.find((candidate) => candidate.id === setId);
+            if (owner?.catalogs.some((catalog) => catalog.id === catalogId)) {
+              selectedCatalogIds.set(setId, catalogId as string);
+            }
           }
         }
       }
     } catch {
       // Storage blocked (private window, sandboxed iframe) or corrupt: start fresh.
+    }
+    if (
+      !selectedSetId &&
+      config.defaultCatalogSetId &&
+      catalogSets.some((candidate) => candidate.id === config.defaultCatalogSetId)
+    ) {
+      selectedSetId = config.defaultCatalogSetId;
     }
   }
 
@@ -396,6 +416,12 @@ export function createArcGisHubPlugin(config: ArcGisHubPluginConfig): ArcGisHubP
       const data = JSON.parse(text);
       if (data?.type !== "FeatureCollection" || !Array.isArray(data.features)) {
         throw new Error("The item is not valid GeoJSON.");
+      }
+      if (item.featureFilter) {
+        const { property, values } = item.featureFilter;
+        data.features = data.features.filter((feature: Feature) =>
+          values.includes(String(feature.properties?.[property])),
+        );
       }
       // deactivate() nulls appRef, which can happen while the fetch above is in
       // flight; bail explicitly instead of adding a layer to a torn-down host.
@@ -522,7 +548,9 @@ export function createArcGisHubPlugin(config: ArcGisHubPluginConfig): ArcGisHubP
         catalogSelect.hidden = (set?.catalogs.length ?? 0) < 2;
         openPortal.disabled = !current;
         // The Socrata catalog cannot search by extent, so the filter is moot.
-        viewOnly.disabled = Boolean(current?.socrataDomain);
+        viewOnly.disabled = Boolean(
+          current?.socrataDomain || (current?.items && current.items.length > 0),
+        );
       };
       syncCatalogs();
 
@@ -733,7 +761,10 @@ export function createArcGisHubPlugin(config: ArcGisHubPluginConfig): ArcGisHubP
       // view-only search with no extent is refused and says so instead. Checked
       // before the abort below, like the empty-query guard, so a refused search
       // leaves the running one alone.
-      const viewFilter = viewOnly.checked && !catalog?.socrataDomain;
+      const viewFilter =
+        viewOnly.checked &&
+        !catalog?.socrataDomain &&
+        (!catalog?.items || catalog.items.length === 0);
       const viewBounds = !append && viewFilter ? (appRef?.getViewBounds?.() ?? null) : null;
       if (!append && viewFilter && !viewBounds) {
         status.textContent = labels.viewUnavailable;
@@ -762,7 +793,23 @@ export function createArcGisHubPlugin(config: ArcGisHubPluginConfig): ArcGisHubP
         const signal = controller.signal;
         let scope: CatalogScope = {};
         let page: ArcGisHubSearchResult;
-        if (catalog?.socrataDomain) {
+        if (catalog?.items && catalog.items.length > 0) {
+          const queryLower = query.toLowerCase().trim();
+          const filtered = queryLower
+            ? catalog.items.filter(
+                (item) =>
+                  item.title.toLowerCase().includes(queryLower) ||
+                  (item.snippet && item.snippet.toLowerCase().includes(queryLower)) ||
+                  (item.description && item.description.toLowerCase().includes(queryLower)) ||
+                  (item.owner && item.owner.toLowerCase().includes(queryLower)),
+              )
+            : [...catalog.items];
+          page = {
+            results: filtered.slice(start - 1, start - 1 + PAGE_SIZE),
+            total: filtered.length,
+            nextStart: start + PAGE_SIZE <= filtered.length ? start + PAGE_SIZE : -1,
+          };
+        } else if (catalog?.socrataDomain) {
           page = await searchSocrataCatalog(catalog.socrataDomain, query, {
             start,
             num: PAGE_SIZE,
@@ -799,7 +846,13 @@ export function createArcGisHubPlugin(config: ArcGisHubPluginConfig): ArcGisHubP
         // A site catalog's datasets have pages on that site; an organization
         // scope may reach items the site does not list, so use the global Hub.
         // (A Socrata card carries its own page URL.)
-        if (catalog && !append) detailsPageUrl = scope.groups ? catalog.url : undefined;
+        if (catalog && !append) {
+          detailsPageUrl = catalog.items?.length
+            ? catalog.url
+            : scope.groups
+              ? catalog.url
+              : undefined;
+        }
         page.results.forEach(renderItem);
         total = page.total;
         shown += page.results.length;

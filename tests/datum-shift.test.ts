@@ -10,9 +10,11 @@ import {
   installCogTilerDatumShift,
   withDatumShift,
   withGeoKeysDatumShift,
+  withWktDatumShift,
 } from "@geolibre/core";
 import { polygonizeLabels } from "@geolibre/processing";
 import { datumShiftEpsgResolver } from "../packages/plugins/src/plugins/epsg-datum-resolver";
+import { MONTE_MARIO_ITALY_1 } from "./helpers/monte-mario-prj";
 
 /** The British National Grid as the EPSG tables give it (no datum shift). */
 const bng = () =>
@@ -51,7 +53,6 @@ describe("datum shifts", () => {
       [5679, [5402325.267, 5401677.636], [13.67, 48.745]], // zone 5 (E-N)
       [21782, [160449.469, 25945.462], [9.555, 47.165]], // CH1903 / LV03C-G
       [28991, [-12107.807, 7783.867], [5.21, 52.225]], // Amersfoort / RD Old
-      [31300, [156512.079, 132694.211], [4.45, 50.505]], // BD72 / Belge Lambert 72
     ];
     for (const [code, xy, lonLat] of cases) {
       const raw = (toProj4({ ProjectedCSTypeGeoKey: code } as never).proj4 ?? "").replace(
@@ -67,6 +68,81 @@ describe("datum shifts", () => {
         `EPSG:${code}`,
       );
     }
+  });
+
+  it("adds the shift to a .prj's WKT by datum name, ESRI or OGC", () => {
+    assert.ok(
+      withWktDatumShift(MONTE_MARIO_ITALY_1).includes(
+        'SPHEROID["International_1924",6378388.0,297.0],TOWGS84[-104.1,-49.1,-9.9,',
+      ),
+    );
+    // OGC names, and a spheroid with its own AUTHORITY node.
+    const ogc =
+      'GEOGCS["Amersfoort",DATUM["Amersfoort",SPHEROID["Bessel 1841",6377397.155,' +
+      '299.1528128,AUTHORITY["EPSG","7004"]],AUTHORITY["EPSG","6289"]],PRIMEM["Greenwich",0]]';
+    assert.ok(withWktDatumShift(ogc).includes('AUTHORITY["EPSG","7004"]],TOWGS84[565.417,'));
+    assert.ok(
+      withWktDatumShift(
+        'GEOGCS["x",DATUM["Reseau_National_Belge_1972",SPHEROID["a",1,2]]]',
+      ).includes("TOWGS84[-106.8686,"),
+    );
+    // Left alone: a TOWGS84 already there, an unknown datum, WGS84, no WKT at all.
+    const shifted = 'GEOGCS["x",DATUM["D_Monte_Mario",SPHEROID["a",1,2],TOWGS84[1,2,3]]]';
+    assert.equal(withWktDatumShift(shifted), shifted);
+    const unknown = 'GEOGCS["x",DATUM["D_Unknown",SPHEROID["a",1,2]]]';
+    assert.equal(withWktDatumShift(unknown), unknown);
+    const wgs84 =
+      'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]]]';
+    assert.equal(withWktDatumShift(wgs84), wgs84);
+    assert.equal(withWktDatumShift("not wkt"), "not wkt");
+  });
+
+  it("matches every listed datum name, with or without ESRI's D_ prefix, in any case", () => {
+    // Each name's first Helmert parameter, to tell its shift from the others'.
+    const names: [string, string][] = [
+      ["OSGB_1936", "446.448"],
+      ["Ordnance_Survey_of_Great_Britain_1936", "446.448"],
+      ["TM65", "482.5"],
+      ["Deutsches_Hauptdreiecksnetz", "598.1"],
+      ["Amersfoort", "565.417"],
+      ["CH1903", "674.4"],
+      ["CH1903+", "674.374"],
+      ["Belge_1972", "-106.8686"],
+      ["Reseau_National_Belge_1972", "-106.8686"],
+      ["S_JTSK", "589"],
+      ["System_of_the_Unified_Trigonometrical_Cadastral_Network", "589"],
+      ["Monte_Mario", "-104.1"],
+      ["Hungarian_1972", "52.17"],
+      ["Hungarian_Datum_1972", "52.17"],
+      ["GGRS_1987", "-199.87"],
+      ["Greek_Geodetic_Reference_System_1987", "-199.87"],
+      ["Hong_Kong_1980", "-162.619"],
+    ];
+    for (const [name, dx] of names) {
+      for (const datum of [`D_${name}`, name.toLowerCase()]) {
+        const wkt = `GEOGCS["x",DATUM["${datum}",SPHEROID["a",1,2]]]`;
+        assert.ok(withWktDatumShift(wkt).includes(`TOWGS84[${dx},`), datum);
+      }
+    }
+  });
+
+  it("replaces EPSG:31300's definition, which the tables get wrong", () => {
+    // EPSG Guidance Note 7-2, §1.3.1.4 (Lambert Conic Conformal 2SP Belgium):
+    // this BD72 point is E 251763.20, N 153034.13 in EPSG:31300.
+    const bd72 = `+proj=longlat +ellps=intl +towgs84=${datumShiftFor(4313)} +no_defs`;
+    const lonLat = [5 + 48 / 60 + 26.533 / 3600, 50 + 40 / 60 + 46.461 / 3600];
+    const grid = (code: number) =>
+      (toProj4({ ProjectedCSTypeGeoKey: code } as never).proj4 ?? "").replace(/\+axis=\w+\s*/g, "");
+    const off = (definition: string) => {
+      const [e, n] = proj4(bd72, definition, lonLat);
+      return Math.hypot(e - 251763.2, n - 153034.13);
+    };
+    // The tables give a plain LCC 2SP, without the method's 29.2985" rotation.
+    assert.ok(off(grid(31300)) > 700);
+    const fixed = withDatumShift(grid(31300), 31300);
+    assert.ok(off(fixed) < 0.1);
+    // The same grid, and the same datum shift, as EPSG:31370.
+    assert.equal(fixed, withDatumShift(grid(31370).trim(), 31370));
   });
 
   it("leaves definitions that already shift, and codes it does not know", () => {

@@ -19,6 +19,11 @@ interface DatumShift {
   datum: string;
   /** EPSG datum codes (`GeogGeodeticDatumGeoKey`). */
   datums: number[];
+  /**
+   * The datum's names in a WKT `.prj`, without ESRI's `D_` prefix: the ESRI
+   * name, and the OGC one where it differs. Matched ignoring case.
+   */
+  names: string[];
   /** EPSG geographic and projected CRS codes on the datum. */
   crs: number[];
   towgs84: string;
@@ -32,18 +37,21 @@ const SHIFTS: DatumShift[] = [
   {
     datum: "OSGB 1936",
     datums: [6277],
+    names: ["OSGB_1936", "Ordnance_Survey_of_Great_Britain_1936"],
     crs: [4277, 27700],
     towgs84: "446.448,-125.157,542.06,0.15,0.247,0.842,-20.489",
   },
   {
     datum: "TM65 (Ireland)",
     datums: [6299],
+    names: ["TM65"],
     crs: [4299, 29902],
     towgs84: "482.5,-130.6,564.6,-1.042,-0.214,-0.631,8.15",
   },
   {
     datum: "DHDN",
     datums: [6314],
+    names: ["Deutsches_Hauptdreiecksnetz"],
     // 5676-5679: the Gauss-Kruger zones 2 to 5 with east-north axes.
     crs: [4314, 3068, ...range(31466, 31469), ...range(5676, 5679)],
     towgs84: "598.1,73.7,418.2,0.202,0.045,-2.455,6.7",
@@ -51,36 +59,42 @@ const SHIFTS: DatumShift[] = [
   {
     datum: "Amersfoort",
     datums: [6289],
+    names: ["Amersfoort"],
     crs: [4289, 28991, 28992],
     towgs84: "565.417,50.3319,465.552,-0.398957,0.343988,-1.8774,4.0725",
   },
   {
     datum: "CH1903",
     datums: [6149],
+    names: ["CH1903"],
     crs: [4149, 21781, 21782],
     towgs84: "674.4,15.1,405.3,0,0,0,0",
   },
   {
     datum: "CH1903+",
     datums: [6150],
+    names: ["CH1903+"],
     crs: [4150, 2056],
     towgs84: "674.374,15.056,405.346,0,0,0,0",
   },
   {
     datum: "Belge 1972",
     datums: [6313],
+    names: ["Belge_1972", "Reseau_National_Belge_1972"],
     crs: [4313, 31300, 31370],
     towgs84: "-106.8686,52.2978,-103.7239,0.3366,-0.457,1.8422,-1.2747",
   },
   {
     datum: "S-JTSK",
     datums: [6156],
+    names: ["S_JTSK", "System_of_the_Unified_Trigonometrical_Cadastral_Network"],
     crs: [4156, 5514],
     towgs84: "589,76,480,0,0,0,0",
   },
   {
     datum: "Monte Mario",
     datums: [6265],
+    names: ["Monte_Mario"],
     // 5659: TM Emilia-Romagna, the region's own grid.
     crs: [4265, 3003, 3004, 5659],
     towgs84: "-104.1,-49.1,-9.9,0.971,-2.917,0.714,-11.68",
@@ -88,18 +102,21 @@ const SHIFTS: DatumShift[] = [
   {
     datum: "HD72",
     datums: [6237],
+    names: ["Hungarian_1972", "Hungarian_Datum_1972"],
     crs: [4237, 23700],
     towgs84: "52.17,-71.82,-14.9,0,0,0,0",
   },
   {
     datum: "GGRS87",
     datums: [6121],
+    names: ["GGRS_1987", "Greek_Geodetic_Reference_System_1987"],
     crs: [4121, 2100],
     towgs84: "-199.87,74.79,246.62,0,0,0,0",
   },
   {
     datum: "Hong Kong 1980",
     datums: [6611],
+    names: ["Hong_Kong_1980"],
     crs: [4611, 2326],
     towgs84: "-162.619,-276.959,-161.764,0.067753,-2.24365,-1.15883,-1.09425",
   },
@@ -108,6 +125,7 @@ const SHIFTS: DatumShift[] = [
     // not the geographic CRS or the datum, which span all of North America.
     datum: "NAD27 (conterminous US mean)",
     datums: [],
+    names: [],
     crs: range(26710, 26719),
     towgs84: "-8,160,176,0,0,0,0",
   },
@@ -115,9 +133,11 @@ const SHIFTS: DatumShift[] = [
 
 const BY_CRS = new Map<number, string>();
 const BY_DATUM = new Map<number, string>();
+const BY_NAME = new Map<string, string>();
 for (const shift of SHIFTS) {
   for (const code of shift.crs) BY_CRS.set(code, shift.towgs84);
   for (const code of shift.datums) BY_DATUM.set(code, shift.towgs84);
+  for (const name of shift.names) BY_NAME.set(name.toLowerCase(), shift.towgs84);
 }
 
 /**
@@ -138,6 +158,20 @@ export function datumShiftFor(
   );
 }
 
+/**
+ * Definitions the EPSG tables get wrong, replaced whole, by CRS code. EPSG:31300
+ * (Belge Lambert 72) uses Lambert Conic Conformal (2SP Belgium), which rotates the
+ * grid by 29.2985" (EPSG Guidance Note 7-2, §1.3.1.4). proj4 has no such method and
+ * the tables give a plain LCC 2SP, about 745 m off. EPSG:31370 is the same grid
+ * written as a plain LCC 2SP, so its parameters (from the same tables) stand in.
+ */
+const REPLACED = new Map<number, string>([
+  [
+    31300,
+    "+proj=lcc +lat_0=90 +lon_0=4.367486666667 +lat_1=51.166667233333 +lat_2=49.8333339 +x_0=150000.013 +y_0=5400088.438 +ellps=intl +a=6378388 +b=6356911.9461279465 +pm=0 +no_defs",
+  ],
+]);
+
 /** GeoTIFF's "user-defined" geokey value. */
 const USER_DEFINED = 32767;
 
@@ -150,8 +184,9 @@ function keyCode(value: unknown): number | null {
 /**
  * Add the datum shift to a proj4 definition built for an EPSG CRS (or from a
  * GeoTIFF's geokeys), when the definition has none and the CRS is one whose
- * shift is known. A definition that already names a datum transformation
- * (`+towgs84`, `+datum=`, `+nadgrids=`) is returned unchanged.
+ * shift is known; a definition the tables get wrong (see `REPLACED`) is replaced
+ * first. A definition that already names a datum transformation (`+towgs84`,
+ * `+datum=`, `+nadgrids=`) is returned unchanged.
  *
  * @param definition A proj4 definition string.
  * @param crs The EPSG CRS code it was built for.
@@ -163,8 +198,9 @@ export function withDatumShift(
   datum?: number | null,
 ): string {
   if (/\+(towgs84|datum|nadgrids)=/.test(definition)) return definition;
+  const base = (crs != null ? REPLACED.get(crs) : undefined) ?? definition;
   const shift = datumShiftFor(crs, datum);
-  return shift ? `${definition.trim()} +towgs84=${shift}` : definition;
+  return shift ? `${base.trim()} +towgs84=${shift}` : base;
 }
 
 /**
@@ -186,6 +222,39 @@ export function withGeoKeysDatumShift(
     keyCode(geoKeys.GeodeticCRSGeoKey);
   const datum = keyCode(geoKeys.GeogGeodeticDatumGeoKey) ?? keyCode(geoKeys.GeodeticDatumGeoKey);
   return withDatumShift(definition, crs, datum);
+}
+
+/** The index just past the bracketed node that opens at `open` (a `[`), or -1. */
+function closingBracket(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    if (text[i] === "[") depth += 1;
+    else if (text[i] === "]") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Add the datum shift to a WKT 1 CRS (a shapefile's `.prj`) whose datum is one
+ * whose shift is known, as a `TOWGS84` node after the datum's spheroid. An ESRI
+ * `.prj` never carries one, and proj4 knows only a few datums by name, so
+ * without it most national datums are read as WGS84 and the data lands 70 to
+ * 325 m off. WKT that already has a `TOWGS84` is returned unchanged.
+ *
+ * @param wkt A WKT 1 CRS, as in a `.prj` file.
+ */
+export function withWktDatumShift(wkt: string): string {
+  if (/\bTOWGS84\s*\[/i.test(wkt)) return wkt;
+  const datum = /\bDATUM\s*\[\s*"([^"]*)"/i.exec(wkt);
+  const shift = datum && BY_NAME.get(datum[1].replace(/^D_/i, "").toLowerCase());
+  if (!datum || !shift) return wkt;
+  const spheroid = /\bSPHEROID\s*\[/i.exec(wkt.slice(datum.index));
+  if (!spheroid) return wkt;
+  const end = closingBracket(wkt, datum.index + spheroid.index + spheroid[0].length - 1);
+  return end < 0 ? wkt : `${wkt.slice(0, end)},TOWGS84[${shift}]${wkt.slice(end)}`;
 }
 
 /** The part of `cog-tiler-wasm` the datum-shift hook needs (0.5 and later). */

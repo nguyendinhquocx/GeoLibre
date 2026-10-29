@@ -655,6 +655,14 @@ PROJ-computed point. Every entry in the table was checked against PROJ's best
 transformation for that code (within 2 m; 15 m for the NAD27 mean). Re-check
 any entry you add the same way.
 
+One definition is replaced whole, not only shifted: EPSG:31300 (Belge Lambert
+72) uses Lambert Conic Conformal (2SP Belgium), which proj4 lacks and the tables
+give as a plain LCC 2SP, about 745 m off. `REPLACED` in `datum-shift.ts` gives it
+the parameters of EPSG:31370, the same grid as a plain LCC 2SP. PROJ has the same
+gap (it uses the plain LCC 2SP formulas for that method), so check it against the
+worked example in EPSG Guidance Note 7-2, not against PROJ, as the test does. If
+a bump of `geotiff-geokeys-to-proj4` fixes the code, drop the entry.
+
 ### `tauri-plugin-persisted-scope` — private on-disk format
 
 `PersistedScopeState` (`apps/geolibre-desktop/src-tauri/src/lib.rs`) mirrors the

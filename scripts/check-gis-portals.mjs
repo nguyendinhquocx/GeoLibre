@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Check that every portal listed by the US State GIS, US Local GIS, and US
-// Federal GIS panels still answers with datasets. City and county portals move
+// Check that every portal listed by the US State GIS, US Local GIS, US Federal
+// GIS, and India GIS panels still answers with datasets. City and county portals move
 // and get renamed more often than anything else the app links to, and a dead
 // entry fails quietly (an empty list or "Could not search"), so run this before
 // a release or when a user reports a portal as broken.
@@ -9,6 +9,7 @@
 //   npm run check:gis-portals -- local   # only US Local GIS
 //   npm run check:gis-portals -- state   # only US State GIS
 //   npm run check:gis-portals -- federal # only US Federal GIS
+//   npm run check:gis-portals -- india   # only India GIS (downloads every file)
 //
 // Needs network access; it is not part of CI. Exits 1 if any portal fails.
 
@@ -17,6 +18,7 @@ import {
   fetchArcGisHubSiteGroups,
   searchArcGisHub,
 } from "../packages/plugins/src/plugins/arcgis-hub-api.ts";
+import { INDIA_GIS_CATALOGS } from "../packages/plugins/src/plugins/india-gis-catalogs.ts";
 import { searchSocrataCatalog } from "../packages/plugins/src/plugins/socrata-api.ts";
 import { US_FEDERAL_GIS_CATALOGS } from "../packages/plugins/src/plugins/us-federal-gis-catalogs.ts";
 import { US_LOCAL_GIS_CATALOGS } from "../packages/plugins/src/plugins/us-local-gis-catalogs.ts";
@@ -25,6 +27,67 @@ import { US_STATE_GIS_CATALOGS } from "../packages/plugins/src/plugins/us-state-
 const CONCURRENCY = 8;
 const TYPES = [...ARCGIS_HUB_SEARCH_TYPES, "Map Service", "Image Service"];
 
+/** One download per GeoJSON URL, shared by the cards that reuse a file. */
+const geoJsonDownloads = new Map();
+
+/**
+ * Download a GeoJSON file the way the panel's "Add to map" reads it.
+ *
+ * @param {string} url
+ * @returns {Promise<import("geojson").FeatureCollection>}
+ */
+function fetchGeoJson(url) {
+  if (!geoJsonDownloads.has(url)) {
+    geoJsonDownloads.set(
+      url,
+      fetch(url).then(async (response) => {
+        if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+        const data = JSON.parse(await response.text());
+        if (data?.type !== "FeatureCollection" || !Array.isArray(data.features)) {
+          throw new Error(`${url} is not a GeoJSON FeatureCollection`);
+        }
+        return data;
+      }),
+    );
+  }
+  return geoJsonDownloads.get(url);
+}
+
+/**
+ * Check that a fixed-list card loads features in longitude/latitude.
+ *
+ * @param {import("../packages/plugins/src/plugins/arcgis-hub-api.ts").ArcGisHubItem} item
+ * @returns {Promise<void>}
+ */
+async function checkItem(item) {
+  const data = await fetchGeoJson(item.dataUrl);
+  const filter = item.featureFilter;
+  const features = filter
+    ? data.features.filter((feature) =>
+        filter.values.includes(String(feature.properties?.[filter.property])),
+      )
+    : data.features;
+  if (features.length === 0) throw new Error(`${item.id} has no features`);
+  // A projected file (Web Mercator metres) parses fine but renders nowhere.
+  if (!features.every((feature) => isLonLat(feature.geometry?.coordinates))) {
+    throw new Error(`${item.id} is not in longitude/latitude`);
+  }
+}
+
+/**
+ * Whether every position in a GeoJSON coordinate array is longitude/latitude.
+ *
+ * @param {unknown} coordinates A geometry's `coordinates`, at any nesting depth.
+ * @returns {boolean}
+ */
+function isLonLat(coordinates) {
+  if (!Array.isArray(coordinates)) return true;
+  if (typeof coordinates[0] === "number") {
+    return Math.abs(coordinates[0]) <= 180 && Math.abs(coordinates[1]) <= 90;
+  }
+  return coordinates.every(isLonLat);
+}
+
 /**
  * Count one portal's datasets the way the panel searches them.
  *
@@ -32,6 +95,10 @@ const TYPES = [...ARCGIS_HUB_SEARCH_TYPES, "Map Service", "Image Service"];
  * @returns {Promise<string>} How the portal was searched and what it held.
  */
 async function checkPortal(catalog) {
+  if (catalog.items?.length) {
+    await Promise.all(catalog.items.map(checkItem));
+    return `${catalog.items.length} GeoJSON files`;
+  }
   if (catalog.socrataDomain) {
     const page = await searchSocrataCatalog(catalog.socrataDomain, "", { num: 1 });
     if (page.results.length === 0) throw new Error("no spatial datasets");
@@ -53,9 +120,10 @@ const panels = [
   ["state", US_STATE_GIS_CATALOGS],
   ["local", US_LOCAL_GIS_CATALOGS],
   ["federal", US_FEDERAL_GIS_CATALOGS],
+  ["india", INDIA_GIS_CATALOGS],
 ];
 if (which && !panels.some(([panel]) => panel === which)) {
-  console.error(`Unknown panel "${which}"; expected state, local, or federal.`);
+  console.error(`Unknown panel "${which}"; expected state, local, federal, or india.`);
   process.exit(2);
 }
 const sets = panels

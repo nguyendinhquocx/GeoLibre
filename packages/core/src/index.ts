@@ -279,6 +279,7 @@ export {
   installCogTilerDatumShift,
   withDatumShift,
   withGeoKeysDatumShift,
+  withWktDatumShift,
 } from "./datum-shift";
 
 export {

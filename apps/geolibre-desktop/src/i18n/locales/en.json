@@ -4238,6 +4238,7 @@
       "geolibre-tennessee-gis": "Tennessee GIS",
       "geolibre-us-state-gis": "US state GIS",
       "geolibre-us-local-gis": "US local GIS",
+      "geolibre-india-gis": "India GIS",
       "geolibre-us-federal-gis": "US federal GIS",
       "geolibre-osm-downloader": "OSM downloader",
       "geolibre-ign-lidar-hd": "IGN LiDAR HD",
@@ -4997,6 +4998,16 @@
     "chooseState": "Choose a state",
     "portal": "City or county",
     "chooseStateHint": "Choose a state, then a city or county, to list its GIS data.",
+    "openPortal": "Open portal"
+  },
+  "indiaGis": {
+    "hint": "Choose a region, then a portal, to browse open GIS data for India. Add layers to the map or download data.",
+    "searchPlaceholder": "Search India GIS datasets",
+    "noResults": "No matching datasets found for this portal.",
+    "searchError": "Could not list this portal's datasets.",
+    "chooseRegion": "Choose a region",
+    "portal": "Portal",
+    "chooseRegionHint": "Choose a region, then a portal, to list its GIS data.",
     "openPortal": "Open portal"
   },
   "usFederalGis": {

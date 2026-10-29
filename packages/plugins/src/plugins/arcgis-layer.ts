@@ -245,7 +245,10 @@ interface ArcGISFeatureLayerInfo extends ArcGISEditInfo {
 interface ArcGISFeatureServiceInfo {
   layers?: Array<{
     id: number;
-    subLayerIds?: number[];
+    /** A map service names each layer's kind ("Feature Layer", "Raster Layer"...). */
+    type?: string;
+    /** Null, not absent, on a map service's non-group layers. */
+    subLayerIds?: number[] | null;
   }>;
 }
 
@@ -2575,11 +2578,32 @@ async function resolvePortalFeatureLayerUrl(
       { cause },
     );
   }
-  // City and county ArcGIS Server sites often register a map service layer as
-  // a "Feature Service" item. Such a layer answers the same `/query` requests
-  // as a FeatureServer layer; the caller's geometry-type check still rejects
-  // one that is not a feature layer.
+  // City and county ArcGIS Server sites often register a map service or map
+  // service layer as a "Feature Service" item. Such a layer answers the same
+  // `/query` requests as a FeatureServer layer; the caller's geometry-type
+  // check still rejects one that is not a feature layer.
   if (/\/MapServer\/\d+\/?$/i.test(itemInfo.url)) return trimTrailingSlash(itemInfo.url);
+  if (/\/MapServer\/?$/i.test(itemInfo.url)) {
+    const serviceInfo = await fetchArcGISJson<ArcGISFeatureServiceInfo>(
+      itemInfo.url,
+      options,
+      cause,
+    );
+    // A map service can list raster or annotation layers before its first
+    // feature layer; older servers omit `type`, so fall back to any non-group.
+    const layerId = serviceInfo.layers?.find((layer) =>
+      layer.type ? layer.type === "Feature Layer" : !layer.subLayerIds?.length,
+    )?.id;
+    if (layerId == null) {
+      throw new LocalizedError(
+        `${ERROR_KEY}.noFeatureLayer`,
+        "The ArcGIS feature service does not list a feature layer.",
+        undefined,
+        { cause },
+      );
+    }
+    return `${trimTrailingSlash(itemInfo.url)}/${layerId}`;
+  }
   return resolveFeatureLayerUrl(itemInfo.url, options, cause);
 }
 

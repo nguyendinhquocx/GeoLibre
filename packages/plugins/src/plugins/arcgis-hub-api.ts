@@ -22,6 +22,12 @@ export interface ArcGisHubItem {
   pageUrl?: string;
   /** The most features `dataUrl` returns, when the export is capped. */
   featureLimit?: number;
+  /**
+   * Keep only the features of `dataUrl` whose `property` is one of `values`,
+   * for a card that shows part of a larger GeoJSON file (one state's districts
+   * from a national file).
+   */
+  featureFilter?: { property: string; values: readonly string[] };
 }
 
 export interface ArcGisHubSearchResult {
