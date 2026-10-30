@@ -264,7 +264,8 @@ export interface NonTiledRasterRequest {
   bytesAreRemote: boolean;
   /** Reads the original bytes (a local file from its blob URL, or a remote URL
    * fetched whole). Must be awaited before {@link dismiss}, which revokes a
-   * local file's blob URL. */
+   * local file's blob URL. Returns a fresh buffer owned by the caller, which
+   * may transfer it without affecting the original raster. */
   readBytes: () => Promise<Uint8Array>;
   /** Removes the failed layer from the map and the store. */
   dismiss: () => void;

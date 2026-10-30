@@ -15,8 +15,8 @@ import {
   readGeoTiffInfo,
 } from "@geolibre/processing";
 import type { TFunction } from "i18next";
-import { useEffect, type RefObject } from "react";
-import { notify } from "../../lib/notify";
+import { useEffect, useRef, type RefObject } from "react";
+import { dismissNotification, notify } from "../../lib/notify";
 import { notifyUnrestorableRasters } from "../../lib/local-raster-notices";
 import { isTauri, pickLocalRasterFiles, readRasterFileAtPath } from "../../lib/tauri-io";
 import { createAppAPI } from "../usePlugins";
@@ -32,6 +32,11 @@ export function useRasterFileHandlers(
   mapControllerRef: RefObject<MapEngine | null>,
   t: TFunction,
 ): void {
+  const translateRef = useRef(t);
+  useEffect(() => {
+    translateRef.current = t;
+  }, [t]);
+
   // Let the raster plugin reach the local filesystem on desktop: re-read a
   // raster a saved project references by path, and open the native file dialog
   // instead of the panel's own <input type="file"> (whose File carries no path,
@@ -60,7 +65,11 @@ export function useRasterFileHandlers(
   // and hands us the bytes; the conversion and the prompt live here because this
   // layer has i18n and the client-side converter. See opengeos/GeoLibre#789.
   useEffect(() => {
+    const conversions = new Set<AbortController>();
     setNonTiledRasterHandler(async ({ name, bytesAreRemote, readBytes, dismiss }) => {
+      const controller = new AbortController();
+      conversions.add(controller);
+      let notice: string | undefined;
       try {
         // A remote source gets a single up-front prompt that names the download:
         // its size is unknown until it has been fetched, so prompting again after
@@ -68,7 +77,10 @@ export function useRasterFileHandlers(
         // the user already agreed to download. A local file resolves instantly,
         // so it defers to the post-read prompt below, which can pick the
         // large-raster warning now that the dimensions are cheap to read. See #916.
-        if (bytesAreRemote && !window.confirm(t("raster.cogConvertRemoteConfirm", { name }))) {
+        if (
+          bytesAreRemote &&
+          !window.confirm(translateRef.current("raster.cogConvertRemoteConfirm", { name }))
+        ) {
           return;
         }
         // Read the source bytes in their own try so a failure to obtain them
@@ -83,15 +95,17 @@ export function useRasterFileHandlers(
         try {
           bytes = await readBytes();
         } catch (error) {
+          if (controller.signal.aborted) return;
           console.error("[GeoLibre] Failed to read raster for conversion", error);
           notify.error(
             bytesAreRemote
-              ? t("raster.rasterDownloadFailed", { name })
-              : t("raster.cogConvertFailed", { name }),
+              ? translateRef.current("raster.rasterDownloadFailed", { name })
+              : translateRef.current("raster.cogConvertFailed", { name }),
             { error },
           );
           return;
         }
+        controller.signal.throwIfAborted();
         // A URL can answer 200 with non-GeoTIFF content (an auth/login or error
         // page), which downloads fine but is not convertible. Sniff the TIFF
         // signature up front so that surfaces as a clear "not a GeoTIFF" message
@@ -100,7 +114,7 @@ export function useRasterFileHandlers(
         // reader/converter, so a valid >4 GiB raster is not wrongly rejected.
         if (!isTiff(bytes)) {
           // A data problem, not an app fault, so a warning (no "Report issue").
-          notify.warning(t("raster.rasterNotGeotiff", { name }));
+          notify.warning(translateRef.current("raster.rasterNotGeotiff", { name }));
           return;
         }
         const info = await readGeoTiffInfo(bytes);
@@ -110,7 +124,7 @@ export function useRasterFileHandlers(
           console.warn(
             `[GeoLibre] Skipping in-browser COG conversion for "${name}": ${samples.toLocaleString()} decoded samples exceed the safe memory limit.`,
           );
-          notify.warning(t("raster.cogConvertTooLarge", { name }));
+          notify.warning(translateRef.current("raster.cogConvertTooLarge", { name }));
           return;
         }
         if (!bytesAreRemote) {
@@ -118,15 +132,33 @@ export function useRasterFileHandlers(
           // read, then confirm once. (A remote source already confirmed above.)
           const message =
             samples > LARGE_BROWSER_COG_CONVERSION_SAMPLES
-              ? t("raster.cogConvertLargeConfirm", {
+              ? translateRef.current("raster.cogConvertLargeConfirm", {
                   name,
                   width: info.width,
                   height: info.height,
                 })
-              : t("raster.cogConvertConfirm", { name });
+              : translateRef.current("raster.cogConvertConfirm", { name });
           if (!window.confirm(message)) return;
         }
-        const cog = await convertGeoTiffToCog(bytes);
+        controller.signal.throwIfAborted();
+        notice = notify.info(translateRef.current("raster.cogConverting", { name }), {
+          durationMs: null,
+          pinned: true,
+          dedupeKey: `cog-conversion-${crypto.randomUUID()}`,
+          action: {
+            label: translateRef.current("common.cancel"),
+            onClick: () => controller.abort(),
+          },
+        });
+        // readBytes returns a fresh buffer; transferring it avoids another
+        // full-size allocation without detaching the original raster's data.
+        const cog = await convertGeoTiffToCog(bytes, {
+          signal: controller.signal,
+          transferInput: true,
+        });
+        controller.signal.throwIfAborted();
+        if (notice) dismissNotification(notice);
+        notice = undefined;
         // The cast is required: TS types Uint8Array as Uint8Array<ArrayBufferLike>,
         // which is not directly assignable to BlobPart's ArrayBufferView.
         const file = new File([cog as BlobPart], name, {
@@ -138,10 +170,17 @@ export function useRasterFileHandlers(
         // layer (and its message) in place.
         dismiss();
       } catch (error) {
+        if (controller.signal.aborted) return;
         console.error("[GeoLibre] Failed to convert GeoTIFF to COG", error);
-        notify.error(t("raster.cogConvertFailed", { name }), { error });
+        notify.error(translateRef.current("raster.cogConvertFailed", { name }), { error });
+      } finally {
+        if (notice) dismissNotification(notice);
+        conversions.delete(controller);
       }
     });
-    return () => setNonTiledRasterHandler(null);
-  }, [mapControllerRef, t]);
+    return () => {
+      setNonTiledRasterHandler(null);
+      for (const controller of conversions) controller.abort();
+    };
+  }, [mapControllerRef]);
 }

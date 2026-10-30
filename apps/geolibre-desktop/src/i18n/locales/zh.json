@@ -3652,6 +3652,7 @@
       "readingWithDuckDb": "正在使用 DuckDB-WASM 读取 {{name}}",
       "readFeatures": "已从 {{name}} 读取 {{features}} 个要素",
       "savedFile": "已保存 {{name}}",
+      "cancelled": "已取消转换。",
       "saveCanceled": "转换已完成；保存已取消。",
       "vectorToGeoparquet": "矢量转 GeoParquet",
       "vectorToFlatgeobuf": "矢量转 FlatGeobuf",
@@ -9440,6 +9441,7 @@
   },
   "raster": {
     "filePickerLabel": "栅格",
+    "cogConverting": "正在将“{{name}}”转换为 COG…",
     "cogConvertConfirm": "“{{name}}”是普通（条带式）GeoTIFF，无法直接显示。是否立即将其转换为云优化 GeoTIFF 并加载？",
     "cogConvertRemoteConfirm": "“{{name}}”是普通（条带式）GeoTIFF，无法直接显示。要显示它，需要下载整个文件并在浏览器中将其转换为云优化 GeoTIFF，对于大文件而言这可能会很慢且占用大量内存。是否继续？",
     "cogConvertLargeConfirm": "“{{name}}”是一个 {{width}}×{{height}} 的大型 GeoTIFF，并非云优化 GeoTIFF。在浏览器中转换它可能会很慢且占用大量内存。是否仍要转换并加载？",

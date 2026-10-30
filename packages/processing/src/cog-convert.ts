@@ -1,313 +1,104 @@
-// In-browser GeoTIFF -> Cloud Optimized GeoTIFF conversion, backed by the
-// `geolibre-wasm` wasm-bindgen module (GeoTiffReader + CogBuilder). This is the
-// MAIN geolibre-wasm module, distinct from `geolibre-wasm/tools` used by
-// wasm-client.ts (a separate WASI binary); the two load independent wasm files.
-//
-// The raster panel can only stream tiles from an internally tiled COG, so a
-// plain striped GeoTIFF (the kind desktop GIS tools like QGIS export) fails to
-// display. This module reads such a file fully into memory, re-encodes it as a
-// tiled COG with overviews, and hands the bytes back so the caller can load the
-// result instead. It runs entirely client-side, so it works in the browser
-// build with no Python sidecar. See opengeos/GeoLibre#789.
-import init, { CogBuilder, GeoTiffReader, geotiff_info } from "geolibre-wasm";
-import type { RasterData } from "./raster-client";
+// Public COG conversion API. Pixel decoding, overview generation and encoding
+// run in a disposable Worker in browser/WebView hosts. The inline engine is
+// also used by the worker itself and by headless hosts without Web Workers.
+import {
+  convertGeoTiffToCog as convertInline,
+  type ConvertGeoTiffToCogOptions as EncodingOptions,
+} from "./cog-convert-engine";
+import type { CogConvertRequest, CogConvertResponse } from "./cog-convert.worker";
 
-/** Header-only metadata for a GeoTIFF, parsed from {@link geotiff_info}. Cheap:
- * reads only the TIFF header, never the pixel data, so it is safe on large
- * files. */
-export interface GeoTiffInfo {
-  ok: boolean;
-  width: number;
-  height: number;
-  bands: number;
-  epsg?: number;
-  nodata?: number;
-  bits_per_sample: number;
-  /** GDAL-style sample format: `"uint"`, `"int"`, or `"ieeefloat"`. */
-  sample_format: string;
-  compression: string;
-  /** Whether the primary image is internally tiled (a COG requirement). */
-  tiled: boolean;
-  bigtiff: boolean;
-}
+export {
+  initCogWasm,
+  readGeoTiffInfo,
+  isTiledGeoTiff,
+  convertRasterDataToCog,
+  COG_WASM_COMPRESSIONS,
+  exceedsBrowserCogConversionLimit,
+  geoTiffSampleCount,
+  LARGE_BROWSER_COG_CONVERSION_SAMPLES,
+  MAX_BROWSER_COG_CONVERSION_SAMPLES,
+  type CogWasmCompression,
+  type ConvertRasterDataToCogOptions,
+  type GeoTiffInfo,
+} from "./cog-convert-engine";
 
-/** Tile size (px) for the encoded COG. 512 matches the COGs GeoLibre's sample
- * data ships with and the upstream reader's expectations. */
-const COG_TILE_SIZE = 512;
-
-/**
- * Compressions {@link CogBuilder} can encode for *any* pixel type, and so the
- * set the browser build offers for Raster to COG.
- *
- * Deliberately narrower than the sidecar's rio-cogeo list: `zstd` and `raw` are
- * not implemented by CogBuilder at all, and `webp`/`jpeg`/`jpegxl` reject
- * anything but 8-bit samples ("Unsupported sample format"), which would fail on
- * the Int16/Float32 DEMs this tool is most often pointed at. Desktop keeps the
- * full rio-cogeo list via the sidecar.
- */
-export const COG_WASM_COMPRESSIONS = ["deflate", "lzw", "packbits", "none"] as const;
-
-export type CogWasmCompression = (typeof COG_WASM_COMPRESSIONS)[number];
-
-export interface ConvertGeoTiffToCogOptions {
-  /** Tile compression codec. Defaults to `"deflate"`. */
-  compression?: CogWasmCompression;
+export interface ConvertGeoTiffToCogOptions extends EncodingOptions {
+  /** Terminate the conversion worker immediately on cancellation. */
+  signal?: AbortSignal;
   /**
-   * Build the overview pyramid (default true). The encoder downsamples with a
-   * box average that does not skip NoData, which blends categorical values
-   * (class codes, colors at class edges), so categorical rasters should pass
-   * false.
+   * Transfer ownership of a whole ArrayBuffer input to the worker, detaching
+   * every view of it in this thread. Defaults to false so retained layer bytes
+   * and reusable inputs remain valid. Subarrays/shared buffers are always copied.
    */
-  overviews?: boolean;
-}
-
-/** Hard ceiling for the browser converter's decoded sample count. */
-export const MAX_BROWSER_COG_CONVERSION_SAMPLES = 100_000_000;
-
-/** Sample count above which callers should show an extra memory warning. */
-export const LARGE_BROWSER_COG_CONVERSION_SAMPLES = 40_000_000;
-
-/** Return the decoded sample count used by the conversion memory guard. */
-export function geoTiffSampleCount(info: Pick<GeoTiffInfo, "width" | "height" | "bands">): number {
-  return info.width * info.height * Math.max(info.bands, 1);
-}
-
-/** Whether a decoded sample count exceeds the safe conversion memory cap. */
-export function exceedsBrowserCogConversionLimit(samples: number): boolean {
-  return !Number.isSafeInteger(samples) || samples > MAX_BROWSER_COG_CONVERSION_SAMPLES;
-}
-
-let wasmReady: Promise<void> | null = null;
-
-/**
- * Initialise the geolibre-wasm module exactly once. In the browser the
- * argument is omitted and wasm-bindgen fetches the bundled `.wasm` asset; tests
- * (or other non-bundler hosts) can pass the wasm bytes or a URL explicitly.
- *
- * @param moduleOrPath - Optional wasm bytes / URL / module for non-browser hosts.
- * @returns A promise that resolves once the module is ready.
- */
-export function initCogWasm(moduleOrPath?: ArrayBuffer | Uint8Array | URL | string): Promise<void> {
-  if (!wasmReady) {
-    wasmReady = init(
-      moduleOrPath === undefined ? undefined : { module_or_path: moduleOrPath },
-    ).then(
-      () => undefined,
-      (error: unknown) => {
-        // Do not cache a rejection: a transient failure (e.g. fetching the wasm
-        // asset) would otherwise make every later conversion reject until the
-        // page reloads. Mirrors getRasterControlClass in maplibre-raster.ts.
-        wasmReady = null;
-        throw error;
-      },
-    );
-  }
-  return wasmReady;
+  transferInput?: boolean;
 }
 
 /**
- * Read header-only metadata from GeoTIFF bytes.
- *
- * @param bytes - The raw GeoTIFF file bytes.
- * @returns Parsed {@link GeoTiffInfo}.
- */
-export async function readGeoTiffInfo(bytes: Uint8Array): Promise<GeoTiffInfo> {
-  await initCogWasm();
-  return JSON.parse(geotiff_info(bytes)) as GeoTiffInfo;
-}
-
-/**
- * Whether GeoTIFF bytes are already an internally tiled image (so the raster
- * panel can render them directly without conversion).
- *
- * @param bytes - The raw GeoTIFF file bytes.
- * @returns `true` if the primary image is tiled.
- */
-export async function isTiledGeoTiff(bytes: Uint8Array): Promise<boolean> {
-  return (await readGeoTiffInfo(bytes)).tiled;
-}
-
-/** Decimation factors for the overview pyramid, halving until the coarsest
- * level is no larger than ~a couple of tiles. Empty for small images that need
- * no overviews. */
-function overviewLevels(width: number, height: number): Uint32Array {
-  const levels: number[] = [];
-  let factor = 2;
-  while (Math.max(width, height) / factor > 256) {
-    levels.push(factor);
-    factor *= 2;
-  }
-  return Uint32Array.from(levels);
-}
-
-/**
- * Re-encode a GeoTIFF (typically a striped, non-tiled file) as a tiled Cloud
- * Optimized GeoTIFF with overviews, preserving georeferencing, the nodata
- * value, and band count. Reads the whole raster into memory, so the caller
- * should warn for very large inputs.
- *
- * The output pixel type is narrowed to what {@link CogBuilder} can encode: 8-bit
- * unsigned data stays `u8`; everything else (Int16 DEMs, Float32/64, etc.) is
- * written as Float32, which is exact for typical display data and keeps the
- * file small. Multi-band data is encoded pixel-interleaved, matching the reader.
- *
- * @param bytes - The raw source GeoTIFF bytes.
- * @param options - Optional encoder settings; see {@link ConvertGeoTiffToCogOptions}.
- * @returns The COG file bytes.
+ * Convert a GeoTIFF off the UI thread, preserving the engine's metadata and
+ * sample-limit checks. A worker failure rejects rather than retrying expensive
+ * synchronous work on the UI thread. Headless hosts without Worker use the
+ * inline engine; cancellation there can only be checked before/after encoding.
  */
 export async function convertGeoTiffToCog(
   bytes: Uint8Array,
   options: ConvertGeoTiffToCogOptions = {},
 ): Promise<Uint8Array> {
-  await initCogWasm();
-  const reader = new GeoTiffReader(bytes);
-  try {
-    const info = JSON.parse(reader.info_json()) as GeoTiffInfo;
-    if (!info.ok) throw new Error("Not a readable GeoTIFF.");
-    const samples = geoTiffSampleCount(info);
-    if (exceedsBrowserCogConversionLimit(samples)) {
-      throw new Error(
-        `GeoTIFF has ${samples.toLocaleString()} decoded samples, exceeding the safe browser conversion limit.`,
-      );
-    }
-    const { width, height, bands } = reader;
-    const builder = new CogBuilder(width, height, bands);
-    try {
-      const epsg = reader.epsg;
-      if (typeof epsg === "number" && Number.isFinite(epsg)) {
-        builder.set_epsg(epsg);
-      } else if (reader.proj_string) {
-        // A user-defined projection (e.g. South Africa's Lo29, ESRI:102567) has
-        // no EPSG code; carry its projection GeoKeys over instead.
-        builder.set_proj_string(reader.proj_string);
-      }
-      const geoTransform = reader.geo_transform();
-      if (geoTransform.length >= 6) builder.set_geo_transform(geoTransform);
-      const nodata = reader.nodata;
-      if (typeof nodata === "number" && Number.isFinite(nodata)) {
-        builder.set_nodata(nodata);
-      }
-      builder.set_tile_size(COG_TILE_SIZE);
-      builder.set_compression(options.compression ?? "deflate");
-      // An explicit empty list writes no overviews (unset would auto-compute them).
-      builder.set_overview_levels(
-        options.overviews === false ? new Uint32Array() : overviewLevels(width, height),
-      );
-
-      // read_all_f64 is the one reader that decodes any source dtype (Int16,
-      // Float32, ...) to a common type; the typed per-band readers
-      // (read_band_f32, ...) require the source to already be that type and
-      // throw otherwise. So decode to f64 once, then narrow to the COG's pixel
-      // type. The transient f64 + f32 copies are bounded by the caller's
-      // large-raster warning. The data is pixel-interleaved (band0,band1,... per
-      // pixel), matching what CogBuilder expects.
-      const pixels = reader.read_all_f64();
-      const isByte = info.sample_format === "uint" && info.bits_per_sample <= 8;
-      return isByte
-        ? builder.write_u8(Uint8Array.from(pixels))
-        : builder.write_f32(Float32Array.from(pixels));
-    } finally {
-      builder.free();
-    }
-  } finally {
-    reader.free();
+  const { signal, transferInput, compression, overviews } = options;
+  signal?.throwIfAborted();
+  if (typeof Worker === "undefined") {
+    const result = await convertInline(bytes, { compression, overviews });
+    signal?.throwIfAborted();
+    return result;
   }
-}
 
-export interface ConvertRasterDataToCogOptions {
-  /**
-   * Write NoData, and any non-finite sample, as NaN instead of the raster's
-   * own sentinel (default false).
-   * The encoder builds overviews with a box average that does not skip NoData,
-   * so a finite sentinel such as -9999 blends into its valid neighbours along
-   * every NoData edge (an NDVI overview pixel that is 15/16 NoData reads
-   * -9374). The renderer takes its auto stretch and histogram from the
-   * coarsest overview, so those outliers flatten the whole layer (#3255). NaN
-   * propagates through the average instead, so an overview pixel that touches
-   * NoData stays NoData, and the renderer already treats NaN as NoData. The
-   * trade-off: any NoData pixel blanks its whole overview block, so a NoData
-   * edge grows by up to one block at low zoom, and scattered NoData (speckle,
-   * cloud masks) can leave the coarsest levels mostly empty. Without the
-   * option those same blocks hold blended outliers instead, so nanNodata is
-   * still the better choice for display. The full fix is a NoData-aware average
-   * in the encoder (opengeos/whitebox-wasm#33). Use it for a COG that is only
-   * drawn on the map; keep the sentinel for one that feeds tools which compare
-   * against it.
-   */
-  nanNodata?: boolean;
-}
-
-/**
- * Encode an in-memory client-processing result directly as a Float32 COG.
- *
- * @param raster - The processing result to encode.
- * @param options - Optional encoder settings; see {@link ConvertRasterDataToCogOptions}.
- * @returns The COG file bytes.
- */
-export async function convertRasterDataToCog(
-  raster: RasterData,
-  options: ConvertRasterDataToCogOptions = {},
-): Promise<Uint8Array> {
-  await initCogWasm();
-  const samples = geoTiffSampleCount({
-    width: raster.width,
-    height: raster.height,
-    bands: raster.bands.length,
+  const worker = new Worker(new URL("./cog-convert.worker.ts", import.meta.url), {
+    type: "module",
   });
-  if (exceedsBrowserCogConversionLimit(samples)) {
-    throw new Error(
-      `Raster has ${samples.toLocaleString()} decoded samples, exceeding the safe browser conversion limit.`,
-    );
-  }
-
-  const builder = new CogBuilder(raster.width, raster.height, raster.bands.length);
-  try {
-    const epsg = Number(
-      raster.geoKeys.ProjectedCSTypeGeoKey ?? raster.geoKeys.GeographicTypeGeoKey,
-    );
-    if (Number.isFinite(epsg) && epsg >= 32767 && epsg <= 65535) {
-      throw new Error(
-        `Client raster output cannot preserve user-defined or private CRS code ${epsg}. Use the sidecar engine instead.`,
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const cleanup = () => {
+      signal?.removeEventListener("abort", abort);
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.onmessageerror = null;
+      worker.terminate();
+    };
+    const fail = (error: unknown) => {
+      cleanup();
+      reject(error);
+    };
+    const abort = () =>
+      fail(signal?.reason ?? new DOMException("Conversion cancelled.", "AbortError"));
+    worker.onmessage = (event: MessageEvent<CogConvertResponse>) => {
+      cleanup();
+      if (event.data.ok) resolve(event.data.bytes);
+      else reject(new Error(event.data.error));
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      fail(new Error(event.message || "COG conversion worker failed."));
+    };
+    worker.onmessageerror = () => fail(new Error("Could not read COG conversion worker response."));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    try {
+      // Preserve the exact view range and never detach unrelated data sharing
+      // the buffer. Every payload crossing threads owns its own ArrayBuffer.
+      const input =
+        transferInput &&
+        bytes.buffer instanceof ArrayBuffer &&
+        bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength
+          ? bytes
+          : new Uint8Array(bytes);
+      worker.postMessage(
+        { bytes: input, options: { compression, overviews } } satisfies CogConvertRequest,
+        [input.buffer as ArrayBuffer],
       );
+    } catch (error) {
+      fail(error);
     }
-    if (Number.isFinite(epsg) && epsg > 0) builder.set_epsg(epsg);
-    builder.set_geo_transform(
-      Float64Array.from([
-        raster.originX,
-        raster.flipX ? -raster.resX : raster.resX,
-        0,
-        raster.originY,
-        0,
-        raster.flipY ? raster.resY : -raster.resY,
-      ]),
-    );
-    const nodata = raster.nodata;
-    // With nanNodata, the sentinel and any non-finite sample (an Infinity
-    // would blend into the overviews just like -9999) are written as NaN.
-    const toNaN = options.nanNodata === true;
-    // Samples are Float32, so match the sentinel in that precision (-9999.9
-    // is stored as -9999.900390625).
-    const nodata32 = toNaN && nodata != null ? Math.fround(nodata) : null;
-    if (toNaN && nodata != null) {
-      builder.set_nodata(Number.NaN);
-    } else if (nodata != null && Number.isFinite(nodata)) {
-      builder.set_nodata(nodata);
-    }
-    builder.set_tile_size(COG_TILE_SIZE);
-    builder.set_compression("deflate");
-    builder.set_overview_levels(overviewLevels(raster.width, raster.height));
-
-    const pixels = raster.width * raster.height;
-    const values = new Float32Array(samples);
-    for (let pixel = 0; pixel < pixels; pixel += 1) {
-      for (let band = 0; band < raster.bands.length; band += 1) {
-        const value = raster.bands[band][pixel];
-        values[pixel * raster.bands.length + band] =
-          toNaN && (value === nodata32 || !Number.isFinite(value)) ? Number.NaN : value;
-      }
-    }
-    return builder.write_f32(values);
-  } finally {
-    builder.free();
-  }
+  });
 }

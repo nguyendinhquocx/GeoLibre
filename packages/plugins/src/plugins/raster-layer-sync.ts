@@ -52,6 +52,7 @@ export type RasterSyncableControl = {
   getState?: () => { collapsed: boolean };
   getRasters: () => RasterLayerInfo[];
   removeRaster: (id: string) => void;
+  reorderRaster: (id: string, toIndex: number) => void;
   setRasterState: (id: string, patch: Partial<RasterLayerState>) => void;
   setVisible: (id: string, visible: boolean) => void;
 };
@@ -434,9 +435,57 @@ export function syncRasterLayersToStoreWithOptions(
         });
       }
     }
+    applyControlRasterOrder(control, infos);
   } finally {
     syncingLayersToStore = false;
   }
+}
+
+/**
+ * Moves the store's rasters into the control's order, after a move made with
+ * the raster panel's own up/down buttons. Only the slots rasters already occupy
+ * are rewritten, so other layers keep their place in the stack. A move that
+ * would split a layer group is not mirrored: the store order stands, and the
+ * control is moved back to match it so the panel and the map agree.
+ *
+ * @param control - The raster control the panel move was made in.
+ * @param infos - The control's rasters, bottom to top.
+ */
+function applyControlRasterOrder(control: RasterSyncableControl, infos: RasterLayerInfo[]): void {
+  const { layers } = useAppStore.getState();
+  const byId = new Map(layers.map((layer) => [layer.id, layer]));
+  const ordered = infos.flatMap((info) => {
+    const layer = byId.get(info.id);
+    return layer && isRasterControlStoreLayer(layer) ? [layer] : [];
+  });
+  const orderedIds = new Set(ordered.map(({ id }) => id));
+  let next = 0;
+  const reordered = layers.map((layer) => (orderedIds.has(layer.id) ? ordered[next++] : layer));
+  if (reordered.every((layer, index) => layer === layers[index])) return;
+  if (splitsLayerGroup(reordered)) {
+    runWithRasterStoreSyncSuspended(() => applyStoreRasterOrder(control, layers));
+    return;
+  }
+  useAppStore.setState({ layers: reordered, isDirty: true });
+}
+
+/**
+ * Whether any layer group's members are no longer contiguous in the stack. The
+ * raster control knows nothing about groups, so its order can ask for this.
+ *
+ * @param layers - The candidate store layers, bottom to top.
+ * @returns True when a group's members would be separated by another layer.
+ */
+function splitsLayerGroup(layers: GeoLibreLayer[]): boolean {
+  const closed = new Set<string>();
+  let current: string | undefined;
+  for (const { groupId } of layers) {
+    if (groupId === current) continue;
+    if (current) closed.add(current);
+    if (groupId && closed.has(groupId)) return true;
+    current = groupId;
+  }
+  return false;
 }
 
 /**
@@ -500,7 +549,39 @@ export function wireRasterStoreSync(control: RasterSyncableControl): void {
         const zoomPatch = zoomRangePatch(layer, current);
         if (zoomPatch) activeControl.setRasterState(layer.id, zoomPatch);
       }
+      applyStoreRasterOrder(activeControl, state.layers);
     });
+  });
+}
+
+/**
+ * Moves the control's rasters into the store's bottom-to-top order.
+ *
+ * Rasters on the deck.gl engine usually share one `deck-layer-group-*`: no
+ * style layer exists for layer-sync to anchor one raster to another, so they
+ * all get the same beforeId and draw in the control's own list order. That list
+ * is therefore the only channel for a Layers panel move between them
+ * (GeoLibre#3287). The native engines also redraw in this order on every rebuild.
+ *
+ * A raster the store does not know about keeps its slot in the list.
+ *
+ * @param control - The raster control to reorder.
+ * @param layers - The store layers, bottom to top.
+ */
+function applyStoreRasterOrder(control: RasterSyncableControl, layers: GeoLibreLayer[]): void {
+  const order = control.getRasters().map(({ id }) => id);
+  const known = new Set(order);
+  const stored = layers
+    .filter((layer) => isRasterControlStoreLayer(layer) && known.has(layer.id))
+    .map(({ id }) => id);
+  const storedIds = new Set(stored);
+  let next = 0;
+  const target = order.map((id) => (storedIds.has(id) ? stored[next++] : id));
+  target.forEach((id, index) => {
+    // Re-read the control's list each step instead of simulating its move, so
+    // the next index is always taken from the control's actual order.
+    if (control.getRasters()[index]?.id === id) return;
+    control.reorderRaster(id, index);
   });
 }
 

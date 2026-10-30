@@ -26,6 +26,12 @@ import { isTiff } from "./binary-output";
 import { beginProcessingRun } from "../processing-history";
 import { imageBlobToDataUrl } from "@geolibre/map";
 import { styleParamPatch } from "./style-params";
+import {
+  base64ToBytes,
+  cogOptionsFromParams,
+  requireHttpUrl,
+  tileOptionsFromParams,
+} from "./raster-params";
 import { parameterKind } from "../whitebox-param-kind";
 import { canUseLayerForParameter, fetchLayerBytes } from "../whitebox-layer-inputs";
 import { createAppAPI } from "../../hooks/usePlugins";
@@ -230,6 +236,50 @@ export function createScriptingHandlers(deps: ScriptingDeps): ScriptingHandlers 
         useAppStore.getState().setLayerStyle(layerId, style);
       }
       return layerId;
+    },
+    addTileLayer: (params) => {
+      const url = requireHttpUrl("addTileLayer", params.url);
+      const app = createAppAPI(controllerRefFrom(getController));
+      if (!app.addTileLayer) throw new Error("addTileLayer: not available in this app");
+      return app.addTileLayer(
+        String(params.name ?? "Tile layer"),
+        url,
+        tileOptionsFromParams(params.options),
+      );
+    },
+    addCogLayer: async (params) => {
+      const url = requireHttpUrl("addCogLayer", params.url);
+      const app = createAppAPI(controllerRefFrom(getController));
+      if (!app.addCogLayer) throw new Error("addCogLayer: not available in this app");
+      return app.addCogLayer(
+        String(params.name ?? "COG"),
+        url,
+        cogOptionsFromParams(params.options),
+      );
+    },
+    addRasterBytes: async (params) => {
+      if (typeof params.data !== "string" || !params.data) {
+        throw new Error("addRasterBytes: data must be a base64-encoded GeoTIFF");
+      }
+      const name = String(params.name ?? "Raster");
+      const file = new File([base64ToBytes(params.data) as BlobPart], `${name}.tif`, {
+        type: "image/tiff",
+      });
+      const { colormap, rescaleMin, rescaleMax, nodata, opacity, beforeLayerId, zoomTo } =
+        cogOptionsFromParams(params.options);
+      return addRasterToMap(createAppAPI(controllerRefFrom(getController)), file, {
+        name,
+        ...(beforeLayerId ? { beforeId: beforeLayerId } : {}),
+        ...(zoomTo !== undefined ? { zoomTo } : {}),
+        state: {
+          ...(colormap !== undefined ? { colormap } : {}),
+          ...(rescaleMin !== undefined && rescaleMax !== undefined
+            ? { rescale: [[rescaleMin, rescaleMax]] }
+            : {}),
+          ...(nodata !== undefined ? { nodata } : {}),
+          ...(opacity !== undefined ? { opacity } : {}),
+        },
+      });
     },
     removeLayer: (params) => {
       useAppStore.getState().removeLayer(requireLayerId(params));

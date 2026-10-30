@@ -589,7 +589,24 @@ export function ConversionDialog() {
   // trackers) are prevented by the synchronous guard in runConversion.
   const pendingTrackerRef = useRef<ProcessingRunTracker | null>(null);
   const dispatchGuardRef = useRef(false);
+  const cogAbortRef = useRef<AbortController | null>(null);
+  const cogSavingRef = useRef<AbortController | null>(null);
+  const [cogConverting, setCogConverting] = useState(false);
+
   const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Closing/switching tools also stops synchronous WASM by killing its worker.
+  useEffect(() => {
+    return () => {
+      if (cogAbortRef.current) {
+        if (cogSavingRef.current !== cogAbortRef.current) {
+          cogAbortRef.current.abort();
+          pendingTrackerRef.current?.finish("error", i18n.t("toolbar.conversion.cancelled"));
+        }
+        cogAbortRef.current = null;
+      }
+    };
+  }, [kind]);
 
   const config = kind ? TOOL_CONFIGS[kind] : null;
   const desktop = isTauri();
@@ -645,6 +662,7 @@ export function ConversionDialog() {
 
   // Reset per-tool state when the dialog opens or the tool changes.
   useEffect(() => {
+    setCogConverting(false);
     if (!kind) return;
     setInputPath("");
     setOutputPath("");
@@ -959,6 +977,10 @@ export function ConversionDialog() {
   /** In-browser Raster to COG via geolibre-wasm's CogBuilder. */
   const runBrowserRasterToCog = async (mainFile: File) => {
     if (!kind) return;
+    const controller = new AbortController();
+    const tracker = pendingTrackerRef.current;
+    cogAbortRef.current = controller;
+    setCogConverting(true);
     const toolId = kind;
     const outputName = outputPath.trim() || defaultOutputNameForKind(kind, mainFile.name);
     setError(null);
@@ -974,6 +996,7 @@ export function ConversionDialog() {
     try {
       const { convertGeoTiffToCog, readGeoTiffInfo } = await import("@geolibre/processing");
       const bytes = new Uint8Array(await mainFile.arrayBuffer());
+      controller.signal.throwIfAborted();
       // Header-only read: cheap, and it lets us report the shape and warn about
       // an already-tiled input before decoding any pixels.
       const info = await readGeoTiffInfo(bytes);
@@ -987,7 +1010,15 @@ export function ConversionDialog() {
       });
       const data = await convertGeoTiffToCog(bytes, {
         compression: compression as CogWasmCompression,
+        signal: controller.signal,
+        // This buffer was read solely for this run and can be detached.
+        transferInput: true,
       });
+      controller.signal.throwIfAborted();
+      setCogConverting(false);
+      // Saving has its own irreversible outcome and cannot be aborted by
+      // terminating the conversion worker. Keep its history independent.
+      cogSavingRef.current = controller;
       const savedName = await saveBinaryFileWithFallback(data, {
         defaultName: outputName,
         filters: config?.outputFilters ?? [],
@@ -999,6 +1030,10 @@ export function ConversionDialog() {
           },
         ],
       });
+      if (cogAbortRef.current !== controller) {
+        tracker?.finish("success");
+        return;
+      }
       setJob(
         browserConversionJob(toolId, "succeeded", [
           shape,
@@ -1009,6 +1044,21 @@ export function ConversionDialog() {
         ]),
       );
     } catch (err) {
+      // A closed/switched dialog must not publish an old run into the new tool.
+      if (cogAbortRef.current !== controller) {
+        if (cogSavingRef.current === controller) {
+          tracker?.finish(
+            "error",
+            messageFromThrown(err, i18n.t("toolbar.conversion.convertFailed")),
+          );
+        }
+        return;
+      }
+      if (controller.signal.aborted) {
+        const message = i18n.t("toolbar.conversion.cancelled");
+        setJob(browserConversionJob(toolId, "cancelled", [message], message));
+        return;
+      }
       // The wasm engines reject with a bare string, so read the message off any
       // thrown shape; `instanceof Error` alone would drop it (GeoLibre#1743).
       const detail = messageFromThrown(err, i18n.t("toolbar.conversion.convertFailed"));
@@ -1019,6 +1069,12 @@ export function ConversionDialog() {
         lines.push(i18n.t("toolbar.conversion.rasterTooLargeForBrowser"));
       }
       setJob(browserConversionJob(toolId, "failed", lines, detail));
+    } finally {
+      if (cogSavingRef.current === controller) cogSavingRef.current = null;
+      if (cogAbortRef.current === controller) {
+        cogAbortRef.current = null;
+        setCogConverting(false);
+      }
     }
   };
 
@@ -1792,6 +1848,11 @@ export function ConversionDialog() {
           )}
 
           <div className="flex items-center justify-end gap-2">
+            {cogConverting && (
+              <Button type="button" variant="outline" onClick={() => cogAbortRef.current?.abort()}>
+                {t("common.cancel")}
+              </Button>
+            )}
             <Button
               type="button"
               onClick={() => void runConversion()}
@@ -1818,7 +1879,7 @@ export function ConversionDialog() {
               <p className={cn("flex items-center gap-2 text-sm font-medium", jobStatusTone(job))}>
                 {job.status === "succeeded" ? (
                   <CheckCircle2 className="h-4 w-4" />
-                ) : job.status === "failed" ? (
+                ) : job.status === "cancelled" ? null : job.status === "failed" ? (
                   <AlertCircle className="h-4 w-4" />
                 ) : (
                   <Loader2 className="h-4 w-4 animate-spin" />
