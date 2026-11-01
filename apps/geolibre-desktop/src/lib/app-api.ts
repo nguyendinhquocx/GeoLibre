@@ -52,6 +52,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, readFile } from "@tauri-apps/plugin-fs";
 import type { RefObject } from "react";
+import type { FeatureCollection } from "geojson";
 import {
   createWmsTileUrl,
   normalizeWmsCrs,
@@ -88,7 +89,11 @@ import {
   setPluginLayerRequestHeaders,
 } from "./plugin-tile-request-headers";
 import { addPluginVectorTileLayer } from "./plugin-vector-tile-layer";
-import { createRemoteDownload, type RemoteDownloadProgress } from "./remote-download";
+import {
+  createRemoteDownload,
+  createWriteFileToFolder,
+  type RemoteDownloadProgress,
+} from "./remote-download";
 import { requestSpaceborneLidarGranule } from "./spaceborne-lidar-handoff";
 import { addPluginWfsLayer } from "./plugin-wfs-layer";
 import {
@@ -143,6 +148,8 @@ export interface AppApiHost extends Pick<
   | "unregisterToolbarMenu"
   | "registerMenuContribution"
   | "unregisterMenuContribution"
+  | "registerFileHandler"
+  | "unregisterFileHandler"
   | "registerFloatingPanel"
   | "unregisterFloatingPanel"
   | "openFloatingPanel"
@@ -592,6 +599,7 @@ export function createAppAPI(
     pickDownloadFolder: isDesktopRuntime()
       ? () => invoke<GeoLibreDownloadFolder | null>("pick_download_folder")
       : undefined,
+    writeFileToFolder: isDesktopRuntime() ? createWriteFileToFolder(invoke) : undefined,
     openSpaceborneLidarUrl: (url: string, fileName: string, headers?: Record<string, string>) =>
       requestSpaceborneLidarGranule({ url, fileName, ...(headers ? { headers } : {}) }),
     openSpaceborneLidarGranule: (data: ArrayBuffer, fileName: string) =>
@@ -828,6 +836,10 @@ export function createAppAPI(
         console.error(`Could not export ${filename}.`, error);
       });
     },
+    exportGeoParquetFile: async (filename: string, data: FeatureCollection) => {
+      const { exportVectorLayer } = await import("./vector-export");
+      return exportVectorLayer(data, "geoparquet", filename);
+    },
     importTextFile: (options?: GeoLibreFileDialogOptions) => {
       const extensions = options?.extensions ?? ["json"];
       return openLocalDataFileWithFallback({
@@ -995,6 +1007,8 @@ export function createAppAPI(
     unregisterToolbarMenu: host.unregisterToolbarMenu,
     registerMenuContribution: host.registerMenuContribution,
     unregisterMenuContribution: host.unregisterMenuContribution,
+    registerFileHandler: host.registerFileHandler,
+    unregisterFileHandler: host.unregisterFileHandler,
     registerFloatingPanel: host.registerFloatingPanel,
     unregisterFloatingPanel: host.unregisterFloatingPanel,
     openFloatingPanel: host.openFloatingPanel,
