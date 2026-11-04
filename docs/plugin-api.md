@@ -1599,11 +1599,50 @@ const unregister = app.registerFileHandler?.({
 - `claim` gets every matching file in the drop, so it can take a multi-file set, and returns the files it takes. An empty list means "not mine". Each file has a `name` and `size`; a readable `.zip` also has `entries`, the paths inside the archive, read from its central directory without loading the archive. Decide by these, since `.zip` is shared with the core. A `claim` that throws counts as "not mine".
 - `open` gets the claimed files, which add `arrayBuffer()` and `text()`. The drop status then says "Opened by" and your `name`. If `open` rejects, the error is shown under your `name` and the files stay claimed.
 
+The host only lists a `.zip`'s central directory for `entries` and never inflates an entry. A handler that unpacks the archive in `open` is the one reading untrusted bytes, so it should:
+
+- reject entries with a `..` segment, a backslash separator or an absolute path (`/etc/x`, `C:\x`), so nothing lands outside the folder you meant. Your unzip library may also decode a name differently from `entries`, so check the names it returns, not only the listed ones;
+- check the entry count and the declared sizes, per entry and in total, before inflating anything;
+- inflate with a bounded read (stop at the size you allow), because a declared size can lie.
+
 Handlers run in registration order, and a file one handler claims is not offered to the next. Everything nobody claims loads as it would without any handlers, so a shapefile zip still loads as a shapefile.
 
-Files inside a dropped folder also have a `path` relative to the drop, such as `TASKDATA/TLG00001.BIN`. Hidden entries and `__MACOSX` are skipped, and very deep or very large folders are cut off, so do not rely on seeing every file of a huge tree. When a handler claims any file of a folder, the whole folder counts as handled and its other files are not loaded. When no handler claims any, the folder goes to the built-in groups as usual.
+Files inside a dropped folder also have a `path` relative to the drop, such as `TASKDATA/TLG00001.BIN`. The path starts with the dropped folder's own name and always uses `/`, on every platform. Hidden entries and `__MACOSX` are skipped, and very deep or very large folders are cut off, so do not rely on seeing every file of a huge tree. When a handler claims any file of a folder, the whole folder counts as handled and its other files are not loaded. When no handler claims any, the folder goes to the built-in groups as usual.
 
 Register in `activate` and call the returned function (or `app.unregisterFileHandler?.(id)`) in `deactivate`; re-registering the same `id` replaces the handler. Ids are global, so prefix them with your plugin id; `unregisterFileHandler` only removes handlers your own plugin registered. The host also drops a plugin's handlers when it is deactivated or its activation fails. Drops are still blocked before any handler runs in the read-only viewer and when a deployment does not grant `data:add`.
+
+### Files loaded by URL
+
+The same handlers also receive a file GeoLibre downloads for `?data=` or the embed `addData` command. After the download, and before the built-in loaders classify it, the file is offered to the handlers exactly as a dropped file is: the `extensions` filter, then `claim`, then `open`, with the same error handling. The file name is the `Content-Disposition` filename when the response has one, otherwise the last segment of the URL path, so a URL that ends in `.zip` reaches a handler whose `extensions` include `.zip`, and `claim` sees the archive's `entries`. A download GeoLibre recognizes as a zip (by extension, content type, filename or the zip signature) is offered as a `.zip` even when its URL has no extension, such as a signed link that returns `application/zip`. No other format is guessed. A URL the built-in loaders take by its extension (`.tif`, `.tiff`, `.cog`, `.pmtiles`, `.parquet`, `.geoparquet`, `.las`, `.laz`, and EPT `ept.json` URLs) is loaded before any download, so an `extensions` filter never sees it; a `dataType` hint still routes such a URL to its handler. A file no handler claims loads as it would without any handlers. The same 250 MB download limit applies as for any other URL.
+
+A handler only sees URL loads while its plugin is active. External plugins are never active by default, so a link that relies on one must activate it: add `&plugin=<name>` for a built-in plugin or one from the plugin registry, or open a `?url=` project that lists the plugin as active. A plugin installed from a file cannot be activated by `?plugin=`; use the project.
+
+A URL with no extension, such as a signed link or an API endpoint, cannot be matched by `extensions`. Declare a `dataTypes` hint name for it:
+
+```typescript
+app.registerFileHandler?.({
+  id: "my-plugin-taskdata",
+  name: "ISOXML TaskData",
+  extensions: [".zip", ".xml"],
+  dataTypes: ["isoxml"],
+  claim: (files) => files.filter((file) => file.entries?.some((e) => /TASKDATA\.XML$/i.test(e))),
+  open: async (files) => parseAndAddLayers(files[0].name, await files[0].arrayBuffer()),
+});
+```
+
+```text
+https://web.geolibre.app/?data=https%3A%2F%2Fapi.example.com%2Fdownload%2F42&dataType=isoxml&plugin=my-plugin-name
+```
+
+When a URL carries `dataType=isoxml` and a registered handler declares that name, the downloaded file goes straight to that handler's `open`, without the extension filter and without `claim`. Because `claim` never runs, `open` must check that the bytes are really what it expects and reject otherwise. Names are lower-case letters, digits and hyphens, at most 32 characters; invalid names are ignored with a warning. A hint in `?dataType=` or in `addData` is trimmed and compared case-insensitively (`IsoXml` means `isoxml`). `lidar` is built in and cannot be declared. If two handlers declare the same name, the first one to declare it keeps it; replacing a handler keeps the hints it owned and never takes one another handler owns. A hint no handler declares is ignored. `dataType` pairs with `data` by position, and the embed `addData(url, { dataType })` option takes the same names. A hint that a handler declares cannot be combined with a `style`, since the plugin opens the file itself; the load fails before downloading, and no style is requested. A hint no handler declares, and `lidar`, are not affected. A malformed hint (not lower-case letters, digits and hyphens, or longer than 32 characters) is ignored with a console warning, both in `?dataType=` and in the embed `addData` option.
+
+`?data=` loads at startup, before every plugin has activated, so every download outside the read-only viewer waits for plugin activation (the project restore and the `?plugin=` link, including registry plugins that still need a trust decision) before it is offered to the handlers, even when no handler is registered yet, because a handler may be about to register. The wait has one absolute limit of 15 seconds, counted from the first load; after that, or as soon as activation has finished, later loads do not wait. A URL that needs no download, such as a `.tif` URL, never waits. `open` returns no layers: the handler adds its own, and `addData` resolves with the ids of the layers that appeared. The layers counted as the handler's are the ones that appear while its `open` runs. A layer the user adds before `open` starts or after it returns is left alone, but one the user adds while `open` runs cannot be told apart from the handler's, so it is counted as the handler's. If `open` rejects, or the load is aborted, the layers the handler added are removed and the load fails with the error under your `name`.
+
+A file loaded by URL is untrusted input, exactly like a dropped file. Anyone who can get a user to open a shared `?data=` link, or a host page that is allowed to send `addData`, can make bytes of its choosing reach `claim` and `open` of every active plugin's handler (and, with a `dataType` hint, `open` of the plugin it names, without `claim`). Treat the bytes, the file name and the zip entries as hostile: validate before parsing, bound memory and time, and never run or evaluate their content.
+
+URL loads run one at a time (the startup `?data=` load and the embed `addData` command share one queue), so a handler never runs for two URL loads at once.
+
+URL loads reach handlers only where drops are allowed: not in the read-only viewer (`layout=viewer`) and not when a deployment does not grant `data:add`. There the file loads as it would without handlers.
 
 ## Following the app language
 
