@@ -6,6 +6,7 @@ import {
   documentLocale,
   DEFAULT_LAYER_STYLE,
   extrusionColorValue,
+  extrusionBaseValue,
   extrusionHeightValue,
   generatorCircleRadiusValue,
   isAdoptedVectorAwaitingFeatures,
@@ -85,6 +86,11 @@ export const ARCGIS_LABEL_FIELD = "gl__label";
 export const ARCGIS_LABEL_CLASS_FIELD = "gl__lcls";
 /** Extrusion height in metres, read by the 3D renderer's size visual variable. */
 export const ARCGIS_HEIGHT_FIELD = "gl__height";
+/**
+ * Data-driven extrusion base in metres, read by the layer's elevation
+ * expression. Only written when the base varies per feature.
+ */
+export const ARCGIS_BASE_FIELD = "gl__base";
 export const ARCGIS_WEIGHT_FIELD = "gl__weight";
 
 /** The SDK's geometry kinds a GeoJSONLayer can hold; one layer per kind. */
@@ -168,9 +174,16 @@ export interface ArcgisGeoJsonPart {
   patternStyle?: LayerStyle;
   /**
    * How the SDK places the features vertically in a `SceneView`. Set on
-   * extruded polygons so the extrusion starts at the style's base height.
+   * extruded polygons so the extrusion starts at the style's base height: a
+   * flat `offset`, or an Arcade expression reading a per-feature base.
    */
-  elevationInfo?: { mode: "relative-to-ground" | "absolute-height"; offset: number };
+  elevationInfo?:
+    | { mode: "relative-to-ground" | "absolute-height"; offset: number }
+    | {
+        mode: "relative-to-ground";
+        featureExpressionInfo: { expression: string };
+        unit: "meters";
+      };
   hasZ?: boolean;
   featureReduction?: Record<string, unknown>;
   /**
@@ -223,6 +236,7 @@ const ARCGIS_RASTER_PLAN_KINDS: ReadonlySet<ArcgisLayerPlan["kind"]> = new Set([
   "tile-service",
   "map-image",
   "imagery",
+  "imagery-tile",
   "cog",
   "zarr",
   "archive",
@@ -320,6 +334,13 @@ export type ArcgisLayerPlan = ArcgisPlanBase &
     | { kind: "tile-service"; url: string }
     | { kind: "map-image"; url: string }
     | { kind: "imagery"; url: string }
+    /** A tiled imagery layer whose cache holds raw (LERC) pixel values. */
+    | {
+        kind: "imagery-tile";
+        url: string;
+        /** The access token the ArcGIS Layer panel put in the tile template. */
+        token?: string;
+      }
     | {
         kind: "media-image";
         url: string;
@@ -938,9 +959,16 @@ function explodePoints(geometry: Geometry): Geometry[] {
  * rule-based colours, the advanced expressions, and an empty height property
  * (a flat extrusion) behave as on the 2D map. As there, the height is the top
  * of the extrusion and the base its bottom, both in metres above the ground.
+ * A data-driven base (`extrusionBaseValue`, e.g. floors stacked from a level
+ * field) is written per feature to {@link ARCGIS_BASE_FIELD}; a flat one stays
+ * the layer's elevation offset.
  */
 interface ExtrusionReader {
+  /** The flat base, used as the elevation offset when `dataDrivenBase` is false. */
   base: number;
+  /** Whether the base varies per feature (so it is written per feature). */
+  dataDrivenBase: boolean;
+  baseAt(feature: Feature, zoom: number): number;
   zoomDependent: boolean;
   height(feature: Feature, zoom: number): number;
   symbol(feature: Feature, zoom: number): ArcgisSymbolJson;
@@ -972,18 +1000,41 @@ function featureValue(
 }
 
 function compileExtrusion(style: LayerStyle): ExtrusionReader {
-  const base = Number.isFinite(style.extrusionBase) ? style.extrusionBase : 0;
+  const baseValue = extrusionBaseValue(style);
+  // MapLibre clamps a negative fill-extrusion-base to the ground; so do the
+  // flat and per-feature bases here.
+  const flatBase =
+    typeof baseValue === "number" && Number.isFinite(baseValue) ? Math.max(0, baseValue) : 0;
+  const dataDrivenBase = Array.isArray(baseValue);
   const opacity = Number.isFinite(style.extrusionOpacity) ? style.extrusionOpacity : 0.8;
   const fallbackColor = style.extrusionColor || style.fillColor || "#3b82f6";
   const height = featureValue(extrusionHeightValue(style), "number");
   const color = featureValue(extrusionColorValue(style), "color");
+  const baseReader = featureValue(baseValue, "number");
+  // The compiler asks for a feature's base twice in a row (for its height and
+  // for ARCGIS_BASE_FIELD), so remember the last answer rather than
+  // evaluating the expression again.
+  let lastFeature: Feature | null = null;
+  let lastZoom = Number.NaN;
+  let lastBase = 0;
+  const baseAt = (feature: Feature, zoom: number): number => {
+    if (!dataDrivenBase) return flatBase;
+    if (feature === lastFeature && zoom === lastZoom) return lastBase;
+    const value = Number(baseReader.read(feature, zoom));
+    lastFeature = feature;
+    lastZoom = zoom;
+    lastBase = Number.isFinite(value) ? Math.max(0, value) : 0;
+    return lastBase;
+  };
   return {
-    base,
-    zoomDependent: height.zoomDependent || color.zoomDependent,
+    base: flatBase,
+    dataDrivenBase,
+    baseAt,
+    zoomDependent: height.zoomDependent || color.zoomDependent || baseReader.zoomDependent,
     height(feature, zoom) {
       const value = Number(height.read(feature, zoom));
       // The SDK extrudes by a size above the base; a top below the base is flat.
-      return Math.max(0, (Number.isFinite(value) ? value : 0) - base);
+      return Math.max(0, (Number.isFinite(value) ? value : 0) - baseAt(feature, zoom));
     },
     symbol(feature, zoom) {
       const value = color.read(feature, zoom);
@@ -1160,6 +1211,9 @@ function compileGeoJson(
             ? { [ARCGIS_WEIGHT_FIELD]: heatmapWeight(feature, style) }
             : {}),
           ...(extruded ? { [ARCGIS_HEIGHT_FIELD]: extrusion.height(feature, zoom) } : {}),
+          ...(extruded && extrusion.dataDrivenBase
+            ? { [ARCGIS_BASE_FIELD]: extrusion.baseAt(feature, zoom) }
+            : {}),
         },
       };
       if (override) overridden.set(out, override);
@@ -1299,7 +1353,15 @@ function compileGeoJson(
               ? { patternStyle: style }
               : {}),
             ...(extruded
-              ? { elevationInfo: { mode: "relative-to-ground" as const, offset: extrusion.base } }
+              ? {
+                  elevationInfo: extrusion.dataDrivenBase
+                    ? {
+                        mode: "relative-to-ground" as const,
+                        featureExpressionInfo: { expression: `$feature.${ARCGIS_BASE_FIELD}` },
+                        unit: "meters" as const,
+                      }
+                    : { mode: "relative-to-ground" as const, offset: extrusion.base },
+                }
               : {}),
             ...(elevated
               ? { hasZ: true, elevationInfo: { mode: "absolute-height" as const, offset: 0 } }
@@ -1915,6 +1977,53 @@ export function isArcgisSupportedLayer(layer: GeoLibreLayer, deckOverlay = true)
   return supported;
 }
 
+/**
+ * Whether an ImageServer record is a tiled imagery layer whose cache holds raw
+ * LERC pixel values, which only the SDK's ImageryTileLayer can draw.
+ *
+ * The ArcGIS Layer panel flags it from the service description
+ * (`arcgisRawTiles`). A record without the flag (a hand-written project, or
+ * one saved before the flag existed) is recognized by ArcGIS Online's hosted
+ * tiled imagery host, `tiledimageservices*.arcgis.com`: it hosts only tiled
+ * imagery layers, which are `TilesOnly` (no `/exportImage` for the SDK's
+ * ImageryLayer to call), and ImageryTileLayer draws such a layer whatever its
+ * tile encoding. `arcgisRawTiles: false` opts a record out.
+ *
+ * @param layer - The store layer.
+ * @param serviceUrl - The layer's ImageServer URL.
+ * @returns True when the layer should draw as an ImageryTileLayer.
+ */
+function isArcgisRawImageryTiles(layer: GeoLibreLayer, serviceUrl: string): boolean {
+  // A rendering rule is applied by the service's `/exportImage`, which the
+  // cache-reading ImageryTileLayer cannot honor.
+  if (layer.metadata.arcgisRenderingRule) return false;
+  if (layer.metadata.arcgisRawTiles === true) return true;
+  if (layer.metadata.arcgisRawTiles === false) return false;
+  try {
+    return /^tiledimageservices\d*\.arcgis\.com$/i.test(new URL(serviceUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The `token` query parameter of a tile template, if it has one.
+ *
+ * @param template - A tile URL template, possibly with `{z}`-style tokens.
+ * @returns The token, or undefined.
+ */
+function tileTemplateToken(template: string | undefined): string | undefined {
+  // Read the raw query rather than `URLSearchParams`, which decodes a literal
+  // `+` in a hand-edited, unencoded token as a space.
+  const raw = template ? /[?&]token=([^&#]*)/.exec(template)?.[1] : undefined;
+  if (!raw) return undefined;
+  try {
+    return decodeURIComponent(raw) || undefined;
+  } catch {
+    return raw;
+  }
+}
+
 const ARCGIS_SERVICE = /\/(FeatureServer|MapServer|ImageServer)(?:\/\d+)?\/?(?:\?|$)/i;
 
 const zarrSignatures = new WeakMap<GeoLibreLayer["source"], string>();
@@ -2068,7 +2177,9 @@ export function compileArcgisLayer(
       };
     }
     const kind = /ImageServer/i.test(serviceUrl)
-      ? "imagery"
+      ? isArcgisRawImageryTiles(layer, serviceUrl)
+        ? "imagery-tile"
+        : "imagery"
       : layer.metadata.arcgisTiled === true
         ? "tile-service"
         : "map-image";
@@ -2116,6 +2227,24 @@ export function compileArcgisLayer(
       sourceId,
       styleLayers,
       tileOptions,
+    };
+  }
+  // An image service added through the ArcGIS Layer panel is a raster
+  // template record; one whose cache is raw LERC data has no template the SDK
+  // could draw, so it is drawn by the service itself. The panel carries a
+  // token in the tile template, which the SDK layer sends with each request.
+  if (
+    layer.metadata.sourceKind === "arcgis-image-service" &&
+    typeof layer.sourcePath === "string" &&
+    ARCGIS_SERVICE.test(layer.sourcePath) &&
+    isArcgisRawImageryTiles(layer, layer.sourcePath)
+  ) {
+    const token = tileTemplateToken(tiles[0]);
+    return {
+      ...base,
+      kind: "imagery-tile",
+      url: layer.sourcePath,
+      ...(token ? { token } : {}),
     };
   }
   // A GetMap template naming its layers is a WMS service the SDK can draw

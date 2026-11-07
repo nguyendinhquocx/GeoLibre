@@ -17,8 +17,10 @@ workflow and [Projects](user-guide/projects.md) for saving and reopening data.
 | Shapefile | `.shp` with companion files, or `.zip` | Vector Layer | Keep `.shx`, `.dbf`, and `.prj` companions together; use a ZIP for browser imports. |
 | GML | `.gml` | Vector Layer | Imported through the vector reader. |
 | MapInfo TAB | `.tab` and companion files | Vector Layer | Requires access to the dataset's companion files. |
+| IMDF | `.zip` | Vector Layer, drag and drop, or the Browser panel | An Indoor Mapping Data Format archive opens as a group of floor-stacked layers linked to the floor picker; see [Adding data](user-guide/adding-data.md). |
 | KML / KMZ | `.kml`, `.kmz` | KML / KMZ or Vector Layer | Supports folders, styles, placemark icons, ground overlays, embedded models, and Super-Overlays; behavior depends on the renderer. Remote icon URLs (such as Google Earth's built-in icons) are downloaded from their public host when the file is opened and saved inline with the layer. Icon URLs that name a loopback or private-network address are skipped, and redirects are not followed. |
 | GPX | `.gpx` | GPX Layer | Waypoints, tracks, and routes can become separate layers. |
+| IndoorGML | `.gml`, `.xml`, IndoorGML URL | IndoorGML Layer | OGC IndoorGML 1.0 cells extruded to their real heights plus the navigation network, linked to the floor picker; give the CRS when the file names none, or place a local model at the map centre. |
 | LandXML | `.xml`, `.landxml`, LandXML URL | LandXML Layer | Imports TIN surfaces, horizontal alignments, vertical profile metadata, and survey points; projected data requires a source CRS. |
 | Delimited text | CSV, TSV, and custom-delimited text | Delimited Text Layer | Map coordinate columns, specify their CRS, or geocode address columns. CSV without coordinates can also be loaded as a table. |
 | Excel | Excel workbooks | Delimited Text Layer | Select a worksheet and coordinate columns to create point features. |
@@ -77,7 +79,7 @@ are described in [Web Services](user-guide/web-services.md) and
 | LiDAR point clouds | LiDAR Layer | LAS/LAZ and cloud-optimized point-cloud data. The layer menu exports a cloud to LAS, LAZ or COPC, and Whitebox LiDAR tool outputs load as new point cloud layers. LAS, LAZ and COPC files can also be dropped on the map. |
 | Gaussian splats | Gaussian Splatting | Point-based scene rendering. |
 | OGC 3D Tiles | 3D Tiles Layer | Streamed 3D tilesets; authenticated tilesets can use request headers. |
-| ArcGIS I3S | 3D Tiles Layer (SceneServer URL) | Integrated Mesh and 3D Object scene layers. |
+| ArcGIS I3S | 3D Tiles Layer (SceneServer URL) | Integrated Mesh and 3D Object scene layers, and Building Scene Layers (BIM): draw the Overview or the full model, and choose its disciplines and categories in the Style panel. Scene layers must be in WGS84 to draw on the 2D map. |
 | Cesium ion assets | Cesium Ion Asset | 3D Tiles tilesets or imagery hosted on Cesium ion; requires the Cesium renderer. |
 | CZML | CZML Dynamic 3D Scene | Time-dependent scene descriptions; requires the Cesium renderer. |
 | glTF / GLB | 3D Model (glTF) | Place a local or remote model at coordinates with scale, rotation, and altitude. |

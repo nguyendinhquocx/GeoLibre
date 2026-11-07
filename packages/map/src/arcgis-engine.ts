@@ -40,6 +40,7 @@ import {
   type MapRenderSurface,
 } from "./map-engine";
 import {
+  ARCGIS_BASE_FIELD,
   ARCGIS_HEIGHT_FIELD,
   ARCGIS_ID_FIELD,
   ARCGIS_LABEL_CLASS_FIELD,
@@ -285,6 +286,7 @@ const ARCGIS_GEOJSON_FIELDS = [
   { name: ARCGIS_LABEL_FIELD, type: "string", length: 4000 },
   { name: ARCGIS_LABEL_CLASS_FIELD, type: "string", length: 16 },
   { name: ARCGIS_HEIGHT_FIELD, type: "double" },
+  { name: ARCGIS_BASE_FIELD, type: "double" },
   { name: ARCGIS_WEIGHT_FIELD, type: "double" },
 ];
 
@@ -1722,6 +1724,17 @@ export class ArcgisEngine implements MapEngine {
         return [new layers.MapImageLayer({ ...common, url: plan.url })];
       case "imagery":
         return [new layers.ImageryLayer({ ...common, url: plan.url })];
+      case "imagery-tile":
+        return [
+          new layers.ImageryTileLayer({
+            ...common,
+            url: plan.url,
+            // ImageryTileLayer has no `apiKey` (SDK 5.1 omits APIKeyMixin);
+            // custom parameters ride on every request it makes, the raster
+            // tile fetches included.
+            ...(plan.token ? { customParameters: { token: plan.token } } : {}),
+          }),
+        ];
       case "media-image": {
         // The four corners are an arbitrary quad (the georeferencer fits an
         // affine transform), which only a control-point georeference can

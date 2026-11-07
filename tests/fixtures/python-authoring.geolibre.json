@@ -35,9 +35,13 @@
         "extrusionHeightProperty": "height",
         "extrusionHeightScale": 1,
         "extrusionBase": 0,
+        "extrusionBaseProperty": "",
+        "extrusionBaseScale": 1,
+        "extrusionFloorHeight": 0,
         "extrusionAdvancedStyleEnabled": false,
         "extrusionColorExpression": "",
         "extrusionHeightExpression": "",
+        "extrusionBaseExpression": "",
         "vectorStyleMode": "single",
         "vectorStyleProperty": "",
         "vectorStyleClassCount": 5,
@@ -153,6 +157,12 @@
             "rel": "license"
           }
         ]
+      },
+      "levelFilter": {
+        "field": "pop",
+        "mode": "below",
+        "level": "50",
+        "values": [10]
       }
     }
   ],

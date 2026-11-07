@@ -5,6 +5,7 @@ import {
   arcgisRasterEffect,
   arcgisUnsupportedStyleSettings,
   isArcgisRasterPlan,
+  ARCGIS_BASE_FIELD,
   ARCGIS_HEIGHT_FIELD,
   ARCGIS_ID_FIELD,
   ARCGIS_LABEL_FIELD,
@@ -912,6 +913,69 @@ describe("ArcGIS raster, service and media compilation", () => {
       source: { type: "raster", url: "https://host/arcgis/rest/services/X/ImageServer" },
     };
     assert.equal(compileArcgisLayer(image).kind, "imagery");
+    // A hosted tiled imagery layer caches raw LERC values: flagged, or
+    // recognized by its ArcGIS Online host when the flag is absent.
+    assert.equal(
+      compileArcgisLayer({ ...image, metadata: { arcgisRawTiles: true } }).kind,
+      "imagery-tile",
+    );
+    const hosted: GeoLibreLayer = {
+      ...base,
+      type: "arcgis",
+      source: {
+        type: "raster",
+        url: "https://tiledimageservices.arcgis.com/Org/arcgis/rest/services/W/ImageServer",
+      },
+    };
+    assert.equal(compileArcgisLayer(hosted).kind, "imagery-tile");
+    assert.equal(
+      compileArcgisLayer({ ...hosted, metadata: { arcgisRawTiles: false } }).kind,
+      "imagery",
+    );
+    // The ArcGIS Layer panel's raster record of such a service draws from the
+    // service, not from its LERC tile template.
+    const panel = compileArcgisLayer({
+      ...base,
+      type: "raster",
+      source: {
+        type: "raster",
+        tiles: ["https://host/arcgis/rest/services/X/ImageServer/tile/{z}/{y}/{x}"],
+      },
+      sourcePath: "https://host/arcgis/rest/services/X/ImageServer",
+      metadata: { sourceKind: "arcgis-image-service", arcgisRawTiles: true },
+    });
+    assert.deepEqual(
+      { kind: panel.kind, url: (panel as { url?: string }).url },
+      { kind: "imagery-tile", url: "https://host/arcgis/rest/services/X/ImageServer" },
+    );
+    // A token the panel put in the tile template travels with the plan.
+    const secured = compileArcgisLayer({
+      ...base,
+      type: "raster",
+      source: {
+        type: "raster",
+        tiles: ["https://host/arcgis/rest/services/X/ImageServer/tile/{z}/{y}/{x}?token=abc"],
+      },
+      sourcePath: "https://host/arcgis/rest/services/X/ImageServer",
+      metadata: { sourceKind: "arcgis-image-service", arcgisRawTiles: true },
+    });
+    assert.equal((secured as { token?: string }).token, "abc");
+    const plus = compileArcgisLayer({
+      ...base,
+      type: "raster",
+      source: {
+        type: "raster",
+        tiles: ["https://host/arcgis/rest/services/X/ImageServer/tile/{z}/{y}/{x}?token=a+b%2Fc"],
+      },
+      sourcePath: "https://host/arcgis/rest/services/X/ImageServer",
+      metadata: { sourceKind: "arcgis-image-service", arcgisRawTiles: true },
+    });
+    assert.equal((plus as { token?: string }).token, "a+b/c");
+    // A rendering rule needs `/exportImage`, so the record keeps that path.
+    assert.equal(
+      compileArcgisLayer({ ...hosted, metadata: { arcgisRenderingRule: "{}" } }).kind,
+      "imagery",
+    );
     const tiled: GeoLibreLayer = {
       ...base,
       type: "arcgis",
@@ -1133,6 +1197,65 @@ describe("compileArcgisLayer extrusion", () => {
       [10, 0],
     );
     assert.deepEqual(part.elevationInfo, { mode: "relative-to-ground", offset: 2 });
+  });
+
+  it("writes a data-driven base per feature and reads it by elevation expression", () => {
+    const plan = compileArcgisLayer(
+      {
+        ...buildings,
+        style: {
+          ...buildings.style,
+          // Floors stacked from `levels`: base = 1 + levels * 2, roof = base + 3.
+          extrusionBase: 1,
+          extrusionBaseProperty: "levels",
+          extrusionBaseScale: 2,
+          extrusionAdvancedStyleEnabled: true,
+          extrusionHeightExpression: '["+", ["*", ["to-number", ["get", "levels"], 0], 2], 4]',
+        },
+      },
+      { scene: true },
+    );
+    assert.equal(plan.kind, "geojson");
+    if (plan.kind !== "geojson") return;
+    const [part] = plan.parts;
+    // Feature a: base 1 + 4 * 2 = 9, roof 4 * 2 + 4 = 12, so 3 m tall. Feature
+    // b's base (1 - 2 = -1) is clamped to the ground as MapLibre clamps it.
+    assert.deepEqual(
+      part.features?.features.map((f) => f.properties?.[ARCGIS_BASE_FIELD]),
+      [9, 0],
+    );
+    assert.deepEqual(
+      part.features?.features.map((f) => f.properties?.[ARCGIS_HEIGHT_FIELD]),
+      [3, 2],
+    );
+    assert.deepEqual(part.elevationInfo, {
+      mode: "relative-to-ground",
+      featureExpressionInfo: { expression: `$feature.${ARCGIS_BASE_FIELD}` },
+      unit: "meters",
+    });
+  });
+
+  it("clamps a negative flat base to the ground, as MapLibre does", () => {
+    const plan = compileArcgisLayer(
+      { ...buildings, style: { ...buildings.style, extrusionBase: -2, extrusionFloorHeight: 3 } },
+      { scene: true },
+    );
+    if (plan.kind !== "geojson") return assert.fail("expected a geojson plan");
+    const [part] = plan.parts;
+    assert.deepEqual(part.elevationInfo, { mode: "relative-to-ground", offset: 0 });
+    // Roof max(0, -2) + 3 = 3 above a floor on the ground: 3 m, not 5 m.
+    assert.deepEqual(
+      part.features?.features.map((f) => f.properties?.[ARCGIS_HEIGHT_FIELD]),
+      [3, 3],
+    );
+  });
+
+  it("keeps a flat base out of the per-feature attributes", () => {
+    const plan = compileArcgisLayer(buildings, { scene: true });
+    if (plan.kind !== "geojson") return assert.fail("expected a geojson plan");
+    assert.ok(
+      plan.parts[0].features?.features.every((f) => !(ARCGIS_BASE_FIELD in (f.properties ?? {}))),
+    );
   });
 
   it("colours and sizes by the advanced expressions", () => {
