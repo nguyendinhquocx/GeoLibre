@@ -58,6 +58,15 @@ export interface ServicesPolicy {
   catalog?: DeploymentServiceEntry[];
 }
 
+/** Basemap availability. */
+export interface BasemapsPolicy {
+  /**
+   * `false` disables the regional basemaps (served from mainland China): the
+   * picker hides them and a project that names one opens on the default basemap.
+   */
+  regional?: boolean;
+}
+
 /** Sharing and collaboration endpoints. */
 export interface SharingPolicy {
   shareUrl?: string;
@@ -68,6 +77,11 @@ export interface SharingPolicy {
 /** GeoLens integration. */
 export interface GeoLensPolicy {
   url?: string;
+}
+
+/** OpenStreetMap data access. */
+export interface OsmPolicy {
+  overpassUrl?: string;
 }
 
 /** AI assistant settings. */
@@ -89,8 +103,16 @@ export interface DeploymentPolicy {
   interface?: InterfacePolicy;
   plugins?: PluginsPolicy;
   services?: ServicesPolicy;
+  basemaps?: BasemapsPolicy;
   sharing?: SharingPolicy;
   geolens?: GeoLensPolicy;
+  osm?: OsmPolicy;
+  /**
+   * Set (never read from the file) when the `osm` section was present but
+   * invalid. The section is still dropped, but OSM downloads fail closed instead
+   * of falling back to the public Overpass relay the operator meant to avoid.
+   */
+  osmInvalid?: true;
   ai?: AiPolicy;
   branding?: BrandingPolicy;
 }
@@ -101,6 +123,14 @@ const SHARE_URL = /^(off|https?:\/\/\S+)$/;
 const COLLAB_URL = /^wss?:\/\/\S+$/;
 const EMBED_ORIGIN = /^(\*|https?:\/\/[^/\s]+)$/;
 const GEOLENS_URL = /^(off|same-origin|https?:\/\/\S+)$/;
+/**
+ * Same source as OVERPASS_URL_PATTERN in osm-downloader-api.ts and the schema.
+ * Copied, not imported, so this parser does not pull @geolibre/plugins into
+ * the startup path; tests/deployment-policy.test.ts fails when they drift.
+ */
+export const OVERPASS_URL_PATTERN = new RegExp(
+  "^(?:https://(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)*(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\]))(?::(?:6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[0-9]{1,4}))?(?:/[^\\s?#]*)?$",
+);
 const APP_NAME_MAX = 60;
 
 const TOP_LEVEL_KEYS = new Set([
@@ -110,8 +140,10 @@ const TOP_LEVEL_KEYS = new Set([
   "interface",
   "plugins",
   "services",
+  "basemaps",
   "sharing",
   "geolens",
+  "osm",
   "ai",
   "branding",
 ]);
@@ -333,6 +365,13 @@ function readServices(v: unknown): Result<ServicesPolicy> {
   return { value: out };
 }
 
+function readBasemaps(v: unknown): Result<BasemapsPolicy> {
+  const obj = readObject(v, ["regional"]);
+  if ("error" in obj) return obj;
+  const r = readFields(obj.value, { regional: (x) => readBoolean(x, "regional") });
+  return "error" in r ? r : { value: r.value as BasemapsPolicy };
+}
+
 function readSharing(v: unknown): Result<SharingPolicy> {
   const obj = readObject(v, ["shareUrl", "collabUrl", "embedOrigins"]);
   if ("error" in obj) return obj;
@@ -349,6 +388,15 @@ function readGeoLens(v: unknown): Result<GeoLensPolicy> {
   if ("error" in obj) return obj;
   const r = readFields(obj.value, { url: (x) => readPattern(x, "url", GEOLENS_URL) });
   return "error" in r ? r : { value: r.value as GeoLensPolicy };
+}
+
+function readOsm(v: unknown): Result<OsmPolicy> {
+  const obj = readObject(v, ["overpassUrl"]);
+  if ("error" in obj) return obj;
+  const r = readFields(obj.value, {
+    overpassUrl: (x) => readPattern(x, "overpassUrl", OVERPASS_URL_PATTERN),
+  });
+  return "error" in r ? r : { value: r.value as OsmPolicy };
 }
 
 function readAi(v: unknown): Result<AiPolicy> {
@@ -382,8 +430,10 @@ const SECTION_READERS: Record<string, (v: unknown) => Result<unknown>> = {
   interface: readInterface,
   plugins: readPlugins,
   services: readServices,
+  basemaps: readBasemaps,
   sharing: readSharing,
   geolens: readGeoLens,
+  osm: readOsm,
   ai: readAi,
   branding: readBranding,
 };
@@ -415,6 +465,7 @@ export function resolveDeploymentPolicy(raw: unknown): DeploymentPolicy | null {
     const r = read(raw[section]);
     if ("error" in r) {
       console.warn(`[deployment-policy] ignoring invalid '${section}': ${r.error}`);
+      if (section === "osm") policy.osmInvalid = true;
       continue;
     }
     policy[section] = r.value;

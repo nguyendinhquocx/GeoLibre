@@ -387,6 +387,7 @@ export {
   restoreThreeDTilesLayers,
   THREE_D_TILES_SOURCE_KIND,
 } from "./plugins/maplibre-3d-tiles";
+export { probeArcgisI3sLayers } from "./plugins/arcgis-i3s-tiles";
 export { isRecoverableNonTiledRasterError } from "./plugins/non-tiled-raster-error";
 export {
   addRasterToMap,
@@ -718,9 +719,12 @@ export {
   defaultOverpassEndpoint,
   downloadOsmGeoJson,
   escapeOverpassString,
+  INVALID_OVERPASS_ENDPOINT_MESSAGE,
   overpassJsonToGeoJson,
   OVERPASS_DEFAULT_ENDPOINT,
   OVERPASS_DEV_ENDPOINT,
+  OVERPASS_URL_PATTERN,
+  setOverpassEndpoint,
   type OsmDownloadFilter,
   type OsmDownloadPreset,
   type OverpassElement,

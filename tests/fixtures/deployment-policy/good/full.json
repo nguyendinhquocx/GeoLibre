@@ -54,6 +54,9 @@
       }
     ]
   },
+  "basemaps": {
+    "regional": true
+  },
   "sharing": {
     "shareUrl": "https://projects.example.com",
     "collabUrl": "wss://relay.example.com",
@@ -61,6 +64,9 @@
   },
   "geolens": {
     "url": "same-origin"
+  },
+  "osm": {
+    "overpassUrl": "https://overpass.example.com/api/interpreter"
   },
   "ai": {
     "enabled": true,

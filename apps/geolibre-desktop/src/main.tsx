@@ -82,6 +82,7 @@ import { parseDeploymentCapabilities, useAppStore } from "@geolibre/core";
 import { readConfiguredAppName } from "./lib/app-name";
 import { readDeploymentEnvValue } from "./lib/deployment-env";
 import { loadDeploymentPolicy } from "./lib/deployment-policy";
+import { installRegionalBasemapPolicy } from "./lib/regional-basemap-policy";
 import { initializeNativeProjectOpen } from "./lib/native-project-open";
 
 import { initializeNativeCoordinateOpen } from "./lib/native-coordinate-open";
@@ -117,6 +118,10 @@ applyConfiguredAppName();
 // marker keeps a 404 at info level.
 const deploymentPolicyReady = loadDeploymentPolicy().then((policy) => {
   applyConfiguredAppName();
+  // Regional basemaps (served from mainland China) a loaded project names are
+  // confirmed by the user first, or refused when the deployment disabled them.
+  // Installed before the first render, so no startup project load slips past.
+  installRegionalBasemapPolicy();
   // Capability application below is deliberately NOT guarded: if it throws, the
   // app must fail to start rather than render with the default full grant.
 
@@ -424,12 +429,13 @@ void Promise.all([
   // Start App's chunk downloading and evaluating while deployment.json is in
   // flight, then apply the policy-dependent module setup once both are done.
   // Nothing in App's module graph reads deployment settings at import time
-  // (the GeoLens default URL is seeded by initGeoLensDefaultUrl below), so the
+  // (the GeoLens default URL and the Overpass endpoint are seeded below), so the
   // chunk can evaluate before the policy is applied; nothing renders until the
   // policy has been.
   Promise.all([import("./App"), import("./hooks/usePlugins"), deploymentPolicyReady]).then(
     ([app, plugins]) => {
       plugins.initGeoLensDefaultUrl();
+      plugins.initOverpassEndpoint();
       return app;
     },
   ),
