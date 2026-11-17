@@ -6,6 +6,17 @@ import { DEFAULT_LANGUAGE, languageDirection, resolveLanguage } from "./language
 import enTranslation from "./locales/en.json";
 
 /**
+ * English is always statically bundled: it is the structural fallback (the
+ * source of truth `i18next.d.ts` types `t()` against) AND the runtime
+ * `fallbackLng`, independent of the user-facing `DEFAULT_LANGUAGE` (which may
+ * be a localized code like `vi`). Keeping this constant explicit avoids the
+ * bug where flipping `DEFAULT_LANGUAGE` to a non-English locale would point
+ * `resources`/`fallbackLng` at a catalog that is not actually bundled, so
+ * missing keys would render raw instead of falling back to English.
+ */
+const BUNDLED_LANGUAGE = "en";
+
+/**
  * English is the fallback baseline (and the source of truth `i18next.d.ts` types
  * `t()` against), so it is bundled statically — always present and synchronous.
  * Every *other* locale is a separate lazily-imported chunk, fetched only when it
@@ -26,12 +37,12 @@ for (const [path, loader] of Object.entries(localeLoaders)) {
   loaders[code] = loader;
 }
 
-/** Catalog codes we ship: English plus every lazily-loadable locale. */
-export const AVAILABLE_LANGUAGES: string[] = [DEFAULT_LANGUAGE, ...Object.keys(loaders)].sort();
+/** Catalog codes we ship: the bundled English plus every lazily-loadable locale. */
+export const AVAILABLE_LANGUAGES: string[] = [BUNDLED_LANGUAGE, ...Object.keys(loaders)].sort();
 
 /** English is registered up front; other locales are added on demand. */
 const resources: Record<string, { translation: Record<string, unknown> }> = {
-  [DEFAULT_LANGUAGE]: { translation: enTranslation as Record<string, unknown> },
+  [BUNDLED_LANGUAGE]: { translation: enTranslation as Record<string, unknown> },
 };
 
 /**
@@ -42,7 +53,7 @@ const resources: Record<string, { translation: Record<string, unknown> }> = {
  * than switch to an empty catalog.
  */
 export async function loadCatalog(code: string): Promise<void> {
-  if (code === DEFAULT_LANGUAGE) return;
+  if (code === BUNDLED_LANGUAGE) return;
   if (i18n.hasResourceBundle(code, "translation")) return;
   const loader = loaders[code];
   if (!loader) return;
@@ -186,7 +197,7 @@ export const i18nReady: Promise<unknown> = (async () => {
   // English is already bundled; preload only a non-default initial locale so its
   // strings are present on the very first paint.
   let effectiveLanguage = initialLanguage;
-  if (initialLanguage !== DEFAULT_LANGUAGE && loaders[initialLanguage]) {
+  if (initialLanguage !== BUNDLED_LANGUAGE && loaders[initialLanguage]) {
     try {
       const mod = await loaders[initialLanguage]();
       resources[initialLanguage] = { translation: mod.default };
@@ -196,7 +207,7 @@ export const i18nReady: Promise<unknown> = (async () => {
       // English fallback text while still applying the locale's `lang`/`dir`
       // (wrong RTL direction for e.g. Arabic). The user can switch once online.
       console.error("[GeoLibre] Failed to load initial locale catalog; using English", error);
-      effectiveLanguage = DEFAULT_LANGUAGE;
+      effectiveLanguage = BUNDLED_LANGUAGE;
     }
   }
 
@@ -207,7 +218,10 @@ export const i18nReady: Promise<unknown> = (async () => {
   return i18n.use(initReactI18next).init({
     resources,
     lng: effectiveLanguage,
-    fallbackLng: DEFAULT_LANGUAGE,
+    // Always fall back to the bundled English catalog so a missing key in a
+    // localized catalog (e.g. vi) renders English instead of a raw key. This
+    // is deliberately `BUNDLED_LANGUAGE`, NOT `DEFAULT_LANGUAGE`.
+    fallbackLng: BUNDLED_LANGUAGE,
     defaultNS: "translation",
     interpolation: {
       // React already escapes rendered values, so i18next double-escaping would

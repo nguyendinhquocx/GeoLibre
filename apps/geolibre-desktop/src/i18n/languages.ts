@@ -7,7 +7,9 @@
  * selector shows a friendly label. See `docs/i18n.md`.
  */
 
-export const DEFAULT_LANGUAGE = "en";
+// Default initial language when no persisted setting / browser language matches.
+// English is still bundled as the structural fallback (see index.ts BUNDLED_LANGUAGE).
+export const DEFAULT_LANGUAGE = "vi";
 
 /**
  * Friendly names for known language codes. The selector falls back to the raw
@@ -16,6 +18,7 @@ export const DEFAULT_LANGUAGE = "en";
  */
 export const LANGUAGE_NAMES: Record<string, { nativeName: string; englishName: string }> = {
   en: { nativeName: "English", englishName: "English" },
+  vi: { nativeName: "Tiếng Việt", englishName: "Vietnamese" },
   zh: { nativeName: "中文", englishName: "Chinese" },
   es: { nativeName: "Español", englishName: "Spanish" },
   fr: { nativeName: "Français", englishName: "French" },

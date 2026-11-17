@@ -36,11 +36,12 @@ describe("resolveLanguage", () => {
 
 describe("languageOptions", () => {
   it("sorts the default language first, then alphabetically by English name", () => {
-    // en is pinned first; the rest sort by English name: Chinese < Portuguese.
-    const options = languageOptions(["pt", "zh", "en"]);
+    // vi (the configured DEFAULT_LANGUAGE) is pinned first; the rest sort by
+    // English name: Chinese < English < Portuguese.
+    const options = languageOptions(["pt", "zh", "en", "vi"]);
     assert.deepEqual(
       options.map((option) => option.code),
-      ["en", "zh", "pt"],
+      ["vi", "zh", "en", "pt"],
     );
     assert.equal(options[0].code, DEFAULT_LANGUAGE);
   });
