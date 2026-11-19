@@ -74,7 +74,8 @@
       "restoreLayer": "このレイヤーを復元",
       "restoreLayerAria": "このスナップショットからレイヤー {{name}} を復元",
       "layerRestored": "「{{name}}」を復元しました。元に戻すには「元に戻す」を使用してください。",
-      "restoreLayerError": "スナップショットからこのレイヤーを復元できませんでした。"
+      "restoreLayerError": "スナップショットからこのレイヤーを復元できませんでした。",
+      "restoreLayerRedrawError": "「{{name}}」を復元しましたが、地図に描画できませんでした。"
     }
   },
   "browser": {
@@ -272,10 +273,15 @@
     "bodyNote": "計測対象: {{body}}（球体近似）"
   },
   "statusBar": {
+    "coords": "座標",
     "elevation": "標高",
     "elevationLong": "標高",
     "cameraAltitude": "視点高度",
     "cameraAltitudeLong": "海面からのカメラ高度",
+    "zoom": "ズーム",
+    "bearing": "方位",
+    "pitch": "傾き",
+    "bbox": "範囲",
     "coordinateFormat": {
       "dd": "十進度",
       "dms": "度分秒",
@@ -1646,7 +1652,8 @@
     "geom": {
       "point": "点",
       "line": "線",
-      "polygon": "ポリゴン"
+      "polygon": "ポリゴン",
+      "none": "テーブル"
     },
     "fields": "フォーム項目",
     "addField": "項目を追加",
@@ -1684,14 +1691,21 @@
     "save": {
       "point": "点を保存",
       "line": "線を保存",
-      "polygon": "ポリゴンを保存"
+      "polygon": "ポリゴンを保存",
+      "none": "レコードを保存"
     },
     "saved": {
       "point_other": "{{count}} 件の点を {{layer}} に保存しました。",
       "line_other": "{{count}} 件の線を {{layer}} に保存しました。",
-      "polygon_other": "{{count}} 件のポリゴンを {{layer}} に保存しました。"
+      "polygon_other": "{{count}} 件のポリゴンを {{layer}} に保存しました。",
+      "none_other": "{{count}} 件のレコードを {{layer}} に保存しました。"
     },
+    "captureRecordDescription": "フォームに入力してレコードを保存します。このレイヤーのレコードには位置がありません。",
+    "relatedPrompt": "保存したレコードに関連付けるレコードを追加:",
+    "addRelated": "{{layer}} に追加",
+    "addRelatedVia": "{{layer}} に追加 ({{field}})",
     "layerGone": "調査レイヤーが利用できなくなりました。",
+    "layerLoading": "このレイヤーはフィーチャを読み込み中です。しばらくしてからもう一度お試しください。",
     "noGeolocation": "このデバイスでは位置情報を利用できません。",
     "geolocationDenied": "位置情報を取得できませんでした。位置情報の許可を確認して、もう一度お試しください。",
     "photoTooLarge": "その写真は大きすぎます(最大 {{max}})。より小さい画像を選択してください。",
@@ -1762,6 +1776,42 @@
     "nmeaSerialUnsupported": "ここでは Web Serial を利用できないため、シリアルレシーバーを開けません。",
     "nmeaBluetoothUnsupported": "ここでは Web Bluetooth を利用できないため、Bluetooth Low Energy レシーバーを開けません。",
     "nmeaBluetoothHint": "ほとんどの Bluetooth GPS レシーバーはクラシック Bluetooth を使用します。システム設定でペアリングすると、ここにシリアルポートとして表示されます。「Bluetooth 接続」は Bluetooth Low Energy のレシーバーにのみ使用してください。",
+    "nmeaPairedDevice": "ペアリング済みのレシーバー",
+    "nmeaLoadingDevices": "ペアリング済みのデバイスを読み込み中…",
+    "nmeaNoPairedDevices": "ペアリング済みのデバイスはありません",
+    "nmeaDeviceBleOnly": "{{name}}（Bluetooth LE、非対応）",
+    "nmeaRefreshDevices": "ペアリング済みのデバイスを更新",
+    "nmeaConnectReceiver": "レシーバーに接続",
+    "nmeaAndroidBluetoothHint": "まず Android の Bluetooth 設定で GPS レシーバーをペアリングし、ここで選択してください。GeoLibre はクラシック Bluetooth（Serial Port Profile）経由で NMEA ストリームを読み取ります。レシーバーが報告する RTK 測位ステータスも含まれます。",
+    "nmeaBluetoothOff": "Bluetooth がオフになっています。Android の設定でオンにして、もう一度お試しください。",
+    "nmeaBluetoothPermissionDenied": "Bluetooth レシーバーに接続するには、GeoLibre に「付近のデバイス」の権限が必要です。Android のアプリ設定で許可して、もう一度お試しください。",
+    "nmeaBluetoothConnectFailed": "レシーバーに接続できませんでした。電源が入っていること、通信範囲内にあること、他のアプリに接続されていないことを確認してください。",
+    "nmeaBluetoothBusy": "前回の接続処理がまだ実行中です。数秒待ってからもう一度お試しください。",
+    "nmeaBluetoothNotPaired": "そのレシーバーはペアリングが解除されています。Android の Bluetooth 設定でもう一度ペアリングしてから、一覧を更新してください。",
+    "ntripTitle": "RTK 補正データ（NTRIP）",
+    "ntripHost": "キャスターのホスト",
+    "ntripPort": "ポート",
+    "ntripMountpoint": "マウントポイント",
+    "ntripUsername": "ユーザー名",
+    "ntripPassword": "パスワード",
+    "ntripTls": "TLS を使用",
+    "ntripStart": "補正を開始",
+    "ntripStop": "補正を停止",
+    "ntripConnecting": "キャスターに接続中…",
+    "ntripWaiting": "接続しました。補正データを待機中です。ネットワーク型キャスターは、レシーバーが測位を報告すると配信を開始します。",
+    "ntripReceiving": "補正データを受信中 · {{size}}",
+    "ntripRetrying": "キャスターとの接続が切れました（{{message}}）。再試行中…",
+    "ntripAuthFailed": "キャスターがユーザー名またはパスワードを拒否しました。",
+    "ntripMountpointMissing": "キャスターに「{{mountpoint}}」という名前のマウントポイントはありません。",
+    "ntripNeedsHost": "キャスターのホストを入力してください。",
+    "ntripNeedsMountpoint": "マウントポイントを入力してください。",
+    "ntripBadPort": "1 から 65535 までのポートを入力してください。",
+    "ntripBadHost": "キャスターのホストを確認してください。IPv6 アドレスは [2001:db8::1] のように角括弧で囲み、ポートは数値で指定します。",
+    "ntripBadCharacters": "キャスターのホストとマウントポイントに、スペースや制御文字は使用できません。",
+    "ntripTlsFailed": "キャスターとの安全な（TLS）接続を確立できませんでした。ホストとポート、およびキャスターがそのポートで TLS に対応しているかを確認してください。",
+    "ntripStartFailed": "補正を開始できませんでした: {{message}}",
+    "ntripCleartextHint": "TLS を使用しない場合、パスワードは暗号化されずにキャスターへ送信されます。ほとんどの NTRIP キャスターはこの方式を必要とします。キャスターが TLS に対応している場合は TLS を使用してください。",
+    "ntripHint": "GeoLibre はキャスターから RTCM 補正データを取得し、同じ Bluetooth 接続でレシーバーに送信します。ネットワーク型（VRS）キャスターには、レシーバーの位置もあわせて送信します。パスワードを含む設定はこのデバイスに保存され、レシーバーが再接続すると補正は自動的に再開されます。",
     "fixQuality": {
       "invalid": "測位なし",
       "gps": "GPS 測位",
@@ -1883,7 +1933,10 @@
     "lockLayer": "ゲスト向けにレイヤーをロック",
     "unlockLayer": "ゲスト向けにレイヤーのロックを解除",
     "layerLocked": "ロック中",
-    "layerLockedHint": "このレイヤーはホストによってロックされており、編集できません"
+    "layerLockedHint": "このレイヤーはホストによってロックされており、編集できません",
+    "viewOnlyHint": "このセッションでは閲覧のみのため、このレイヤーを変更できません",
+    "layerLockedRejected": "ホストがレイヤーをロックしているため、その変更は共有されませんでした。地図はセッションのバージョンにリセットされました。",
+    "viewOnlyLocalChange": "このセッションでは閲覧のみのため、変更は自分の画面にのみ反映され、共有されません。"
   },
   "share": {
     "title": "プロジェクトを共有",
@@ -2030,6 +2083,17 @@
     "resizeDialog": "ギャラリーのサイズを変更",
     "scopeFeatured": "注目",
     "scopeAll": "すべてのプロジェクト",
+    "scopeCollections": "コレクション",
+    "loadingCollections": "コレクションを読み込み中…",
+    "collectionsSearchPlaceholder": "タイトル、作成者、説明でコレクションを絞り込む",
+    "noCollectionMatches": "絞り込み条件に一致するコレクションがありません。",
+    "emptyCollections": "表示できる公開コレクションはまだありません。",
+    "emptyCollection": "このコレクションには公開プロジェクトがありません。",
+    "untitledCollection": "無題のコレクション",
+    "openCollection": "このコレクションのプロジェクトを表示",
+    "openCollectionOnWeb": "Webでコレクションを表示",
+    "backToCollections": "すべてのコレクション",
+    "collectionProjects_other": "{{count}} 件のプロジェクト",
     "scopeMine": "自分のプロジェクト",
     "scopeOrganizations": "組織",
     "scopeGroups": "グループ",
@@ -2310,7 +2374,9 @@
   },
   "kml": {
     "importFailed": "KML/KMZ をインポートできませんでした。",
-    "timeOverlayGroup": "時間オーバーレイアニメーション"
+    "timeOverlayGroup": "時間オーバーレイアニメーション",
+    "dataUrlStyleUnsupported": "KML ドキュメントにはスタイルを適用できません。",
+    "dataUrlNoImporter": "{{name}} を地図に追加できませんでした: 利用可能な KML インポーターがありません。"
   },
   "map": {
     "boundsRestricted": "表示範囲を固定中",
@@ -2356,6 +2422,8 @@
       "error": "このレイヤーを識別できませんでした。",
       "noData": "この場所にはデータがありません。",
       "pixelReadFailed": "ピクセル値を読み取れませんでした。",
+      "pixelValue": "値",
+      "pixelBand": "バンド {{index}}",
       "wmsFailed": "WMS GetFeatureInfoリクエストが失敗しました。",
       "wmsNotQueryable": "このWMSレイヤーはフィーチャ情報を提供しません。",
       "editGeometry": "ジオメトリを編集",
@@ -2369,7 +2437,8 @@
       "nodata": "データなし",
       "coordinates": "経度、緯度",
       "row": "行",
-      "column": "列"
+      "column": "列",
+      "stacItem": "アイテム"
     }
   },
   "terrainSettings": {
@@ -2388,6 +2457,8 @@
     "sourcePlaceholder": "https://example.com/dem.tif",
     "localSourceLabel": "ローカル COG DEM",
     "localSourceDescription": "ファイルはこのデバイスに保持され、地形タイルが必要になるたびに小さな範囲で読み取られます。",
+    "fillOutside": "DEM の範囲外を全球地形で埋める",
+    "fillOutsideDescription": "平坦な平面の代わりに全球地形で DEM の周囲を囲み、データのない欠損部分も埋めます。URL から読み込んだ DEM では既定でオン、ローカルファイルでは既定でオフです（オフの場合、ネットワークから何も読み込みません）。",
     "useCog": "COG DEM を使用",
     "ionAssetLabel": "Cesium Ion 地形アセット",
     "ionAssetDescription": "地球儀上で Cesium Ion の quantized-mesh 地形アセットを使用します。アセットは設定済みの Ion アカウントで利用可能である必要があります。",
@@ -3282,7 +3353,9 @@
       "profileCount_other": "{{count}} 件のプロファイル",
       "noProfiles": "プロファイルがまだありません。下で追加してAIアシスタントを設定してください。",
       "setDefault": "既定に設定",
+      "keepDefault": "既定のままにする",
       "defaultProfile": "既定",
+      "proxyIsDefault": "既定のプロファイルがないため、アシスタントはデプロイプロキシで起動します。プロファイルを既定に設定すると、そのプロファイルで起動します。",
       "edit": "編集",
       "deleteProfile": "プロファイルを削除",
       "backToProfiles": "← プロファイル一覧に戻る",
@@ -3303,6 +3376,7 @@
         "openaiKey": "sk-…",
         "openrouterKey": "sk-or-…",
         "vercelKey": "AI Gateway キー",
+        "trustedrouterKey": "sk-tr-v1-…",
         "ollamaBaseUrl": "http://localhost:11434",
         "awsAccessKey": "AKIA…",
         "awsSecretKey": "wJalrXUtnFEMI…",
@@ -3311,6 +3385,23 @@
         "customBaseUrl": "https://api.example.com/v1",
         "customModel": "model-id",
         "customApiKey": "sk-… (必要な場合)"
+      },
+      "chatgpt": {
+        "account": "ChatGPT アカウント",
+        "intro": "API キーの代わりに ChatGPT プランを使用します。ブラウザーで OpenAI のサインインページが開き、GeoLibre によるプランの使用を許可できます。",
+        "continue": "ChatGPT で続行",
+        "waiting": "ブラウザーでのサインイン完了を待っています…",
+        "openAgain": "ブラウザーをもう一度開く",
+        "signedInAs": "{{email}} としてサインイン中",
+        "usingPlan": "ChatGPT プランを使用しています。",
+        "planDeclined": "GeoLibre には ChatGPT プランの使用が許可されていません。もう一度サインインして許可してください。",
+        "signInAgain": "もう一度サインイン",
+        "notRemembered": "システムのキーチェーンを利用できないため、このサインインは GeoLibre を閉じるまでしか保持されません。",
+        "signOut": "サインアウト",
+        "useAnotherAccount": "別のアカウントを使用",
+        "usage": "使用状況と接続済みアプリ",
+        "revokeUnconfirmed": "ここではサインアウトしましたが、OpenAI はセッションの終了を確認しませんでした。確実にするには、ChatGPT の設定で GeoLibre の接続を解除してください。",
+        "desktopOnly": "ChatGPT でのサインインは GeoLibre デスクトップアプリで利用できます。"
       }
     }
   },
@@ -3804,6 +3895,7 @@
       "difference": "差分",
       "union": "統合",
       "spatialJoin": "空間結合",
+      "summarizeWithin": "範囲内で集計",
       "attributeJoin": "属性結合",
       "selectByValue": "値で選択",
       "selectByLocation": "位置で選択",
@@ -4122,9 +4214,28 @@
         "missing-source": "このレイヤーには読み取り可能なデータソースがありません。",
         "format": "このレイヤーのファイル形式はサポートされていません。",
         "remote-file": "リモートの QGIS ファイルソースはまだサポートされていません。",
+        "remote-unreadable": "リモートファイルをダウンロードまたは読み取れませんでした。",
+        "wmts": "WMTS レイヤーはまだインポートできません。代わりに「データ追加」メニューからサービスを追加してください。",
         "network-path": "ネットワーク共有のパスはセキュリティ上の理由から読み込まれません。",
         "browser-local-file": "ローカルファイルが参照されていますが、ブラウザーでは QGIS のデータパスを開き直せません。GeoLibre Desktop で読み込んでください。",
-        "browser-local-raster": "ラスターはローカルパスで参照されています。GeoLibre Desktop で読み込んでください。"
+        "browser-local-raster": "ラスターはローカルパスで参照されています。GeoLibre Desktop で読み込んでください。",
+        "no-geometry": "ジオメトリのないテーブルは GeoPackage からのみ読み込めます。"
+      },
+      "qgisImportNotes": "プロジェクトをインポートしました。一部の設定は引き継げませんでした。",
+      "qgisImportFormNotes": "一部のフォーム設定は引き継げませんでした。",
+      "qgisImportStyleNotes": "一部のシンボロジーは引き継げませんでした。",
+      "qgisStyleNoteReason": {
+        "renderer-unreadable": "レイヤーのレンダラーを読み取れなかったため、既定のスタイルを使用しました。",
+        "expression-label": "QGIS の式で作成されたラベルはインポートされませんでした。"
+      },
+      "qgisFormNoteFieldCount_other": "{{count}} 個のフィールド",
+      "qgisFormNoteReason": {
+        "default": "既定値にサポートされていない式が使われているため、フィールドは空の状態で始まります。",
+        "constraint": "制約の式はサポートされていないため、除外されました。",
+        "relation": "ドロップダウンのリンク先テーブルを読み取れなかったため、フィールドは通常のテキストボックスになります。",
+        "relation-empty": "ドロップダウンのリンク先テーブルに一覧表示できる値がないため、フィールドは通常のテキストボックスになります。",
+        "relation-too-large": "ドロップダウンのリンク先テーブルの行数が多すぎて一覧にできないため、フィールドは通常のテキストボックスになります。",
+        "relation-multi": "ドロップダウンは複数選択を許可していますが、これはサポートされていないため、フィールドは通常のテキストボックスになります。"
       },
       "openProjectFromUrlDesc": "`.geolibre.json` プロジェクトを読み込み、最近使用したプロジェクトに追加します。",
       "projectUrl": "プロジェクト URL",
@@ -4145,7 +4256,8 @@
       "saveProjectAsTitle": "名前を付けてプロジェクトを保存",
       "saveProjectAsDesc": "ファイル名を入力してください。「保存」をクリックすると、プロジェクトがブラウザのダウンロードフォルダにダウンロードされます。",
       "embedVectorTitle": "ローカルのベクターデータを埋め込みますか?",
-      "embedEditedGeometryDesc": "このプロジェクトには編集済みのジオメトリが含まれています。変更を保持するにはベクターデータ（約 {{size}}）を埋め込んでください。埋め込まない場合、参照レイヤーは元のジオメトリで再度開かれ、ローカルデータは利用できなくなる場合があります。",
+      "embedEditedVectorTitle": "編集済みのベクターデータを埋め込みますか?",
+      "embedEditedFeaturesDesc": "このプロジェクトには編集済みのフィーチャ（ジオメトリまたは属性値。計算フィールドを含む）が含まれています。保持するにはベクターデータ（約 {{size}}）を埋め込んでください。埋め込まない場合、URL やファイルから再読み込みされるレイヤーは元のデータで開かれ、ローカルデータは利用できなくなる可能性があります。",
       "embedVectorDesc": "このプロジェクトには、お使いのコンピューターから読み込まれたローカルのベクターレイヤーが {{count}} 個あります。プロジェクトを再度開いたときにブラウザがこれらを再読み込みすることはできないため、復元するにはデータをプロジェクトファイルに埋め込む必要があります。埋め込むとファイルサイズが約 {{size}} 増加します。",
       "embedVectorDescDesktop": "このプロジェクトには、お使いのコンピューターから読み込まれたローカルのベクターレイヤーが {{count}} 個あります。データを埋め込んでプロジェクトを自己完結型にする（約 {{size}} 増加）か、プロジェクトを再度開いたときにディスクから再読み込みされるファイル参照として保存できます。参照はファイルサイズを小さく保ちますが、元のファイルが後で移動または削除されると読み込めなくなります。",
       "embedVectorDescMas": "このプロジェクトには、お使いのコンピューターから読み込まれたローカルベクターレイヤーが {{count}} 個あります。Mac App Store のサンドボックスでは GeoLibre の終了後もこれらのファイルへのアクセスを保持できないため、復元するにはデータをプロジェクトファイルに埋め込む必要があります。埋め込むとファイルサイズが約 {{size}} 増加します。",
@@ -4216,6 +4328,7 @@
       "loadingVtpk": "タイルパッケージを開いています…",
       "loadingVtpkDesc": "パッケージのディレクトリとスタイルを読み込んでいます",
       "projectName": "プロジェクト名",
+      "untitledProject": "無題のプロジェクト",
       "storymapEllipsis": "ストーリーマップ...",
       "pointerElevationNoticeTitle": "標高は公開サービスを利用します",
       "pointerElevationNoticeDesc": "3D地形が有効な場合、標高は地図自体から求められ、何も送信されません。3D地形がない場合は公開のOpen-Meteo APIに問い合わせ、ポインター位置の座標が端末外に送信されます。",
@@ -4332,6 +4445,7 @@
       "couldNotOpenProject": "プロジェクトを開けませんでした。",
       "multipleProjectDrop": "他のファイルを含めず、GeoLibre プロジェクトを一度に1つだけドロップしてください。",
       "projectDropNotAllowed": "このデプロイではプロジェクトを切り替えられません。",
+      "sandboxHiddenDrop_other": "Flatpak サンドボックスは、ドロップされた {{count}} 個のファイル（{{names}}）を読み取れません。代わりに「データを追加」メニューから開くか、ファイルのあるフォルダーへの読み取りアクセスをアプリに許可して再起動してください: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
       "couldNotImportQgisProject": "QGIS プロジェクトをインポートできませんでした。",
       "couldNotImportArcgisProject": "ArcGIS Pro プロジェクトをインポートできませんでした。",
       "invalidProjectUrl": "有効な HTTP または HTTPS のプロジェクト URL を入力してください。",
@@ -4804,6 +4918,22 @@
     "includeNeighbors": "選択したタイルの隣接タイルを含める",
     "includeParent": "選択したタイルの親タイルを含める"
   },
+  "planetaryComputer": {
+    "stacBrowser": "STAC カタログで参照",
+    "stacBrowserTitle": "このコレクションを STAC カタログパネルで開き、点群、GeoParquet、Zarr など、ラスタータイラーでは描画できないアセットを追加します",
+    "timeSlider": "タイムスライダーでアニメーション",
+    "timeSliderTitle": "タイムスライダーでこれらの結果を日付順にたどり、ピクセルの時間変化をグラフ化します",
+    "colorbar": "カラーバーを表示",
+    "colorbarTitle": "このレイヤーのカラーマップと値の範囲を示すカラーバーを地図に追加します",
+    "clipToMap": "クリップを地図に追加",
+    "clipToMapTitle": "このシーンを描画したボックス（または地図の表示範囲）でクリップし、元のバンド値を解析用のラスターレイヤーとして追加します",
+    "clipLayerName": "{{item}} クリップ",
+    "clipOutsideItem": "クリップ範囲がこのシーンと重なっていません。シーンのフットプリント内にボックスを描画するか、地図をその上に移動してください。",
+    "clipUnavailable": "このシーンは、この地図にクリップとして追加できません。",
+    "timeSeriesLayerName": "{{collection}} 時系列",
+    "timeSliderNeedsDates": "時系列には、日付の異なる結果が 2 件以上必要です。",
+    "timeSliderUnavailable": "この地図ではタイムスライダーを利用できません。"
+  },
   "timelapse": {
     "title": "タイムラプス",
     "provider": "画像ソース",
@@ -5009,6 +5139,39 @@
     "drawHint": "地図上でクリックしてドラッグすると検索範囲を描画できます。",
     "drawnBbox": "描画した範囲: {{bbox}}",
     "drawnBboxCleared": "描画した範囲をクリアしました。",
+    "areaLabel": "検索範囲",
+    "drawPoint": "点",
+    "drawLine": "線",
+    "drawPolygon": "ポリゴン",
+    "useSelection": "選択したフィーチャ",
+    "loadAreaFile": "ファイルから…",
+    "clearArea": "図形をクリア",
+    "drawPointHint": "地図をクリックして検索地点を配置します。Escキーでキャンセルします。",
+    "drawShapeHint": "クリックして頂点を追加し、ダブルクリックまたは Enter キーで完了します。Escキーでキャンセルします。",
+    "areaCleared": "検索図形をクリアしました。",
+    "noSelection": "先に地図上でフィーチャを選択してください。レイヤーのメニューを開いて「フィーチャを選択」を選び、もう一度お試しください。",
+    "areaFileFailed": "そのファイルから検索図形を読み取れませんでした。",
+    "areaTooLarge": "この図形には {{positions}} 個の頂点があります。{{max}} 個以下に単純化してください。",
+    "areaSet": "検索範囲: {{description}}。",
+    "areaIgnored": "次元の低い図形 {{count}} 個を除外しました。",
+    "addAsset": "アセット",
+    "addAssetHint": "このアイテムのアセットを地図に追加",
+    "addRendering": "バンド",
+    "addRenderingHint": "このアイテムのバンドの組み合わせまたは指数を地図に追加",
+    "groupCombinations": "バンドの組み合わせ",
+    "groupIndices": "指数",
+    "renderNeedsMapLibre": "バンドレンダリングには MapLibre レンダラーが必要です。",
+    "renderMissingBand": "このアイテムに {{name}} というバンドはありません。",
+    "sortLabel": "日付で並べ替え",
+    "sortDefault": "サーバーの既定",
+    "sortNewest": "新しい順",
+    "sortOldest": "古い順",
+    "bufferLabel": "点と線のバッファ距離",
+    "bufferHint": "検索の前に、点または線を両側にこのメートル数だけ広げてポリゴンにします。ポリゴンは変更されません。",
+    "bufferDistance": "{{meters}} m",
+    "cloudLabel": "最大雲量",
+    "cloudHint": "雲量がこの値以下のシーンを残します。雲量を報告しないシーン（レーダー、標高、航空写真）は残されます。",
+    "sortHint": "これまでに読み込んだ結果を撮影日で並べ替えます。「さらに読み込む」で、より前や後に入るシーンが追加されることがあります。",
     "mapNotReady": "地図の描画準備ができていません。",
     "startDate": "開始日",
     "endDate": "終了日",
@@ -5105,6 +5268,12 @@
     "portalTitle": "このアイテムを Earthdata GIS ポータルで開く",
     "cog": "COG",
     "cogTitle": "このサービスを Cloud Optimized GeoTIFF としてダウンロード",
+    "rasterFunction": "関数",
+    "rasterFunctionTitle": "サービスが適用するラスター関数（処理テンプレート）。ピクセル値はこれに従います",
+    "rasterFunctionDefault": "サービスの既定",
+    "rasterFunctionLoading": "関数を読み込み中…",
+    "rasterFunctionNone": "公開されている関数はありません",
+    "rasterFunctionError": "ラスター関数を読み込めませんでした: {{message}}",
     "cogHeading": "COGとしてダウンロード",
     "cogAreaView": "現在の表示範囲",
     "cogAreaExtent": "全範囲",
@@ -5536,6 +5705,7 @@
     "setupTitle": "AIアシスタントを設定",
     "setupStatus": "アシスタントが処理を行うにはAIプロバイダーが必要です。以下のいずれかのプロバイダーの認証情報を追加して保存すると、パネルはすぐにチャットモードに切り替わります。",
     "setupProviders": "いずれかのプロバイダーの認証情報を追加してください",
+    "setupSignIn": "設定 → AIプロバイダー でサインインしてください",
     "setupOpenSettings": "設定 → AIプロバイダーを開く",
     "thinking": "処理中…",
     "toolError": "失敗しました",
@@ -6315,6 +6485,26 @@
                 "inner": "内部結合（一致したフィーチャのみ保持）",
                 "left": "左結合（すべての入力フィーチャを保持）"
               }
+            }
+          }
+        },
+        "summarize-within": {
+          "name": "範囲内で集計",
+          "description": "各ポリゴンと交差する別レイヤーのフィーチャを数え、数値フィールドを要約し、各ポリゴンをどれだけ覆っているかを測定します",
+          "params": {
+            "layer": {
+              "label": "ポリゴンレイヤー"
+            },
+            "overlay": {
+              "label": "集計するレイヤー"
+            },
+            "field": {
+              "label": "数値フィールド",
+              "description": "任意。各ポリゴンについて、このフィールドの合計、平均、最小、最大を追加します。"
+            },
+            "min_overlap_pct": {
+              "label": "次より小さい重なりを無視 (%)",
+              "description": "集計するレイヤーがポリゴンの場合、ポリゴンのこの割合未満しか覆わないもの（共有境界に沿ったスリバーなど）をスキップします。"
             }
           }
         },
@@ -8311,6 +8501,7 @@
     "loadingAttributes": "レイヤー属性を読み込み中…",
     "requiresVectorLayer": "属性テーブルにはベクターまたはDuckDBクエリレイヤーが必要です。",
     "invalidJson": "無効なJSON",
+    "nullValue": "NULL",
     "editCellAria": "フィーチャ{{featureId}}の{{col}}を編集",
     "resizeColumn": "{{name}}列のサイズを変更",
     "renameFieldAria": "フィールド{{name}}の名前を変更",
@@ -8481,6 +8672,16 @@
       "saturation": "彩度",
       "contrast": "コントラスト",
       "hueRotate": "色相回転",
+      "stacRendering": {
+        "title": "バンドレンダリング",
+        "brightness": "明るさ",
+        "gamma": "ガンマ",
+        "ramp": "カラーランプ",
+        "min": "下限値",
+        "max": "上限値",
+        "reset": "レンダリングをリセット",
+        "resetHint": "既定のストレッチ、カラーランプ、値の範囲に戻します"
+      },
       "footerDeck": "変更はラスターレイヤーの不透明度にリアルタイムで反映されます。",
       "footerMaplibre": "変更はMapLibreのラスターペイントプロパティにリアルタイムで反映されます。",
       "valueAria": "{{label}}の値",
@@ -8955,7 +9156,8 @@
         "range": "範囲",
         "checkbox": "チェックボックス",
         "date": "日付",
-        "valueMap": "値マップ"
+        "valueMap": "値マップ",
+        "attachment": "写真"
       },
       "alias": "別名",
       "required": "必須",
@@ -8972,6 +9174,11 @@
       "constraintPlaceholder": "[\">\", [\"get\", \"population\"], 0]",
       "constraintDescription": "制約の説明",
       "constraintDescriptionPlaceholder": "制約を満たさない場合に表示されます",
+      "defaultTag": "既定",
+      "defaultValue": "既定値",
+      "defaultValuePlaceholder": "now()",
+      "defaultValueHelp": "フィーチャの取得時にフィールドへ自動入力します。QGIS の式の構文を使用します（例: uuid()、now()、\"site\" || '-' || format_date(now(), 'yyyyMMdd')、@position_horizontal_accuracy）。",
+      "defaultValueInvalid": "サポートされていません: {{detail}}",
       "visibilityExpression": "表示式",
       "visibilityPlaceholder": "[\"==\", [\"get\", \"type\"], \"school\"]",
       "invalidExpression": "無効な式",
@@ -9085,6 +9292,7 @@
     },
     "searchValues": "値を検索",
     "noValues": "このフィールドには選択できる値がありません。",
+    "loadingValues": "値を読み込み中…",
     "noMatchingValues": "検索に一致する値はありません。",
     "selectAll": "すべて選択",
     "selectNone": "選択解除",
@@ -9101,6 +9309,7 @@
     "noFields": "このレイヤーには絞り込みに使える属性がありません。",
     "noTileFeatures": "フィーチャがまだ読み込まれていません。データの位置まで移動または拡大してから、このセクションを開き直してください。",
     "viewportSampleHint": "値は現在読み込まれているタイルから取得されるため、地図を移動・拡大すると一覧が増えていきます。",
+    "partialSampleHint": "件数と範囲は、{{total}} 件中の最初の {{inspected}} 件のフィーチャに基づいています。",
     "layerFilteredHint": "クイックフィルターがこのレイヤーの一部のフィーチャを非表示にしています。"
   },
   "floorPicker": {
@@ -9300,6 +9509,9 @@
     "hiddenByGroup": "グループが非表示のため隠れています",
     "empty": "データレイヤーがありません。ツールバーからデータを追加してください。",
     "emptyBeginner": "レイヤーがまだありません。プラグイン → ベースマップからベースマップを追加するか、データを追加メニューから独自のデータを追加してください。",
+    "emptyBeginnerBasemapsOnly": "レイヤーはまだありません。プラグイン → ベースマップ からベースマップを追加してください。",
+    "emptyBeginnerDataOnly": "レイヤーはまだありません。「データ追加」メニューから独自のデータを追加してください。",
+    "emptyNoAdd": "データレイヤーがありません。",
     "hideAllLayers": "すべてのレイヤーを非表示",
     "showAllLayers": "すべてのレイヤーを表示",
     "compactView": "コンパクト表示",
@@ -9614,6 +9826,9 @@
     "localRasterNotRestored_other": "{{count}} 個のローカルラスターレイヤーを復元できませんでした",
     "localRasterNotRestoredDesc": "ローカルファイルから読み込まれました: {{names}}。プロジェクトがラスターデータを保持していないか、ファイルを読み込めませんでした。ファイルを再度追加してください。"
   },
+  "zarrPanel": {
+    "selectorUnmatched": "セレクターの値が見つかりません（{{values}}）。座標値、時間軸上の日付、またはインデックスを使用してください。"
+  },
   "attributeForm": {
     "error": {
       "required": "値が必要です",
@@ -9732,6 +9947,7 @@
     "layerLoadFailedHint": "URL、ネットワーク接続、必要な API キーを確認してください。詳細は診断パネルにあります。",
     "fileReadFailed": "「{{name}}」を読み込めなかったため、スキップしました。",
     "libraryLayerRestoreFailed": "マイデータから「{{name}}」を追加できませんでした。",
+    "tableLayerTruncated": "{{layer}} は長すぎるため全体を読み込めません。最初の {{count}} 行のみを表示しています。",
     "localLayersDropped_other": "{{count}} 個のレイヤーを削除しました: ファイルを読み込めませんでした ({{path}})。",
     "pluginActivateFailed": "リンクからプラグイン「{{id}}」を起動できませんでした。",
     "pluginMenuActionFailed": "メニュー操作「{{name}}」が失敗しました。",
@@ -9758,7 +9974,8 @@
     "panelRenderFailed": "パネル「{{name}}」を開けませんでした。",
     "sharedSettingsFailed": "リンクから共有設定を読み込めなかったため、ご自身の設定を使用しています。",
     "sharedLanguageFailed": "共有設定が指定する言語に切り替えられませんでした。",
-    "languageCatalogFailed": "{{language}}の翻訳を読み込めなかったため、GeoLibreは英語で表示されています。"
+    "languageCatalogFailed": "{{language}}の翻訳を読み込めなかったため、GeoLibreは英語で表示されています。",
+    "dataUrlLoadFailed": "データURLを読み込めませんでした。"
   },
   "shell": {
     "workspaceTitle": "GeoLibre マップワークスペース",

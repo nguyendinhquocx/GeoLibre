@@ -190,13 +190,14 @@ form. Set it up in the layer's **Style** panel under **Attributes Form**, with
 
 | Setting | Effect |
 | --- | --- |
-| **Edit widget** | **Text**, **Number**, **Range**, **Checkbox**, **Date**, or **Value map** (a dropdown). |
+| **Edit widget** | **Text**, **Number**, **Range**, **Checkbox**, **Date**, **Value map** (a dropdown), or **Photo** (a picture stored in the field, in Field Collection). |
 | **Alias** | A friendlier label for the field in forms. |
 | **Required** | The field must have a value. |
 | **Value map entries** | One per line, as `value` or `value=Label`. |
 | **Min**, **Max**, **Step** | Bounds for Number and Range widgets (Step for Range). |
 | **Constraint expression** / **Constraint description** | A MapLibre expression the value must satisfy, and the message shown when it does not. |
 | **Visibility expression** | Show the field only when the expression is true. |
+| **Default value** | Fills the field when a new feature is captured in Field Collection. See [Default values](field-collection.md#default-values). |
 
 When you edit the table, value-map fields become dropdowns, checkbox fields
 become checkboxes, and number, range, and date fields get typed inputs. A cell

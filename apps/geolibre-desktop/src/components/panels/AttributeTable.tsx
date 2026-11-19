@@ -101,6 +101,7 @@ import {
   Ban,
 } from "lucide-react";
 import {
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -128,7 +129,10 @@ import {
   type ColumnMoveDirection,
   type NewColumnType,
   inferColumnTypes,
+  formatAttributeCellText,
+  numericColumnSet,
 } from "../../lib/attribute-columns";
+import { markAttributeEdit } from "../../lib/edited-geometry-save";
 import {
   coerceComputedValue,
   compileExpression,
@@ -136,6 +140,7 @@ import {
   fieldReference,
   type CalcOutputType,
 } from "../../lib/attribute-expression";
+import { useResolvedAttributeForm } from "../../hooks/useResolvedAttributeForm";
 import { attributeFormErrorMessage } from "../../lib/attribute-form-messages";
 import { coerceNumericStringRows, pickAnalysisRows } from "../../lib/attribute-charts";
 import { computeRowSelection } from "../../lib/attribute-selection";
@@ -191,6 +196,14 @@ const MAX_ATTRIBUTE_COLUMN_WIDTH = 520;
 const ESTIMATED_ROW_HEIGHT = 37;
 /** Sticky header plus horizontal scrollbar: the table's non-row height, in px. */
 const ATTRIBUTE_TABLE_CHROME_HEIGHT = 58;
+// The vertical scrollbar (w-3.5) overlays the viewport's inline-end edge, so
+// the last column is widened by this much and padded past it; otherwise the
+// scrollbar covers the end of right-aligned numbers.
+// Both are rem so they track the scrollbar (w-3.5) and cell padding (p-2 /
+// px-2) at any root font size. CELL_PADDING mirrors TableCell/TableHead in
+// packages/ui/src/components/table.tsx and must change with them.
+const VERTICAL_SCROLLBAR_GUTTER = "0.875rem";
+const CELL_PADDING = "0.5rem";
 // Tall enough to keep a few rows visible when the toolbar wraps on laptop widths.
 const DEFAULT_TABLE_HEIGHT = 240;
 const MIN_TABLE_HEIGHT = 96;
@@ -578,7 +591,7 @@ interface AttributeTableProps {
 }
 
 export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Column order is visual: in a right-to-left layout the first column renders
   // rightmost, so the move-left/right actions and their guards swap.
   const isRtl = document.documentElement.dir === "rtl";
@@ -807,7 +820,8 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
   // Attribute Form designer config: per-column edit widgets plus constraint
   // validation of drafted rows. DuckDB layers keep the plain text editor —
   // the designer is only offered for store-backed geojson layers.
-  const attributeForm = isDuckDBLayer ? undefined : layer?.attributeForm;
+  // Relation dropdowns are filled live from the layers they reference.
+  const attributeForm = useResolvedAttributeForm(isDuckDBLayer ? undefined : layer?.attributeForm);
   // Constraints the layer's data service publishes (ArcGIS coded-value and
   // range domains, per type/subtype), merged per record with the designer
   // config. Derived from metadata the layer already holds.
@@ -1141,6 +1155,14 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
   const columnSettings = getColumnSettings(layer);
   // Columns rendered in the table, honoring saved order and hidden state.
   const columns = visibleColumns(discoveredColumns, columnSettings);
+  // Number columns read like QGIS: right-aligned, with display-only rounding.
+  // A column's type comes from its first non-null value, as for editing. Keyed
+  // on the column names, not the array, which is rebuilt every render.
+  const columnsKey = columns.join("\u0000");
+  const numericColumns = useMemo(
+    () => numericColumnSet(attributeRows, columnsKey ? columnsKey.split("\u0000") : []),
+    [attributeRows, columnsKey],
+  );
   const hiddenCols = hiddenColumns(discoveredColumns, columnSettings);
   const hiddenColSet = new Set(hiddenCols);
   const tableColumns = ["__featureId", ...columns];
@@ -1153,7 +1175,8 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
   const columnWidth = (key: SortKey) =>
     columnWidths[key] ??
     (key === "__featureId" ? DEFAULT_FEATURE_ID_COLUMN_WIDTH : DEFAULT_ATTRIBUTE_COLUMN_WIDTH);
-  const tableWidth = tableColumns.reduce((width, column) => width + columnWidth(column), 0);
+  const columnsWidth = tableColumns.reduce((width, column) => width + columnWidth(column), 0);
+  const tableWidth = `calc(${columnsWidth}px + ${VERTICAL_SCROLLBAR_GUTTER})`;
 
   const columnWidthLimits = (key: SortKey) =>
     key === "__featureId"
@@ -1350,7 +1373,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
       ),
     };
 
-    updateLayer(layer.id, { geojson });
+    updateLayer(layer.id, markAttributeEdit(layer, { geojson }));
     setIsEditing(false);
     setDrafts({});
     return true;
@@ -1441,7 +1464,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
     const newKey = editingColumnName.trim();
     const patch = renameColumn(layer, discoveredColumns, oldKey, newKey);
     if (patch) {
-      updateLayer(layer.id, patch);
+      updateLayer(layer.id, markAttributeEdit(layer, patch));
       // Keep view state pointing at the renamed column.
       setColumnWidths((current) => {
         if (!(oldKey in current)) return current;
@@ -1490,7 +1513,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
   const confirmDeleteColumn = () => {
     if (!layer || !canManageColumns || !layerCaps.delete || !columnPendingDelete) return;
     const patch = deleteColumn(layer, columnPendingDelete);
-    if (patch) updateLayer(layer.id, patch);
+    if (patch) updateLayer(layer.id, markAttributeEdit(layer, patch));
     // Drop a sort that pointed at the deleted column, which would otherwise
     // leave sort.key referencing an absent field (every row compares equal).
     setSort((current) =>
@@ -1538,7 +1561,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
       newColumnType,
       newColumnDefault,
     );
-    if (patch) updateLayer(layer.id, patch);
+    if (patch) updateLayer(layer.id, markAttributeEdit(layer, patch));
     setAddingColumn(false);
   };
 
@@ -1726,7 +1749,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
       setCalcError(result.error);
       return;
     }
-    updateLayer(layer.id, result.patch);
+    updateLayer(layer.id, markAttributeEdit(layer, result.patch));
     if (result.errors > 0) {
       // The calculation was applied, but some rows threw and were written as
       // null. Keep the dialog open and report it rather than showing a silent
@@ -1743,11 +1766,13 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
     setCalcOpen(false);
   };
 
-  const sortableHeader = (key: SortKey, label: string) => (
+  const sortableHeader = (key: SortKey, label: string, numeric = false) => (
     <div className="relative flex h-full min-h-10 items-center">
       <button
         type="button"
-        className="flex h-full min-w-0 flex-1 items-center gap-1 pe-3 text-start font-medium"
+        className={`flex h-full min-w-0 flex-1 items-center gap-1 pe-3 font-medium ${
+          numeric ? "justify-end text-end" : "text-start"
+        }`}
         onClick={() => toggleSort(key)}
       >
         <span className="truncate">{label}</span>
@@ -1800,13 +1825,16 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
 
     // Read-only / non-manageable layers (DuckDB, Add Vector Layer) keep the
     // plain sortable header with no management affordances.
-    if (!canManageColumns || isEditing) return sortableHeader(col, col);
+    const numeric = numericColumns.has(col);
+    if (!canManageColumns || isEditing) return sortableHeader(col, col, numeric);
 
     return (
       <div className="relative flex h-full min-h-10 items-center">
         <button
           type="button"
-          className="flex h-full min-w-0 flex-1 items-center gap-1 pe-1 text-start font-medium"
+          className={`flex h-full min-w-0 flex-1 items-center gap-1 pe-1 font-medium ${
+            numeric ? "justify-end text-end" : "text-start"
+          }`}
           onClick={() => toggleSort(col)}
           title={virtualFieldColumns.has(col) ? t("attributeTable.virtualColumnTitle") : undefined}
         >
@@ -1903,7 +1931,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
       ref={tableSectionRef}
       aria-label={t("attributeTable.title")}
       data-collapsed={collapsed || undefined}
-      className="geolibre-attribute-table-panel @container relative flex shrink-0 flex-col border-t bg-card"
+      className="geolibre-attribute-table-panel geolibre-bottom-panel @container relative flex shrink-0 flex-col border-t bg-card"
       style={{ height: collapsed ? undefined : tableHeight }}
     >
       {!collapsed ? (
@@ -2369,12 +2397,28 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
             // scroll.
             <table
               data-testid="attribute-table"
-              className="mb-3.5 table-fixed caption-bottom text-sm"
-              style={{ minWidth: "100%", width: tableWidth }}
+              // The last column's cells pad past the vertical scrollbar
+              // (p-2 + VERTICAL_SCROLLBAR_GUTTER) so its values stay visible.
+              className="mb-3.5 table-fixed caption-bottom text-sm [&_tr>*:last-child]:pe-[var(--attribute-table-last-pe)]"
+              style={
+                {
+                  minWidth: "100%",
+                  width: tableWidth,
+                  "--attribute-table-last-pe": `calc(${CELL_PADDING} + ${VERTICAL_SCROLLBAR_GUTTER})`,
+                } as CSSProperties
+              }
             >
               <colgroup>
-                {tableColumns.map((col) => (
-                  <col key={col} style={{ width: columnWidth(col) }} />
+                {tableColumns.map((col, index) => (
+                  <col
+                    key={col}
+                    style={{
+                      width:
+                        index === tableColumns.length - 1
+                          ? `calc(${columnWidth(col)}px + ${VERTICAL_SCROLLBAR_GUTTER})`
+                          : columnWidth(col),
+                    }}
+                  />
                 ))}
               </colgroup>
               <TableHeader className="sticky top-0 z-10 bg-card shadow-xs">
@@ -2423,7 +2467,11 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
                         handleRowClick(featureId, event);
                       }}
                     >
-                      <TableCell>{featureId}</TableCell>
+                      <TableCell>
+                        <span className="block max-w-full truncate" title={featureId}>
+                          {featureId}
+                        </span>
+                      </TableCell>
                       {columns.map((col) => {
                         const value = properties[col];
                         const draft = drafts[featureId]?.[col];
@@ -2446,7 +2494,13 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
                           value != null
                             ? config.valueMap?.find((entry) => entry.value === String(value))?.label
                             : undefined;
-                        const current = draft ?? formatAttributeValue(value);
+                        const formattedValue = formatAttributeValue(value);
+                        // Display-only text: numbers rounded and grouped for
+                        // the active language, null/missing as null so it can
+                        // read NULL. Edits, sorting and export use the raw value.
+                        const cellText = formatAttributeCellText(value, i18n.language);
+                        const numeric = numericColumns.has(col);
+                        const current = draft ?? formattedValue;
                         const isEditableCell = isEditing && !readOnlyColumns.has(col);
                         const linkUrl = isEditableCell ? null : attributeLinkUrl(value);
                         const invalidTitle = invalid
@@ -2460,20 +2514,24 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
                         });
                         const commitDraft = (next: string) =>
                           updateCellDraft(featureId, col, next, value);
+                        // Explains where a derived column comes from. The value
+                        // span sets its own tooltip, so the hint is appended
+                        // there too, or hovering the text would hide it.
+                        const columnHint = virtualFieldColumns.has(col)
+                          ? t("attributeTable.virtualColumnTitle")
+                          : joinDerivedColumns.has(col)
+                            ? t("attributeTable.joinedColumnTitle")
+                            : trackingColumns.has(col)
+                              ? t("attributeTable.trackingColumnTitle")
+                              : undefined;
+                        const withColumnHint = (text: string) =>
+                          [text, columnHint].filter(Boolean).join("\n") || undefined;
                         return (
                           <TableCell
                             key={col}
                             data-state={changed ? "edited" : undefined}
                             className="data-[state=edited]:bg-primary/10 data-[state=edited]:shadow-[inset_3px_0_0_hsl(var(--primary))]"
-                            title={
-                              virtualFieldColumns.has(col)
-                                ? t("attributeTable.virtualColumnTitle")
-                                : joinDerivedColumns.has(col)
-                                  ? t("attributeTable.joinedColumnTitle")
-                                  : trackingColumns.has(col)
-                                    ? t("attributeTable.trackingColumnTitle")
-                                    : undefined
-                            }
+                            title={columnHint}
                           >
                             {isEditableCell ? (
                               config?.widget === "valueMap" && config.valueMap?.length ? (
@@ -2539,7 +2597,7 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
                                 href={linkUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title={linkUrl}
+                                title={withColumnHint(linkUrl)}
                                 className="inline-block max-w-full truncate align-bottom text-primary underline underline-offset-2"
                                 onClick={(event) => {
                                   event.preventDefault();
@@ -2550,9 +2608,38 @@ export function AttributeTable({ mapControllerRef, refresh }: AttributeTableProp
                                 {linkUrl}
                               </a>
                             ) : codeLabel ? (
-                              <span title={formatAttributeValue(value)}>{codeLabel}</span>
+                              <span
+                                className="block max-w-full truncate"
+                                title={withColumnHint(
+                                  formattedValue && formattedValue !== codeLabel
+                                    ? `${codeLabel} (${formattedValue})`
+                                    : codeLabel,
+                                )}
+                              >
+                                {codeLabel}
+                              </span>
+                            ) : cellText === null ? (
+                              <span
+                                className={`block max-w-full truncate italic text-muted-foreground ${
+                                  numeric ? "text-end" : ""
+                                }`}
+                                title={columnHint}
+                              >
+                                {t("attributeTable.nullValue")}
+                              </span>
                             ) : (
-                              formatAttributeValue(value)
+                              <span
+                                className={
+                                  numeric
+                                    ? "block max-w-full truncate text-end tabular-nums"
+                                    : "block max-w-full truncate"
+                                }
+                                // The raw value stays in the tooltip, so the
+                                // unrounded number is one hover away.
+                                title={withColumnHint(formattedValue)}
+                              >
+                                {cellText}
+                              </span>
                             )}
                           </TableCell>
                         );

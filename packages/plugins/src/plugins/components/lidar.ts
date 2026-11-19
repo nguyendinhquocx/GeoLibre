@@ -63,6 +63,16 @@ const LIDAR_OPTIONS = {
   // The panel doubles as the Add LiDAR Layer dialog, so it stays open until
   // the user closes it; clicking the map must not collapse it.
   closeOnOutsideClick: false,
+  // GeoLibre owns the address bar and the camera: it keeps `lat`/`lon`/`zoom`
+  // in the web address and restores point clouds from the project
+  // (restoreLidarLayers). Left on, the control's onAdd read those host
+  // parameters as one of its own flat share links, which parse with pitch 0,
+  // bearing 0 and terrain off, so opening a 3D project with a LiDAR layer
+  // jumped the camera flat and turned its terrain off. Its share links would
+  // not open in GeoLibre either (`?url=` is the project URL here), so the
+  // panel's Share button goes too.
+  restoreFromUrl: false,
+  shareUrl: false,
 } satisfies ConstructorParameters<LidarControlConstructor>[0];
 
 let lidarControl: LidarControl | null = null;
@@ -385,6 +395,18 @@ function lidarLayerUrl(layer: GeoLibreLayer): string | null {
   return typeof url === "string" && url ? url : null;
 }
 
+/** The store's LiDAR layers that are neither loaded nor queued to load. */
+function pendingLidarRestoreLayers(): GeoLibreLayer[] {
+  return useAppStore
+    .getState()
+    .layers.filter(
+      (layer) =>
+        isLidarControlLayer(layer) &&
+        !hasLidarPointCloud(layer.id) &&
+        !isLidarRestorePending(layer),
+    );
+}
+
 /** Whether a restore is already queued or in flight for this specific layer. */
 function isLidarRestorePending(layer: GeoLibreLayer): boolean {
   for (const queue of pendingLidarRestores.values()) {
@@ -407,21 +429,32 @@ function isLidarRestorePending(layer: GeoLibreLayer): boolean {
  * store after the first run's `pending` snapshot was taken still gets picked
  * up on the retry instead of `addTileToMap` reporting it as added while it
  * never actually streams.
+ *
+ * Args:
+ *   app: The GeoLibre app API.
+ *   options: `keepCamera` streams the clouds without the control flying the
+ *     camera to each one. Reopening a project (or re-initializing the map)
+ *     passes it so the saved view, pitch and bearing included, survives the
+ *     restore; adding a new layer leaves it off and flies to the data.
+ *
+ * Returns:
+ *   Resolves once every load is issued, or with `keepCamera` once they finish.
  */
-export async function restoreLidarLayers(app: GeoLibreAppAPI): Promise<void> {
+export async function restoreLidarLayers(
+  app: GeoLibreAppAPI,
+  options: { keepCamera?: boolean } = {},
+): Promise<void> {
+  if (options.keepCamera) {
+    // Check first so a project without LiDAR never mounts the control.
+    if (pendingLidarRestoreLayers().length === 0) return;
+    return withLidarAutoZoomSuppressed(app, () => restoreLidarLayers(app));
+  }
   if (lidarRestoreInFlightPromise) {
     await lidarRestoreInFlightPromise.catch(() => {});
     return restoreLidarLayers(app);
   }
 
-  const pending = useAppStore
-    .getState()
-    .layers.filter(
-      (layer) =>
-        isLidarControlLayer(layer) &&
-        !hasLidarPointCloud(layer.id) &&
-        !isLidarRestorePending(layer),
-    );
+  const pending = pendingLidarRestoreLayers();
   if (pending.length === 0) return;
 
   const run = (async () => {
@@ -490,6 +523,51 @@ export async function restoreLidarLayers(app: GeoLibreAppAPI): Promise<void> {
   }
 }
 
+type LidarDisplayState = Pick<
+  ReturnType<LidarControl["getState"]>,
+  "pointSize" | "opacity" | "colorScheme" | "colormap" | "colorRange" | "usePercentile" | "pickable"
+>;
+
+/**
+ * Put the LiDAR control's panel-wide display settings back to how the control
+ * started, and drop its point picking UI.
+ *
+ * Color By, the colormap, point size, filters and picking are settings of the
+ * one shared control, not of a layer, and a project does not save them. Left
+ * alone they carried over into the next opened project, so its restored cloud
+ * drew with the previous project's Classification coloring, and a Point Info
+ * card from the previous cloud stayed on screen (picking off hides it).
+ *
+ * @param control - The mounted LiDAR control.
+ * @param defaults - The control's display state captured when it was created.
+ */
+function resetLidarControlDisplay(control: LidarControl, defaults: LidarDisplayState): void {
+  control.setPointSize(defaults.pointSize);
+  // Panel-wide: newly streamed clouds inherit it, and a saved layer at
+  // opacity 1 never sets its own, so a leftover 0 would hide the next cloud.
+  control.setOpacity(defaults.opacity);
+  control.setColorScheme(defaults.colorScheme);
+  // After the color scheme: switching it can swap the colormap and range.
+  control.setColormap(defaults.colormap);
+  control.setColorRange({ ...defaults.colorRange });
+  control.setUsePercentile(defaults.usePercentile);
+  // The panel's Elevation Filter checkbox and slider are not synced from
+  // state, so untick the box the way a user would; its change handler clears
+  // the range and hides the slider. clearElevationRange covers a control
+  // whose panel has not been built.
+  const elevationFilter = control
+    .getPanelElement()
+    ?.querySelector<HTMLInputElement>("#lidar-elevation-filter-checkbox");
+  if (elevationFilter?.checked) {
+    elevationFilter.checked = false;
+    elevationFilter.dispatchEvent(new Event("change"));
+  }
+  control.clearElevationRange();
+  control.showAllClassifications();
+  // Turning picking off also hides a Point Info card left over from a hover.
+  control.setPickable(defaults.pickable);
+}
+
 function createLidarControl(
   LidarControlClass: LidarControlConstructor,
   LidarLayerAdapterClass: LidarLayerAdapterConstructor,
@@ -502,6 +580,16 @@ function createLidarControl(
     ...LIDAR_OPTIONS,
     theme: resolveDocumentTheme(),
   });
+  const initialState = control.getState();
+  const displayDefaults: LidarDisplayState = {
+    pointSize: initialState.pointSize,
+    opacity: initialState.opacity,
+    colorScheme: initialState.colorScheme,
+    colormap: initialState.colormap,
+    colorRange: { ...initialState.colorRange },
+    usePercentile: initialState.usePercentile,
+    pickable: initialState.pickable,
+  };
   // eslint-disable-next-line local/no-renderer-kind-checks -- picks the engine's own adapter
   if (app.getMapRenderer?.() === "arcgis") {
     // The SDK owns terrain; do not install the plugin's MapLibre DEM source.
@@ -548,6 +636,16 @@ function createLidarControl(
   control.on("load", handleLoad);
   control.on("unload", onUnload);
   lidarStoreUnsubscribe ??= useAppStore.subscribe((state, previous) => {
+    // Opening (or starting) a project brings its own layers; the panel's
+    // display settings and picking UI belong to the project being left.
+    // loadProject/newProject bump the generation in the same update that
+    // replaces the layers. A collaboration session also bumps it on its own,
+    // after each peer snapshot, to re-run plugin restore; that is not a new
+    // project, so it must keep the user's panel settings.
+    // Applied after the loop below so departing clouds are removed before the
+    // reset recolors whatever is still loaded.
+    const projectOpened =
+      state.projectGeneration !== previous.projectGeneration && state.layers !== previous.layers;
     if (state.layers === previous.layers) return;
     if (state.layers.some(isLidarControlLayer)) acquireMercatorProjectionLock("lidar", app);
     else releaseMercatorProjectionLock("lidar", app);
@@ -572,6 +670,17 @@ function createLidarControl(
 
       if (currentLayer.opacity !== layer.opacity) {
         lidarLayerAdapter?.setOpacity(currentLayer.id, currentLayer.opacity);
+      }
+    }
+    if (projectOpened && lidarControl) {
+      resetLidarControlDisplay(lidarControl, displayDefaults);
+      // The panel-wide opacity reset clears every cloud's own opacity, and a
+      // cloud the new project keeps (same layer id, e.g. reopening the same
+      // file) is not re-streamed, so re-apply its saved opacity.
+      for (const layer of state.layers) {
+        if (isLidarControlLayer(layer) && hasLidarPointCloud(layer.id) && layer.opacity !== 1) {
+          lidarLayerAdapter?.setOpacity(layer.id, layer.opacity);
+        }
       }
     }
   });

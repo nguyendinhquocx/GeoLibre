@@ -123,7 +123,9 @@ export {
   encodeTerrariumDem,
   registerCogDemSource,
   type CogDemErrorCode,
+  type CogDemFallback,
 } from "./cog-dem-source";
+export { createTerrariumFallback, type TerrariumFallbackOptions } from "./terrarium-fallback";
 export {
   detectGeometryProfile,
   getLayerBounds,
@@ -220,6 +222,7 @@ export {
 export { applyQmlImport, parseQml, type QmlImportResult } from "./qml-import";
 export { loadMarkerSvgImage, markerIconSizeValue, renderMarkerCanvas } from "./markers";
 export {
+  isArcGISImageServiceLayer,
   setWmsIdentifyFetcher,
   setWmsIdentifyProjectionResolver,
   type WmsIdentifyFetcher,

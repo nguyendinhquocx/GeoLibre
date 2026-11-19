@@ -10,7 +10,7 @@ import {
   Label,
 } from "@geolibre/ui";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,7 +19,6 @@ import {
   type ProjectFileActions,
 } from "../../../hooks/useProjectFileActions";
 import type { ArcgisProjectImportWarning } from "../../../lib/arcgis-project-import";
-import type { QgisProjectImportWarning } from "../../../lib/qgis-project-import";
 import {
   fetchSharedProjectVersions,
   shareHostLabel,
@@ -35,6 +34,7 @@ import {
 import { RemoteSignInDialog } from "./RemoteSignInDialog";
 import { SaveTemplateDialog } from "../SaveTemplateDialog";
 import { ImportWarningList } from "./ImportWarningList";
+import { QgisImportReportDialog } from "./QgisImportReportDialog";
 
 interface ProjectFileDialogsProps {
   projectFiles: ProjectFileActions;
@@ -62,14 +62,6 @@ export function ProjectFileDialogs({ projectFiles }: ProjectFileDialogsProps) {
       }),
     [t],
   );
-  const describeQgisWarning = useCallback(
-    (warning: QgisProjectImportWarning) =>
-      t(`toolbar.item.qgisImportReason.${warning.reason}`, {
-        provider: warning.provider || t("toolbar.item.qgisUnknownProvider"),
-      }),
-    [t],
-  );
-
   return (
     <>
       <Dialog
@@ -235,32 +227,7 @@ export function ProjectFileDialogs({ projectFiles }: ProjectFileDialogsProps) {
           projectFiles.openProjectFromShareUrl(rawUrl, { authToken: token, asCopy: true })
         }
       />
-      <Dialog
-        open={projectFiles.qgisImportWarnings !== null}
-        onOpenChange={(open: boolean) => {
-          if (!open) projectFiles.setQgisImportWarnings(null);
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("toolbar.item.qgisImportComplete")}</DialogTitle>
-            <DialogDescription>
-              {t("toolbar.item.qgisImportWarnings", {
-                count: projectFiles.qgisImportWarnings?.length ?? 0,
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          <ImportWarningList
-            warnings={projectFiles.qgisImportWarnings ?? []}
-            describe={describeQgisWarning}
-          />
-          <div className="flex justify-end">
-            <Button onClick={() => projectFiles.setQgisImportWarnings(null)}>
-              {t("common.ok")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <QgisImportReportDialog projectFiles={projectFiles} />
       <Dialog
         open={projectFiles.layerStyleImportResult !== null}
         onOpenChange={(open: boolean) => {
@@ -388,11 +355,17 @@ export function ProjectFileDialogs({ projectFiles }: ProjectFileDialogsProps) {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("toolbar.item.embedVectorTitle")}</DialogTitle>
+            <DialogTitle>
+              {t(
+                projectFiles.embedVectorDataPrompt?.hasGeometryEdits
+                  ? "toolbar.item.embedEditedVectorTitle"
+                  : "toolbar.item.embedVectorTitle",
+              )}
+            </DialogTitle>
             <DialogDescription>
               {t(
                 projectFiles.embedVectorDataPrompt?.hasGeometryEdits
-                  ? "toolbar.item.embedEditedGeometryDesc"
+                  ? "toolbar.item.embedEditedFeaturesDesc"
                   : projectFiles.embedVectorDataPrompt?.allowFileReferences
                     ? "toolbar.item.embedVectorDescDesktop"
                     : projectFiles.embedVectorDataPrompt?.desktop

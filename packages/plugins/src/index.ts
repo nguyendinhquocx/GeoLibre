@@ -268,6 +268,7 @@ export {
   type CloudNetcdfLayerOptions,
   addZarrRasterLayer,
   restoreArcgisZarrLayers,
+  restoreZarrLayers,
   queryZarrLayer,
   setZarrLayerSelector,
   setZarrLocalStoreProvider,
@@ -365,10 +366,26 @@ export {
   overtureTilesForBBox,
 } from "./plugins/overture-query";
 export {
+  addPlanetaryComputerItemLayer,
+  addPlanetaryComputerMosaicLayer,
   closePlanetaryComputerPanel,
+  identifyPlanetaryComputerLayer,
+  isPlanetaryComputerPanelSupported,
   openPlanetaryComputerPanel,
   PLANETARY_COMPUTER_SOURCE_KIND,
   restorePlanetaryComputerLayers,
+  searchPlanetaryComputerItems,
+} from "./plugins/maplibre-planetary-computer";
+export {
+  createPlanetaryComputerCustomActions,
+  setPlanetaryComputerLabels,
+  type PlanetaryComputerLabels,
+} from "./plugins/planetary-computer-actions";
+export type {
+  PlanetaryComputerAddResult,
+  PlanetaryComputerPixelReading,
+  PlanetaryComputerSearchInput,
+  PlanetaryComputerStyleInput,
 } from "./plugins/maplibre-planetary-computer";
 export {
   closeEarthEnginePanel,

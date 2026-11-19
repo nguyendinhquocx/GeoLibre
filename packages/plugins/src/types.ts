@@ -859,6 +859,19 @@ export interface GeoLibreAppAPI {
    */
   setLayerRequestHeaders?: (layerId: string, headers: Record<string, string> | null) => boolean;
   /**
+   * Send headers with every tile and TileJSON request whose URL starts with
+   * `urlPrefix`, replacing those set for that prefix before; `null` stops
+   * sending them. For a source the plugin adds to the map itself with
+   * {@link getMap} and does not mirror into the layer store, which has no
+   * layer for {@link setLayerRequestHeaders} to name. `urlPrefix` needs a
+   * fixed host and the start of a path (a tile template is cut at its first
+   * `{`). Headers are held in memory and never saved; they stay until the
+   * plugin clears them, so clear them in `deactivate`. Only MapLibre maps send
+   * them. Throws on an unscoped prefix or an invalid header. Typed optional
+   * for forward-compatibility, so call it with optional chaining.
+   */
+  setUrlRequestHeaders?: (urlPrefix: string, headers: Record<string, string> | null) => void;
+  /**
    * Add a native WMS raster layer and return its layer id. The host builds the
    * GetMap tile URL from {@link GeoLibreWmsLayerOptions.url} and
    * {@link GeoLibreWmsLayerOptions.layers}, so the plugin supplies the request
@@ -1130,7 +1143,12 @@ export interface GeoLibreAppAPI {
   /**
    * Resolve a fetchable URL for an asset shipped alongside an external
    * plugin's manifest (e.g. sample data bundled in the plugin folder). The
-   * host resolves `relativePath` against the plugin's own directory. Returns
+   * host resolves `relativePath` against the plugin's own directory.
+   * `relativePath` is a raw file path, not a URL: each segment is
+   * percent-encoded, so `#`, `?`, `%` and spaces stay part of the file name
+   * and the URL names the same file {@link readPluginAsset} reads. Do not
+   * pre-encode: pass `"data/my file.json"`, not `"data/my%20file.json"`
+   * (that names a file literally called `my%20file.json`). Returns
    * null for built-in plugins, for plugins installed from the desktop
    * filesystem (which have no URL base), or when `relativePath` escapes the
    * plugin directory. `pluginId` should be the calling plugin's own id; since
@@ -1184,7 +1202,9 @@ export interface GeoLibreAppAPI {
   queryOvertureFeatures?: (query: GeoLibreOvertureQuery) => Promise<GeoLibreOvertureQueryResult>;
   /**
    * Create a named Layers-panel group, optionally assigning existing layer ids
-   * to it, and return the new group id.
+   * to it, and return the new group id. A call that names layers reuses a
+   * same-named group holding only some of those layers (or none), such as the
+   * one a reopened project restored, and returns that group's id instead.
    */
   addLayerGroup?: (name?: string, layerIds?: string[]) => string;
   /**

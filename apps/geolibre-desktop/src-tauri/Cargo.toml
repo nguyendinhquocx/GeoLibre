@@ -1,6 +1,6 @@
 [package]
 name = "geolibre-desktop"
-version = "3.7.0"
+version = "3.9.0"
 description = "GeoLibre Desktop — lightweight cloud-native desktop GIS"
 authors = ["GeoLibre Contributors"]
 edition = "2021"
@@ -46,6 +46,10 @@ tauri-plugin-fs = { version = "2", features = ["watch"] }
 # (the frontend only invokes it on mobile). This is a patched 2.3.2 release;
 # see vendor/tauri-plugin-geolocation/GEOLIBRE_PATCH.md before upgrading.
 tauri-plugin-geolocation = { path = "vendor/tauri-plugin-geolocation" }
+# Bluetooth GNSS receivers on Android (GeoLibre#3397): the WebView has no Web
+# Serial or Web Bluetooth, so a small in-repo plugin opens the receiver's Serial
+# Port Profile socket natively. Its commands live in Kotlin; desktop is inert.
+tauri-plugin-gnss-bluetooth = { path = "plugins/tauri-plugin-gnss-bluetooth" }
 tauri-plugin-http = "2"
 tauri-plugin-opener = "2"
 # Persists the fs scope the folder picker grants, so Browser-panel pinned
@@ -76,6 +80,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.11"
 sha2 = "0.11"
+# RS256 checks of the ChatGPT sign-in's id token (chatgpt_auth.rs); already in
+# the tree through rustls.
+ring = "0.17"
 hmac = "0.13"
 # Pinned to 1.x on purpose: this must match the bincode version
 # `tauri-plugin-persisted-scope` uses to write its scope file, which

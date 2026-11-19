@@ -50,7 +50,12 @@ import {
 import { useDesktopSettingsStore } from "./useDesktopSettings";
 import { buildProjectHtml, viewerChromeParams } from "../lib/html-export";
 import { isLayersPanelCollapsed } from "../lib/layer-panel-collapse";
-import { ensureHtmlFileName, ensureJsonFileName, ensureProjectFileName } from "../lib/file-names";
+import {
+  ensureHtmlFileName,
+  ensureJsonFileName,
+  ensureProjectFileName,
+  suggestedProjectName,
+} from "../lib/file-names";
 import { pickLayerStylesFile } from "../lib/layer-style-files";
 import { notify } from "../lib/notify";
 import { notifyUnsavedLocalRasters } from "../lib/local-raster-notices";
@@ -87,12 +92,17 @@ import {
   type ProjectSaveChoices,
 } from "../lib/project-save-choices";
 import { startupSettingsAfterForcedSaveAs } from "../lib/startup-project";
-import { resolveProjectXyzLayers } from "../lib/xyz-url";
+import { resolveProjectXyzLayers, routeWmsLayerThroughNativeProtocol } from "../lib/xyz-url";
 import {
   importQgisProject,
+  materializeQgisFormRelations,
   materializeQgisRemoteLayers,
+  type QgisFormImportNote,
   type QgisProjectImportWarning,
+  type QgisStyleImportNote,
 } from "../lib/qgis-project-import";
+import { readQgisSnapshotTable } from "../lib/qgis-form-tables";
+import { qgisRemoteFetch, readQgisRemoteVector } from "../lib/qgis-remote-vector";
 import { importArcgisProject, type ArcgisProjectImportWarning } from "../lib/arcgis-project-import";
 import type { MapControllerRef } from "../components/layout/toolbar/constants";
 import { IS_MAS_BUILD } from "../lib/build-flags";
@@ -345,6 +355,10 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   const droppedProjectPromptRef = useRef<DroppedProjectPrompt | null>(null);
   const droppedProjectOperationRef = useRef(0);
   const [qgisImportWarnings, setQgisImportWarnings] = useState<QgisProjectImportWarning[] | null>(
+    null,
+  );
+  const [qgisImportFormNotes, setQgisImportFormNotes] = useState<QgisFormImportNote[] | null>(null);
+  const [qgisImportStyleNotes, setQgisImportStyleNotes] = useState<QgisStyleImportNote[] | null>(
     null,
   );
   const [arcgisImportWarnings, setArcgisImportWarnings] = useState<
@@ -627,10 +641,19 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
   const handleImportQgisProject = async () => {
     const result = await openQgisProjectFile();
     if (!result) return;
+    // The reads below can outlast the user opening something else; loading
+    // the import then would replace the project they just opened.
+    const generation = useAppStore.getState().projectGeneration;
+    const superseded = () => useAppStore.getState().projectGeneration !== generation;
     try {
       const imported = await materializeQgisRemoteLayers(
         importQgisProject(result.data, result.path),
+        qgisRemoteFetch,
+        readQgisRemoteVector,
       );
+      // WMS layers fetch through the desktop app's CORS-exempt client, as
+      // those added from Add Data do.
+      imported.project.layers = imported.project.layers.map(routeWmsLayerThroughNativeProtocol);
       if (!isTauri()) {
         const unavailableLayerIds = new Set<string>();
         for (const layer of imported.project.layers) {
@@ -657,7 +680,24 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
             reason: "browser-local-raster",
           });
         }
+        // Those layers are gone, and so is any way to read a lookup table off
+        // disk; a note about a form nobody can open would only be noise.
+        const keptNames = new Set(imported.project.layers.map((layer) => layer.name));
+        imported.formNotes = imported.formNotes.filter((note) => keptNames.has(note.layerName));
+        imported.styleNotes = imported.styleNotes.filter((note) => keptNames.has(note.layerName));
+        imported.formRelations = imported.formRelations.filter((relation) =>
+          imported.project.layers.some((layer) => layer.id === relation.layerId),
+        );
       }
+      // Dropdowns that list another table's rows are filled in before the
+      // project loads, so the form is complete the first time it opens.
+      // A remote layer that failed to load is gone from the project by now;
+      // notes about it would describe a layer the user cannot see.
+      const loadedNames = new Set(imported.project.layers.map((layer) => layer.name));
+      imported.formNotes = imported.formNotes.filter((note) => loadedNames.has(note.layerName));
+      imported.styleNotes = imported.styleNotes.filter((note) => loadedNames.has(note.layerName));
+      await materializeQgisFormRelations(imported, readQgisSnapshotTable);
+      if (superseded()) return;
       const mapReady = importedProjectMapReady(
         mapControllerRef,
         useAppStore.getState().basemapStyleUrl !== imported.project.basemapStyleUrl,
@@ -704,6 +744,8 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
       }
       useAppStore.setState({ isDirty: true });
       setQgisImportWarnings(imported.warnings.length > 0 ? imported.warnings : null);
+      setQgisImportFormNotes(imported.formNotes.length > 0 ? imported.formNotes : null);
+      setQgisImportStyleNotes(imported.styleNotes.length > 0 ? imported.styleNotes : null);
     } catch (error) {
       console.error("Failed to import QGIS project", error);
       setActionError(
@@ -1836,7 +1878,8 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     // download under a fixed name, so Save As (and a first Save) would otherwise
     // reuse a default name — exactly the bug users hit. Prompt for the name so
     // they can choose it; later in-place Saves reuse the chosen name silently.
-    let saveName = `${defaultProjectName}.geolibre`;
+    const untitledLabel = t("toolbar.item.untitledProject");
+    let saveName = `${suggestedProjectName(defaultProjectName, untitledLabel)}.geolibre`;
     const promptForName =
       browserSaveFallsBackToDownload() && (options?.saveAs === true || !existingLocalPath);
     if (promptForName) {
@@ -2213,6 +2256,10 @@ export function useProjectFileActions(mapControllerRef: MapControllerRef) {
     ...windowCloseGuard,
     qgisImportWarnings,
     setQgisImportWarnings,
+    qgisImportFormNotes,
+    setQgisImportFormNotes,
+    qgisImportStyleNotes,
+    setQgisImportStyleNotes,
     arcgisImportWarnings,
     setArcgisImportWarnings,
     remoteSaveWarning,

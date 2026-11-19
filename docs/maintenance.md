@@ -103,7 +103,8 @@ fail again with "Unsupported data format/bitsPerSample";
   one canvas and ships no per-layer blend API (upstream draft:
   maplibre/maplibre-gl-js#8073). The wrappers are `Painter.prototype.renderLayer`
   (brackets one layer's draws), `Painter.prototype.useProgram` (tells the
-  layer-opacity composite draw from the draws feeding it), and
+  layer-opacity composite draw, program `layerComposite` since maplibre-gl 6.18
+  and `layerOpacity` before, from the draws feeding it), and
   `Context.prototype.setColorMode` (the single place every draw resolves GL blend
   state). Fill and line layers additionally get `fill-layer-opacity` /
   `line-layer-opacity` pinned just under 1 by `style-mapper`, which elects
@@ -137,6 +138,18 @@ fail again with "Unsupported data format/bitsPerSample";
   GeoJSON on a custom CRS map silently draws in the wrong place (MapLibre only
   warns). After a bump, run `tests/map-crs.test.ts` and pick a preset under
   **Settings → Map** with a GeoJSON layer on the map.
+- **Map CRS fits** (`MapController.guardMapCrsFits`, issue #3516) replace
+  `fitBounds` on the map instance so fits that plugin controls make directly
+  (the PMTiles panel) stay on a custom CRS's tile grid. They assume MapLibre
+  clamps the camera center to the grid, draws the grid 512 px wide at zoom 0
+  (`cameraForMapCrsBox`), and that `fitBounds` stays an own-instance-overridable
+  method that MapLibre itself does not rely on internally. The guard also covers the
+  frame applied when a CRS is entered (`applyMapCrs` fits the preset's
+  `bounds`), so a new preset whose box straddles its grid edge is framed on
+  the clipped part. After a bump, run
+  `tests/map-crs-fit.test.ts`, then on `?crs=earth-arctic` add
+  `https://data.geolibre.app/knoxville_buildings.pmtiles`: the camera must stay
+  on the Arctic view and Zoom to layer must explain why it cannot move.
 
 ### `mapbox-gl`
 
@@ -308,6 +321,17 @@ black — it declines the stack.
   real archive, through the real `layeradd` handler into the store, and fails if
   the id scheme moves or the selection stops reaching the handler.
 
+- **The AddVectorControl's layer id rule** (`upstreamUrlLayerId` /
+  `flatGeobufLayerName`, `packages/plugins/src/plugins/components/flatgeobuf.ts`)
+  mirrors how the FlatGeobuf panel's `AddVectorControl` names a layer: the
+  trimmed Layer Name field, else the URL's last path segment without its
+  extension, else a generated `addvec-*` id. The typed name is not on
+  `AddVectorLayerInfo`, so GeoLibre reads it from the field and, failing that,
+  from an id that is not the URL-derived one. If the rule drifts, a typed name
+  still wins while the field holds it, but a URL-named layer shows its raw id
+  (undecoded) instead of the file name. `tests/flatgeobuf-layer-name.test.ts`
+  uses a fake control, so after a bump add a FlatGeobuf URL with and without a
+  Layer Name and check the Layers panel.
 - **The MeasureControl's `_panel` and `_sourceId`**
   (`packages/plugins/src/plugins/terrain-measure.ts`, via `measurePanelElement`
   and `measureSourceId`) are private members that only the control knows: the
@@ -318,6 +342,13 @@ black — it declines the stack.
   `MeasureControl` and fails if either field is gone. After a bump, still
   confirm the Terrain section appears and a measured line shows inside a point
   cloud.
+- **The MeasureControl's `_setupMapSources` and `_updateMapGeometry`**
+  (`healMeasureLayersOnStyleSwap`, `packages/plugins/src/plugins/components/measure.ts`)
+  re-add the measured line and polygon after a basemap swap: the control adds
+  its source once in `onAdd`, so a `setStyle` (the celestial body switch, any
+  basemap change) left the line undrawn (#3471). The heal is skipped when
+  either method is gone, and `tests/upstream-contracts.test.ts` checks both.
+  Drop it once the control re-adds its own layers on `style.load`.
 - **The measure paint** (`MEASURE_LINE_COLOR`/`MEASURE_LINE_WIDTH`/
   `MEASURE_FILL_COLOR`, `packages/plugins/src/plugins/lidar-measure-mirror.ts`)
   is passed to the control explicitly rather than left to its defaults, because
@@ -599,26 +630,43 @@ imports the `cesium` wrapper, which `apps/geolibre-desktop/vite.config.ts`
 aliases to `@cesium/engine`: keep that alias if a bump adds more `cesium`
 imports, or the globe loads a second engine.
 
-### `maplibre-gl-planetary-computer` (`packages/plugins/package.json`) — private STAC client
+### `maplibre-gl-planetary-computer` (`packages/plugins/package.json`): client, restore, and sync contract
 
-The Planetary Computer STAC API sends no CORS headers on `GET /collections` and
-rejects the preflight a JSON `POST /search` needs, so the library's own
-`STACClient` fails with "Failed to fetch" in the browser and the Tauri webview.
-`packages/plugins/src/plugins/planetary-computer-stac.ts` subclasses it: search
-goes out as a `GET /search`, and the collection list falls back to the bundled
-`planetary-computer-collections.json` when the live one cannot be read. The
-subclass reuses the private `fetch` / `abortController` fields, and
-`maplibre-planetary-computer.ts` swaps it into the control's private
-`_stacClient` field before the control is added (collections load in `onAdd`).
+GeoLibre drives this library through its public API only (0.5.0 and later):
+`maplibre-planetary-computer.ts` hands the control a `STACClient` built from
+`planetaryComputerStacClientOptions()` (`planetary-computer-stac.ts`), restores
+saved layers with `addItemLayer` / `addMosaicLayer` and their `id` option, and
+adds its own buttons through `customActions` (`planetary-computer-actions.ts`).
+Nothing reaches into a private field anymore, but four behaviors are still
+relied on without a type to enforce them:
 
-If upstream renames those fields, loads collections in its constructor, or adds
-new POST requests, the panel breaks again without a compiler error.
-`tests/upstream-contracts.test.ts` checks the real client and control for the
-private fields, that the constructor loads nothing, and that every non-search
-read is a GET. Run it and `tests/planetary-computer-stac.test.ts` on a bump. Regenerate the bundled list with
-`node scripts/gen-planetary-computer-collections.mjs` to pick up new
-collections. Better still, upstream a GET search and a client/fetch option and
-delete the swap.
+- **Search is a `GET /search`.** The Planetary Computer API has rejected the
+  CORS preflight a JSON `POST /search` needs, so a POST fails with "Failed to
+  fetch" in the browser and the Tauri webview. GET is the library default; if
+  that default changes, every search in the panel and the AI Assistant breaks.
+- **The collection list falls back to the bundled snapshot.**
+  `planetary-computer-collections.json` is used when the live `/collections`
+  request cannot be read. `.github/workflows/refresh-planetary-computer-collections.yml`
+  regenerates it monthly and opens a pull request; run
+  `npm run gen:planetary-computer-collections` to refresh it by hand, then format
+  the file (`npx oxfmt --write packages/plugins/src/plugins/planetary-computer-collections.json`,
+  or let the pre-commit hook do it): the script writes it minified, and the
+  committed copy is the formatted output.
+- **`updateLayer` stores `visible` and `opacity` verbatim** before emitting
+  `layer:update`. The store-to-control and control-to-store sync both compare
+  with `===`; a library that rounded or coerced the values would make toggling
+  visibility or opacity in the Layers panel loop forever.
+- **`addMosaicLayer` with `mosaicId` adds the layer synchronously.** The restore
+  path registers the mosaic's search itself, then adds the layer while the store
+  sync is suspended. If the add became asynchronous, its `layer:add` event would
+  fire unsuspended and drop the saved layers not yet restored.
+
+`tests/upstream-contracts.test.ts` checks all four against the installed
+package, and `tests/planetary-computer-stac.test.ts` runs the real client with
+GeoLibre's options. Run both on a bump. The render presets live upstream too:
+the Python API and the MCP server name them in docstrings
+(`python/src/geolibre/mcp/server.py`, `skills/geolibre/references/mcp-tools.md`),
+so update those lists when a preset is added or renamed.
 
 ### `maplibre-gl-raster` — stretch and gamma curves
 

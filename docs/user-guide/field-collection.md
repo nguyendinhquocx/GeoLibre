@@ -44,6 +44,38 @@ estimated from HDOP.
     settings and connect them as a serial port. **Connect Bluetooth** is for
     Bluetooth Low Energy receivers only.
 
+!!! note "Bluetooth receivers in the Android app"
+    The Android app's WebView has neither API, so it reads the receiver
+    natively instead. Pair the receiver in Android's Bluetooth settings, then
+    pick it from **Paired receiver** and press **Connect receiver**. Android
+    asks for the *Nearby devices* permission the first time. The app talks to
+    the receiver over classic Bluetooth (Serial Port Profile), which is what
+    most survey GNSS receivers use; Bluetooth Low Energy-only devices are
+    listed but cannot be connected.
+
+### RTK corrections (NTRIP)
+
+In the Android app, once a Bluetooth receiver is connected, the dialog shows
+**RTK corrections (NTRIP)**. Enter the **Caster host**, **Port** (2101 by
+default), **Mountpoint**, and your **Username** and **Password** from the
+correction provider, tick **Use TLS** if the caster requires it, and press
+**Start corrections**. GeoLibre connects to the caster, sends the receiver its
+RTCM corrections over the same Bluetooth link, and sends the caster the
+receiver's own position (GGA) every 10 seconds, which network (VRS) casters need
+before they start streaming. The status line counts the corrections received,
+and the receiver readout above it shows the fix moving to **RTK float** and
+**RTK fixed**.
+
+A pasted caster URL such as `http://caster.example.com:2102/` is split into
+host and port, and a leading `/` is dropped from the mountpoint. If the caster
+drops the stream, GeoLibre reconnects every few seconds; a rejected login or an
+unknown mountpoint stops it with a message instead. The settings, including the
+password, are saved on the device, and corrections restart on their own the
+next time the receiver connects, until you press **Stop corrections**.
+
+The web version cannot run an NTRIP client: a browser page cannot open the
+plain TCP connection a caster speaks.
+
 ### Following your position
 
 **Start GPS** begins streaming. The map shows a blue dot, a heading arrow when a
@@ -117,12 +149,60 @@ layer against a custom form.
 4. **Create layer**.
 
 A layer with no fields captures location-only observations. Property names are
-derived from the labels. Fields have no default values.
+derived from the labels.
 
 If the layer has an [attribute form](attribute-table.md#attribute-forms)
 configured, Field Collection uses it instead of the plain field list: its
 aliases, dropdowns and checkboxes, number, range and date widgets, conditional
-visibility, and constraints all apply.
+visibility, constraints, and default values all apply.
+
+A QGIS or QField project brings its forms with it: after
+[importing the project](projects.md#importing-a-qgis-project), every layer
+that has a form is already a collection layer, with nothing to set up here.
+
+### Linked records and photos
+
+A project imported from QGIS or QField can link layers together: several reviews, samples or photos that belong to one point. In GeoLibre the linked layer is usually a table layer (records with no location of their own).
+
+1. Capture and save the point as usual.
+2. Under the confirmation, **Add to _layer_** appears for each layer that links to the one you just saved into. Choose it.
+3. The form of the linked layer opens with the link to your point already filled in. There is no location to pick. Fill it in and **Save record**.
+4. The form stays on the linked layer with the same link, so you can add the next record (a second photo) straight away. Switch the **Collection layer** back to carry on with points.
+
+You can also pick a table layer as the **Collection layer** yourself and choose the record it belongs to from the dropdown, which lists the parent layer's current features.
+
+A field set up as a **Photo** in the attribute form (a QGIS Attachment widget, or the **Photo** edit widget chosen in the Style panel) shows **Choose photo…** instead of a text box. The picture is stored in that field, travels with the project, and shows as a thumbnail in popups and the attribute table. Each picture can be up to 2 MB.
+
+### Default values
+
+A field's **Default value** in the attribute form is an expression that fills
+the field as soon as you capture a location. It uses QGIS expression syntax, so
+defaults written for QGIS or QField work unchanged:
+
+| Default value | Fills in |
+| --- | --- |
+| `uuid()` | A unique ID. `uuid('WithoutBraces')` drops the braces. |
+| `now()` | The date and time (the date alone for a Date widget). |
+| `concat("site", '_', format_date(now(), 'yyyyMMdd_HHmmss'), '.jpg')` | A name built from other fields. The `\|\|` operator works too. |
+| `@position_horizontal_accuracy` | The GPS accuracy in meters. |
+| `x(@position_coordinate)`, `y(@position_coordinate)`, `z(@position_coordinate)` | The GPS longitude, latitude and altitude. |
+| `x(transform(@position_coordinate, 'EPSG:4326', 'EPSG:2056'))` | A projected coordinate, for any EPSG code GeoLibre knows. |
+| `@position_number_of_used_satellites` | Satellites used, when the receiver reports it. |
+| `@user_full_name` | Your editor name. |
+
+The `@position_...` variables (and QField's older `@gnss_...` spellings) are set
+only when the location came from **Use GPS**. For a point picked on the map
+they are empty, so `@position_coordinate is not null` records whether a point
+was measured or placed by hand. `$x` and `$y` give the captured point itself
+either way.
+
+A filled-in value is a starting point: type over it and your value is kept.
+Until you do, it follows the capture, so repositioning the point refreshes it,
+and a default built from other fields updates as you fill those in.
+Text functions (`upper`, `lower`, `trim`, `left`, `right`, `substr`, `replace`,
+`lpad`, `rpad`, `concat`, `length`), number functions (`round`, `floor`,
+`ceil`, `abs`, `min`, `max`), `coalesce`, `if`, and `CASE WHEN` are available.
+Aggregates and lookups into other layers (`aggregate`, `get_feature`) are not.
 
 ### Capture an observation
 

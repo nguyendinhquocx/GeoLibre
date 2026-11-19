@@ -50,6 +50,32 @@ export function invertLayerSelection(): void {
   store.selectFeatures(invertSelection(allIds, store.selectedFeatureIds));
 }
 
+/**
+ * Make a layer active without wiping its feature selection. `selectLayer`
+ * always clears the selection, so it only runs when the layer is not active
+ * yet: a selection made on this layer (Select by expression, a map lasso)
+ * survives opening its Style panel, the Style Manager, a Processing tool or
+ * its attribute table. Switching to another layer still drops the old
+ * layer's ids, which are per-layer and meaningless on the new one.
+ *
+ * @param layerId - The layer to make active.
+ */
+export function activateLayerPreservingSelection(layerId: string): void {
+  const store = useAppStore.getState();
+  if (store.selectedLayerId !== layerId) store.selectLayer(layerId);
+}
+
+/**
+ * Make a layer active and open its attribute table, keeping a selection made
+ * on that layer (see {@link activateLayerPreservingSelection}).
+ *
+ * @param layerId - The layer whose attribute table to open.
+ */
+export function openLayerAttributeTable(layerId: string): void {
+  activateLayerPreservingSelection(layerId);
+  useAppStore.getState().setAttributeTableOpen(true);
+}
+
 /** Clear the selection (keeps the layer active). */
 export function clearFeatureSelection(): void {
   useAppStore.getState().selectFeature(null);

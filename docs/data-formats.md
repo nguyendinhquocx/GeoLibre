@@ -60,7 +60,7 @@ see [vector import details](user-guide/adding-data.md#files).
 | ArcGIS FeatureServer | ArcGIS Layer: Feature layer | Features and attributes from a service URL or portal item. |
 | ArcGIS VectorTileServer | ArcGIS Layer: Vector tile layer | Vector tiles and their styling. |
 | ArcGIS MapServer | ArcGIS Layer: Map service | Cached tiles or rendered exports, with sublayer selection. |
-| ArcGIS ImageServer | ArcGIS Layer: Image service | Rendered imagery with advertised raster functions or a custom rendering rule. Use WCS when numerical raster subsets are needed and the service exposes WCS. |
+| ArcGIS ImageServer | ArcGIS Layer: Image service | Rendered imagery with advertised raster functions or a custom rendering rule. Identify reads pixel values (of the rendering rule's output when one is set) through the service's `/identify`. A tile cache that stops short of the source rasters' resolution is passed over for `/exportImage`, so a mosaic draws its source rasters instead of overzoomed overviews. Use WCS when numerical raster subsets are needed and the service exposes WCS. |
 | GeoRSS | GeoRSS Layer | Geographic features from a feed URL or file. |
 | [geoBoundaries](https://www.geoboundaries.org) | Administrative Boundaries | Country, state, and district boundaries (ADM0 to ADM5, depending on the country) under open licenses, in simplified or full geometry. |
 | STAC | STAC Layer | Search catalogs and load raster assets. |
@@ -103,7 +103,7 @@ are described in [Web Services](user-guide/web-services.md) and
 | Format | Entry point | Notes |
 | --- | --- | --- |
 | GeoLibre project (`.geolibre.json`) | Project > Open From | Layers, styles, groups, and map state; remote sources and local file references still need to be accessible. |
-| QGIS project (`.qgs`, `.qgz`) | Project > Import | Imports supported layers and settings; reports skipped sources. Local paths require desktop access. |
+| QGIS project (`.qgs`, `.qgz`) | Project > Import | Imports supported layers, settings and attribute forms; reports skipped sources. Local paths require desktop access. |
 | ArcGIS Pro project or map (`.aprx`, `.mapx`) | Project > Import | Imports supported layers and settings; see the [project import guide](user-guide/projects.md#importing-an-arcgis-pro-project) for requirements. |
 
 ## WCS raster subsets

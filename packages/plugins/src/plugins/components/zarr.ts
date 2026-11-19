@@ -31,7 +31,9 @@ import type {
   ZarrLocalStoreProvider,
 } from "maplibre-gl-components";
 import type { GeoLibreAppAPI, GeoLibreMapControlPosition } from "../../types";
+import { localizedMessage } from "../../localized-error";
 import {
+  assertSecureRequestHeaders,
   KerchunkReferenceStore,
   type KerchunkRefs,
   loadKerchunkReference,
@@ -51,8 +53,10 @@ import {
 import {
   pickTimeDimension,
   readCoordinateTimeAttributes,
+  resolveZarrSelectorDates,
   resolveZarrTimeAxis,
   type ZarrTimeAttributes,
+  type ZarrTimeAxis,
 } from "../zarr-time-axis";
 import { getComponentsConstructors, type ZarrLayerControlConstructor } from "./constructors";
 import { layerNameFromUrl } from "./shared";
@@ -84,11 +88,12 @@ const ZARR_SAMPLE_URL =
  *
  * NOAA OI SST V2 monthly means, 1981-2023 on a 1-degree global grid, chunked
  * one time step per chunk (~165 KiB) so stepping the timeline is a single small
- * read. Public domain (U.S. Government work); see the store's own attributes
- * for the citation.
+ * read. Land cells are NaN (masked with NOAA PSL's land-sea mask), so the
+ * field draws over the oceans only. Public domain (U.S. Government work); see
+ * the store's own attributes for the citation.
  */
 const ZARR_TIME_SERIES_SAMPLE_URL =
-  "https://data.source.coop/giswqs/opengeos/noaa-oisst-v2-monthly.zarr";
+  "https://data.source.coop/opengeos/data/zarr/noaa-oisst-v2-monthly.zarr";
 
 // Matches the stop count of the control's own default colormap, so a named ramp
 // renders with the same smoothness as the built-in Zarr panel default. Declared
@@ -374,12 +379,24 @@ export async function addCloudNetcdfLayer(
     // manifest, not a Zarr store whose metadata documents could be walked.
     // Session-only, as for addZarrRasterLayer: never on the layer record.
     registerZarrHeaders(addedLayerId, options.headers);
-    registerZarrTemporalAdapter(addedLayerId, options.url, { refs, headers: options.headers });
+    registerZarrTemporalAdapter(addedLayerId, options.url, {
+      refs,
+      headers: options.headers,
+    });
     // Record the extent on the layer itself. The control accepts `bounds` as a
     // render hint but does not always carry it back on the "layeradd" event,
     // and the renderer never reports the extent it resolved — so without this
     // write the Layers panel's "Zoom to layer" has nothing to fly to.
     if (options.bounds) applyZarrLayerBounds(addedLayerId, options.bounds);
+    // The url names a kerchunk manifest, not a Zarr store: record that, so a
+    // reopened project reads it through the references again
+    // (restoreZarrLayers) instead of asking the manifest URL for Zarr metadata.
+    const added = useAppStore.getState().layers.find((item) => item.id === addedLayerId);
+    if (added) {
+      useAppStore.getState().updateLayer(addedLayerId, {
+        source: { ...added.source, kerchunk: true },
+      });
+    }
   });
 
   // Unlike openZarrLayerPanel, the dialog-based flow intentionally leaves the
@@ -815,6 +832,16 @@ interface ZarrTemporalContext {
   headers?: Record<string, string>;
   refs?: KerchunkRefs;
   readAttributes?: ZarrTimeAttributesReader;
+  /**
+   * Drop the layer when a selector value matches nothing on a decoded time
+   * axis. Set only for a layer the user just added in the Zarr panel, so a
+   * failed selector leaves the panel's error instead of an empty layer row.
+   * Never set for a restored project layer, which must not vanish on open, nor
+   * for a programmatic add (`addZarrRasterLayer`, `addCloudNetcdfLayer`, used
+   * by STAC, dynamical and the NetCDF dialog), whose caller keeps using the id
+   * it was given.
+   */
+  removeIfUnmatched?: boolean;
 }
 
 /**
@@ -918,6 +945,83 @@ function zarrTimeAttributesFromRefs(
 }
 
 /**
+ * Swap date strings in a just-added layer's selector for time indices, and say
+ * so in the panel when a value matches nothing.
+ *
+ * The renderer only matches a string against raw coordinate values, so a CF
+ * time axis never matches `{ "time": "2020-08-01" }`; it logs a warning and
+ * draws nothing while the panel reports success (#3470).
+ *
+ * @param layerId - The new layer's id.
+ * @param dimensionValues - Raw coordinate values the renderer loaded.
+ * @param axis - The decoded time axis, or null when the store has none.
+ * @param removeIfUnmatched - Remove the layer when a value matched nothing.
+ * @returns Whether the layer was removed.
+ */
+async function applyZarrSelectorDates(
+  layerId: string,
+  dimensionValues: Record<string, (number | string)[]>,
+  axis: ZarrTimeAxis | null,
+  removeIfUnmatched = false,
+): Promise<boolean> {
+  const layer = useAppStore.getState().layers.find((item) => item.id === layerId);
+  const selector = layer?.source.selector as Record<string, number | string> | undefined;
+  const { selector: resolved, unresolved } = resolveZarrSelectorDates(
+    selector,
+    dimensionValues,
+    axis,
+  );
+  if (unresolved.length > 0) {
+    // The renderer throws on any one string value it cannot resolve, so the
+    // whole slice fails and the layer draws nothing; a fresh add is dropped
+    // rather than left as an empty layer row (#3492). Removing it from the
+    // store also removes it from the control; the error is reported after,
+    // so the control's re-render on removal does not clear it.
+    // Only on a decoded axis: with no axis (its metadata failed to load) the
+    // value was never checked, so the layer is kept as before.
+    const removed = removeIfUnmatched && axis !== null && Boolean(layer);
+    if (removed) {
+      unregisterTemporalLayer(layerId);
+      useAppStore.getState().removeLayer(layerId);
+    }
+    reportZarrSelectorProblem(unresolved, selector ?? {});
+    if (removed) return true;
+  }
+  if (resolved) await setZarrLayerSelector(layerId, resolved);
+  return false;
+}
+
+/**
+ * Replace the panel's "added successfully" with an error naming the selector
+ * values that matched nothing. The panel exposes no API for this, so its state
+ * is set the same way its own failure path does. Logged as well, for a layer
+ * added while the panel is hidden.
+ *
+ * @param dimensions - The dimensions whose values matched nothing.
+ * @param selector - The selector those values came from.
+ */
+function reportZarrSelectorProblem(
+  dimensions: string[],
+  selector: Record<string, number | string>,
+): void {
+  const values = dimensions.map((dimension) => `${dimension}: "${selector[dimension]}"`).join(", ");
+  const message = localizedMessage(
+    "zarrPanel.selectorUnmatched",
+    "Selector value not found ({{values}}). Use a coordinate value, a date on the time axis, or an index.",
+    { values },
+  );
+  console.warn(`[zarr] ${message}`);
+  const control = zarrControl as unknown as {
+    _state?: { error?: string | null; status?: string | null };
+    _render?: () => void;
+  } | null;
+  if (!control?._state) return;
+  control._state.error = message;
+  control._state.status = null;
+  control._render?.();
+}
+
+/**
  * Resolve a freshly added Zarr layer's time axis and, when it has one, register
  * the temporal adapter that lets the Time Slider step it via
  * {@link setZarrLayerSelector}.
@@ -941,6 +1045,9 @@ function registerZarrTemporalAdapter(
   // context for, so fall back to the reader filed under this layer's own url.
   const readAttributes =
     context.readAttributes ?? localZarrTimeAttributesReader(url ?? "") ?? undefined;
+  // A removal decided after another project opened would act on a record this
+  // add did not create, so it is dropped once the project changes.
+  const generation = useAppStore.getState().projectGeneration;
   return (async () => {
     const dimensionValues = await readZarrDimensionValues(layerId);
     if (!dimensionValues) return true;
@@ -956,6 +1063,21 @@ function registerZarrTemporalAdapter(
       ...(headers ? { headers } : {}),
       ...(attributes !== undefined ? { attributes } : {}),
     });
+    // Non-fatal: a rejected setSelector must not stop the Time Slider binding below.
+    try {
+      if (
+        await applyZarrSelectorDates(
+          layerId,
+          dimensionValues,
+          axis,
+          context.removeIfUnmatched === true &&
+            useAppStore.getState().projectGeneration === generation,
+        )
+      )
+        return true;
+    } catch (error) {
+      console.warn("[zarr] Could not apply date selector values", error);
+    }
     if (!axis) return true;
     // The layer may have been removed while the axis was being resolved.
     if (!useAppStore.getState().layers.some((layer) => layer.id === layerId)) return true;
@@ -1008,6 +1130,274 @@ export function restoreArcgisZarrLayers(): void {
       if (!registered) restoredArcgisZarrLayerIds.delete(layer.id);
     });
   }
+}
+
+/** A saved Zarr record being re-added to the control, see {@link restoreZarrLayers}. */
+interface PendingZarrRestore {
+  /** The store id the inert record currently has. Changes if it is moved aside. */
+  placeholderId: string;
+  /** The record as saved, whose name, visibility, opacity and style are kept. */
+  layer: GeoLibreLayer;
+  url: string;
+  /** The live layer's id, once the swap has taken over the record. */
+  restoredId?: string;
+}
+
+/**
+ * The store record a restore is for, if it is still there and still the same
+ * layer. Ids are `zarr-layer-<n>` in every project, so a project opened while
+ * an earlier one's restore was loading can hold a different layer under the
+ * same id; matching the store URL and variable keeps the stale restore off it.
+ */
+function zarrRestoreTarget(entry: PendingZarrRestore): GeoLibreLayer | undefined {
+  const record = useAppStore.getState().layers.find((layer) => layer.id === entry.placeholderId);
+  if (!record || record.type !== "zarr") return undefined;
+  const url = typeof record.source.url === "string" ? record.source.url.trim() : "";
+  if (url !== entry.url || record.source.variable !== entry.layer.source.variable) return undefined;
+  return record;
+}
+
+/** A copy of `record` without its undefined values, so a spread keeps the saved ones. */
+function definedEntries(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Whether a saved record's URL names a kerchunk reference manifest rather than
+ * a Zarr store. New Cloud NetCDF adds record `source.kerchunk`; projects saved
+ * before that only have the manifest URL, which is JSON where a store is not.
+ */
+function isKerchunkReferenceRecord(source: Record<string, unknown>, url: string): boolean {
+  if (source.kerchunk === true) return true;
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith(".json");
+  } catch {
+    return false;
+  }
+}
+
+/** The restore whose `layeradd` the shared handler should swap in, if any. */
+let activeZarrRestore: PendingZarrRestore | null = null;
+/** Restores queued or running, so a re-run of the restore effect skips them. */
+const pendingZarrRestores = new Set<PendingZarrRestore>();
+
+/**
+ * Whether a Zarr record can be drawn again from what the project saved.
+ *
+ * A plain store URL (or a kerchunk reference, inline or by URL) carries
+ * everything the renderer needs. A local folder or file (`local-zarr:`,
+ * `local:`) and an Icechunk repository (`#icechunk=`) were read through a store
+ * object that lived only in the session, so their URL alone opens nothing.
+ *
+ * @param layer - A store layer.
+ * @returns True for a Zarr record the restore can re-add.
+ */
+function isRestorableZarrLayer(layer: GeoLibreLayer): boolean {
+  if (layer.type !== "zarr") return false;
+  const rawUrl = layer.source.url;
+  const variable = layer.source.variable;
+  if (typeof rawUrl !== "string" || typeof variable !== "string") return false;
+  const url = rawUrl.trim();
+  if (!url || !variable.trim()) return false;
+  if (/^local(-zarr)?:/.test(url) || url.includes("#icechunk=")) return false;
+  return true;
+}
+
+/**
+ * Draw the Zarr layers of an opened project on a MapLibre or Mapbox map.
+ *
+ * A saved Zarr layer comes back as an inert store record: its pixels are drawn
+ * by the Zarr control, not by layer sync, so without this the layer shows in the
+ * Layers panel but renders nothing. Each record the control does not hold is
+ * re-added through the control with its saved URL, variable, selector, color
+ * range, colormap and spatial reference. The control picks the new layer's id,
+ * so the record is swapped for the live layer in place (see
+ * {@link swapRestoredZarrLayer}), keeping its name, visibility, opacity, style,
+ * group and position.
+ *
+ * The engines that draw Zarr from the record (ArcGIS, Cesium) restore through
+ * {@link restoreArcgisZarrLayers} instead. Safe to call repeatedly: records
+ * already live or already queued are skipped.
+ *
+ * @param app - The GeoLibre app API.
+ * @returns Resolves once every queued restore has settled. A record whose store
+ *   fails to load stays in the project, inert, with a console warning.
+ */
+export async function restoreZarrLayers(app: GeoLibreAppAPI): Promise<void> {
+  if (isNativeZarrRenderer(app.getMapRenderer?.())) return;
+  const live = zarrControl?.getLayersMap();
+  const queued = new Set([...pendingZarrRestores].map((entry) => entry.placeholderId));
+  const restores = useAppStore
+    .getState()
+    .layers.filter(
+      (layer) => isRestorableZarrLayer(layer) && !live?.has(layer.id) && !queued.has(layer.id),
+    )
+    .map(
+      (layer): PendingZarrRestore => ({
+        placeholderId: layer.id,
+        layer,
+        url: String(layer.source.url).trim(),
+      }),
+    );
+  for (const entry of restores) pendingZarrRestores.add(entry);
+  await Promise.all(
+    restores.map((entry) =>
+      queueZarrAdd(() => restoreZarrLayerExclusively(app, entry))
+        .catch((error: unknown) => {
+          console.warn("[zarr] Could not restore the saved Zarr layer", entry.url, error);
+        })
+        .finally(() => pendingZarrRestores.delete(entry)),
+    ),
+  );
+}
+
+async function restoreZarrLayerExclusively(
+  app: GeoLibreAppAPI,
+  entry: PendingZarrRestore,
+): Promise<void> {
+  // Removed, replaced by another project, or already restored, while queued.
+  if (!zarrRestoreTarget(entry)) return;
+  if (zarrControl?.getLayersMap().has(entry.placeholderId)) return;
+
+  const { ZarrLayerControl: ZarrLayerControlClass } = await getComponentsConstructors();
+  zarrControl ??= createZarrControl(ZarrLayerControlClass);
+  if (!zarrControlMounted) {
+    const added = app.addMapControl(zarrControl, zarrControlPosition);
+    if (!added) {
+      zarrControl = null;
+      throw new Error("Could not add the Zarr control to the map.");
+    }
+    zarrControlMounted = true;
+    // Mounted only to borrow its render path, as for a programmatic add.
+    zarrControl.hide();
+  }
+
+  const { layer, url } = entry;
+  const source = layer.source;
+  const headers = zarrRequestHeaders(layer);
+  // The project file names the URL and this runs on open, without a click (a
+  // `?url=` link can open one), so never send credentials over plain HTTP.
+  assertSecureRequestHeaders(url, headers);
+  let refs = source.kerchunkRefs as KerchunkRefs | undefined;
+  if (!refs && isKerchunkReferenceRecord(source, url)) {
+    refs = await loadKerchunkReference(url, { headers });
+  }
+  const control = zarrControl;
+  if (!control) throw new Error("The Zarr control was removed while loading the reference.");
+
+  let addedLayerId: string | null = null;
+  let failure: string | null = null;
+  const handleLayerAdd: ZarrLayerEventHandler = (event) => {
+    if (event.layerId) addedLayerId = event.layerId;
+  };
+  const handleError: ZarrLayerEventHandler = (event) => {
+    failure = event.error ?? null;
+  };
+  control.on("layeradd", handleLayerAdd);
+  control.on("error", handleError);
+  const endAdd = beginProgrammaticZarrAdd(url);
+  activeZarrRestore = entry;
+  try {
+    await control.addLayer(url, String(source.variable), {
+      // Never undefined: the control reads a missing selector as "use the
+      // panel's", which names the CarbonPlan sample's dimensions.
+      selector: (source.selector as Record<string, number | string> | undefined) ?? {},
+      clim: source.clim as [number, number] | undefined,
+      colormap: resolveZarrColormap(source.colormap as string | string[] | undefined),
+      opacity: layer.opacity,
+      ...(refs
+        ? {
+            store: new KerchunkReferenceStore(refs, { headers, sourceUrl: url }),
+            zarrVersion: 2 as const,
+          }
+        : {}),
+      ...(typeof source.crs === "string" ? { crs: source.crs } : {}),
+      ...(typeof source.proj4 === "string" ? { proj4: source.proj4 } : {}),
+      ...(Array.isArray(source.bounds)
+        ? { bounds: source.bounds as [number, number, number, number] }
+        : {}),
+      ...(source.spatialDimensions
+        ? { spatialDimensions: source.spatialDimensions as { lat?: string; lon?: string } }
+        : {}),
+      ...(headers && Object.keys(headers).length > 0
+        ? { transformRequest: (requestUrl: string) => ({ url: requestUrl, headers }) }
+        : {}),
+    });
+  } finally {
+    activeZarrRestore = null;
+    control.off("layeradd", handleLayerAdd);
+    control.off("error", handleError);
+    endAdd();
+  }
+  if (!addedLayerId) throw new Error(failure ?? "Failed to restore the Zarr layer.");
+  // The record was removed (or another project opened) while the store
+  // loaded, so the swap had nothing to take over: drop the live layer too, or
+  // it would draw with no Layers entry.
+  if (entry.restoredId !== addedLayerId) {
+    control.removeLayer(addedLayerId);
+    clearExternalNativePaintBridge(addedLayerId);
+    return;
+  }
+
+  registerZarrHeaders(addedLayerId, headers);
+  void registerZarrTemporalAdapter(addedLayerId, url, { headers, refs });
+  // Read back, so a visibility change made while the store loaded is kept.
+  const restored = useAppStore.getState().layers.find((item) => item.id === addedLayerId);
+  if (restored && !restored.visible) {
+    control.setLayerVisibility(addedLayerId, false, restored.opacity);
+  }
+}
+
+/**
+ * Replace a restored layer's inert record with the live layer the control just
+ * added, in a single store update.
+ *
+ * The control names layers `zarr-layer-<n>` from its own counter, so the new id
+ * can differ from the saved one, and can even be the id another record still
+ * holds (one waiting to be restored, or a local store the restore skips). That
+ * record is renamed aside in the same update rather
+ * than removed and re-added in a second one: between two updates the Zarr
+ * control's store listener would see the id vanish and remove the live layer
+ * that now carries it. The trade-off: a skipped record renamed this way loses
+ * anything keyed by its old id (selection, a Time Slider binding). It draws
+ * nothing on this engine either way, and the control offers no way to choose
+ * the live layer's id instead.
+ *
+ * @param entry - The restore in progress.
+ * @param live - The record built from the control's `layeradd` state.
+ */
+function swapRestoredZarrLayer(entry: PendingZarrRestore, live: GeoLibreLayer): void {
+  // The record as it is now, so edits made while the store loaded are kept.
+  const saved = zarrRestoreTarget(entry);
+  if (!saved) return;
+  const restored: GeoLibreLayer = {
+    ...saved,
+    id: live.id,
+    // The control can report a field as undefined (a selector it was not
+    // given); that must not erase the saved value.
+    source: { ...saved.source, ...definedEntries(live.source) },
+    metadata: { ...saved.metadata, ...definedEntries(live.metadata) },
+    sourcePath: live.sourcePath,
+  };
+  const placeholderId = entry.placeholderId;
+  const layers = useAppStore.getState().layers;
+  // Any record can hold the id, not only a pending restore: a local folder or
+  // Icechunk record the restore skips keeps its saved id too.
+  const clashes = live.id !== placeholderId && layers.some((layer) => layer.id === live.id);
+  const clash = clashes
+    ? [...pendingZarrRestores].find((pending) => pending.placeholderId === live.id)
+    : undefined;
+  const asideId = clashes ? `${live.id}:restoring:${crypto.randomUUID()}` : null;
+  useAppStore.setState((state) => ({
+    layers: state.layers.map((layer) => {
+      if (layer.id === placeholderId) return restored;
+      if (asideId && layer.id === live.id) return { ...layer, id: asideId };
+      return layer;
+    }),
+  }));
+  if (clash && asideId) clash.placeholderId = asideId;
+  entry.placeholderId = live.id;
+  entry.restoredId = live.id;
 }
 
 // The control takes an explicit list of hex colors; the public option also
@@ -1130,6 +1520,14 @@ function createZarrLayerAddHandler(): ZarrLayerEventHandler {
     // The renderer owns the pixels, so the panel's opacity/visibility reach it
     // through the control's setters rather than MapLibre paint properties.
     registerZarrPaintBridge(layer.id);
+    // A saved layer being drawn again: take over its record (restoreZarrLayers
+    // registers the time axis itself, with the record's headers).
+    const restore = activeZarrRestore;
+    if (restore && restore.url === layerInfo.url) {
+      activeZarrRestore = null;
+      swapRestoredZarrLayer(restore, layer);
+      return;
+    }
     // A cube with a time axis becomes drivable by the Time Slider. Resolving the
     // axis needs the renderer's async metadata load plus a store lookup, so it
     // runs on its own and registers the adapter whenever it lands.
@@ -1138,7 +1536,7 @@ function createZarrLayerAddHandler(): ZarrLayerEventHandler {
     // layer id and its own headers/references, which this event cannot be
     // attributed to (see `programmaticZarrAdds`), so it registers its own.
     if (!programmaticZarrAdds.has(layerInfo.url ?? "")) {
-      registerZarrTemporalAdapter(layer.id, layerInfo.url);
+      registerZarrTemporalAdapter(layer.id, layerInfo.url, { removeIfUnmatched: true });
     }
     if (store.layers.some((item) => item.id === layer.id)) {
       store.updateLayer(layer.id, {

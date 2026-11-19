@@ -77,7 +77,8 @@
       "restoreLayer": "Bu katmanı geri yükle",
       "restoreLayerAria": "{{name}} katmanını bu anlık görüntüden geri yükle",
       "layerRestored": "“{{name}}” geri yüklendi. Geri almak için Geri Al'ı kullanın.",
-      "restoreLayerError": "Bu katman anlık görüntüden geri yüklenemedi."
+      "restoreLayerError": "Bu katman anlık görüntüden geri yüklenemedi.",
+      "restoreLayerRedrawError": "“{{name}}” geri yüklendi, ancak haritada çizilemedi."
     }
   },
   "browser": {
@@ -279,10 +280,15 @@
     "bodyNote": "Ölçüldü: {{body}} (küresel yaklaşım)"
   },
   "statusBar": {
+    "coords": "Koord.",
     "elevation": "Rakım",
     "elevationLong": "Yükseklik",
     "cameraAltitude": "Kamera rakımı",
     "cameraAltitudeLong": "Deniz seviyesinden kamera yüksekliği",
+    "zoom": "Yakınlaştırma",
+    "bearing": "Yön",
+    "pitch": "Eğim",
+    "bbox": "Sınırlar",
     "coordinateFormat": {
       "dd": "Ondalık derece",
       "dms": "Derece, dakika, saniye",
@@ -1687,7 +1693,8 @@
     "geom": {
       "point": "Nokta",
       "line": "Çizgi",
-      "polygon": "Poligon"
+      "polygon": "Poligon",
+      "none": "Tablo"
     },
     "fields": "Form alanları",
     "addField": "Alan ekle",
@@ -1726,7 +1733,8 @@
     "save": {
       "point": "Noktayı kaydet",
       "line": "Çizgiyi kaydet",
-      "polygon": "Poligonu kaydet"
+      "polygon": "Poligonu kaydet",
+      "none": "Kaydı kaydet"
     },
     "saved": {
       "point_one": "{{count}} nokta {{layer}} katmanına kaydedildi.",
@@ -1734,9 +1742,16 @@
       "line_one": "{{count}} çizgi {{layer}} katmanına kaydedildi.",
       "line_other": "{{count}} çizgi {{layer}} katmanına kaydedildi.",
       "polygon_one": "{{count}} poligon {{layer}} katmanına kaydedildi.",
-      "polygon_other": "{{count}} poligon {{layer}} katmanına kaydedildi."
+      "polygon_other": "{{count}} poligon {{layer}} katmanına kaydedildi.",
+      "none_one": "{{count}} kayıt {{layer}} katmanına kaydedildi.",
+      "none_other": "{{count}} kayıt {{layer}} katmanına kaydedildi."
     },
+    "captureRecordDescription": "Formu doldurun ve kaydı kaydedin. Bu katmandaki kayıtların konumu yoktur.",
+    "relatedPrompt": "Az önce kaydettiğiniz kayda bağlı bir kayıt ekleyin:",
+    "addRelated": "{{layer}} katmanına ekle",
+    "addRelatedVia": "{{layer}} katmanına ekle ({{field}})",
     "layerGone": "Toplama katmanı artık kullanılamıyor.",
+    "layerLoading": "Bu katman öğelerini hâlâ yüklüyor. Biraz sonra yeniden deneyin.",
     "noGeolocation": "Bu cihazda konum belirleme kullanılamıyor.",
     "geolocationDenied": "Konumunuz alınamadı. Konum izinlerini kontrol edip tekrar deneyin.",
     "photoTooLarge": "Bu fotoğraf çok büyük (maksimum {{max}}). Daha küçük bir görüntü seçin.",
@@ -1809,6 +1824,42 @@
     "nmeaSerialUnsupported": "Web Serial burada kullanılamıyor, bu nedenle seri alıcılar açılamaz.",
     "nmeaBluetoothUnsupported": "Web Bluetooth burada kullanılamıyor, bu nedenle Bluetooth Low Energy alıcılar açılamaz.",
     "nmeaBluetoothHint": "Çoğu Bluetooth GPS alıcısı klasik Bluetooth kullanır: sistem ayarlarından eşleştirin, burada seri bağlantı noktası olarak görünecektir. \"Bluetooth bağlan\" seçeneğini yalnızca Bluetooth Low Energy alıcılar için kullanın.",
+    "nmeaPairedDevice": "Eşleştirilmiş alıcı",
+    "nmeaLoadingDevices": "Eşleştirilmiş cihazlar yükleniyor…",
+    "nmeaNoPairedDevices": "Eşleştirilmiş cihaz yok",
+    "nmeaDeviceBleOnly": "{{name}} (Bluetooth LE, desteklenmiyor)",
+    "nmeaRefreshDevices": "Eşleştirilmiş cihazları yenile",
+    "nmeaConnectReceiver": "Alıcıyı bağla",
+    "nmeaAndroidBluetoothHint": "Önce GPS alıcınızı Android'in Bluetooth ayarlarında eşleştirin, ardından burada seçin. GeoLibre, alıcının bildirdiği RTK konum durumu dahil NMEA akışını klasik Bluetooth (Serial Port Profile) üzerinden okur.",
+    "nmeaBluetoothOff": "Bluetooth kapalı. Android ayarlarından açıp tekrar deneyin.",
+    "nmeaBluetoothPermissionDenied": "GeoLibre'nin bir Bluetooth alıcısına bağlanabilmesi için Yakındaki cihazlar izni gerekir. Android'in uygulama ayarlarından izin verip tekrar deneyin.",
+    "nmeaBluetoothConnectFailed": "Alıcıya bağlanılamadı. Açık olduğundan, kapsama alanında bulunduğundan ve başka bir uygulamaya bağlı olmadığından emin olun.",
+    "nmeaBluetoothBusy": "Önceki bağlantı denemesi hâlâ sürüyor. Birkaç saniye bekleyip tekrar deneyin.",
+    "nmeaBluetoothNotPaired": "Bu alıcı artık eşleştirilmiş değil. Android'in Bluetooth ayarlarında yeniden eşleştirin, ardından listeyi yenileyin.",
+    "ntripTitle": "RTK düzeltmeleri (NTRIP)",
+    "ntripHost": "Caster ana bilgisayarı",
+    "ntripPort": "Bağlantı noktası",
+    "ntripMountpoint": "Mountpoint",
+    "ntripUsername": "Kullanıcı adı",
+    "ntripPassword": "Parola",
+    "ntripTls": "TLS kullan",
+    "ntripStart": "Düzeltmeleri başlat",
+    "ntripStop": "Düzeltmeleri durdur",
+    "ntripConnecting": "Caster'a bağlanılıyor…",
+    "ntripWaiting": "Bağlandı. Düzeltmeler bekleniyor; ağ caster'ları, alıcı bir konum bildirdiğinde başlar.",
+    "ntripReceiving": "Düzeltmeler alınıyor · {{size}}",
+    "ntripRetrying": "Caster bağlantısı kesildi ({{message}}). Yeniden deneniyor…",
+    "ntripAuthFailed": "Caster kullanıcı adını veya parolayı reddetti.",
+    "ntripMountpointMissing": "Caster'da \"{{mountpoint}}\" adlı bir mountpoint yok.",
+    "ntripNeedsHost": "Caster ana bilgisayarını girin.",
+    "ntripNeedsMountpoint": "Bir mountpoint girin.",
+    "ntripBadPort": "1 ile 65535 arasında bir bağlantı noktası girin.",
+    "ntripBadHost": "Caster ana bilgisayarını kontrol edin: IPv6 adresini [2001:db8::1] gibi köşeli parantez içinde, bağlantı noktasını da sayı olarak yazın.",
+    "ntripBadCharacters": "Caster ana bilgisayarı ve mountpoint, boşluk veya denetim karakteri içeremez.",
+    "ntripTlsFailed": "Caster ile güvenli (TLS) bağlantı kurulamadı. Ana bilgisayarı ve bağlantı noktasını, ayrıca caster'ın bu bağlantı noktasında TLS'yi destekleyip desteklemediğini kontrol edin.",
+    "ntripStartFailed": "Düzeltmeler başlatılamadı: {{message}}",
+    "ntripCleartextHint": "TLS olmadan caster parolayı şifrelenmemiş olarak alır; çoğu NTRIP caster'ı bunu gerektirir. Caster'ınız sunuyorsa TLS kullanın.",
+    "ntripHint": "GeoLibre, RTCM düzeltmelerini caster'ınızdan alır ve aynı Bluetooth bağlantısı üzerinden alıcıya gönderir; ağ (VRS) caster'ları için alıcının konumunu da iletir. Parola dahil ayarlar bu cihazda saklanır ve alıcı yeniden bağlandığında düzeltmeler kendiliğinden yeniden başlar.",
     "fixQuality": {
       "invalid": "Konum yok",
       "gps": "GPS konumu",
@@ -1931,7 +1982,10 @@
     "lockLayer": "Katmanı konuklar için kilitle",
     "unlockLayer": "Katmanın kilidini konuklar için aç",
     "layerLocked": "Kilitli",
-    "layerLockedHint": "Bu katman ev sahibi tarafından kilitlendi ve düzenlenemez"
+    "layerLockedHint": "Bu katman ev sahibi tarafından kilitlendi ve düzenlenemez",
+    "viewOnlyHint": "Bu oturumda yalnızca görüntüleme yetkiniz var, bu nedenle bu katmanı değiştiremezsiniz",
+    "layerLockedRejected": "Ev sahibi katmanı kilitlediği için bu değişiklik paylaşılmadı. Haritanız oturumun sürümüne sıfırlandı.",
+    "viewOnlyLocalChange": "Bu oturumda yalnızca görüntüleme yetkiniz var, bu nedenle değişiklikleriniz yalnızca ekranınızda kalır ve paylaşılmaz."
   },
   "share": {
     "title": "Projeyi paylaş",
@@ -2082,6 +2136,18 @@
     "resizeDialog": "Galeriyi yeniden boyutlandır",
     "scopeFeatured": "Öne çıkanlar",
     "scopeAll": "Tüm projeler",
+    "scopeCollections": "Koleksiyonlar",
+    "loadingCollections": "Koleksiyonlar yükleniyor…",
+    "collectionsSearchPlaceholder": "Koleksiyonları başlığa, yazara veya açıklamaya göre filtrele",
+    "noCollectionMatches": "Filtrenizle eşleşen koleksiyon yok.",
+    "emptyCollections": "Henüz gösterilecek genel koleksiyon yok.",
+    "emptyCollection": "Bu koleksiyonda genel proje yok.",
+    "untitledCollection": "Adsız koleksiyon",
+    "openCollection": "Bu koleksiyondaki projeleri göster",
+    "openCollectionOnWeb": "Koleksiyonu web'de görüntüle",
+    "backToCollections": "Tüm koleksiyonlar",
+    "collectionProjects_one": "{{count}} proje",
+    "collectionProjects_other": "{{count}} proje",
     "scopeMine": "Projelerim",
     "scopeOrganizations": "Kuruluşlar",
     "scopeGroups": "Gruplar",
@@ -2366,7 +2432,9 @@
   },
   "kml": {
     "importFailed": "KML/KMZ içe aktarılamadı.",
-    "timeOverlayGroup": "Zaman kaplaması animasyonu"
+    "timeOverlayGroup": "Zaman kaplaması animasyonu",
+    "dataUrlStyleUnsupported": "Bir KML belgesine stil uygulanamaz.",
+    "dataUrlNoImporter": "{{name}} haritaya eklenemedi: kullanılabilir bir KML içe aktarıcı yok."
   },
   "map": {
     "boundsRestricted": "Sınırlar kilitli",
@@ -2414,6 +2482,8 @@
       "error": "Bu katman tanımlanamadı.",
       "noData": "Bu konumda veri yok.",
       "pixelReadFailed": "Piksel değeri okunamadı.",
+      "pixelValue": "Değer",
+      "pixelBand": "Bant {{index}}",
       "wmsFailed": "WMS GetFeatureInfo isteği başarısız oldu.",
       "wmsNotQueryable": "Bu WMS katmanı öğe bilgisi sağlamıyor.",
       "editGeometry": "Geometriyi düzenle",
@@ -2427,7 +2497,8 @@
       "nodata": "veri yok",
       "coordinates": "boylam, enlem",
       "row": "satır",
-      "column": "sütun"
+      "column": "sütun",
+      "stacItem": "Öğe"
     }
   },
   "terrainSettings": {
@@ -2446,6 +2517,8 @@
     "sourcePlaceholder": "https://example.com/dem.tif",
     "localSourceLabel": "Yerel COG DEM",
     "localSourceDescription": "Dosya bu cihazda kalır ve arazi döşemeleri gerektiğinde küçük aralıklar hâlinde okunur.",
+    "fillOutside": "DEM dışını küresel araziyle doldur",
+    "fillOutsideDescription": "DEM'i düz bir düzlük yerine küresel araziyle çevreler ve veri olmayan boşluklarını doldurur. URL'den gelen bir DEM için varsayılan olarak açık, aksi hâlde ağdan hiçbir şey okumayan yerel dosya için kapalıdır.",
     "useCog": "COG DEM kullan",
     "ionAssetLabel": "Cesium Ion arazi varlığı",
     "ionAssetDescription": "Kürede Cesium Ion'dan bir quantized-mesh arazi varlığı kullanın. Varlık, yapılandırılmış Ion hesabı tarafından erişilebilir olmalıdır.",
@@ -3345,7 +3418,9 @@
       "profileCount_other": "{{count}} profil",
       "noProfiles": "Henüz profil yok. AI Asistanı'nı yapılandırmak için aşağıdan bir profil ekleyin.",
       "setDefault": "Varsayılan yap",
+      "keepDefault": "Varsayılan olarak kalsın",
       "defaultProfile": "Varsayılan",
+      "proxyIsDefault": "Hiçbir profil varsayılan değil, bu nedenle asistan dağıtım proxy'si üzerinden başlar. Bunun yerine bir profille başlamak için onu varsayılan yapın.",
       "edit": "Düzenle",
       "deleteProfile": "Profili sil",
       "backToProfiles": "← Profillere dön",
@@ -3366,6 +3441,7 @@
         "openaiKey": "sk-…",
         "openrouterKey": "sk-or-…",
         "vercelKey": "AI Gateway anahtarı",
+        "trustedrouterKey": "sk-tr-v1-…",
         "ollamaBaseUrl": "http://localhost:11434",
         "awsAccessKey": "AKIA…",
         "awsSecretKey": "wJalrXUtnFEMI…",
@@ -3374,6 +3450,23 @@
         "customBaseUrl": "https://api.example.com/v1",
         "customModel": "model-id",
         "customApiKey": "sk-… (gerekiyorsa)"
+      },
+      "chatgpt": {
+        "account": "ChatGPT hesabı",
+        "intro": "API anahtarı yerine ChatGPT planınızı kullanın. Tarayıcınız OpenAI'nin oturum açma sayfasını açar; orada GeoLibre'nin planınızı kullanmasına izin verirsiniz.",
+        "continue": "ChatGPT ile devam et",
+        "waiting": "Tarayıcıda oturum açmayı tamamlamanız bekleniyor…",
+        "openAgain": "Tarayıcıyı yeniden aç",
+        "signedInAs": "{{email}} olarak oturum açıldı",
+        "usingPlan": "ChatGPT planınız kullanılıyor.",
+        "planDeclined": "GeoLibre'nin ChatGPT planınızı kullanmasına izin verilmiyor. Yeniden oturum açın ve izin verin.",
+        "signInAgain": "Yeniden oturum aç",
+        "notRemembered": "Sistem anahtar zinciri kullanılamıyor, bu nedenle bu oturum açma GeoLibre kapanana kadar geçerlidir.",
+        "signOut": "Oturumu kapat",
+        "useAnotherAccount": "Başka bir hesap kullan",
+        "usage": "Kullanım ve bağlı uygulamalar",
+        "revokeUnconfirmed": "Burada oturum kapatıldı, ancak OpenAI oturumun sonlandırıldığını onaylamadı. Emin olmak için ChatGPT ayarlarınızdan GeoLibre bağlantısını kesin.",
+        "desktopOnly": "ChatGPT ile oturum açma, GeoLibre masaüstü uygulamasında kullanılabilir."
       }
     }
   },
@@ -3867,6 +3960,7 @@
       "difference": "Fark",
       "union": "Birleşim",
       "spatialJoin": "Konumsal birleştirme",
+      "summarizeWithin": "İçinde özetle",
       "attributeJoin": "Öznitelik birleştirme",
       "selectByValue": "Değere göre seç",
       "selectByLocation": "Konuma göre seç",
@@ -4188,9 +4282,29 @@
         "missing-source": "Katmanın okunabilir bir veri kaynağı yok.",
         "format": "Katmanın dosya biçimi desteklenmiyor.",
         "remote-file": "Uzak QGIS dosya kaynakları henüz desteklenmiyor.",
+        "remote-unreadable": "Uzak dosya indirilemedi veya okunamadı.",
+        "wmts": "WMTS katmanları henüz içe aktarılmıyor. Bunun yerine hizmeti Veri Ekle menüsünden ekleyin.",
         "network-path": "Ağ paylaşımı yolları güvenlik nedeniyle yüklenmez.",
         "browser-local-file": "Yerel dosyaya başvuruluyor, ancak tarayıcılar QGIS veri yollarını yeniden açamaz. Yüklemek için GeoLibre Desktop kullanın.",
-        "browser-local-raster": "Rastera yerel bir yol üzerinden başvuruluyor. Yüklemek için GeoLibre Desktop kullanın."
+        "browser-local-raster": "Rastera yerel bir yol üzerinden başvuruluyor. Yüklemek için GeoLibre Desktop kullanın.",
+        "no-geometry": "Geometrisi olmayan bir tablo yalnızca bir GeoPackage'den okunabilir."
+      },
+      "qgisImportNotes": "Proje içe aktarıldı. Bazı ayarlar aktarılamadı.",
+      "qgisImportFormNotes": "Bazı form ayarları aktarılamadı.",
+      "qgisImportStyleNotes": "Sembolojinin bir kısmı aktarılamadı.",
+      "qgisStyleNoteReason": {
+        "renderer-unreadable": "Katmanın oluşturucusu okunamadı; varsayılan stil kullanıldı.",
+        "expression-label": "Bir QGIS ifadesinden oluşturulan etiketler içe aktarılmadı."
+      },
+      "qgisFormNoteFieldCount_one": "{{count}} alan",
+      "qgisFormNoteFieldCount_other": "{{count}} alan",
+      "qgisFormNoteReason": {
+        "default": "Varsayılan değer desteklenmeyen bir ifade kullanıyor, bu yüzden alan boş başlar.",
+        "constraint": "Kısıtlama ifadesi desteklenmiyor ve dışarıda bırakıldı.",
+        "relation": "Açılır listenin bağlı tablosu okunamadı, bu yüzden alan düz bir metin kutusudur.",
+        "relation-empty": "Açılır listenin bağlı tablosunda listelenecek değer yok, bu yüzden alan düz bir metin kutusudur.",
+        "relation-too-large": "Açılır listenin bağlı tablosunda bir liste için çok fazla satır var, bu yüzden alan düz bir metin kutusudur.",
+        "relation-multi": "Açılır liste birden çok seçime izin veriyor; bu desteklenmediği için alan düz bir metin kutusudur."
       },
       "openProjectFromUrlDesc": "Bir `.geolibre.json` projesini yükleyin ve son projelere ekleyin.",
       "projectUrl": "Proje URL'si",
@@ -4211,7 +4325,8 @@
       "saveProjectAsTitle": "Projeyi farklı kaydet",
       "saveProjectAsDesc": "Bir dosya adı girin. Kaydet'e tıkladığınızda proje tarayıcınızın indirilenler klasörüne indirilir.",
       "embedVectorTitle": "Yerel vektör verisi gömülsün mü?",
-      "embedEditedGeometryDesc": "Bu proje düzenlenmiş geometriler içeriyor. Bunları korumak için vektör verilerini gömün (yaklaşık {{size}}). Gömülmezse referans verilen katmanlar özgün geometrileriyle yeniden açılır ve yerel veriler kullanılamayabilir.",
+      "embedEditedVectorTitle": "Düzenlenmiş vektör verisi gömülsün mü?",
+      "embedEditedFeaturesDesc": "Bu proje düzenlenmiş öğeler içeriyor (hesaplanan alanlar dahil geometriler veya öznitelik değerleri). Bunları korumak için vektör verisini (yaklaşık {{size}}) gömün. Gömülmezse, bir URL'den veya dosyadan yeniden yüklenen katmanlar özgün verileriyle açılır ve yerel veriler kullanılamayabilir.",
       "embedVectorDesc": "Bu projede bilgisayarınızdan yüklenmiş {{count}} yerel vektör katmanı var. Tarayıcı, proje yeniden açıldığında bunları yeniden okuyamaz; bu nedenle geri yüklenebilmeleri için verilerinin proje dosyasına gömülmesi gerekir. Gömme, dosyaya yaklaşık {{size}} ekler.",
       "embedVectorDescDesktop": "Bu projede bilgisayarınızdan yüklenmiş {{count}} yerel vektör katmanı var. Projeyi kendi kendine yeterli hale getirmek için verilerini gömün (yaklaşık {{size}} ekler) veya proje yeniden açıldığında diskten yeniden yüklenen dosya referansları kaydedin. Referanslar dosyayı küçük tutar ancak kaynak dosya daha sonra taşınır veya silinirse bozulur.",
       "embedVectorDescMas": "Bu projede bilgisayarınızdan yüklenmiş {{count}} yerel vektör katmanı var. Mac App Store korumalı alanı, GeoLibre kapatıldıktan sonra bu dosyalara erişimi koruyamaz; bu nedenle geri yüklenebilmeleri için verileri proje dosyasına gömülmelidir. Gömme, dosyaya yaklaşık {{size}} ekler.",
@@ -4286,6 +4401,7 @@
       "loadingVtpk": "Döşeme paketi açılıyor…",
       "loadingVtpkDesc": "Paket dizini ve stili okunuyor",
       "projectName": "Proje adı",
+      "untitledProject": "Adsız proje",
       "storymapEllipsis": "Hikaye Haritası...",
       "pointerElevationNoticeTitle": "Rakım genel bir servis kullanır",
       "pointerElevationNoticeDesc": "3B arazi açıkken rakım haritanın kendisinden hesaplanır ve hiçbir veri gönderilmez. 3B arazi yokken genel Open-Meteo API'si sorgulanır ve imlecin altındaki koordinatlar cihazınızdan çıkar.",
@@ -4407,6 +4523,8 @@
       "couldNotOpenProject": "Proje açılamadı.",
       "multipleProjectDrop": "Başka dosya olmadan tek seferde bir GeoLibre projesi bırakın.",
       "projectDropNotAllowed": "Bu dağıtım projeler arasında geçişe izin vermiyor.",
+      "sandboxHiddenDrop_one": "Flatpak korumalı alanı bırakılan {{names}} dosyasını okuyamıyor. Dosyayı Veri Ekle menüsünden açın ya da uygulamaya dosyanın klasörü için okuma erişimi verip yeniden başlatın: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_other": "Flatpak korumalı alanı bırakılan {{count}} dosyayı okuyamıyor ({{names}}). Dosyaları Veri Ekle menüsünden açın ya da uygulamaya dosyaların klasörü için okuma erişimi verip yeniden başlatın: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
       "couldNotImportQgisProject": "QGIS projesi içe aktarılamadı.",
       "couldNotImportArcgisProject": "ArcGIS Pro projesi içe aktarılamadı.",
       "invalidProjectUrl": "Geçerli bir HTTP veya HTTPS proje URL'si girin.",
@@ -4883,6 +5001,22 @@
     "includeNeighbors": "Seçili karonun komşularını dahil et",
     "includeParent": "Seçili karonun üst karosunu dahil et"
   },
+  "planetaryComputer": {
+    "stacBrowser": "STAC Kataloglarında göz at",
+    "stacBrowserTitle": "Nokta bulutları, GeoParquet, Zarr ve raster döşeme sunucusunun çizemediği diğer varlıkları eklemek için bu koleksiyonu STAC Katalogları panelinde aç",
+    "timeSlider": "Zaman Kaydırıcısında canlandır",
+    "timeSliderTitle": "Bu sonuçlar arasında Zaman Kaydırıcısında tarihe göre ilerle ve bir pikselin zaman içindeki grafiğini çiz",
+    "colorbar": "Renk çubuğunu göster",
+    "colorbarTitle": "Bu katmanın renk haritası ve değer aralığı için haritaya bir renk çubuğu ekle",
+    "clipToMap": "Kırpmayı haritaya ekle",
+    "clipToMapTitle": "Bu sahneyi çizilen kutuya (veya harita görünümüne) göre kırp ve ham bant değerlerini analiz için raster katmanı olarak ekle",
+    "clipLayerName": "{{item}} kırpması",
+    "clipOutsideItem": "Kırpma alanı bu sahneyle çakışmıyor. Sahnenin sınırları içinde bir kutu çizin veya haritayı sahnenin üzerine taşıyın.",
+    "clipUnavailable": "Bu sahne bu haritaya kırpma olarak eklenemez.",
+    "timeSeriesLayerName": "{{collection}} zaman serisi",
+    "timeSliderNeedsDates": "Zaman serisi için farklı tarihli en az iki sonuç gerekir.",
+    "timeSliderUnavailable": "Zaman Kaydırıcısı bu haritada kullanılamıyor."
+  },
   "timelapse": {
     "title": "Timelapse",
     "provider": "Görüntü kaynağı",
@@ -5088,6 +5222,39 @@
     "drawHint": "Arama kutusu çizmek için haritada tıklayıp sürükleyin.",
     "drawnBbox": "Çizilen kutu: {{bbox}}",
     "drawnBboxCleared": "Çizilen kutu temizlendi.",
+    "areaLabel": "Arama alanı",
+    "drawPoint": "Nokta",
+    "drawLine": "Çizgi",
+    "drawPolygon": "Poligon",
+    "useSelection": "Seçili öğeler",
+    "loadAreaFile": "Dosyadan…",
+    "clearArea": "Şekli temizle",
+    "drawPointHint": "Arama noktası yerleştirmek için haritaya tıklayın. Escape iptal eder.",
+    "drawShapeHint": "Köşe eklemek için tıklayın; bitirmek için çift tıklayın veya Enter'a basın. Escape iptal eder.",
+    "areaCleared": "Arama şekli temizlendi.",
+    "noSelection": "Önce haritada öğe seçin: bir katmanın menüsünü açın, Öğeleri seç'i seçin ve yeniden deneyin.",
+    "areaFileFailed": "Bu dosyadan bir arama şekli okunamadı.",
+    "areaTooLarge": "Bu şeklin {{positions}} köşesi var; {{max}} veya daha aza sadeleştirin.",
+    "areaSet": "{{description}} içinde aranıyor.",
+    "areaIgnored": "Daha düşük boyutlu {{count}} şekil dışarıda bırakıldı.",
+    "addAsset": "Varlıklar",
+    "addAssetHint": "Bu öğenin varlıklarından birini haritaya ekle",
+    "addRendering": "Bantlar",
+    "addRenderingHint": "Bu öğenin bir bant kombinasyonunu veya indeksini haritaya ekle",
+    "groupCombinations": "Bant kombinasyonları",
+    "groupIndices": "İndeksler",
+    "renderNeedsMapLibre": "Görüntülemeler için MapLibre oluşturucusu gerekir.",
+    "renderMissingBand": "Bu öğede {{name}} adlı bir bant yok.",
+    "sortLabel": "Tarihe göre sırala",
+    "sortDefault": "Sunucu varsayılanı",
+    "sortNewest": "Önce en yeni",
+    "sortOldest": "Önce en eski",
+    "bufferLabel": "Nokta ve çizgi tamponu",
+    "bufferHint": "Aramadan önce bir noktayı veya çizgiyi her iki yana bu kadar metre genişleterek poligona dönüştürür. Poligonlar değiştirilmez.",
+    "bufferDistance": "{{meters}} m",
+    "cloudLabel": "Maks. bulut",
+    "cloudHint": "Bulut örtüsü en fazla bu kadar olan sahneleri tutar. Bulut örtüsü bildirmeyen sahneler (radar, yükseklik, hava görüntüleri) de tutulur.",
+    "sortHint": "Şimdiye kadar yüklenen sonuçları çekim tarihine göre sıralar. Daha fazla yükle, daha önceye veya sonraya ait sahneler getirebilir.",
     "mapNotReady": "Harita çizim için hazır değil.",
     "startDate": "Başlangıç tarihi",
     "endDate": "Bitiş tarihi",
@@ -5185,6 +5352,12 @@
     "portalTitle": "Bu öğeyi Earthdata GIS portalında aç",
     "cog": "COG",
     "cogTitle": "Bu servisi Cloud Optimized GeoTIFF olarak indir",
+    "rasterFunction": "Fonksiyon",
+    "rasterFunctionTitle": "Servisin uyguladığı raster fonksiyonu (işleme şablonu); piksel değerleri buna göre belirlenir",
+    "rasterFunctionDefault": "Servis varsayılanı",
+    "rasterFunctionLoading": "Fonksiyonlar yükleniyor…",
+    "rasterFunctionNone": "Yayımlanmış fonksiyon yok",
+    "rasterFunctionError": "Raster fonksiyonları yüklenemedi: {{message}}",
     "cogHeading": "COG olarak indir",
     "cogAreaView": "Geçerli görünüm",
     "cogAreaExtent": "Tam kapsam",
@@ -5626,6 +5799,7 @@
     "setupTitle": "AI Asistanını kur",
     "setupStatus": "Asistanın düşünebilmesi için bir AI sağlayıcısına ihtiyacı var. Aşağıdaki herhangi bir sağlayıcı için kimlik bilgilerini ekleyin; kaydettiğiniz anda panel sohbet moduna geçer.",
     "setupProviders": "Herhangi bir sağlayıcı için kimlik bilgilerini ekleyin",
+    "setupSignIn": "Ayarlar → AI Sağlayıcıları bölümünden oturum açın",
     "setupOpenSettings": "Ayarlar → AI Sağlayıcıları'nı aç",
     "thinking": "Çalışıyor…",
     "toolError": "başarısız oldu",
@@ -6408,6 +6582,26 @@
                 "inner": "İç (yalnızca eşleşen öğeleri tut)",
                 "left": "Sol (tüm girdi öğelerini tut)"
               }
+            }
+          }
+        },
+        "summarize-within": {
+          "name": "İçinde özetle",
+          "description": "Her poligonla kesişen başka bir katmanın objelerini sayar, sayısal bir alanı özetler ve her poligonun ne kadarını kapladıklarını ölçer",
+          "params": {
+            "layer": {
+              "label": "Poligon katmanı"
+            },
+            "overlay": {
+              "label": "Özetlenecek katman"
+            },
+            "field": {
+              "label": "Sayısal alan",
+              "description": "İsteğe bağlı. Her poligon için bu alanın toplamını, ortalamasını, minimumunu ve maksimumunu ekler."
+            },
+            "min_overlap_pct": {
+              "label": "Şundan küçük örtüşmeleri yok say (%)",
+              "description": "Özetlenecek katmanda poligonlar varsa, bir poligonun bu oranından azını kaplayanları (ortak kenarlar boyunca oluşan şeritler gibi) atlar."
             }
           }
         },
@@ -8439,6 +8633,7 @@
     "loadingAttributes": "Katman öznitelikleri yükleniyor…",
     "requiresVectorLayer": "Öznitelik tablosu bir vektör veya DuckDB sorgu katmanı gerektirir.",
     "invalidJson": "Geçersiz JSON",
+    "nullValue": "NULL",
     "editCellAria": "{{featureId}} öğesi için {{col}} düzenle",
     "resizeColumn": "{{name}} sütununu yeniden boyutlandır",
     "renameFieldAria": "{{name}} alanını yeniden adlandır",
@@ -8611,6 +8806,16 @@
       "saturation": "Doygunluk",
       "contrast": "Kontrast",
       "hueRotate": "Ton döndürme",
+      "stacRendering": {
+        "title": "Bant görüntüleme",
+        "brightness": "Parlaklık",
+        "gamma": "Gama",
+        "ramp": "Renk skalası",
+        "min": "Düşük değer",
+        "max": "Yüksek değer",
+        "reset": "Görüntülemeyi sıfırla",
+        "resetHint": "Varsayılan germe, renk skalası ve değer aralığına dön"
+      },
       "footerDeck": "Değişiklikler, raster katman opaklığına anlık olarak uygulanır.",
       "footerMaplibre": "Değişiklikler, MapLibre raster paint özelliklerine anlık olarak uygulanır.",
       "valueAria": "{{label}} değeri",
@@ -9088,7 +9293,8 @@
         "range": "Aralık",
         "checkbox": "Onay kutusu",
         "date": "Tarih",
-        "valueMap": "Değer haritası"
+        "valueMap": "Değer haritası",
+        "attachment": "Fotoğraf"
       },
       "alias": "Takma ad",
       "required": "Zorunlu",
@@ -9105,6 +9311,11 @@
       "constraintPlaceholder": "[\">\", [\"get\", \"population\"], 0]",
       "constraintDescription": "Kısıtlama açıklaması",
       "constraintDescriptionPlaceholder": "Kısıtlama sağlanmadığında gösterilir",
+      "defaultTag": "varsayılan",
+      "defaultValue": "Varsayılan değer",
+      "defaultValuePlaceholder": "now()",
+      "defaultValueHelp": "Bir öğe yakalandığında alanı doldurur. QGIS ifade söz dizimini kullanır, örneğin uuid(), now(), \"site\" || '-' || format_date(now(), 'yyyyMMdd') veya @position_horizontal_accuracy.",
+      "defaultValueInvalid": "Desteklenmiyor: {{detail}}",
       "visibilityExpression": "Görünürlük ifadesi",
       "visibilityPlaceholder": "[\"==\", [\"get\", \"type\"], \"school\"]",
       "invalidExpression": "Geçersiz ifade",
@@ -9218,6 +9429,7 @@
     },
     "searchValues": "Değerlerde ara",
     "noValues": "Bu alanda seçilebilecek değer yok.",
+    "loadingValues": "Değerler okunuyor…",
     "noMatchingValues": "Aramanızla eşleşen değer yok.",
     "selectAll": "Tümünü seç",
     "selectNone": "Hiçbirini seçme",
@@ -9235,6 +9447,7 @@
     "noFields": "Bu katmanda filtrelenecek öznitelik yok.",
     "noTileFeatures": "Henüz hiçbir öğe yüklenmedi. Haritayı verilerin bulunduğu alana kaydırın veya orayı yakınlaştırın, sonra bu bölümü yeniden açın.",
     "viewportSampleHint": "Değerler şu anda yüklü olan döşemelerden gelir, bu yüzden haritayı kaydırıp yakınlaştırdıkça liste büyür.",
+    "partialSampleHint": "Sayılar ve aralıklar {{total}} öğenin ilk {{inspected}} tanesinden hesaplanır.",
     "layerFilteredHint": "Bir hızlı filtre bu katmanın öğelerinin bir kısmını gizliyor."
   },
   "floorPicker": {
@@ -9436,6 +9649,9 @@
     "hiddenByGroup": "Grubu görünür olmadığı için gizli",
     "empty": "Veri katmanı yok. Araç çubuğundan veri ekleyin.",
     "emptyBeginner": "Henüz katman yok. Eklentiler → Temel Haritalar üzerinden temel haritalar, ya da Veri Ekle menüsü üzerinden kendi verinizi ekleyin.",
+    "emptyBeginnerBasemapsOnly": "Henüz katman yok. Eklentiler → Temel Haritalar üzerinden temel haritalar ekleyin.",
+    "emptyBeginnerDataOnly": "Henüz katman yok. Veri Ekle menüsü üzerinden kendi verinizi ekleyin.",
+    "emptyNoAdd": "Veri katmanı yok.",
     "hideAllLayers": "Tüm katmanları gizle",
     "showAllLayers": "Tüm katmanları göster",
     "compactView": "Kompakt görünüm",
@@ -9753,6 +9969,9 @@
     "localRasterNotRestored_other": "{{count}} yerel raster katman geri yüklenemedi",
     "localRasterNotRestoredDesc": "Yerel bir dosyadan yüklendi: {{names}}. Proje raster verisi içermiyor ya da dosya okunamadı. Dosyayı tekrar ekleyin."
   },
+  "zarrPanel": {
+    "selectorUnmatched": "Seçici değeri bulunamadı ({{values}}). Bir koordinat değeri, zaman eksenindeki bir tarih veya bir indeks kullanın."
+  },
   "attributeForm": {
     "error": {
       "required": "Bir değer gerekli",
@@ -9877,6 +10096,7 @@
     "layerLoadFailedHint": "URL'yi, ağ bağlantınızı ve gerekli API anahtarını kontrol edin. Ayrıntılar Tanılama panelindedir.",
     "fileReadFailed": "\"{{name}}\" okunamadı, bu yüzden atlandı.",
     "libraryLayerRestoreFailed": "\"{{name}}\" Verilerim'den eklenemedi.",
+    "tableLayerTruncated": "{{layer}} tamamı yüklenemeyecek kadar uzun: yalnızca ilk {{count}} satırı gösteriliyor.",
     "localLayersDropped_one": "{{count}} katman kaldırıldı: dosyası okunamadı ({{path}}).",
     "localLayersDropped_other": "{{count}} katman kaldırıldı: dosyaları okunamadı ({{path}}).",
     "pluginActivateFailed": "\"{{id}}\" eklentisi bağlantıdan başlatılamadı.",
@@ -9904,7 +10124,8 @@
     "panelRenderFailed": "\"{{name}}\" paneli açılamadı.",
     "sharedSettingsFailed": "Bağlantıdaki paylaşılan ayarlar yüklenemedi, bu yüzden kendi ayarlarınız kullanılıyor.",
     "sharedLanguageFailed": "Paylaşılan ayarların istediği dile geçilemedi.",
-    "languageCatalogFailed": "{{language}} çevirisi yüklenemedi, bu yüzden GeoLibre İngilizce gösteriliyor."
+    "languageCatalogFailed": "{{language}} çevirisi yüklenemedi, bu yüzden GeoLibre İngilizce gösteriliyor.",
+    "dataUrlLoadFailed": "Veri URL'si yüklenemedi."
   },
   "shell": {
     "workspaceTitle": "GeoLibre harita çalışma alanı",

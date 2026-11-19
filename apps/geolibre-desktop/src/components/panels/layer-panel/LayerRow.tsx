@@ -19,6 +19,7 @@ import {
 } from "@geolibre/core";
 import type { GeoLibreLayer, LayerGroup } from "@geolibre/core";
 import {
+  isArcGISImageServiceLayer,
   isArcgisSupportedLayer,
   isCesiumSupportedLayerType,
   isMapboxSupportedLayer,
@@ -44,6 +45,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { layerFilteredHintKey } from "../../../lib/layer-filter-hint";
+import { activateLayerPreservingSelection } from "../../../lib/selection-actions";
 import { getLayerRefreshConfig } from "../../../lib/layer-refresh";
 import { notify } from "../../../lib/notify";
 import { LayerSwatchIcon } from "../LayerSwatchIcon";
@@ -143,7 +145,6 @@ export function LayerRow({
   const setLayerOpacity = useAppStore((s) => s.setLayerOpacity);
   const primaryRenderer = useAppStore((s) => s.primaryRenderer);
   const reorderLayer = useAppStore((s) => s.reorderLayer);
-  const selectLayer = useAppStore((s) => s.selectLayer);
   const setIdentifyLayer = useAppStore((s) => s.setIdentifyLayer);
   const { collaboration, mapControllerRef, beginRename, onOpenStylePanel } = menu;
   // When an ancestor group is hidden, a layer whose own visibility
@@ -183,6 +184,8 @@ export function LayerRow({
       // COG layers identify pixel values via the raster control's pixel
       // inspector (see useRasterIdentify), not the vector feature query.
       layer.type === "cog" ||
+      // An ArcGIS ImageServer reports its pixel values through `/identify`.
+      isArcGISImageServiceLayer(layer) ||
       hasNativeIdentifyLayers(layer));
   const identifyActive = identifyLayerId === layer.id;
   // A gesture that takes over map clicks has to turn Identify off, or
@@ -197,7 +200,10 @@ export function LayerRow({
   // the icon's tooltip reflects that distinct action. Time Slider COG
   // and mosaic sources read the same way, at the current timeline
   // date, and mark themselves with `pixelIdentify`.
-  const isPixelIdentify = layer.type === "cog" || layer.metadata.pixelIdentify === true;
+  const isPixelIdentify =
+    layer.type === "cog" ||
+    layer.metadata.pixelIdentify === true ||
+    isArcGISImageServiceLayer(layer);
   // Shared by the button's title and aria-label so they can't diverge.
   const identifyLabel = canIdentify
     ? identifyActive
@@ -242,6 +248,11 @@ export function LayerRow({
   // and attributes, so a read-only reference layer can still be
   // renamed or taken off the map.
   const layerEditable = canEditLayer(layer.id);
+  // Why a guest cannot touch this layer: the host locked it, or the session
+  // (or the host's override for this guest) is view-only.
+  const readOnlyHint = isLayerLocked
+    ? t("collaborate.layerLockedHint")
+    : t("collaborate.viewOnlyHint");
   const refreshConfig = getLayerRefreshConfig(layer);
   const refreshStatus: LayerRefreshStatus | undefined =
     transientRefreshStatus ??
@@ -324,7 +335,10 @@ export function LayerRow({
         </span>
         <button
           type="button"
-          className="rounded p-0.5 hover:bg-muted"
+          className="rounded p-0.5 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+          // A guest cannot change a host-locked layer, nor anything in a
+          // view-only session: the relay would refuse the change (#3477).
+          disabled={!layerEditable}
           // The eye stays the layer's *own* switch even while a
           // group hides it — showing EyeOff here would offer a
           // "Show layer" that turns the layer's own toggle off,
@@ -333,10 +347,11 @@ export function LayerRow({
           // Same string for the tooltip and the accessible name,
           // so the group-hidden context reaches a screen reader
           // and not only a sighted hover.
-          title={visibilityToggleLabel}
+          title={layerEditable ? visibilityToggleLabel : readOnlyHint}
           aria-label={visibilityToggleLabel}
           onClick={(e) => {
             e.stopPropagation();
+            if (!layerEditable) return;
             setLayerVisibility(layer.id, !layer.visible);
           }}
         >
@@ -539,6 +554,8 @@ export function LayerRow({
             label={t("layers.opacity")}
             ariaLabel={t("layers.opacityFor", { name: layer.name })}
             value={layer.opacity}
+            disabled={!layerEditable}
+            disabledHint={readOnlyHint}
             onChange={(v) => setLayerOpacity(layer.id, v)}
           />
         )}
@@ -580,10 +597,15 @@ export function LayerRow({
               e.stopPropagation();
               const controller = mapControllerRef.current;
               // A layer with no known extent (e.g. a bare `{z}/{x}/{y}` vector
-              // tile URL viewed nowhere near its data) cannot be framed; say so
+              // tile URL viewed nowhere near its data), or one wholly outside
+              // the area a custom map CRS shows, cannot be framed; say so
               // rather than leave the button looking broken.
               if (controller && !controller.fitLayer(layer)) {
-                notify.info(t("layers.zoomToLayerUnknownExtent", { name: layer.name }));
+                notify.info(
+                  controller.isLayerOutsideMapCrs?.(layer)
+                    ? t("layers.zoomToLayerOutsideMapCrs", { name: layer.name })
+                    : t("layers.zoomToLayerUnknownExtent", { name: layer.name }),
+                );
               }
             }}
           >
@@ -603,7 +625,7 @@ export function LayerRow({
             onClick={(e) => {
               e.stopPropagation();
               if (!canIdentify) return;
-              selectLayer(layer.id);
+              activateLayerPreservingSelection(layer.id);
               setIdentifyLayer(identifyActive ? null : layer.id);
             }}
           >
@@ -618,7 +640,7 @@ export function LayerRow({
               aria-label={t("layers.openStylePanel")}
               onClick={(e) => {
                 e.stopPropagation();
-                selectLayer(layer.id);
+                activateLayerPreservingSelection(layer.id);
                 onOpenStylePanel();
               }}
             >
@@ -673,7 +695,7 @@ export function LayerRow({
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-destructive disabled:opacity-40"
-            title={!layerEditable ? t("collaborate.layerLockedHint") : t("layers.removeLayer")}
+            title={!layerEditable ? readOnlyHint : t("layers.removeLayer")}
             aria-label={t("layers.removeLayer")}
             disabled={!layerEditable}
             onClick={(e) => {

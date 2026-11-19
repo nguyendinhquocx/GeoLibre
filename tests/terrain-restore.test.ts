@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createEmptyProject, parseProject, redactCredentials } from "@geolibre/core";
+import {
+  applyTerrainLook,
+  type TerrainLookEngine,
+} from "../apps/geolibre-desktop/src/lib/terrain-look.ts";
+import { MAX_EXAGGERATION } from "../apps/geolibre-desktop/src/lib/terrain-exaggeration.ts";
+
+const DEFAULT_TERRAIN_EXAGGERATION = 1;
 
 // `preferences.map.terrainEnabled` is project state, but it used to be applied
 // from an effect inside TopToolbar. `?maponly` embeds (share.geolibre.app builds
@@ -50,5 +58,169 @@ describe("terrain restore is independent of toolbar visibility", () => {
         `${path} is unmounted by ?maponly and must not apply terrain`,
       );
     }
+  });
+});
+
+describe("applyTerrainLook", () => {
+  const DEM = "https://example.com/dem.tif";
+
+  function fakeEngine(
+    options: { terrainSource?: boolean; cogSource?: string | null; custom?: boolean } = {},
+  ) {
+    const calls: { exaggeration: number[]; sources: (string | null)[] } = {
+      exaggeration: [],
+      sources: [],
+    };
+    let cogSource = options.cogSource ?? null;
+    let custom = options.custom ?? cogSource !== null;
+    const engine: TerrainLookEngine = {
+      capabilities: {
+        terrainSource: options.terrainSource ?? true,
+      } as TerrainLookEngine["capabilities"],
+      setTerrainExaggeration: (value) => {
+        calls.exaggeration.push(value);
+      },
+      getTerrainCogSource: () => cogSource,
+      hasCustomTerrainSource: () => custom,
+      setTerrainCogSource: async (source) => {
+        calls.sources.push(source as string | null);
+        cogSource = typeof source === "string" ? source : null;
+        custom = source !== null;
+        return true;
+      },
+    };
+    return { engine, calls };
+  }
+
+  it("applies a saved exaggeration and COG source", () => {
+    const { engine, calls } = fakeEngine();
+    applyTerrainLook(
+      engine,
+      { terrainExaggeration: 2, terrainSource: DEM },
+      { reset: true, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(calls, { exaggeration: [2], sources: [DEM] });
+  });
+
+  it("clamps a hand-edited exaggeration to the dialog's range", () => {
+    const { engine, calls } = fakeEngine();
+    applyTerrainLook(
+      engine,
+      { terrainExaggeration: 50 },
+      { reset: true, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(calls.exaggeration, [MAX_EXAGGERATION]);
+  });
+
+  it("does not reload a source the engine already draws", () => {
+    const { engine, calls } = fakeEngine({ cogSource: DEM });
+    applyTerrainLook(
+      engine,
+      { terrainExaggeration: 2, terrainSource: DEM },
+      { reset: false, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(calls.sources, []);
+  });
+
+  it("puts a project without a saved look back to the defaults", () => {
+    const { engine, calls } = fakeEngine({ cogSource: DEM });
+    applyTerrainLook(
+      engine,
+      {},
+      { reset: true, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(calls, { exaggeration: [DEFAULT_TERRAIN_EXAGGERATION], sources: [null] });
+  });
+
+  it("keeps a local-file DEM on a new engine for the same project", () => {
+    const { engine, calls } = fakeEngine({ cogSource: null, custom: true });
+    applyTerrainLook(
+      engine,
+      {},
+      { reset: false, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(calls, { exaggeration: [], sources: [] });
+  });
+
+  it("restores a DEM with the saved fill, or the URL default (#3470)", () => {
+    for (const [saved, expected] of [
+      [undefined, true],
+      [false, false],
+    ] as const) {
+      const { engine, calls } = fakeEngine();
+      const options: unknown[] = [];
+      const setSource = engine.setTerrainCogSource;
+      engine.setTerrainCogSource = (source, band, opts) => {
+        options.push(opts);
+        return setSource(source, band);
+      };
+      applyTerrainLook(
+        engine,
+        { terrainSource: DEM, terrainFillOutside: saved },
+        { reset: true, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+      );
+      assert.deepEqual(options, [{ fillOutside: expected }]);
+      assert.deepEqual(calls.sources, [DEM]);
+    }
+  });
+
+  it("only updates the fill of a DEM the engine already draws", () => {
+    const { engine, calls } = fakeEngine({ cogSource: DEM });
+    const fills: boolean[] = [];
+    engine.setTerrainFillOutside = (fill) => fills.push(fill);
+    applyTerrainLook(
+      engine,
+      { terrainSource: DEM, terrainFillOutside: false },
+      { reset: false, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(fills, [false]);
+    assert.deepEqual(calls.sources, []);
+  });
+
+  it("only sets the exaggeration where the engine takes no DEM", () => {
+    const { engine, calls } = fakeEngine({ terrainSource: false });
+    applyTerrainLook(
+      engine,
+      { terrainExaggeration: 3, terrainSource: DEM },
+      { reset: true, defaultExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
+    );
+    assert.deepEqual(calls, { exaggeration: [3], sources: [] });
+  });
+});
+
+describe("terrainFillOutside in a project file", () => {
+  it("keeps a saved boolean and drops anything else", () => {
+    const base = createEmptyProject("Fill");
+    const read = (value: unknown) =>
+      parseProject(
+        JSON.stringify({
+          ...base,
+          preferences: {
+            ...base.preferences,
+            map: { ...base.preferences.map, terrainFillOutside: value },
+          },
+        }),
+      ).preferences.map.terrainFillOutside;
+    assert.equal(read(false), false);
+    assert.equal(read(true), true);
+    assert.equal(read("yes"), undefined);
+  });
+});
+
+describe("terrain source redaction", () => {
+  it("strips credentials from a saved terrain DEM URL", () => {
+    const base = createEmptyProject("Signed DEM");
+    const project = {
+      ...base,
+      preferences: {
+        ...base.preferences,
+        map: {
+          ...base.preferences.map,
+          terrainSource: "https://example.com/dem.tif?api_key=secret",
+        },
+      },
+    };
+    const redacted = redactCredentials(project);
+    assert.doesNotMatch(redacted.preferences.map.terrainSource ?? "", /secret/);
   });
 });

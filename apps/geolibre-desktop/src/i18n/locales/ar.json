@@ -89,7 +89,8 @@
       "restoreLayer": "استعادة هذه الطبقة",
       "restoreLayerAria": "استعادة الطبقة {{name}} من هذه اللقطة",
       "layerRestored": "تمت استعادة «{{name}}». استخدم التراجع لإلغاء ذلك.",
-      "restoreLayerError": "تعذّرت استعادة هذه الطبقة من اللقطة."
+      "restoreLayerError": "تعذّرت استعادة هذه الطبقة من اللقطة.",
+      "restoreLayerRedrawError": "تمت استعادة «{{name}}»، لكن تعذّر رسمها على الخريطة."
     }
   },
   "browser": {
@@ -307,10 +308,15 @@
     "bodyNote": "القياس على: {{body}} (تقريب كروي)"
   },
   "statusBar": {
+    "coords": "الإحداثيات",
     "elevation": "ارتفاع",
     "elevationLong": "الارتفاع",
     "cameraAltitude": "ارتفاع الرؤية",
     "cameraAltitudeLong": "ارتفاع الكاميرا فوق مستوى سطح البحر",
+    "zoom": "التكبير",
+    "bearing": "الاتجاه",
+    "pitch": "الميل",
+    "bbox": "الصندوق المحيط",
     "coordinateFormat": {
       "dd": "درجات عشرية",
       "dms": "درجات ودقائق وثوانٍ",
@@ -1851,7 +1857,8 @@
     "geom": {
       "point": "نقطة",
       "line": "خط",
-      "polygon": "مضلع"
+      "polygon": "مضلع",
+      "none": "جدول"
     },
     "fields": "حقول النموذج",
     "addField": "إضافة حقل",
@@ -1894,7 +1901,8 @@
     "save": {
       "point": "حفظ النقطة",
       "line": "حفظ الخط",
-      "polygon": "حفظ المضلع"
+      "polygon": "حفظ المضلع",
+      "none": "حفظ السجل"
     },
     "saved": {
       "point_one": "تم حفظ {{count}} نقطة في {{layer}}.",
@@ -1914,9 +1922,20 @@
       "polygon_two": "تم حفظ {{count}} من المضلعات في {{layer}}.",
       "polygon_few": "تم حفظ {{count}} مضلعات في {{layer}}.",
       "polygon_many": "تم حفظ {{count}} مضلعًا في {{layer}}.",
-      "polygon_other": "تم حفظ {{count}} مضلع في {{layer}}."
+      "polygon_other": "تم حفظ {{count}} مضلع في {{layer}}.",
+      "none_zero": "تم حفظ {{count}} سجل في {{layer}}.",
+      "none_one": "تم حفظ سجل واحد ({{count}}) في {{layer}}.",
+      "none_two": "تم حفظ سجلين ({{count}}) في {{layer}}.",
+      "none_few": "تم حفظ {{count}} سجلات في {{layer}}.",
+      "none_many": "تم حفظ {{count}} سجلًا في {{layer}}.",
+      "none_other": "تم حفظ {{count}} سجل في {{layer}}."
     },
+    "captureRecordDescription": "املأ النموذج واحفظ السجل. السجلات في هذه الطبقة ليس لها موقع.",
+    "relatedPrompt": "أضف سجلًا مرتبطًا بالسجل الذي حفظته للتو:",
+    "addRelated": "إضافة إلى {{layer}}",
+    "addRelatedVia": "إضافة إلى {{layer}} ({{field}})",
     "layerGone": "لم تعد طبقة الجمع متاحة.",
+    "layerLoading": "ما زالت هذه الطبقة تحمّل معالمها. حاول مرة أخرى بعد لحظات.",
     "noGeolocation": "تحديد الموقع الجغرافي غير متاح على هذا الجهاز.",
     "geolocationDenied": "تعذّر الحصول على موقعك. تحقق من أذونات الموقع وحاول مرة أخرى.",
     "photoTooLarge": "هذه الصورة كبيرة جدًا (الحد الأقصى {{max}}). اختر صورة أصغر.",
@@ -1997,6 +2016,42 @@
     "nmeaSerialUnsupported": "‏Web Serial غير متوفر هنا، لذا لا يمكن فتح المستقبلات التسلسلية.",
     "nmeaBluetoothUnsupported": "‏Web Bluetooth غير متوفر هنا، لذا لا يمكن فتح مستقبلات بلوتوث منخفض الطاقة.",
     "nmeaBluetoothHint": "تستخدم معظم مستقبلات GPS عبر البلوتوث بلوتوث كلاسيكي: اقترن بأحدها من إعدادات النظام ليظهر هنا كمنفذ تسلسلي. استخدم «اتصال بلوتوث» فقط مع مستقبلات بلوتوث منخفض الطاقة.",
+    "nmeaPairedDevice": "المستقبل المقترن",
+    "nmeaLoadingDevices": "جارٍ تحميل الأجهزة المقترنة…",
+    "nmeaNoPairedDevices": "لا توجد أجهزة مقترنة",
+    "nmeaDeviceBleOnly": "{{name}} (بلوتوث منخفض الطاقة، غير مدعوم)",
+    "nmeaRefreshDevices": "تحديث الأجهزة المقترنة",
+    "nmeaConnectReceiver": "الاتصال بالمستقبل",
+    "nmeaAndroidBluetoothHint": "أقرِن مستقبل GPS أولًا من إعدادات البلوتوث في Android، ثم اختره هنا. يقرأ GeoLibre دفق NMEA منه عبر البلوتوث الكلاسيكي (Serial Port Profile)، بما في ذلك حالة تثبيت RTK التي يبلّغ عنها المستقبل.",
+    "nmeaBluetoothOff": "البلوتوث متوقف. شغّله من إعدادات Android ثم أعد المحاولة.",
+    "nmeaBluetoothPermissionDenied": "يحتاج GeoLibre إلى إذن «الأجهزة المجاورة» للاتصال بمستقبل بلوتوث. اسمح به من إعدادات التطبيق في Android ثم أعد المحاولة.",
+    "nmeaBluetoothConnectFailed": "تعذّر الاتصال بالمستقبل. تأكد من أنه قيد التشغيل وضمن المدى وغير متصل بتطبيق آخر.",
+    "nmeaBluetoothBusy": "ما زالت محاولة الاتصال السابقة جارية. انتظر بضع ثوانٍ ثم أعد المحاولة.",
+    "nmeaBluetoothNotPaired": "لم يعد هذا المستقبل مقترنًا. أقرِنه من جديد من إعدادات البلوتوث في Android، ثم حدّث القائمة.",
+    "ntripTitle": "تصحيحات RTK ‏(NTRIP)",
+    "ntripHost": "مضيف الكاستر",
+    "ntripPort": "المنفذ",
+    "ntripMountpoint": "نقطة التركيب",
+    "ntripUsername": "اسم المستخدم",
+    "ntripPassword": "كلمة المرور",
+    "ntripTls": "استخدام TLS",
+    "ntripStart": "بدء التصحيحات",
+    "ntripStop": "إيقاف التصحيحات",
+    "ntripConnecting": "جارٍ الاتصال بالكاستر…",
+    "ntripWaiting": "تم الاتصال. في انتظار التصحيحات؛ تبدأ كاسترات الشبكة الإرسال بعد أن يبلّغ المستقبل عن تثبيت.",
+    "ntripReceiving": "جارٍ استقبال التصحيحات · {{size}}",
+    "ntripRetrying": "انقطع الاتصال بالكاستر ({{message}}). جارٍ إعادة المحاولة…",
+    "ntripAuthFailed": "رفض الكاستر اسم المستخدم أو كلمة المرور.",
+    "ntripMountpointMissing": "لا توجد لدى الكاستر نقطة تركيب باسم \"{{mountpoint}}\".",
+    "ntripNeedsHost": "أدخل مضيف الكاستر.",
+    "ntripNeedsMountpoint": "أدخل نقطة تركيب.",
+    "ntripBadPort": "أدخل منفذًا بين 1 و65535.",
+    "ntripBadHost": "تحقق من مضيف الكاستر: اكتب عنوان IPv6 بين قوسين مربعين، مثل [2001:db8::1]، واكتب المنفذ كرقم.",
+    "ntripBadCharacters": "لا يمكن أن يحتوي مضيف الكاستر ونقطة التركيب على مسافات أو محارف تحكم.",
+    "ntripTlsFailed": "تعذّر إنشاء اتصال آمن (TLS) بالكاستر. تحقق من المضيف والمنفذ، ومن دعم الكاستر لـ TLS على ذلك المنفذ.",
+    "ntripStartFailed": "تعذّر بدء التصحيحات: {{message}}",
+    "ntripCleartextHint": "من دون TLS يتلقى الكاستر كلمة المرور غير مشفّرة، كما تتطلب معظم كاسترات NTRIP. استخدم TLS إن كان الكاستر لديك يوفّره.",
+    "ntripHint": "يجلب GeoLibre تصحيحات RTCM من الكاستر لديك ويرسلها إلى المستقبل عبر اتصال البلوتوث نفسه، مع موقع المستقبل في حالة كاسترات الشبكة (VRS). تُحفظ الإعدادات، بما فيها كلمة المرور، على هذا الجهاز، وتُستأنف التصحيحات تلقائيًا عند إعادة اتصال المستقبل.",
     "fixQuality": {
       "invalid": "لا يوجد تثبيت",
       "gps": "تثبيت GPS",
@@ -2123,7 +2178,10 @@
     "lockLayer": "قفل الطبقة أمام الضيوف",
     "unlockLayer": "إلغاء قفل الطبقة أمام الضيوف",
     "layerLocked": "مقفلة",
-    "layerLockedHint": "هذه الطبقة مقفلة من قِبل المضيف ولا يمكن تحريرها"
+    "layerLockedHint": "هذه الطبقة مقفلة من قِبل المضيف ولا يمكن تحريرها",
+    "viewOnlyHint": "أنت في وضع العرض فقط في هذه الجلسة، لذا لا يمكنك تغيير هذه الطبقة",
+    "layerLockedRejected": "لم تتم مشاركة هذا التغيير لأن المضيف قفل الطبقة. أُعيدت خريطتك إلى نسخة الجلسة.",
+    "viewOnlyLocalChange": "أنت في وضع العرض فقط في هذه الجلسة، لذا تبقى تغييراتك على شاشتك ولا تتم مشاركتها."
   },
   "share": {
     "title": "مشاركة المشروع",
@@ -2290,6 +2348,22 @@
     "resizeDialog": "تغيير حجم المعرض",
     "scopeFeatured": "المميزة",
     "scopeAll": "جميع المشاريع",
+    "scopeCollections": "مجموعات المشاريع",
+    "loadingCollections": "جارٍ تحميل المجموعات…",
+    "collectionsSearchPlaceholder": "تصفية المجموعات حسب العنوان أو المؤلف أو الوصف",
+    "noCollectionMatches": "لا توجد مجموعات تطابق عامل التصفية.",
+    "emptyCollections": "لا توجد مجموعات عامة لعرضها بعد.",
+    "emptyCollection": "لا تحتوي هذه المجموعة على مشاريع عامة.",
+    "untitledCollection": "مجموعة بلا عنوان",
+    "openCollection": "عرض المشاريع في هذه المجموعة",
+    "openCollectionOnWeb": "عرض المجموعة على الويب",
+    "backToCollections": "جميع المجموعات",
+    "collectionProjects_zero": "{{count}} مشروع",
+    "collectionProjects_one": "مشروع واحد ({{count}})",
+    "collectionProjects_two": "مشروعان ({{count}})",
+    "collectionProjects_few": "{{count}} مشاريع",
+    "collectionProjects_many": "{{count}} مشروعًا",
+    "collectionProjects_other": "{{count}} مشروع",
     "scopeMine": "مشاريعي",
     "scopeOrganizations": "المؤسسات",
     "scopeGroups": "المجموعات",
@@ -2590,7 +2664,9 @@
   },
   "kml": {
     "importFailed": "تعذر استيراد KML/KMZ.",
-    "timeOverlayGroup": "تحريك التراكب الزمني"
+    "timeOverlayGroup": "تحريك التراكب الزمني",
+    "dataUrlStyleUnsupported": "لا يمكن تطبيق نمط على مستند KML.",
+    "dataUrlNoImporter": "تعذّرت إضافة {{name}} إلى الخريطة: لا يتوفر مستورد KML."
   },
   "map": {
     "boundsRestricted": "الحدود مقفلة",
@@ -2645,6 +2721,8 @@
       "error": "تعذر التعرف على هذه الطبقة.",
       "noData": "لا توجد بيانات في هذا الموقع.",
       "pixelReadFailed": "تعذرت قراءة قيمة البكسل.",
+      "pixelValue": "القيمة",
+      "pixelBand": "النطاق الطيفي {{index}}",
       "wmsFailed": "فشل طلب WMS GetFeatureInfo.",
       "wmsNotQueryable": "لا توفر طبقة WMS هذه معلومات المعالم.",
       "editGeometry": "تحرير الشكل الهندسي",
@@ -2658,7 +2736,8 @@
       "nodata": "لا توجد بيانات",
       "coordinates": "خط الطول، خط العرض",
       "row": "صف",
-      "column": "عمود"
+      "column": "عمود",
+      "stacItem": "العنصر"
     }
   },
   "terrainSettings": {
@@ -2677,6 +2756,8 @@
     "sourcePlaceholder": "https://example.com/dem.tif",
     "localSourceLabel": "نموذج ارتفاعات COG محلي",
     "localSourceDescription": "يبقى الملف على هذا الجهاز وتُقرأ منه نطاقات صغيرة عند الحاجة إلى مربعات التضاريس.",
+    "fillOutside": "ملء ما خارج DEM بالتضاريس العالمية",
+    "fillOutsideDescription": "يحيط DEM بالتضاريس العالمية ويملأ فجوات انعدام البيانات فيه بها بدلًا من سهل مستوٍ. مفعّل افتراضيًا لـ DEM من عنوان URL ومعطّل للملف المحلي، الذي لا يقرأ شيئًا من الشبكة بخلاف ذلك.",
     "useCog": "استخدام نموذج ارتفاعات COG",
     "ionAssetLabel": "أصل تضاريس Cesium Ion",
     "ionAssetDescription": "استخدم أصل تضاريس quantized-mesh من Cesium Ion على الكرة الأرضية. يجب أن يكون الأصل متاحًا لحساب Ion المكوَّن.",
@@ -3596,7 +3677,9 @@
       "profileCount_other": "{{count}} ملف تعريف",
       "noProfiles": "لا توجد ملفات تعريف بعد. أضف واحدًا أدناه لتهيئة مساعد الذكاء الاصطناعي.",
       "setDefault": "تعيين كافتراضي",
+      "keepDefault": "الإبقاء كافتراضي",
       "defaultProfile": "افتراضي",
+      "proxyIsDefault": "لا يوجد ملف تعريف افتراضي، لذا يبدأ المساعد على وكيل النشر. عيّن ملف تعريف كافتراضي ليبدأ عليه بدلًا من ذلك.",
       "edit": "تحرير",
       "deleteProfile": "حذف ملف التعريف",
       "backToProfiles": "→ العودة إلى ملفات التعريف",
@@ -3617,6 +3700,7 @@
         "openaiKey": "sk-…",
         "openrouterKey": "sk-or-…",
         "vercelKey": "مفتاح AI Gateway",
+        "trustedrouterKey": "sk-tr-v1-…",
         "ollamaBaseUrl": "http://localhost:11434",
         "awsAccessKey": "AKIA…",
         "awsSecretKey": "wJalrXUtnFEMI…",
@@ -3625,6 +3709,23 @@
         "customBaseUrl": "https://api.example.com/v1",
         "customModel": "model-id",
         "customApiKey": "sk-… (إذا كان مطلوبًا)"
+      },
+      "chatgpt": {
+        "account": "حساب ChatGPT",
+        "intro": "استخدم خطة ChatGPT الخاصة بك بدلًا من مفتاح API. يفتح متصفحك صفحة تسجيل الدخول في OpenAI، حيث تسمح لـ GeoLibre باستخدام خطتك.",
+        "continue": "المتابعة باستخدام ChatGPT",
+        "waiting": "في انتظار إكمال تسجيل الدخول في المتصفح…",
+        "openAgain": "فتح المتصفح مرة أخرى",
+        "signedInAs": "تم تسجيل الدخول باسم {{email}}",
+        "usingPlan": "يتم استخدام خطة ChatGPT الخاصة بك.",
+        "planDeclined": "GeoLibre غير مسموح له باستخدام خطة ChatGPT الخاصة بك. سجّل الدخول مرة أخرى واسمح بذلك.",
+        "signInAgain": "تسجيل الدخول مرة أخرى",
+        "notRemembered": "سلسلة مفاتيح النظام غير متاحة، لذا يستمر تسجيل الدخول هذا حتى إغلاق GeoLibre.",
+        "signOut": "تسجيل الخروج",
+        "useAnotherAccount": "استخدام حساب آخر",
+        "usage": "الاستخدام والتطبيقات المتصلة",
+        "revokeUnconfirmed": "تم تسجيل الخروج هنا، لكن OpenAI لم تؤكد إنهاء الجلسة. افصل GeoLibre من إعدادات ChatGPT للتأكد.",
+        "desktopOnly": "تسجيل الدخول باستخدام ChatGPT متاح في تطبيق GeoLibre لسطح المكتب."
       }
     }
   },
@@ -4118,6 +4219,7 @@
       "difference": "فرق",
       "union": "اتحاد",
       "spatialJoin": "ربط مكاني",
+      "summarizeWithin": "تلخيص داخل المضلعات",
       "attributeJoin": "ربط بالسمات",
       "selectByValue": "تحديد حسب القيمة",
       "selectByLocation": "تحديد حسب الموقع",
@@ -4451,9 +4553,33 @@
         "missing-source": "لا تحتوي الطبقة على مصدر بيانات قابل للقراءة.",
         "format": "تنسيق ملف الطبقة غير مدعوم.",
         "remote-file": "مصادر ملفات QGIS البعيدة غير مدعومة بعد.",
+        "remote-unreadable": "تعذّر تنزيل الملف البعيد أو قراءته.",
+        "wmts": "لا يتم استيراد طبقات WMTS بعد. أضف الخدمة من قائمة إضافة بيانات بدلًا من ذلك.",
         "network-path": "لا يتم تحميل مسارات مشاركة الشبكة لأسباب أمنية.",
         "browser-local-file": "تمت الإشارة إلى الملف المحلي، لكن المتصفحات لا تستطيع إعادة فتح مسارات بيانات QGIS. استخدم GeoLibre Desktop لتحميله.",
-        "browser-local-raster": "تتم الإشارة إلى الراستر عبر مسار محلي. استخدم GeoLibre Desktop لتحميله."
+        "browser-local-raster": "تتم الإشارة إلى الراستر عبر مسار محلي. استخدم GeoLibre Desktop لتحميله.",
+        "no-geometry": "لا يمكن قراءة جدول بلا شكل هندسي إلا من GeoPackage."
+      },
+      "qgisImportNotes": "تم استيراد المشروع. تعذّر نقل بعض الإعدادات.",
+      "qgisImportFormNotes": "تعذّر نقل بعض إعدادات النموذج.",
+      "qgisImportStyleNotes": "تعذّر نقل بعض الترميز.",
+      "qgisStyleNoteReason": {
+        "renderer-unreadable": "تعذّرت قراءة عارض الطبقة؛ استُخدم النمط الافتراضي.",
+        "expression-label": "لم تُستورد التسميات المبنية على تعبير QGIS."
+      },
+      "qgisFormNoteFieldCount_zero": "{{count}} حقل",
+      "qgisFormNoteFieldCount_one": "{{count}} حقل",
+      "qgisFormNoteFieldCount_two": "حقلان ({{count}})",
+      "qgisFormNoteFieldCount_few": "{{count}} حقول",
+      "qgisFormNoteFieldCount_many": "{{count}} حقلًا",
+      "qgisFormNoteFieldCount_other": "{{count}} حقل",
+      "qgisFormNoteReason": {
+        "default": "تستخدم القيمة الافتراضية تعبيرًا غير مدعوم، لذا يبدأ الحقل فارغًا.",
+        "constraint": "تعبير القيد غير مدعوم وتم استبعاده.",
+        "relation": "تعذّرت قراءة الجدول المرتبط بالقائمة المنسدلة، لذا أصبح الحقل مربع نص عاديًا.",
+        "relation-empty": "لا يحتوي الجدول المرتبط بالقائمة المنسدلة على قيم لعرضها، لذا أصبح الحقل مربع نص عاديًا.",
+        "relation-too-large": "يحتوي الجدول المرتبط بالقائمة المنسدلة على صفوف أكثر من أن تُعرض في قائمة، لذا أصبح الحقل مربع نص عاديًا.",
+        "relation-multi": "تسمح القائمة المنسدلة بعدة اختيارات، وهذا غير مدعوم، لذا أصبح الحقل مربع نص عاديًا."
       },
       "openProjectFromUrlDesc": "تحميل مشروع `.geolibre.json` وإضافته إلى المشاريع الأخيرة.",
       "projectUrl": "عنوان URL للمشروع",
@@ -4474,7 +4600,8 @@
       "saveProjectAsTitle": "حفظ المشروع باسم",
       "saveProjectAsDesc": "أدخل اسم الملف. سيُنزَّل المشروع إلى مجلد التنزيلات في متصفحك عند النقر على «حفظ».",
       "embedVectorTitle": "هل تريد تضمين البيانات المتجهة المحلية؟",
-      "embedEditedGeometryDesc": "يحتوي هذا المشروع على أشكال هندسية معدّلة. ضمّن البيانات المتجهة (حوالي {{size}}) للحفاظ عليها. بدون التضمين، ستُفتح الطبقات المرجعية بأشكالها الهندسية الأصلية وقد لا تتوفر البيانات المحلية.",
+      "embedEditedVectorTitle": "هل تريد تضمين البيانات المتجهة المعدَّلة؟",
+      "embedEditedFeaturesDesc": "يحتوي هذا المشروع على معالم معدَّلة (أشكال هندسية أو قيم سمات، بما فيها الحقول المحسوبة). ضمّن البيانات المتجهة (نحو {{size}}) للحفاظ عليها. من دون التضمين، تُفتح الطبقات التي يُعاد تحميلها من عنوان URL أو ملف ببياناتها الأصلية، وقد لا تتوفر البيانات المحلية.",
       "embedVectorDesc": "يحتوي هذا المشروع على {{count}} من الطبقات المتجهة المحلية المحملة من جهازك. لا يستطيع المتصفح إعادة قراءتها عند إعادة فتح المشروع، لذا يجب تضمين بياناتها في ملف المشروع حتى يمكن استعادتها. يضيف التضمين نحو {{size}} إلى حجم الملف.",
       "embedVectorDescDesktop": "يحتوي هذا المشروع على {{count}} من الطبقات المتجهة المحلية المحملة من جهازك. ضمِّن بياناتها لجعل المشروع مكتفيًا بذاته (يضيف نحو {{size}})، أو احفظ مراجع الملفات التي يعاد تحميلها من القرص عند إعادة فتح المشروع. تُبقي المراجع الملف صغيرًا لكنها تتعطل إذا نُقل ملف مصدر أو حُذف لاحقًا.",
       "embedVectorDescMas": "يحتوي هذا المشروع على {{count}} من الطبقات المتجهة المحلية المحمّلة من جهازك. لا يمكن لبيئة الحماية في Mac App Store الاحتفاظ بإمكانية الوصول إلى هذه الملفات بعد إغلاق GeoLibre، لذلك يجب تضمين بياناتها في ملف المشروع حتى يمكن استعادتها. يضيف التضمين نحو {{size}} إلى حجم الملف.",
@@ -4565,6 +4692,7 @@
       "loadingVtpk": "جارٍ فتح حزمة البلاطات…",
       "loadingVtpkDesc": "قراءة دليل الحزمة ونمطها",
       "projectName": "اسم المشروع",
+      "untitledProject": "مشروع بلا عنوان",
       "storymapEllipsis": "خريطة قصصية...",
       "pointerElevationNoticeTitle": "الارتفاع يستخدم خدمة ارتفاعات عامة",
       "pointerElevationNoticeDesc": "يُحسب الارتفاع من تضاريس الخريطة ثلاثية الأبعاد عند تفعيلها دون إرسال أي بيانات. وبدونها تُستخدم واجهة Open-Meteo العامة، فتغادر إحداثيات المؤشر جهازك.",
@@ -4706,6 +4834,12 @@
       "couldNotOpenProject": "تعذر فتح المشروع.",
       "multipleProjectDrop": "أسقط مشروع GeoLibre واحدًا في كل مرة، من دون ملفات أخرى.",
       "projectDropNotAllowed": "لا يسمح هذا النشر بالتبديل بين المشاريع.",
+      "sandboxHiddenDrop_zero": "لا تستطيع بيئة Flatpak المعزولة قراءة {{count}} ملف مُفلت ({{names}}). افتحها من قائمة «إضافة بيانات» بدلًا من ذلك، أو امنح التطبيق إذن قراءة مجلدها ثم أعد تشغيله: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_one": "لا تستطيع بيئة Flatpak المعزولة قراءة الملف المُفلت {{names}}. افتحه من قائمة «إضافة بيانات» بدلًا من ذلك، أو امنح التطبيق إذن قراءة مجلده ثم أعد تشغيله: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_two": "لا تستطيع بيئة Flatpak المعزولة قراءة ملفين مُفلتين ({{count}}: {{names}}). افتحهما من قائمة «إضافة بيانات» بدلًا من ذلك، أو امنح التطبيق إذن قراءة مجلدهما ثم أعد تشغيله: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_few": "لا تستطيع بيئة Flatpak المعزولة قراءة {{count}} ملفات مُفلتة ({{names}}). افتحها من قائمة «إضافة بيانات» بدلًا من ذلك، أو امنح التطبيق إذن قراءة مجلدها ثم أعد تشغيله: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_many": "لا تستطيع بيئة Flatpak المعزولة قراءة {{count}} ملفًا مُفلتًا ({{names}}). افتحها من قائمة «إضافة بيانات» بدلًا من ذلك، أو امنح التطبيق إذن قراءة مجلدها ثم أعد تشغيله: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_other": "لا تستطيع بيئة Flatpak المعزولة قراءة {{count}} ملف مُفلت ({{names}}). افتحها من قائمة «إضافة بيانات» بدلًا من ذلك، أو امنح التطبيق إذن قراءة مجلدها ثم أعد تشغيله: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
       "couldNotImportQgisProject": "تعذّر استيراد مشروع QGIS.",
       "couldNotImportArcgisProject": "تعذّر استيراد مشروع ArcGIS Pro.",
       "invalidProjectUrl": "أدخل عنوان URL صالحًا للمشروع عبر HTTP أو HTTPS.",
@@ -5198,6 +5332,22 @@
     "includeNeighbors": "تضمين المربّعات المجاورة للمربّعة المحددة",
     "includeParent": "تضمين المربّعة الأصل للمربّعة المحددة"
   },
+  "planetaryComputer": {
+    "stacBrowser": "استعراض في كتالوجات STAC",
+    "stacBrowserTitle": "فتح هذه المجموعة في لوحة كتالوجات STAC لإضافة سحب النقاط وGeoParquet وZarr وغيرها من الأصول التي لا تستطيع خدمة بلاطات الراستر رسمها",
+    "timeSlider": "تحريك في شريط تمرير الزمن",
+    "timeSliderTitle": "استعراض هذه النتائج تاريخًا بعد تاريخ في شريط تمرير الزمن ورسم مخطط لقيم بكسل عبر الزمن",
+    "colorbar": "إظهار شريط الألوان",
+    "colorbarTitle": "إضافة شريط ألوان إلى الخريطة يمثّل خريطة الألوان ومدى القيم لهذه الطبقة",
+    "clipToMap": "إضافة مقطع إلى الخريطة",
+    "clipToMapTitle": "قص هذا المشهد إلى الصندوق المرسوم (أو عرض الخريطة) وإضافة قيم نطاقاته الخام كطبقة راستر للتحليل",
+    "clipLayerName": "مقطع {{item}}",
+    "clipOutsideItem": "منطقة القص لا تتداخل مع هذا المشهد. ارسم صندوقًا داخل حدوده أو حرّك الخريطة فوقه.",
+    "clipUnavailable": "لا يمكن إضافة هذا المشهد كمقطع على هذه الخريطة.",
+    "timeSeriesLayerName": "السلسلة الزمنية لـ {{collection}}",
+    "timeSliderNeedsDates": "تتطلب السلسلة الزمنية نتيجتين على الأقل بتاريخين مختلفين.",
+    "timeSliderUnavailable": "شريط تمرير الزمن غير متاح على هذه الخريطة."
+  },
   "timelapse": {
     "title": "التسلسل الزمني",
     "provider": "مصدر الصور",
@@ -5403,6 +5553,39 @@
     "drawHint": "انقر واسحب على الخريطة لرسم صندوق البحث.",
     "drawnBbox": "الصندوق المرسوم: {{bbox}}",
     "drawnBboxCleared": "تم مسح الصندوق المرسوم.",
+    "areaLabel": "منطقة البحث",
+    "drawPoint": "نقطة",
+    "drawLine": "خط",
+    "drawPolygon": "مضلع",
+    "useSelection": "المعالم المحددة",
+    "loadAreaFile": "من ملف…",
+    "clearArea": "مسح الشكل",
+    "drawPointHint": "انقر على الخريطة لوضع نقطة بحث. اضغط Escape للإلغاء.",
+    "drawShapeHint": "انقر لإضافة الرؤوس؛ وانقر نقرًا مزدوجًا أو اضغط Enter للإنهاء. اضغط Escape للإلغاء.",
+    "areaCleared": "تم مسح شكل البحث.",
+    "noSelection": "حدد معالم على الخريطة أولًا: افتح قائمة إحدى الطبقات، واختر «تحديد المعالم»، ثم أعد المحاولة.",
+    "areaFileFailed": "تعذّرت قراءة شكل بحث من هذا الملف.",
+    "areaTooLarge": "يحتوي هذا الشكل على {{positions}} رأس؛ بسّطه إلى {{max}} أو أقل.",
+    "areaSet": "البحث ضمن {{description}}.",
+    "areaIgnored": "تم استبعاد {{count}} من الأشكال ذات الأبعاد الأدنى.",
+    "addAsset": "الأصول",
+    "addAssetHint": "إضافة أحد أصول هذا العنصر إلى الخريطة",
+    "addRendering": "النطاقات",
+    "addRenderingHint": "إضافة تركيب نطاقات أو مؤشر لهذا العنصر إلى الخريطة",
+    "groupCombinations": "تراكيب النطاقات",
+    "groupIndices": "المؤشرات",
+    "renderNeedsMapLibre": "يتطلب عرض النطاقات عارض MapLibre.",
+    "renderMissingBand": "لا يحتوي هذا العنصر على نطاق باسم {{name}}.",
+    "sortLabel": "الترتيب حسب التاريخ",
+    "sortDefault": "افتراضي الخادم",
+    "sortNewest": "الأحدث أولًا",
+    "sortOldest": "الأقدم أولًا",
+    "bufferLabel": "نطاق عازل للنقاط والخطوط بمقدار",
+    "bufferHint": "توسيع النقطة أو الخط إلى مضلع بهذا العدد من الأمتار على كل جانب قبل البحث. لا تتغير المضلعات.",
+    "bufferDistance": "{{meters}} م",
+    "cloudLabel": "الحد الأقصى للغيوم",
+    "cloudHint": "الإبقاء على المشاهد التي لا يتجاوز غطاؤها الغيمي هذه النسبة. تبقى المشاهد التي لا تبلّغ عن غطاء غيمي (الرادار والارتفاعات والصور الجوية).",
+    "sortHint": "يرتّب النتائج المحمّلة حتى الآن حسب تاريخ الالتقاط. قد يجلب «تحميل المزيد» مشاهد موضعها أبكر أو أحدث.",
     "mapNotReady": "الخريطة غير جاهزة للرسم.",
     "startDate": "تاريخ البدء",
     "endDate": "تاريخ الانتهاء",
@@ -5504,6 +5687,12 @@
     "portalTitle": "فتح هذا العنصر في بوابة Earthdata GIS",
     "cog": "COG",
     "cogTitle": "تنزيل هذه الخدمة بصيغة Cloud Optimized GeoTIFF",
+    "rasterFunction": "الدالة",
+    "rasterFunctionTitle": "الدالة النقطية (قالب المعالجة) التي تطبقها الخدمة؛ وتتبعها قيم البكسل",
+    "rasterFunctionDefault": "افتراضي الخدمة",
+    "rasterFunctionLoading": "جارٍ تحميل الدوال…",
+    "rasterFunctionNone": "لا توجد دوال منشورة",
+    "rasterFunctionError": "تعذّر تحميل الدوال النقطية: {{message}}",
     "cogHeading": "التنزيل بصيغة COG",
     "cogAreaView": "العرض الحالي",
     "cogAreaExtent": "النطاق الكامل",
@@ -5985,6 +6174,7 @@
     "setupTitle": "إعداد مساعد الذكاء الاصطناعي",
     "setupStatus": "يحتاج المساعد إلى موفر ذكاء اصطناعي ليتولى التفكير. أضف بيانات اعتماد لأي موفر واحد أدناه، وستتحول اللوحة إلى وضع الدردشة فور الحفظ.",
     "setupProviders": "إضافة بيانات اعتماد لأي موفر واحد",
+    "setupSignIn": "سجّل الدخول من الإعدادات ← موفرو الذكاء الاصطناعي",
     "setupOpenSettings": "فتح الإعدادات ← موفرو الذكاء الاصطناعي",
     "thinking": "جارٍ العمل…",
     "toolError": "فشل",
@@ -6779,6 +6969,26 @@
                 "inner": "داخلي (الاحتفاظ بالمعالم المتطابقة فقط)",
                 "left": "يساري (الاحتفاظ بجميع معالم الإدخال)"
               }
+            }
+          }
+        },
+        "summarize-within": {
+          "name": "تلخيص داخل المضلعات",
+          "description": "عدّ معالم طبقة أخرى التي تتقاطع مع كل مضلع، وتلخيص حقل رقمي، وقياس مقدار ما تغطيه من كل مضلع",
+          "params": {
+            "layer": {
+              "label": "طبقة المضلعات"
+            },
+            "overlay": {
+              "label": "الطبقة المراد تلخيصها"
+            },
+            "field": {
+              "label": "حقل رقمي",
+              "description": "اختياري. يضيف المجموع والمتوسط والحد الأدنى والحد الأقصى لهذا الحقل لكل مضلع."
+            },
+            "min_overlap_pct": {
+              "label": "تجاهل التداخلات الأصغر من (%)",
+              "description": "عندما تحتوي الطبقة المراد تلخيصها على مضلعات، تخطَّ أي مضلع يغطي أقل من هذه النسبة من المضلع، مثل الشظايا على امتداد الحواف المشتركة."
             }
           }
         },
@@ -8950,6 +9160,7 @@
     "loadingAttributes": "جارٍ تحميل سمات الطبقة…",
     "requiresVectorLayer": "يتطلب جدول السمات طبقة متجه أو طبقة استعلام DuckDB.",
     "invalidJson": "JSON غير صالح",
+    "nullValue": "NULL",
     "editCellAria": "تحرير {{col}} للمعلم {{featureId}}",
     "resizeColumn": "تغيير حجم العمود {{name}}",
     "renameFieldAria": "إعادة تسمية الحقل {{name}}",
@@ -9130,6 +9341,16 @@
       "saturation": "التشبع",
       "contrast": "التباين",
       "hueRotate": "تدوير درجة اللون",
+      "stacRendering": {
+        "title": "عرض النطاقات",
+        "brightness": "السطوع",
+        "gamma": "غاما",
+        "ramp": "سلم الألوان",
+        "min": "القيمة الدنيا",
+        "max": "القيمة العليا",
+        "reset": "إعادة تعيين العرض",
+        "resetHint": "العودة إلى التمديد وسلم الألوان ونافذة القيم الافتراضية"
+      },
       "footerDeck": "تُطبَّق التغييرات مباشرة على عتامة طبقة البيانات النقطية.",
       "footerMaplibre": "تُطبَّق التغييرات مباشرة على خصائص رسم البيانات النقطية في MapLibre.",
       "valueAria": "قيمة {{label}}",
@@ -9619,7 +9840,8 @@
         "range": "نطاق",
         "checkbox": "خانة اختيار",
         "date": "تاريخ",
-        "valueMap": "خريطة القيم"
+        "valueMap": "خريطة القيم",
+        "attachment": "صورة"
       },
       "alias": "اسم مستعار",
       "required": "مطلوب",
@@ -9636,6 +9858,11 @@
       "constraintPlaceholder": "[\">\", [\"get\", \"population\"], 0]",
       "constraintDescription": "وصف القيد",
       "constraintDescriptionPlaceholder": "يُعرض عند فشل القيد",
+      "defaultTag": "افتراضي",
+      "defaultValue": "القيمة الافتراضية",
+      "defaultValuePlaceholder": "now()",
+      "defaultValueHelp": "تملأ الحقل عند التقاط معلم. تستخدم صيغة تعبيرات QGIS، مثل uuid() أو now() أو \"site\" || '-' || format_date(now(), 'yyyyMMdd') أو @position_horizontal_accuracy.",
+      "defaultValueInvalid": "غير مدعوم: {{detail}}",
       "visibilityExpression": "تعبير الرؤية",
       "visibilityPlaceholder": "[\"==\", [\"get\", \"type\"], \"school\"]",
       "invalidExpression": "تعبير غير صالح",
@@ -9749,6 +9976,7 @@
     },
     "searchValues": "البحث في القيم",
     "noValues": "لا توجد قيم يمكن الاختيار منها في هذا الحقل.",
+    "loadingValues": "جارٍ قراءة القيم…",
     "noMatchingValues": "لا توجد قيم تطابق بحثك.",
     "selectAll": "تحديد الكل",
     "selectNone": "إلغاء تحديد الكل",
@@ -9770,6 +9998,7 @@
     "noFields": "لا تحتوي هذه الطبقة على سمات يمكن التصفية بها.",
     "noTileFeatures": "لم تُحمَّل أي معالم بعد. حرّك الخريطة أو قرّبها إلى البيانات، ثم أعد فتح هذا القسم.",
     "viewportSampleHint": "تأتي القيم من البلاطات المحمّلة حاليًا، لذا تنمو القائمة كلما حرّكت الخريطة وقرّبتها.",
+    "partialSampleHint": "الأعداد والنطاقات مأخوذة من أول {{inspected}} من أصل {{total}} معلم.",
     "layerFilteredHint": "تُخفي تصفية سريعة بعض معالم هذه الطبقة."
   },
   "floorPicker": {
@@ -9979,6 +10208,9 @@
     "hiddenByGroup": "مخفية لأن مجموعتها غير مرئية",
     "empty": "لا توجد طبقات بيانات. أضف بيانات من شريط الأدوات.",
     "emptyBeginner": "لا توجد طبقات بعد. أضف خرائط الأساس عبر الإضافات ← خرائط الأساس، أو بياناتك الخاصة عبر قائمة إضافة البيانات.",
+    "emptyBeginnerBasemapsOnly": "لا توجد طبقات بعد. أضف خرائط أساس عبر الإضافات ← خرائط الأساس.",
+    "emptyBeginnerDataOnly": "لا توجد طبقات بعد. أضف بياناتك عبر قائمة إضافة بيانات.",
+    "emptyNoAdd": "لا توجد طبقات بيانات.",
     "hideAllLayers": "إخفاء جميع الطبقات",
     "showAllLayers": "إظهار جميع الطبقات",
     "compactView": "عرض مضغوط",
@@ -10308,6 +10540,9 @@
     "localRasterNotRestored_other": "تعذّرت استعادة {{count}} طبقة نقطية محلية",
     "localRasterNotRestoredDesc": "حُمّلت من ملف محلي: {{names}}. لا يحتوي المشروع على بيانات نقطية، أو تعذّرت قراءة الملف. أضف الملف مرة أخرى."
   },
+  "zarrPanel": {
+    "selectorUnmatched": "لم يتم العثور على قيمة المحدد ({{values}}). استخدم قيمة إحداثية أو تاريخًا على محور الزمن أو فهرسًا."
+  },
   "attributeForm": {
     "error": {
       "required": "القيمة مطلوبة",
@@ -10456,6 +10691,7 @@
     "layerLoadFailedHint": "تحقق من عنوان URL واتصالك بالشبكة وأي مفتاح API مطلوب. التفاصيل في لوحة التشخيصات.",
     "fileReadFailed": "تعذرت قراءة \"{{name}}\"، لذا تم تخطيه.",
     "libraryLayerRestoreFailed": "تعذرت إضافة \"{{name}}\" من بياناتي.",
+    "tableLayerTruncated": "{{layer}} أطول من أن تُحمَّل كاملة: تُعرض أول {{count}} صف منها فقط.",
     "localLayersDropped_zero": "تمت إزالة {{count}} طبقة: تعذرت قراءة ملفها ({{path}}).",
     "localLayersDropped_one": "تمت إزالة طبقة واحدة ({{count}}): تعذرت قراءة ملفها ({{path}}).",
     "localLayersDropped_two": "تمت إزالة طبقتين ({{count}}): تعذرت قراءة ملفهما ({{path}}).",
@@ -10487,7 +10723,8 @@
     "panelRenderFailed": "فشل فتح اللوحة \"{{name}}\".",
     "sharedSettingsFailed": "تعذر تحميل الإعدادات المشتركة من الرابط، لذلك تُستخدم إعداداتك الخاصة.",
     "sharedLanguageFailed": "تعذر التبديل إلى اللغة التي تطلبها الإعدادات المشتركة.",
-    "languageCatalogFailed": "تعذر تحميل ترجمة {{language}}، لذلك يعرض GeoLibre الإنجليزية."
+    "languageCatalogFailed": "تعذر تحميل ترجمة {{language}}، لذلك يعرض GeoLibre الإنجليزية.",
+    "dataUrlLoadFailed": "تعذّر تحميل عنوان URL للبيانات."
   },
   "shell": {
     "workspaceTitle": "مساحة عمل خرائط GeoLibre",

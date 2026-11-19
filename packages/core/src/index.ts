@@ -11,6 +11,7 @@ export * from "./cesium-imagery";
 export * from "./arcgis-projection";
 export * from "./map-crs";
 export * from "./geojson-z";
+export * from "./antimeridian";
 export * from "./color-ramp";
 export * from "./paths";
 export * from "./routing";
@@ -22,6 +23,7 @@ export * from "./document-locale";
 export * from "./label-number-format";
 export * from "./external-native-paint";
 export * from "./attribute-form";
+export * from "./qgis-expression";
 export * from "./layer-descriptive-metadata";
 export * from "./map-click-claims";
 export * from "./popup";
@@ -173,6 +175,8 @@ export {
   type GeocodingProvider,
   type GeocodingProviderId,
   type GeocodingPreferenceInput,
+  normalizeGeocodeBbox,
+  type GeocodeBbox,
   type GeocodeMatch,
   type GeocodeSuggestion,
   type GeocodeStatus,

@@ -58,6 +58,19 @@ file contents do not change.
 | `interaction`     | object  | Optional startup Identify target and control visibility (see below); omitted by default                      |
 | `metadata`        | object  | Free-form project metadata                                                                                   |
 
+The map's 3D look is part of the project. `mapView.pitch` and `mapView.bearing`
+hold the camera tilt and rotation, and `preferences.map` holds the terrain:
+`terrainEnabled` (3D terrain on or off), `terrainExaggeration` (vertical
+exaggeration; omitted for the default of 1) and `terrainSource` (the HTTP(S) URL
+of a Cloud Optimized GeoTIFF DEM; omitted for the built-in global terrain). A DEM
+opened from a local file has no URL, so it is not saved. Like other URLs in a project,
+`terrainSource` passes through [credential redaction](#credential-redaction), so
+a presigned or keyed DEM URL loses its signature and needs re-signing to load
+again. `terrainFillOutside` says whether that DEM is surrounded by the global
+terrain instead of a flat 0 m plain; omitted, it is on for a URL DEM and off for
+a local file. `terrainIonAssetId`
+picks a Cesium Ion terrain asset for the globe.
+
 ## Plugin state
 
 ```json
@@ -143,7 +156,8 @@ carries no `printLayout` key.
 - Page: `paperSize` (`a4`, `a3`, `letter`, `legal`, `tabloid`, `fullhd`, `hd`,
   `uhd4k`, `square`, `custom`), `orientation`, `customWidth` / `customHeight` /
   `customUnit` for `custom`, `pageMargin`, `pageBackground`, `panelTheme`
-  (`light` or `dark`), and the page/map frame colours.
+  (`light` or `dark`), `exportDpi` (`72`, `150` or `300`; the resolution PNG
+  and PDF exports render a paper page at), and the page/map frame colours.
 - Elements: the `show*` toggles for legend, scale bar, north arrow, footer,
   date, attribution, colorbar, custom legend and info block, with their
   per-element settings.
@@ -195,8 +209,10 @@ enter/exit. The section is omitted entirely when the project has no chapters.
 
 `alignment` is one of `left`, `center`, `right`, `full`; `mapAnimation` is
 `flyTo`, `easeTo`, or `jumpTo`. Layer opacity changes reference project layer
-ids. Build and present story maps from **Project → Story Map**, or export a
-self-contained HTML page for static hosting.
+ids, and their `opacity` replaces the layer's own `opacity` while the chapter
+is active; the layer's style (such as `fillOpacity`) still applies. Build and
+present story maps from **Project → Story Map**, or export a self-contained
+HTML page for static hosting.
 
 `durationSeconds` is an optional chapter dwell time for in-app autoplay. The
 countdown starts after the camera reaches the chapter view. Omitted or invalid
@@ -502,9 +518,11 @@ compiled output, so a saved filter can always be reopened and changed:
 ```
 
 `kind` picks the control and the comparison: `categorical` (checkboxes over
-`values`), `range` (inclusive numeric `min`/`max`, either side `null` for an
-open bound), `date` (inclusive `YYYY-MM-DD` `start`/`end`), and `text`
-(case-insensitive `contains` / `startsWith` / `equals` against `text`).
+`values`, plus `includeBlank: true` to keep features whose value is missing,
+`null`, or empty, the ones the Dashboard charts group as "(blank)"),
+`range` (inclusive numeric `min`/`max`, either side `null` for an open bound),
+`date` (inclusive `YYYY-MM-DD` `start`/`end`), and `text` (case-insensitive
+`contains` / `startsWith` / `equals` against `text`).
 `dateKind` says how the field stores its timestamps — `iso` (the default,
 comparing the leading `YYYY-MM-DD` of ISO text), `epochMs`, or `epochS` — and
 `enabled: false` mutes a control without discarding what it was answered with.
@@ -688,6 +706,32 @@ the text in `geolibre:license`; the attribution goes to `geolibre:attribution`. 
 export time, since STAC requires a `datetime`. Exporting a vector layer to
 GeoParquet writes the block as JSON into the file's Parquet key-value metadata
 under `geolibre:metadata`, beside the `geo` key.
+
+### Planetary Computer layers
+
+A layer drawn by the Planetary Computer panel is a `raster` layer with no tile
+URL. Its `metadata` describes what to draw, and the panel rebuilds the layer
+from it when the project opens (MapLibre renderer only):
+
+| Key | Meaning |
+| --- | --- |
+| `sourceKind` | `"planetary-computer-raster"`. With `externalNativeLayer: true`, marks the layer as the panel's. |
+| `planetaryComputerLayerType` | `"item"` for one STAC item, `"mosaic"` for many composited. (`"collection"`, written by older versions, is read as a mosaic with no search filter.) |
+| `stacCollectionId` | The STAC collection id, e.g. `sentinel-2-l2a`. Required. |
+| `stacItemId` | The STAC item id. Required for an `item` layer. |
+| `stacSearchParams` | Mosaic only. The STAC search selecting its items: `datetime` (RFC 3339 range), `query` (e.g. `{"eo:cloud_cover": {"lte": 10}}`), `sortby`, `filter`. The search is registered again on every open, because a registered search id expires and is never saved. |
+| `presetName` | A render preset of the collection (`true-color`, `ndvi`, ...). |
+| `renderParams` | Data API render parameters: `assets`, `expression`, `asset_as_band`, `rescale` (`"min,max"`), `colormap_name`, and so on. Parameters that select bands (`assets` or `expression` here, or a nonempty top-level `assets`) are a complete render and are used as saved: a `presetName` beside them is only a label, and its own expression or colormap is not applied. Without a band selection, the parameters are applied over the named preset's, or over the collection's default preset when none is named, so a lone `rescale` overrides just the stretch. With no parameters at all, the named or default preset is used. |
+| `assets` | The asset names rendered (empty for an expression). |
+| `bounds` | `[west, south, east, north]`, used by zoom-to-layer and to bound a mosaic's tile requests. |
+| `stacDatetime` | Item layers written by the app: the item's acquisition datetime. Informational. |
+| `identifiable` | `true`: Identify reads the layer's pixel values through the Data API. |
+| `tileType` | `"raster"`. |
+| `sourceId`, `sourceIds`, `nativeLayerIds` | The MapLibre source and layer ids the panel creates: `nativeLayerIds` is `[<layer id>]` and `sourceId` is `<layer id>-source`. |
+
+The Python API (`Map.add_planetary_computer`) and the MCP server
+(`add_planetary_computer_layer`) write this shape without contacting the
+service.
 
 ## Layer types
 

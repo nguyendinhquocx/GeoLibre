@@ -18,12 +18,30 @@
  *   above is the one that handles most Bluetooth pucks.
  *
  * Both APIs are Chromium-only and require a secure context, and neither is
- * available in the Tauri webviews (WebKitGTK, WebView2). Callers must gate the
- * UI on {@link serialNmeaSupported} / {@link bluetoothNmeaSupported} and show
- * the reason rather than offering a button that cannot work.
+ * available in the Tauri webviews (WebKitGTK, WebView2, the Android WebView).
+ * Callers must gate the UI on {@link serialNmeaSupported} /
+ * {@link bluetoothNmeaSupported} and show the reason rather than offering a
+ * button that cannot work.
+ *
+ * A third transport fills the gap in the Android app (issue #3397):
+ * {@link connectAndroidBluetoothNmea} goes through the in-repo
+ * `tauri-plugin-gnss-bluetooth` plugin, which opens the Serial Port Profile
+ * socket of a receiver paired in Android settings natively and streams its
+ * bytes back over a Tauri channel. Gate it on
+ * {@link androidBluetoothNmeaSupported}.
  */
+import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type { GpsFix } from "./gps-tracking";
+import { isAndroid } from "./is-mobile";
+import { isTauri } from "./is-tauri";
 import { NmeaAssembler, type NmeaStreamStats, splitNmeaLines } from "./nmea";
+import {
+  normalizeNtripConfig,
+  ntripErrorCode,
+  type NtripConfig,
+  type NtripState,
+  type NtripStatus,
+} from "./ntrip";
 
 /**
  * Minimal structural types for Web Serial and Web Bluetooth. Neither API is in
@@ -133,6 +151,11 @@ export type NmeaErrorCode =
   | "unavailable"
   | "unsupported-device"
   | "disconnected"
+  | "bluetooth-off"
+  | "permission-denied"
+  | "connect-failed"
+  | "busy"
+  | "not-paired"
   | "failed";
 
 /** Why an NMEA connection could not be established or was lost. */
@@ -162,6 +185,25 @@ export interface NmeaConnection {
    * guaranteed not to deliver another fix once it has been called.
    */
   close(): Promise<void>;
+  /**
+   * RTK corrections fed to this receiver from an NTRIP caster (issue #3400).
+   * Present only on transports that can write to the receiver natively,
+   * which today is the Android Bluetooth one.
+   */
+  readonly corrections?: NmeaCorrections;
+}
+
+/** Control of the NTRIP session feeding one connected receiver. */
+export interface NmeaCorrections {
+  /**
+   * Start (or restart with new settings) pulling corrections into the
+   * receiver. Resolves once the client is running; connection progress,
+   * byte counts, and errors arrive through `onStatus`. The client retries a
+   * dropped caster by itself and stops on a rejected login or mountpoint.
+   */
+  start(config: NtripConfig, onStatus: (status: NtripStatus) => void): Promise<void>;
+  /** Stop the session. Safe to call when none is running. */
+  stop(): Promise<void>;
 }
 
 interface ConnectHandlers {
@@ -408,6 +450,204 @@ export async function connectBluetoothNmea({
         // The device may already be gone; disconnecting is what matters.
       }
       if (server.connected) server.disconnect();
+    },
+  };
+}
+
+/** True in the packaged Android app, where the native Bluetooth plugin runs. */
+export function androidBluetoothNmeaSupported(): boolean {
+  return isTauri() && isAndroid();
+}
+
+/** A receiver paired in Android's Bluetooth settings. */
+export interface PairedBluetoothDevice {
+  /** MAC address, the id {@link connectAndroidBluetoothNmea} connects to. */
+  address: string;
+  /** The device's Bluetooth name, or its address when it has none. */
+  name: string;
+  /**
+   * Bluetooth flavor. Only `classic` and `dual` devices speak the Serial Port
+   * Profile; an `le`-only device is listed but will fail to connect.
+   */
+  type: "classic" | "le" | "dual" | "unknown";
+}
+
+/** One message the native plugin pushes over the connection's channel. */
+type NativeBluetoothEvent =
+  | { event: "data"; data: string }
+  | { event: "closed"; error?: string }
+  | { event: "ntrip"; state: NtripState; bytes: number; message?: string; code?: string };
+
+/**
+ * The slice of the Tauri IPC the Android transport uses, injectable so tests
+ * can stand in for the native plugin without a device.
+ */
+export interface NativeBluetoothBridge {
+  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+  createChannel: (onMessage: (event: NativeBluetoothEvent) => void) => unknown;
+}
+
+const tauriBridge: NativeBluetoothBridge = {
+  invoke: (cmd, args) => tauriInvoke(cmd, args),
+  createChannel: (onMessage) => {
+    const channel = new Channel<NativeBluetoothEvent>();
+    channel.onmessage = onMessage;
+    return channel;
+  },
+};
+
+/**
+ * Map a native plugin rejection to an {@link NmeaError}. The Kotlin side
+ * rejects with `{ message, code }`; anything else is relayed as `failed`.
+ */
+function nativeBluetoothError(err: unknown): NmeaError {
+  const message =
+    typeof err === "string"
+      ? err
+      : err && typeof err === "object" && "message" in err
+        ? String((err as { message: unknown }).message)
+        : "Bluetooth request failed.";
+  const nativeCode =
+    err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
+  const codes: Record<string, NmeaErrorCode> = {
+    UNAVAILABLE: "unavailable",
+    DISABLED: "bluetooth-off",
+    PERMISSION_DENIED: "permission-denied",
+    CONNECT_FAILED: "connect-failed",
+    BUSY: "busy",
+    NOT_PAIRED: "not-paired",
+  };
+  return new NmeaError(message, codes[nativeCode] ?? "failed");
+}
+
+/**
+ * List the Bluetooth devices paired in Android settings, asking for the
+ * Bluetooth permission first if it has not been granted. Pairing itself stays
+ * in the system settings, as with any Android Bluetooth accessory.
+ */
+export async function listPairedBluetoothDevices(
+  bridge: NativeBluetoothBridge = tauriBridge,
+): Promise<PairedBluetoothDevice[]> {
+  try {
+    const { devices } = await bridge.invoke<{ devices: PairedBluetoothDevice[] }>(
+      "plugin:gnss-bluetooth|list_devices",
+    );
+    // Receivers that can actually stream NMEA first, then by name.
+    const rank = (d: PairedBluetoothDevice) => (d.type === "le" ? 1 : 0);
+    return [...devices].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  } catch (err) {
+    throw nativeBluetoothError(err);
+  }
+}
+
+/**
+ * Connect to a paired classic Bluetooth receiver through the native plugin and
+ * stream fixes from it. Unlike the Web APIs above this needs no user gesture:
+ * the device was chosen from {@link listPairedBluetoothDevices}.
+ */
+export async function connectAndroidBluetoothNmea(
+  device: Pick<PairedBluetoothDevice, "address" | "name">,
+  { onFix, onError }: ConnectHandlers,
+  bridge: NativeBluetoothBridge = tauriBridge,
+): Promise<NmeaConnection> {
+  const assembler = new NmeaAssembler();
+  let buffer = "";
+  let closed = false;
+  // Set once connect resolves. A "closed" event can race ahead of that (the
+  // socket opens, then drops at once), so it is held until the id is known.
+  let connectionId: number | null = null;
+  let droppedBeforeOpen: NmeaError | null = null;
+  /** Listener for the running NTRIP session; null when none is running. */
+  let onNtripStatus: ((status: NtripStatus) => void) | null = null;
+
+  const channel = bridge.createChannel((message) => {
+    if (closed) return;
+    if (message.event === "ntrip") {
+      onNtripStatus?.({
+        state: message.state,
+        bytes: message.bytes,
+        message: message.message,
+        code: message.state === "error" ? ntripErrorCode(message.code) : undefined,
+      });
+      return;
+    }
+    if (message.event === "data") {
+      // The plugin decodes bytes as ISO-8859-1, one char per byte, so chunks
+      // concatenate exactly and a split sentence reassembles across them.
+      buffer = consumeChunk(message.data, buffer, assembler, onFix);
+      return;
+    }
+    const err = new NmeaError(
+      message.error ?? "The Bluetooth device disconnected.",
+      "disconnected",
+    );
+    if (connectionId == null) droppedBeforeOpen = err;
+    else {
+      closed = true;
+      onError(err);
+    }
+  });
+
+  let opened: { id: number; name: string };
+  try {
+    opened = await bridge.invoke<{ id: number; name: string }>("plugin:gnss-bluetooth|connect", {
+      address: device.address,
+      channel,
+    });
+  } catch (err) {
+    closed = true;
+    throw nativeBluetoothError(err);
+  }
+  connectionId = opened.id;
+  if (droppedBeforeOpen) {
+    closed = true;
+    throw droppedBeforeOpen;
+  }
+
+  const corrections: NmeaCorrections = {
+    start: async (config, onStatus) => {
+      if (closed) throw new NmeaError("The receiver is not connected.", "disconnected");
+      const { host, port, mountpoint, username, password, tls } = normalizeNtripConfig(config);
+      onNtripStatus = onStatus;
+      try {
+        await bridge.invoke("plugin:gnss-bluetooth|start_corrections", {
+          id: connectionId,
+          host,
+          port,
+          mountpoint,
+          username,
+          password,
+          tls,
+        });
+      } catch (err) {
+        onNtripStatus = null;
+        throw nativeBluetoothError(err);
+      }
+    },
+    stop: async () => {
+      onNtripStatus = null;
+      if (closed) return;
+      try {
+        await bridge.invoke("plugin:gnss-bluetooth|stop_corrections", { id: connectionId });
+      } catch {
+        // The receiver may already be gone, which stops the session too.
+      }
+    },
+  };
+
+  return {
+    label: opened.name || device.name,
+    stats: () => assembler.getStats(),
+    corrections,
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      onNtripStatus = null;
+      try {
+        await bridge.invoke("plugin:gnss-bluetooth|disconnect", { id: connectionId });
+      } catch {
+        // The socket may already be gone; there is nothing left to release.
+      }
     },
   };
 }

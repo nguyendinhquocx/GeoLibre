@@ -3,8 +3,10 @@ import {
   OPENFREEMAP_BASEMAPS,
   useAppStore,
   type GeoLibreLayer,
+  type MapViewState,
 } from "@geolibre/core";
 import type { MapEngine } from "@geolibre/map";
+import type { GeoLibreAppAPI } from "@geolibre/plugins";
 import type { ModelToolDescriptor } from "@geolibre/processing";
 import type { Tool, JSONValue } from "@strands-agents/sdk";
 import * as maplibregl from "maplibre-gl";
@@ -37,6 +39,13 @@ import { webSearch } from "./web-search";
 export interface AssistantToolDeps {
   /** Returns the live map controller, or null before the map mounts. */
   getMapController: () => MapEngine | null;
+  /**
+   * Returns the plugin app API bound to the live map. The Planetary Computer
+   * tools add their layers through the panel's control with it, so those layers
+   * are listed (and can be restyled) in the panel. When omitted (e.g. in tests)
+   * those tools report that the map is not ready.
+   */
+  getAppApi?: () => GeoLibreAppAPI | null;
   /**
    * Ask the user to approve executing model-generated code before it runs.
    * Resolves true to proceed, false to decline. The assistant can be steered by
@@ -294,6 +303,66 @@ function asFeatureCollection(data: unknown): FeatureCollection {
   throw new Error("URL did not return a GeoJSON Feature or FeatureCollection.");
 }
 
+/** Camera fields `set_view` accepts, named like the MCP server's `set_view`. */
+export interface SetViewInput {
+  center?: number[];
+  zoom?: number;
+  bearing?: number;
+  pitch?: number;
+}
+
+/**
+ * Merge a `set_view` request into the current camera. Omitted fields keep their
+ * current value; zoom is clamped to [0, 24] and pitch to [0, 85], matching the
+ * MCP server's `set_view`, so an out-of-range model guess still lands somewhere
+ * sensible instead of failing. A stale `bbox` is dropped once the center or
+ * zoom moves, since it would no longer describe the visible extent.
+ *
+ * @param current The camera the map shows now.
+ * @param input The fields to change.
+ * @returns The camera to apply.
+ */
+export function resolveSetView(current: MapViewState, input: SetViewInput): MapViewState {
+  const next: MapViewState = { ...current };
+  if (input.center !== undefined) {
+    const [lng, lat] = input.center;
+    next.center = [lng, lat];
+  }
+  if (input.zoom !== undefined) next.zoom = Math.min(24, Math.max(0, input.zoom));
+  if (input.bearing !== undefined) next.bearing = input.bearing;
+  if (input.pitch !== undefined) next.pitch = Math.min(85, Math.max(0, input.pitch));
+  if (input.center !== undefined || input.zoom !== undefined) delete next.bbox;
+  return next;
+}
+
+/** True when two cameras show the same view, within float noise. */
+function sameCamera(a: MapViewState, b: MapViewState): boolean {
+  const close = (x: number, y: number) => Math.abs(x - y) < 1e-9;
+  // Bearings are angles: 360 and 0 face the same way.
+  const turn = Math.abs(((((a.bearing - b.bearing + 180) % 360) + 360) % 360) - 180);
+  return (
+    close(a.center[0], b.center[0]) &&
+    close(a.center[1], b.center[1]) &&
+    close(a.zoom, b.zoom) &&
+    turn < 1e-9 &&
+    close(a.pitch, b.pitch)
+  );
+}
+
+/** A camera reduced to the fields `set_view` reports back to the model. */
+function cameraSummary(view: MapViewState) {
+  const [lng, lat] = view.center;
+  // Panning across the antimeridian with world copies leaves the longitude
+  // outside [-180, 180]; wrap it so a reported view is valid set_view input.
+  const wrapped = ((((lng + 180) % 360) + 360) % 360) - 180;
+  return {
+    center: [wrapped, lat] as [number, number],
+    zoom: view.zoom,
+    bearing: view.bearing,
+    pitch: view.pitch,
+  };
+}
+
 /**
  * Build the GeoLibre-native tool set the Strands agent can call. Every tool acts
  * through the Zustand store, the SQL Workspace, or the symbology helpers — never
@@ -330,14 +399,6 @@ export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
   /** The current map viewport as [west, south, east, north], or null. */
   const viewBbox = (): [number, number, number, number] | null =>
     deps.getMapController()?.getViewBounds() ?? null;
-
-  /** Reduce a STAC bbox (2D or 3D) to a 2D [w, s, e, n]. */
-  const bbox2d = (bbox: number[]): [number, number, number, number] | null =>
-    bbox.length >= 6
-      ? [bbox[0], bbox[1], bbox[3], bbox[4]]
-      : bbox.length >= 4
-        ? [bbox[0], bbox[1], bbox[2], bbox[3]]
-        : null;
 
   // Lazily load the shared processing executor (Phase 2). It pulls in the
   // algorithm registries (Turf, DuckDB), so it is imported only when used.
@@ -681,6 +742,59 @@ export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
     },
   });
 
+  const setView = tool({
+    name: "set_view",
+    description:
+      "Move the camera to an exact position: center the map on [longitude, latitude], set the zoom level, and optionally rotate (bearing) or tilt (pitch). Omitted fields keep their current value. Use this for requests like 'center on 40.7, -74.0 at zoom 12' or 'tilt the map 60 degrees'; use zoom_to to frame a layer or a bounding box instead. Returns the new camera and the previous one, so a later 'go back' can restore it with another set_view.",
+    inputSchema: z
+      .object({
+        // A plain array, not z.tuple: some providers (Gemini) reject the
+        // tuple form (`prefixItems`) in a function-call schema.
+        center: z
+          .array(z.number())
+          .length(2)
+          .refine(([lng, lat]) => Math.abs(lng) <= 180 && Math.abs(lat) <= 90, {
+            message: "center must be [longitude, latitude] within [-180, 180] and [-90, 90].",
+          })
+          .optional()
+          .describe("[longitude, latitude] in WGS84. Note the order: longitude first."),
+        zoom: z
+          .number()
+          .optional()
+          .describe("Zoom level, 0 (whole world) to 24 (building); about 10 is a city."),
+        bearing: z
+          .number()
+          .optional()
+          .describe("Rotation in degrees clockwise from north; 0 is north-up."),
+        pitch: z.number().optional().describe("Tilt in degrees, 0 (straight down) to 85."),
+      })
+      .refine(
+        (value) =>
+          value.center !== undefined ||
+          value.zoom !== undefined ||
+          value.bearing !== undefined ||
+          value.pitch !== undefined,
+        { message: "Provide at least one of center, zoom, bearing, or pitch." },
+      ),
+    callback: async (input) => {
+      const controller = deps.getMapController();
+      if (!controller) throw new Error("The map is not ready yet.");
+      const previous = controller.readView();
+      const target = resolveSetView(previous, input);
+      await controller.applyView(target);
+      const view = controller.readView();
+      // An engine skips the jump while the user is dragging the map, and Map
+      // preferences can clamp the request back to where the camera already is;
+      // report that instead of letting the model claim a move that did not happen.
+      if (!sameCamera(target, previous) && sameCamera(view, previous)) {
+        throw new Error(
+          "The map did not move. It may be mid-drag, or the requested view is outside the limits set in Map preferences. Try again or pick another view.",
+        );
+      }
+      return json({ view: cameraSummary(view), previous: cameraSummary(previous) });
+    },
+  });
+
   const runPython = tool({
     name: "run_python",
     description:
@@ -791,7 +905,7 @@ export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
   const listAlgorithms = tool({
     name: "list_algorithms",
     description:
-      "List the available client-side processing algorithms (vector geometry/overlay tools like buffer, clip, dissolve, intersection, difference, union, spatial-join; spatial-statistics tools; and the discrete-global-grid tools dggs-grid and dggs-bin, which build H3, S2, A5, DGGRID and DGGAL grids through their dggsType parameter, plus dggs-compact, which compacts or expands an existing cell layer for H3, S2, A5 and DGGAL but not DGGRID — there is no separate h3-grid id) with their id, name, group, and typed parameters. Call this before run_algorithm. These are vector-only — for raster work (hydrology, terrain, LiDAR, image processing) use list_whitebox_tools and run_whitebox_tool instead.",
+      "List the available client-side processing algorithms (vector geometry/overlay tools like buffer, clip, dissolve, intersection, difference, union, spatial-join, summarize-within; spatial-statistics tools; and the discrete-global-grid tools dggs-grid and dggs-bin, which build H3, S2, A5, DGGRID and DGGAL grids through their dggsType parameter, plus dggs-compact, which compacts or expands an existing cell layer for H3, S2, A5 and DGGAL but not DGGRID — there is no separate h3-grid id) with their id, name, group, and typed parameters. Call this before run_algorithm. These are vector-only — for raster work (hydrology, terrain, LiDAR, image processing) use list_whitebox_tools and run_whitebox_tool instead.",
     inputSchema: z.object({}),
     callback: async () => json({ algorithms: (await getScripting()).listAlgorithms() }),
   });
@@ -998,33 +1112,53 @@ export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
     },
   });
 
+  /** Planetary Computer search filters shared by the STAC tools. */
+  const stacSearchFields = {
+    collection: z.string().describe("STAC collection id, e.g. 'sentinel-2-l2a'."),
+    bbox: z
+      .array(z.number())
+      .length(4)
+      .optional()
+      .describe(
+        "[west, south, east, north]. A search defaults to the current view; a mosaic is not limited to the view and uses a bbox only as the layer's extent.",
+      ),
+    datetime: z
+      .string()
+      .optional()
+      .describe("RFC3339 datetime or range, e.g. '2024-06-01/2024-09-30'."),
+    maxCloudCover: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe("Keep only scenes at or below this cloud cover percentage (optical collections)."),
+  };
+
   const searchStac = tool({
     name: "search_stac",
     description:
-      "Search the Microsoft Planetary Computer STAC catalog for earth-observation items in a collection (e.g. 'sentinel-2-l2a', 'landsat-c2-l2', 'naip', 'cop-dem-glo-30'). Defaults the bounding box to the current map view and sorts newest-first. Returns matching items (id, datetime, cloud cover, bbox).",
+      "Search the Microsoft Planetary Computer STAC catalog for earth-observation items in a collection (e.g. 'sentinel-2-l2a', 'landsat-c2-l2', 'naip', 'cop-dem-glo-30'). Defaults the bounding box to the current map view and sorts newest-first unless sortBy says otherwise (oldest, least-cloudy). Returns matching items (id, datetime, cloud cover, bbox).",
     inputSchema: z.object({
-      collection: z.string().describe("STAC collection id, e.g. 'sentinel-2-l2a'."),
-      bbox: z
-        .array(z.number())
-        .length(4)
-        .optional()
-        .describe("[west, south, east, north]; defaults to the current view."),
-      datetime: z
-        .string()
-        .optional()
-        .describe("RFC3339 datetime or range, e.g. '2024-06-01/2024-09-30'."),
+      ...stacSearchFields,
       limit: z.number().optional().describe("Max items (default 10)."),
+      sortBy: z
+        .enum(["newest", "oldest", "least-cloudy"])
+        .optional()
+        .describe("Result order (default newest)."),
     }),
     callback: async (input) => {
-      const { STACClient } = await import("maplibre-gl-planetary-computer");
-      const bbox =
-        (input.bbox as [number, number, number, number] | undefined) ?? viewBbox() ?? undefined;
-      const items = await new STACClient().search({
-        collections: [input.collection],
-        bbox,
+      // The plugin's search client sends a GET /search: the Planetary Computer
+      // API has rejected the CORS preflight a JSON POST needs, which made this
+      // tool fail with "Failed to fetch" in the browser and the desktop webview.
+      const { searchPlanetaryComputerItems } = await import("@geolibre/plugins");
+      const items = await searchPlanetaryComputerItems({
+        collection: input.collection,
+        bbox:
+          (input.bbox as [number, number, number, number] | undefined) ?? viewBbox() ?? undefined,
         datetime: input.datetime,
+        maxCloudCover: input.maxCloudCover,
         limit: input.limit ?? 10,
-        sortby: [{ field: "datetime", direction: "desc" }],
+        sortBy: input.sortBy,
       });
       return json({
         count: items.length,
@@ -1041,68 +1175,73 @@ export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
   const addStacLayer = tool({
     name: "add_stac_layer",
     description:
-      "Add a Planetary Computer STAC item as a raster tile layer (tiles are signed server-side — no credentials needed). Give a collection and optionally a specific itemId from search_stac; otherwise the newest item over the current view is used. Renders with the collection's default band/colormap preset.",
+      "Add Planetary Computer imagery as a raster layer (tiles are signed server-side, so no credentials are needed). Give a collection and optionally a specific itemId from search_stac; otherwise the newest item over the current view is used. Set mosaic=true to composite every item matching datetime/maxCloudCover into one seamless layer instead of a single scene. Renders with the collection's default preset unless `preset` names another (sentinel-2-l2a: true-color, false-color, ndvi, ndwi, nbr, ndbi, swir; landsat-c2-l2: true-color, false-color, ndvi, ndwi, nbr, thermal; naip: rgb, cir, ndvi; cop-dem-glo-30/90: elevation, hillshade). The layer is listed in the Planetary Computer panel, where it can be restyled.",
     inputSchema: z.object({
-      collection: z.string().describe("STAC collection id, e.g. 'sentinel-2-l2a'."),
+      ...stacSearchFields,
       itemId: z
         .string()
         .optional()
         .describe("A specific item id; otherwise the latest over the view is used."),
-      bbox: z.array(z.number()).length(4).optional(),
-      datetime: z.string().optional(),
+      mosaic: z
+        .boolean()
+        .optional()
+        .describe("Composite all matching items into one layer instead of adding one item."),
+      preset: z.string().optional().describe("Render preset name, e.g. 'ndvi'."),
       name: z.string().optional(),
     }),
     callback: async (input) => {
-      const { STACClient, TiTilerClient, getDefaultPreset } =
-        await import("maplibre-gl-planetary-computer");
-      const stac = new STACClient();
+      const { addPlanetaryComputerItemLayer, addPlanetaryComputerMosaicLayer } =
+        await import("@geolibre/plugins");
+      const appApi = deps.getAppApi?.();
+      if (!appApi) throw new Error("The map is not ready yet.");
+      const bbox =
+        (input.bbox as [number, number, number, number] | undefined) ?? viewBbox() ?? undefined;
+      const style = { presetName: input.preset, name: input.name };
+
+      if (input.mosaic && input.itemId) {
+        throw new Error("Pass either itemId or mosaic=true, not both.");
+      }
+      if (input.mosaic) {
+        const result = await addPlanetaryComputerMosaicLayer(appApi, {
+          ...style,
+          collection: input.collection,
+          // An explicit bbox bounds the layer. The view is not used here: a
+          // mosaic is meant to be panned, so it is not clipped to where the
+          // map happened to be.
+          bbox: input.bbox as [number, number, number, number] | undefined,
+          datetime: input.datetime,
+          maxCloudCover: input.maxCloudCover,
+          sortBy: input.maxCloudCover !== undefined ? "least-cloudy" : "newest",
+        });
+        return json({ addedLayerId: result.layerId, mosaic: true });
+      }
+
       let item;
-      if (input.itemId) {
-        item = await stac.getItem(input.collection, input.itemId);
-      } else {
-        const bbox =
-          (input.bbox as [number, number, number, number] | undefined) ?? viewBbox() ?? undefined;
-        const items = await stac.search({
-          collections: [input.collection],
+      if (!input.itemId) {
+        const { searchPlanetaryComputerItems } = await import("@geolibre/plugins");
+        const items = await searchPlanetaryComputerItems({
+          collection: input.collection,
           bbox,
           datetime: input.datetime,
+          maxCloudCover: input.maxCloudCover,
           limit: 1,
-          sortby: [{ field: "datetime", direction: "desc" }],
         });
         if (!items.length) {
           throw new Error(`No ${input.collection} items found for the given area/time.`);
         }
         item = items[0];
       }
-      const preset = getDefaultPreset(input.collection);
-      const tileUrl = new TiTilerClient().getItemTileUrl(input.collection, item.id, preset?.params);
-      const bounds = bbox2d(item.bbox);
-      const layer: GeoLibreLayer = {
-        id: crypto.randomUUID(),
-        name: input.name?.trim() || `${input.collection} ${item.properties.datetime ?? item.id}`,
-        type: "xyz",
-        source: {
-          type: "raster",
-          tiles: [tileUrl],
-          tileSize: 256,
-          attribution: "Microsoft Planetary Computer",
-        },
-        visible: true,
-        opacity: 1,
-        style: { ...DEFAULT_LAYER_STYLE },
-        metadata: {
-          sourceKind: "stac-planetary-computer",
-          stacCollectionId: input.collection,
-          stacItemId: item.id,
-        },
-      };
-      const bottomBeforeId = store().layers[0]?.id ?? null;
-      store().addLayer(layer, bottomBeforeId);
-      if (bounds) deps.getMapController()?.fitBounds(bounds);
+      const result = await addPlanetaryComputerItemLayer(appApi, {
+        ...style,
+        collection: input.collection,
+        itemId: input.itemId,
+        item,
+      });
+      if (result.bounds) deps.getMapController()?.fitBounds(result.bounds);
       return json({
-        addedLayerId: layer.id,
-        itemId: item.id,
-        datetime: item.properties.datetime ?? null,
+        addedLayerId: result.layerId,
+        itemId: result.item?.id ?? null,
+        datetime: result.item?.properties.datetime ?? null,
       });
     },
   });
@@ -1126,6 +1265,7 @@ export function createHostAssistantTools(deps: AssistantToolDeps): Tool[] {
     setLayerOpacity,
     setBasemap,
     zoomTo,
+    setView,
     applySymbology,
     runMaplibreJs,
     runPython,

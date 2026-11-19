@@ -197,6 +197,10 @@ export interface GeoLibreAppAPI {
     layerId: string,
     headers: Record<string, string> | null
   ) => boolean;
+  setUrlRequestHeaders?: (
+    urlPrefix: string,
+    headers: Record<string, string> | null
+  ) => void;
   addWmsLayer?: (name: string, options: GeoLibreWmsLayerOptions) => string;
   addWfsLayer?: (name: string, options: GeoLibreWfsLayerOptions) => Promise<string>;
   // Native client-side COG (reads the GeoTIFF directly; band/rescale/colormap/
@@ -921,6 +925,8 @@ if (subBasins) app.removeLayerGroup?.(subBasins);
 
 `moveLayerGroupToGroup` is the group-of-groups counterpart of `moveLayersToGroup`: the same reparenting the Layers panel's own "Move to group" menu performs. It is a no-op when either id is unknown, when the group is already in that parent, and when the move would make a group its own ancestor — the host refuses the cycle rather than corrupting the tree, so a plugin does not have to walk the parent chain itself.
 
+A call to `addLayerGroup` that names its layers reuses a folder of the same name that holds nothing but some of those layers (or nothing at all) instead of creating a second one. That is what happens when a saved project is reopened: the folder comes back with the plugin's layers in it, and the plugin, reactivated, asks for it again. A namesake that holds anything else, another layer or a subgroup, is a different folder and is left alone, and a call without layers always creates a new group. An empty folder of that name, even one the user made, is reused.
+
 `addLayerGroup` is the only source of group ids for folders a plugin creates. To address a folder it did not create — one the user made, or one another plugin made — read the tree first:
 
 ```typescript
@@ -1149,6 +1155,61 @@ app.setLayerRequestHeaders?.(layerId, { Authorization: `Bearer ${newAccessToken}
 - **MapLibre only.** The Mapbox, ArcGIS and Cesium renderers request tiles without them, and so does the desktop app's native WMS route, which fetches WMS tiles outside MapLibre.
 - **CORS.** A header turns a tile request into one the browser preflights, so the service must allow the app's origin and the header (for example `Access-Control-Allow-Headers: Authorization`).
 - `setLayerRequestHeaders` returns false when there is no such layer or it has no tile URL. It throws on a header name that isn't a valid token or that the browser sets itself (`Cookie`, `Host`, `Origin`, `Sec-*`, `Proxy-*` and the rest of the Fetch standard's forbidden names), a name given twice in different cases, a value with a line break or a character above U+00FF, or an unscoped tile URL.
+
+#### A source the plugin draws itself
+
+A plugin that adds its own source with `getMap().addSource` and doesn't mirror it into the layer store (a transient preview, say, that shouldn't be saved with the project) has no layer for `setLayerRequestHeaders` to name. `setUrlRequestHeaders` attaches the headers to the URL instead:
+
+```typescript
+const map = app.getMap?.();
+app.setUrlRequestHeaders?.("https://tiles.example.org/preview/", {
+  Authorization: `Bearer ${accessToken}`,
+});
+map?.addSource("preview", {
+  type: "raster",
+  tiles: ["https://tiles.example.org/preview/{z}/{x}/{y}.png"],
+});
+
+// In deactivate(): stop sending them.
+app.setUrlRequestHeaders?.("https://tiles.example.org/preview/", null);
+```
+
+- Every tile and TileJSON request whose URL starts with the prefix carries the headers, whichever source asks, so set them before adding the source. The prefix follows a layer's rule (a fixed host and the start of a path; a template is cut at its first `{`), and an unscoped one throws.
+- They belong to the plugin, not to a layer or the project: held in memory, never saved, and sent until the plugin clears them with `null`, so clear them in `deactivate`. Calling it again for the same prefix replaces them, which is how a refreshed token is put in.
+- Where a layer's own headers also match, the longer prefix wins, and on the same prefix the layer's do. The `MapLibre only` and `CORS` notes above apply here too.
+
+## Plugin assets
+
+A plugin can ship data files (a lookup table, a model, a sample dataset) inside
+its own bundle and read them back as raw bytes:
+
+```ts
+// readPluginAsset?: (pluginId: string, relativePath: string) => Promise<Uint8Array | null>
+const bytes = await app.readPluginAsset?.("my-plugin", "data/classes.json");
+if (bytes) {
+  const classes = JSON.parse(new TextDecoder().decode(bytes));
+}
+```
+
+- For a plugin installed from the desktop filesystem (a zip archive or a
+  development directory), the host reads the file out of that bundle. For a
+  URL-installed plugin it fetches the file relative to the plugin's own
+  base URL.
+- It resolves `null` when the plugin is unknown or built-in, `relativePath` is
+  absolute or escapes the plugin's bundle, the file does not exist or is larger
+  than 50 MB, a URL read takes longer than 30 seconds, or the build cannot read
+  bundles: the Mac App Store build always, and the web build for plugins
+  installed from a zip (those keep only their entry and style sources).
+- Pass your own plugin's id. All plugins share one JS context, so the host
+  cannot verify the caller; this is a convention, not a security boundary.
+- For a URL-installed plugin, `app.resolvePluginAssetUrl?.(pluginId, relativePath)`
+  returns the URL `readPluginAsset` fetches, for code that needs a URL rather
+  than bytes (a worker, a WebAssembly module). `relativePath` is a file path,
+  not a URL: pass the raw file name and the host percent-encodes each segment,
+  so `#`, `?`, `%` and spaces name the same file in both APIs. Do not
+  pre-encode: `"data/my%20file.json"` names a file literally called
+  `my%20file.json`, not `my file.json`. It returns
+  `null` for a plugin installed from the desktop filesystem.
 
 ## Zarr layers
 
@@ -2328,7 +2389,7 @@ only for the shared surface; a mapbox-gl map has none of MapLibre's extensions:
   MapLibre-only (Overture Maps instead asks `maplibre-gl-overture-maps` for
   plain `.pmtiles` URLs, which mapbox-gl 3.30+ reads through its own tile
   provider). `setTransformRequest` — Mapbox takes `transformRequest`
-  only at construction, so tile request headers (`setLayerRequestHeaders`,
+  only at construction, so tile request headers (`setLayerRequestHeaders`, `setUrlRequestHeaders`,
   GeoLens private rasters) are MapLibre-only. Custom `CustomLayerInterface` layers
   (`capabilities.customLayers` is false on Mapbox). The terrain camera helpers
   (`calculateCameraOptionsFromCameraLngLatAltRotation`,

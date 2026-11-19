@@ -1,9 +1,10 @@
 import { showGlSearchResult } from "./gl-search-result";
 import {
+  antimeridianAwareBbox,
   BLANK_BASEMAP,
   DEFAULT_BASEMAP,
   DEFAULT_PROJECT_PREFERENCES,
-  horizontalBbox,
+  mapZoomStepOutputs,
   normalizeMapCrs,
   scaleAltitudeToActiveBody,
   styleValue,
@@ -18,7 +19,6 @@ import type {
   StoryChapterAnimation,
   StoryChapterLocation,
 } from "@geolibre/core";
-import bbox from "@turf/bbox";
 import type { Feature, FeatureCollection, Geometry, Point, Polygon } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import { getLayerMetadataBounds, LayerControlHost } from "./layer-control-host";
@@ -95,7 +95,12 @@ import { ResetBearingControl } from "./reset-bearing-control";
 import { MaptoolkitLogoControl } from "./maptoolkit-logo-control";
 import { TerrainControl, DEFAULT_TERRAIN_EXAGGERATION } from "./terrain-control";
 import { getDynamicPaintProperty, setDynamicPaintProperty } from "./dynamic-style-property";
-import { registerCogDemSource, type CogDemSourceRegistration } from "./cog-dem-source";
+import {
+  registerCogDemSource,
+  type CogDemFallback,
+  type CogDemSourceRegistration,
+} from "./cog-dem-source";
+import { createTerrariumFallback } from "./terrarium-fallback";
 import { installMapTransformCompat } from "./map-transform-compat";
 import {
   isInitialMapCrsFrameRequested,
@@ -105,6 +110,7 @@ import {
   type ResolvedMapCrs,
 } from "./active-map-crs";
 import { createMapCrsStyle, registerMapCrs, resolveMapCrs } from "./map-crs";
+import { cameraForMapCrsBox, placeExtentInMapCrs, type MapCrsConverter } from "./map-crs-fit";
 import { transformTileRequest } from "./tile-request-headers";
 import {
   MAPLIBRE_CAPABILITIES,
@@ -151,8 +157,63 @@ const NON_BASEMAP_STYLE_LAYER_IDS = [
 ];
 const OPACITY_PAINT_PROPERTIES = STORY_OPACITY_PAINT_PROPERTIES;
 
+/** Whether a paint expression reads `["zoom"]` anywhere inside it. */
+function expressionReadsZoom(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  if (value[0] === "zoom" && value.length === 1) return true;
+  return value.some(expressionReadsZoom);
+}
+
 /**
- * The paint value a story fade writes for one property of one style layer.
+ * Rescale the opacity paint value the layer sync wrote for a layer's own
+ * opacity so it shows a story chapter's opacity in its place.
+ *
+ * A chapter's opacity stands in for the layer opacity (the Layers panel
+ * slider), not for the paint property: the sync writes each opacity paint as
+ * the style's own value times the layer opacity (`fillOpacity` x opacity for a
+ * fill), so a chapter at 1 must draw a fill styled at 0.45 at 0.45, not solid.
+ * The base is therefore scaled by `storyOpacity / layerOpacity`.
+ *
+ * @param base The paint value the layer sync last wrote.
+ * @param layerOpacity The store layer's own opacity.
+ * @param storyOpacity The chapter's opacity, already clamped to 0-1.
+ * @returns The value to write, or `undefined` when the base cannot be rescaled
+ *   (unset, a layer opacity of 0 that erased the style's value, or a zoom
+ *   expression other than a top-level zoom `step`, since MapLibre only
+ *   accepts zoom as the input of a top-level step or interpolate).
+ */
+export function storyScaledPaintValue(
+  base: unknown,
+  layerOpacity: number,
+  storyOpacity: number,
+): unknown {
+  if (!Number.isFinite(layerOpacity) || layerOpacity <= 0) return undefined;
+  const ratio = storyOpacity / layerOpacity;
+  const scale = (value: unknown): unknown => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.min(1, Math.max(0, value * ratio));
+    }
+    if (Array.isArray(value) && !expressionReadsZoom(value)) {
+      return ratio === 1 ? value : ["min", 1, ["*", value, ratio]];
+    }
+    return undefined;
+  };
+  if (!Array.isArray(base) || !expressionReadsZoom(base)) return scale(base);
+  // A rule's scale range compiles to a top-level `["step", ["zoom"], ...]`
+  // (see `scaleByOpacity` in style-mapper.ts); scale its outputs in place.
+  if (base[0] !== "step" || !Array.isArray(base[1]) || base[1][0] !== "zoom") return undefined;
+  let scalable = true;
+  const stepped = mapZoomStepOutputs(base, (output) => {
+    const value = scale(output);
+    if (value === undefined) scalable = false;
+    return value;
+  });
+  return scalable ? stepped : undefined;
+}
+
+/**
+ * The paint value a story fade writes for one property of one style layer
+ * when the synced value cannot be rescaled (see {@link storyScaledPaintValue}).
  *
  * Fades write absolute opacities, but the geometry generator's fill/circle
  * opacity is the product of the layer opacity and the style's own
@@ -238,6 +299,13 @@ export class MapController implements MapEngine {
   private map: maplibregl.Map | null = null;
   /** Presentation overrides survive ordinary layer syncs without changing project data. */
   private readonly storyOpacities = new Map<string, number>();
+  /**
+   * Per style layer and paint property: the value the layer sync wrote (the
+   * base a story fade rescales) and the value the fade wrote over it. A
+   * current value that no longer matches `written` means a sync has rewritten
+   * the base since, so it is captured afresh.
+   */
+  private readonly storyPaintBases = new Map<string, { base: unknown; written: unknown }>();
   /** Whether {@link clampViewToPreferences} has a clamp queued on `moveend`. */
   private pendingViewClamp = false;
   /**
@@ -257,6 +325,11 @@ export class MapController implements MapEngine {
   private cogDemRegistration: CogDemSourceRegistration | null = null;
   private cogDemUrl: string | null = null;
   private cogDemGeneration = 0;
+  /** Fill outside a custom COG DEM from the global terrain; see setTerrainFillOutside. */
+  private terrainFillOutside = false;
+  /** Bumped by each explicit fill change; see setTerrainCogSource. */
+  private terrainFillGeneration = 0;
+  private terrainFallback: CogDemFallback | null = null;
   // Seam for tests: opening a COG needs a real GeoTIFF over the network, which
   // the generation-guard tests in setTerrainCogSource have no use for.
   private openCogDem: typeof registerCogDemSource = registerCogDemSource;
@@ -310,6 +383,8 @@ export class MapController implements MapEngine {
   private mapPreferences: MapPreferences = DEFAULT_PROJECT_PREFERENCES.map;
   /** The custom CRS the map is drawn in (map-crs.ts); null on the default map. */
   private activeCrs: ResolvedMapCrs | null = null;
+  /** The page-side converter for `activeCrs`, used to frame extents in it. */
+  private activeCrsConverter: MapCrsConverter | null = null;
   /** The normalized `mapCrs` the map is moving to, set before it resolves. */
   private desiredCrsId: string | undefined;
   /** Bumped per CRS change so a slow resolution cannot overwrite a newer one. */
@@ -480,7 +555,44 @@ export class MapController implements MapEngine {
     // when a link names a CRS and no view.
     this.initialCrsFrame = isInitialMapCrsFrameRequested();
     this.syncMapCrs(this.initialCrsFrame);
+    this.guardMapCrsFits(this.map);
     return this.map;
+  }
+
+  /**
+   * Keep every `fitBounds` on `map` on the custom CRS's tile grid, including
+   * the ones plugin controls make on the MapLibre map directly (the PMTiles
+   * panel frames each archive it adds that way, #3516). MapLibre fits a box
+   * off the grid and then clamps the camera to the grid edge, far from the
+   * data; this skips such a fit, and frames only the on-grid part of a box
+   * that straddles the edge. On the default map it is a pass-through.
+   */
+  private guardMapCrsFits(map: maplibregl.Map): void {
+    const fitBounds = map.fitBounds.bind(map);
+    map.fitBounds = (...args: Parameters<maplibregl.Map["fitBounds"]>) => {
+      if (this.map === map && this.activeCrs && this.activeCrsConverter) {
+        const [bounds, options, eventData] = args;
+        let box: [number, number, number, number] | null = null;
+        try {
+          const lngLat = maplibregl.LngLatBounds.convert(bounds);
+          box = [lngLat.getWest(), lngLat.getSouth(), lngLat.getEast(), lngLat.getNorth()];
+        } catch {
+          // Not a box MapLibre reads either; let it report that.
+        }
+        // The caller's animation and zoom ceiling carry over to a clipped fit.
+        const fit = {
+          padding: typeof options?.padding === "number" ? options.padding : FIT_BOUNDS_PADDING,
+          duration: options?.duration,
+          animate: options?.animate,
+          maxZoom: options?.maxZoom,
+          eventData,
+        };
+        if (box && box.every(Number.isFinite) && this.fitInMapCrs(box, null, fit) !== null) {
+          return map;
+        }
+      }
+      return fitBounds(...args);
+    };
   }
 
   getMap(): maplibregl.Map | null {
@@ -585,10 +697,13 @@ export class MapController implements MapEngine {
   /**
    * Fade a project layer in or out for story-map playback.
    *
-   * Story chapters change layer opacity as the reader scrolls. This writes the
-   * MapLibre paint properties directly instead of going through the store, so
-   * playback never marks the project dirty or pushes undo history. Call
-   * {@link restoreLayerStyles} when playback ends to reset opacities.
+   * Story chapters change layer opacity as the reader scrolls. The chapter's
+   * opacity takes the place of the layer opacity (the Layers panel slider), so
+   * a polygon styled with a 0.45 fill draws at 0.45 for a chapter at 1 and at
+   * 0.09 for one at 0.2. This writes the MapLibre paint properties directly
+   * instead of going through the store, so playback never marks the project
+   * dirty or pushes undo history. Call {@link restoreLayerStyles} when
+   * playback ends to reset opacities.
    *
    * @param layerId GeoLibre store layer id to fade.
    * @param opacity Target opacity, clamped to the 0-1 range.
@@ -616,10 +731,41 @@ export class MapController implements MapEngine {
           this.map,
           nativeId,
           prop,
-          storyPaintOpacity(layer, nativeId, prop, clamped),
+          this.storyPaintValue(layer, nativeId, prop, clamped),
         );
       }
     }
+  }
+
+  /**
+   * The value a story fade writes for one opacity paint property: the synced
+   * value rescaled from the layer's own opacity to the chapter's, so the
+   * style's own translucency survives the fade (see
+   * {@link storyScaledPaintValue}).
+   *
+   * @param layer The synced store layer.
+   * @param nativeId MapLibre style layer id.
+   * @param prop Paint property name.
+   * @param opacity The chapter's opacity, clamped to 0-1.
+   * @returns The paint value to write.
+   */
+  private storyPaintValue(
+    layer: GeoLibreLayer,
+    nativeId: string,
+    prop: string,
+    opacity: number,
+  ): unknown {
+    const key = `${nativeId}\u0000${prop}`;
+    const current = this.map ? getDynamicPaintProperty(this.map, nativeId, prop) : undefined;
+    const entry = this.storyPaintBases.get(key);
+    const base = entry && styleValuesEqual(current, entry.written) ? entry.base : current;
+    // Only opacities scale with the layer opacity; hillshade exaggeration does not.
+    const scaled = prop.endsWith("-opacity")
+      ? storyScaledPaintValue(base, layer.opacity, opacity)
+      : undefined;
+    const value = scaled ?? storyPaintOpacity(layer, nativeId, prop, opacity);
+    this.storyPaintBases.set(key, { base, written: value });
+    return value;
   }
 
   /**
@@ -654,6 +800,7 @@ export class MapController implements MapEngine {
   restoreLayerStyles(): void {
     this.stopStoryCamera();
     this.storyOpacities.clear();
+    this.storyPaintBases.clear();
     // Clear any opacity transitions left over from playback first, otherwise the
     // restored values animate back in (potentially over a multi-second fade).
     if (this.map) {
@@ -914,6 +1061,7 @@ export class MapController implements MapEngine {
     // the bump drops a resolution still in flight for this map.
     const hadCrs = this.activeCrs !== null;
     this.activeCrs = null;
+    this.activeCrsConverter = null;
     this.desiredCrsId = undefined;
     this.failedCrsId = undefined;
     this.crsStyleDeferred = false;
@@ -1499,14 +1647,13 @@ export class MapController implements MapEngine {
 
   fitLayer(layer: GeoLibreLayer): boolean {
     if (layer.type === "3d-tiles" && this.map) {
-      const center = layer.metadata.center;
-      if (
-        Array.isArray(center) &&
-        typeof center[0] === "number" &&
-        typeof center[1] === "number" &&
-        Number.isFinite(center[0]) &&
-        Number.isFinite(center[1])
-      ) {
+      const center = tilesetCenter(layer);
+      // A center off a custom CRS's grid would be clamped to its edge (#3516):
+      // fall back to the tileset's bounds, which may still reach the grid.
+      const centerOffGrid =
+        center !== null && this.isExtentOutsideMapCrs([center[0], center[1], center[0], center[1]]);
+      if (centerOffGrid && !this.resolveLayerBounds(layer)) return false;
+      if (center && !centerOffGrid) {
         // Tilesets only expose their center, not a native zoom range. Use a
         // conservative floor so city-scale tilesets that render below zoom 18
         // are not flown past into an empty viewport.
@@ -1522,6 +1669,11 @@ export class MapController implements MapEngine {
 
     const bounds = this.resolveLayerBounds(layer);
     if (!bounds || !this.map) return false;
+    const minRenderZoom = this.getLayerMinRenderZoom(layer);
+    // On a map in a custom CRS, an extent off the CRS's tile grid cannot be
+    // framed: MapLibre clamps the camera to the grid edge (#3516).
+    const crsFit = this.fitInMapCrs(bounds, minRenderZoom);
+    if (crsFit !== null) return crsFit;
     const box: [[number, number], [number, number]] = [
       [bounds[0], bounds[1]],
       [bounds[2], bounds[3]],
@@ -1538,7 +1690,6 @@ export class MapController implements MapEngine {
     // API vector tileset served only at z17). Fitting the whole extent would
     // land far below that zoom and render nothing, so when the fit is too far
     // out, fly to the extent center at the layer's minimum render zoom instead.
-    const minRenderZoom = this.getLayerMinRenderZoom(layer);
     if (minRenderZoom !== null) {
       const camera = this.map.cameraForBounds(box, { padding: FIT_BOUNDS_PADDING });
       if (
@@ -1572,6 +1723,91 @@ export class MapController implements MapEngine {
       }
     }
     this.fitBounds(bounds);
+    return true;
+  }
+
+  /**
+   * Whether a layer's extent lies wholly off the tile grid of the custom CRS
+   * the map is drawn in, so Zoom to layer has nowhere to go (#3516). False on
+   * the default map, or when the extent is unknown.
+   */
+  isLayerOutsideMapCrs(layer: GeoLibreLayer): boolean {
+    const crs = this.activeCrs;
+    const converter = this.activeCrsConverter;
+    if (!crs || !converter) return false;
+    // A tileset with an on-grid center is framed by it (fitLayer); otherwise
+    // by its bounds, when it has any.
+    const center = layer.type === "3d-tiles" ? tilesetCenter(layer) : null;
+    if (center && !this.isExtentOutsideMapCrs([center[0], center[1], center[0], center[1]])) {
+      return false;
+    }
+    const bounds = this.resolveLayerBounds(layer);
+    return bounds ? this.isExtentOutsideMapCrs(bounds) : center !== null;
+  }
+
+  /** Whether `bounds` lies wholly off the active custom CRS's tile grid. */
+  private isExtentOutsideMapCrs(bounds: [number, number, number, number]): boolean {
+    const crs = this.activeCrs;
+    const converter = this.activeCrsConverter;
+    if (!crs || !converter) return false;
+    return placeExtentInMapCrs(bounds, converter, crs.tileMatrixSet)?.kind === "outside";
+  }
+
+  /**
+   * Frame `bounds` on a map in a custom CRS when it does not lie wholly on the
+   * CRS's tile grid.
+   *
+   * Returns:
+   *   null to let the ordinary fit run (the default map, or an extent on the
+   *   grid); false, without moving, for an extent wholly off the grid; true
+   *   after flying to the part of the extent that is on the grid.
+   */
+  private fitInMapCrs(
+    bounds: [number, number, number, number],
+    minRenderZoom: number | null,
+    options: {
+      padding?: number;
+      duration?: number;
+      animate?: boolean;
+      maxZoom?: number;
+      /** Passed on to the camera move, as MapLibre's own fitBounds does. */
+      eventData?: unknown;
+    } = {},
+  ): boolean | null {
+    const map = this.map;
+    const crs = this.activeCrs;
+    const converter = this.activeCrsConverter;
+    if (!map || !crs || !converter) return null;
+    const placement = placeExtentInMapCrs(bounds, converter, crs.tileMatrixSet);
+    if (!placement || placement.kind === "inside") return null;
+    if (placement.kind === "outside") return false;
+    // From here the extent straddles the grid edge, so an ordinary fit would
+    // be clamped: when no camera can be worked out, stay put instead.
+    const viewport = this.getViewportSize();
+    if (!viewport) return false;
+    const camera = cameraForMapCrsBox(
+      placement.box,
+      converter,
+      crs.tileMatrixSet,
+      viewport,
+      options.padding ?? FIT_BOUNDS_PADDING,
+    );
+    if (!camera) return false;
+    const zoom = Math.min(
+      Math.max(camera.zoom, minRenderZoom ?? 0),
+      typeof map.getMaxZoom === "function" ? map.getMaxZoom() : 24,
+      options.maxZoom ?? Infinity,
+    );
+    map.flyTo(
+      {
+        center: camera.center,
+        zoom,
+        bearing: 0,
+        duration: options.duration ?? 800,
+        ...(options.animate === undefined ? {} : { animate: options.animate }),
+      },
+      options.eventData as Parameters<maplibregl.Map["flyTo"]>[1],
+    );
     return true;
   }
 
@@ -1616,6 +1852,9 @@ export class MapController implements MapEngine {
   fitBounds(bounds: [number, number, number, number]): void {
     if (!this.map) return;
     if (bounds.some((value) => !Number.isFinite(value))) return;
+    // A plugin's own fit (the PMTiles header bounds, #3516) comes through here
+    // rather than fitLayer: keep it on the custom CRS's grid too.
+    if (this.fitInMapCrs(bounds, null) !== null) return;
     // A degenerate point-sized box cannot be fit; fly to the point instead.
     if (bounds[0] === bounds[2] && bounds[1] === bounds[3]) {
       this.map.flyTo({
@@ -2089,8 +2328,8 @@ export class MapController implements MapEngine {
           fallBack();
           return;
         }
-        await registerMapCrs(crs);
-        if (current()) this.applyMapCrs(crs, frame);
+        const converter = await registerMapCrs(crs);
+        if (current()) this.applyMapCrs(crs, frame, converter);
       })
       .catch((error: unknown) => {
         if (!current()) return;
@@ -2118,11 +2357,16 @@ export class MapController implements MapEngine {
    * Mercator stops at ±85°). Skipped when the store set a view meanwhile (a
    * project opening with its saved view).
    */
-  private applyMapCrs(crs: ResolvedMapCrs | null, frame: boolean): void {
+  private applyMapCrs(
+    crs: ResolvedMapCrs | null,
+    frame: boolean,
+    converter: MapCrsConverter | null = null,
+  ): void {
     const map = this.map;
     if (!map) return;
     const previous = this.activeCrs;
     this.activeCrs = crs;
+    this.activeCrsConverter = crs ? converter : null;
     this.crsStyleDeferred = false;
     setActiveMapCrs(map, crs);
     const requestedMinZoom = clampNumber(this.mapPreferences.minZoom, 0, 24);
@@ -2201,7 +2445,9 @@ export class MapController implements MapEngine {
 
   private fitFeature(featureCollection: FeatureCollection): void {
     if (!this.map || featureCollection.features.length === 0) return;
-    const box = horizontalBbox(bbox(featureCollection));
+    // Short way round the antimeridian, so a selection on both sides of it
+    // frames the band across it rather than the whole globe (GeoLibre#3469).
+    const box = antimeridianAwareBbox(featureCollection);
     // fitBounds validates the box and handles point-sized boxes.
     if (box) this.fitBounds(box);
   }
@@ -2734,9 +2980,14 @@ export class MapController implements MapEngine {
    * happens, and quietly loading an earlier pick behind a visible error would
    * be the greater surprise. Concurrent callers can tell the two apart.
    */
-  async setTerrainCogSource(source: string | Blob | null, band = 1): Promise<boolean> {
+  async setTerrainCogSource(
+    source: string | Blob | null,
+    band = 1,
+    options: { fillOutside?: boolean } = {},
+  ): Promise<boolean> {
     const normalizedSource = typeof source === "string" ? source.trim() || null : source;
     const generation = ++this.cogDemGeneration;
+    const fillGeneration = this.terrainFillGeneration;
     let registration: CogDemSourceRegistration | null = null;
     try {
       registration = normalizedSource ? await this.openCogDem(normalizedSource, band) : null;
@@ -2760,20 +3011,17 @@ export class MapController implements MapEngine {
     }
     if (this.map?.getSource(TERRAIN_SOURCE_ID)) this.map.removeSource(TERRAIN_SOURCE_ID);
 
+    // Only now that the DEM has opened: a failed open leaves the working DEM
+    // and its fill exactly as they were.
+    // A fill set explicitly while the DEM was opening is newer than this one.
+    if (options.fillOutside !== undefined && fillGeneration === this.terrainFillGeneration) {
+      this.terrainFillOutside = options.fillOutside;
+    }
     const previous = this.cogDemRegistration;
     this.cogDemRegistration = registration;
     this.cogDemUrl = typeof normalizedSource === "string" ? normalizedSource : null;
-    this.terrainSource = registration
-      ? {
-          type: "raster-dem",
-          tiles: registration.tiles,
-          tileSize: 256,
-          maxzoom: 22,
-          encoding: "terrarium",
-          ...(registration.bounds ? { bounds: registration.bounds } : {}),
-          attribution: "Elevation from user-provided Cloud Optimized GeoTIFF",
-        }
-      : DEFAULT_TERRAIN_SOURCE;
+    registration?.setFallback?.(this.terrainFillOutside ? this.globalTerrainFallback() : null);
+    this.terrainSource = this.cogTerrainSourceSpec(registration);
     previous?.dispose();
 
     if (this.map && this.isStyleReady()) this.addTerrainSource();
@@ -2785,6 +3033,75 @@ export class MapController implements MapEngine {
       this.terrainEnablePending = true;
     }
     return true;
+  }
+
+  /** Whether a custom COG DEM is surrounded by the global terrain. */
+  getTerrainFillOutside(): boolean {
+    return this.terrainFillOutside;
+  }
+
+  /**
+   * Fill the area outside a custom COG DEM, and its nodata, with the global
+   * terrain, so the DEM does not stand as a raised block with vertical walls
+   * (#3470). Off, the DEM is drawn alone over a flat 0 m surface, with no
+   * requests to the global tiles. Applies to the current DEM at once and is
+   * remembered for the next one.
+   *
+   * @param fill - Whether to fill outside the DEM.
+   */
+  setTerrainFillOutside(fill: boolean): void {
+    this.terrainFillGeneration += 1;
+    if (fill === this.terrainFillOutside) return;
+    this.terrainFillOutside = fill;
+    const registration = this.cogDemRegistration;
+    if (!registration) return;
+    registration.setFallback?.(fill ? this.globalTerrainFallback() : null);
+    // The source spec changes (bounds come and go) and cached tiles were drawn
+    // without or with the fill, so the source is rebuilt the way a new DEM is.
+    const wasEnabled = this.isTerrainEnabled();
+    if (wasEnabled) {
+      if (this.terrainControl) this.terrainControl.setEnabled(false);
+      else this.map?.setTerrain(null);
+    }
+    if (this.map?.getSource(TERRAIN_SOURCE_ID)) this.map.removeSource(TERRAIN_SOURCE_ID);
+    this.terrainSource = this.cogTerrainSourceSpec(registration);
+    if (this.map && this.isStyleReady()) this.addTerrainSource();
+    if (wasEnabled && !this.setTerrainEnabled(true) && this.terrainControl) {
+      this.terrainEnablePending = true;
+    }
+  }
+
+  /** The global Terrarium tiles as a COG DEM fallback, created once. */
+  private globalTerrainFallback(): CogDemFallback {
+    this.terrainFallback ??= createTerrariumFallback({
+      template: DEFAULT_TERRAIN_SOURCE.tiles![0],
+      maxzoom: DEFAULT_TERRAIN_SOURCE.maxzoom ?? 15,
+    });
+    return this.terrainFallback;
+  }
+
+  /**
+   * The raster-dem source for a COG DEM registration, or the global source
+   * when there is none. Bounds limit tile requests to the DEM, so they are
+   * dropped while filling outside it: the tiles beyond carry the global
+   * terrain.
+   */
+  private cogTerrainSourceSpec(
+    registration: CogDemSourceRegistration | null,
+  ): maplibregl.RasterDEMSourceSpecification {
+    if (!registration) return DEFAULT_TERRAIN_SOURCE;
+    const filled = this.terrainFillOutside;
+    return {
+      type: "raster-dem",
+      tiles: registration.tiles,
+      tileSize: 256,
+      maxzoom: 22,
+      encoding: "terrarium",
+      ...(registration.bounds && !filled ? { bounds: registration.bounds } : {}),
+      attribution: filled
+        ? `Elevation from user-provided Cloud Optimized GeoTIFF; ${DEFAULT_TERRAIN_SOURCE.attribution}`
+        : "Elevation from user-provided Cloud Optimized GeoTIFF",
+    };
   }
 
   /**
@@ -2799,7 +3116,6 @@ export class MapController implements MapEngine {
       if (this.terrainControl) {
         this.terrainControl.setEnabled(true);
       } else if (!this.isTerrainEnabled()) {
-        this.map.setCenterClampedToGround(false);
         this.map.setTerrain({
           source: TERRAIN_SOURCE_ID,
           exaggeration: this.terrainExaggeration,
@@ -2812,7 +3128,6 @@ export class MapController implements MapEngine {
         this.terrainControl.setEnabled(false);
       } else {
         this.map.setTerrain(null);
-        this.map.setCenterClampedToGround(true);
       }
     }
     return !this.isTerrainEnabled();
@@ -2824,10 +3139,6 @@ export class MapController implements MapEngine {
     this.terrainEnablePending = false;
     if (this.map?.getTerrain()?.source === TERRAIN_SOURCE_ID) {
       this.map.setTerrain(null);
-      // Mirror TerrainControl.setEnabled(false): restore MapLibre's default
-      // center-clamping, which the control turned off to stop terrain from
-      // recomputing (and snapping) the zoom while zooming over steep relief.
-      this.map.setCenterClampedToGround(true);
     }
     if (!this.terrainControl) return;
     this.removeControl(this.terrainControl);
@@ -3107,6 +3418,18 @@ function constrainCenterToVisibleBounds(
         : (mercatorBounds.north + mercatorBounds.south) / 2,
     ),
   );
+}
+
+/** A 3D Tiles layer's advertised `[lng, lat]` center, or null. */
+function tilesetCenter(layer: GeoLibreLayer): [number, number] | null {
+  const center = layer.metadata.center;
+  return Array.isArray(center) &&
+    typeof center[0] === "number" &&
+    typeof center[1] === "number" &&
+    Number.isFinite(center[0]) &&
+    Number.isFinite(center[1])
+    ? [center[0], center[1]]
+    : null;
 }
 
 function mapBoundsForPreferences(preferences: MapPreferences): maplibregl.LngLatBoundsLike | null {

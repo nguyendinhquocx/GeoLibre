@@ -918,7 +918,43 @@ export interface LayerJoin {
 }
 
 /** Edit-widget kinds the Attribute Form designer can assign to a field. */
-export type AttributeFormWidget = "text" | "number" | "range" | "checkbox" | "date" | "valueMap";
+export type AttributeFormWidget =
+  | "text"
+  | "number"
+  | "range"
+  | "checkbox"
+  | "date"
+  | "valueMap"
+  | "attachment";
+
+/**
+ * Where a dropdown reads its entries from when they are another layer's rows
+ * (a QGIS Value Relation or Relation Reference). Resolved against that
+ * layer's current features each time a form is shown, so a record added to
+ * the referenced layer is selectable at once.
+ */
+export interface AttributeFormValueRelation {
+  /** Id of the referenced layer in the same project. */
+  layerId: string;
+  /** Property of the referenced features that is stored on this field. */
+  keyField: string;
+  /** Property shown as the entry's label. */
+  labelField?: string;
+  /**
+   * QGIS expression evaluated per referenced feature for the label, used when
+   * there is no {@link labelField} (a Relation Reference shows the referenced
+   * layer's display expression).
+   */
+  labelExpression?: string;
+}
+
+/** A run of fields in a form: a tab or group box in QGIS, or the fields between two. */
+export interface AttributeFormSection {
+  /** Heading shown above the run; empty for none. */
+  title: string;
+  /** Field names, in the order they are shown. */
+  fields: string[];
+}
 
 /** One selectable entry of a `valueMap` widget (stored value + display label). */
 export interface AttributeFormValueMapEntry {
@@ -947,8 +983,14 @@ export interface AttributeFormFieldConfig {
    * exempt: unchecked is a valid state, not a missing value.
    */
   required?: boolean;
-  /** Dropdown entries for the `valueMap` widget. */
+  /**
+   * Dropdown entries for the `valueMap` widget. With a {@link valueRelation}
+   * these are only the fallback used while the referenced layer is missing or
+   * has not loaded.
+   */
   valueMap?: AttributeFormValueMapEntry[];
+  /** Read the dropdown's entries from another layer's features. */
+  valueRelation?: AttributeFormValueRelation;
   /**
    * Declared storage type of the field. When set, coercion follows it instead
    * of guessing from the value map (a text field whose codes are "1" and "2"
@@ -979,11 +1021,26 @@ export interface AttributeFormFieldConfig {
    * Empty/invalid expressions fail open so a typo cannot hide data entry.
    */
   visibilityExpression?: string;
+  /**
+   * Expression that pre-fills the field when a new feature is captured, in
+   * the QGIS expression subset `qgis-expression.ts` evaluates: `now()`,
+   * `uuid()`, `"site" || '-' || format_date(now(), 'yyyyMMdd')`, or a GPS
+   * variable such as `@position_horizontal_accuracy`. An expression that
+   * cannot be evaluated leaves the field empty.
+   */
+  defaultValue?: string;
 }
 
 /** The Attribute Form designer's whole per-layer configuration. */
 export interface AttributeFormConfig {
   fields: AttributeFormFieldConfig[];
+  /**
+   * Runs of fields the capture form shows in order, each under its title. A
+   * run with an empty title has no heading (fields that sit between two
+   * groups). A field no section lists is shown after them. Absent means one
+   * flat list.
+   */
+  sections?: AttributeFormSection[];
 }
 
 /** Point of contact recorded in a layer's {@link LayerDescriptiveMetadata}. */
@@ -1214,6 +1271,13 @@ export interface LayerQuickFilter {
    * filter rather than emptying the map.
    */
   values?: (string | number | boolean)[];
+  /**
+   * `categorical`: also keep features whose value is blank (a missing
+   * property, `null`, or an empty string), the ones the Dashboard charts group
+   * as "(blank)". Kept apart from `values` so it can never collide with a real
+   * value that happens to read "(blank)". On its own it keeps only the blanks.
+   */
+  includeBlank?: boolean;
   /** `range`: inclusive bounds. `null`/omitted leaves that side open. */
   min?: number | null;
   max?: number | null;
@@ -1583,6 +1647,39 @@ export const SQL_QUERY_SOURCE_KIND = "sql-query";
 export const NETCDF_IMAGE_SOURCE_KIND = "netcdf-image";
 
 /**
+ * Metadata `sourceKind` marking an ArcGIS ImageServer drawn as a `raster` layer.
+ *
+ * Defined here so the plugin that adds these layers and `@geolibre/map` (whose
+ * Identify reads their pixel values through the service's `/identify`) share
+ * one value.
+ */
+export const ARCGIS_IMAGE_SERVICE_SOURCE_KIND = "arcgis-image-service";
+
+/**
+ * Metadata `sourceKind` marking a Microsoft Planetary Computer raster layer
+ * (one STAC item, or a mosaic of many) drawn by the Planetary Computer panel.
+ *
+ * Defined here so the plugin that adds these layers, the Layer Library's
+ * restore dispatch, and `@geolibre/map` (whose Identify reads their pixel
+ * values through the application's raster bridge) share one value.
+ */
+export const PLANETARY_COMPUTER_SOURCE_KIND = "planetary-computer-raster";
+
+/**
+ * Whether a layer is a Planetary Computer raster the panel's control draws.
+ *
+ * @param layer - The layer to test.
+ * @returns True for a control-drawn Planetary Computer item or mosaic layer.
+ */
+export function isPlanetaryComputerLayer(layer: GeoLibreLayer): boolean {
+  return (
+    layer.type === "raster" &&
+    layer.metadata.sourceKind === PLANETARY_COMPUTER_SOURCE_KIND &&
+    layer.metadata.externalNativeLayer === true
+  );
+}
+
+/**
  * Detect a DuckDB query layer rendered through the plugin's external deck.gl
  * overlay. Shared by `@geolibre/map`, `@geolibre/plugins`, and the desktop
  * app so the detection criteria cannot drift.
@@ -1824,6 +1921,24 @@ export interface MapPreferences {
    * Ignored by 2D renderers; absent means the renderer's normal global source.
    */
   terrainIonAssetId?: number;
+  /**
+   * Vertical exaggeration of the 3D terrain, as set in Terrain settings.
+   * Absent means the renderer default (1).
+   */
+  terrainExaggeration?: number;
+  /**
+   * HTTP(S) URL of the Cloud Optimized GeoTIFF DEM the 3D terrain is drawn
+   * from. Absent means the renderer's built-in global terrain. A DEM opened
+   * from a local file has no URL to save, so it is not kept.
+   */
+  terrainSource?: string;
+  /**
+   * Whether a custom terrain DEM is surrounded by the global terrain, so it
+   * does not stand as a raised block with vertical walls (#3470). Absent means
+   * the default for the source: on for a DEM read from a URL, off for a local
+   * file, which should not send requests off the device unasked.
+   */
+  terrainFillOutside?: boolean;
   /** Mapbox-only style. New projects use Streets; absent follows the shared basemap. */
   mapboxStyleUrl?: string;
   /**

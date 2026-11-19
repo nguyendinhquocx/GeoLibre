@@ -77,7 +77,8 @@
       "restoreLayer": "Diesen Layer wiederherstellen",
       "restoreLayerAria": "Layer {{name}} aus diesem Snapshot wiederherstellen",
       "layerRestored": "„{{name}}“ wiederhergestellt. Mit Rückgängig machen Sie dies rückgängig.",
-      "restoreLayerError": "Dieser Layer konnte nicht aus dem Snapshot wiederhergestellt werden."
+      "restoreLayerError": "Dieser Layer konnte nicht aus dem Snapshot wiederhergestellt werden.",
+      "restoreLayerRedrawError": "„{{name}}“ wurde wiederhergestellt, konnte aber nicht auf der Karte gezeichnet werden."
     }
   },
   "browser": {
@@ -279,10 +280,15 @@
     "bodyNote": "Gemessen auf: {{body}} (Kugelnäherung)"
   },
   "statusBar": {
+    "coords": "Koord.",
     "elevation": "Höhe",
     "elevationLong": "Höhe",
     "cameraAltitude": "Kamerahöhe",
     "cameraAltitudeLong": "Kamerahöhe über dem Meeresspiegel",
+    "zoom": "Zoom",
+    "bearing": "Peilung",
+    "pitch": "Neigung",
+    "bbox": "BBox",
     "coordinateFormat": {
       "dd": "Dezimalgrad",
       "dms": "Grad, Minuten, Sekunden",
@@ -1687,7 +1693,8 @@
     "geom": {
       "point": "Punkt",
       "line": "Linie",
-      "polygon": "Polygon"
+      "polygon": "Polygon",
+      "none": "Tabelle"
     },
     "fields": "Formularfelder",
     "addField": "Feld hinzufügen",
@@ -1726,7 +1733,8 @@
     "save": {
       "point": "Punkt speichern",
       "line": "Linie speichern",
-      "polygon": "Polygon speichern"
+      "polygon": "Polygon speichern",
+      "none": "Datensatz speichern"
     },
     "saved": {
       "point_one": "{{count}} Punkt in {{layer}} gespeichert.",
@@ -1734,9 +1742,16 @@
       "line_one": "{{count}} Linie in {{layer}} gespeichert.",
       "line_other": "{{count}} Linien in {{layer}} gespeichert.",
       "polygon_one": "{{count}} Polygon in {{layer}} gespeichert.",
-      "polygon_other": "{{count}} Polygone in {{layer}} gespeichert."
+      "polygon_other": "{{count}} Polygone in {{layer}} gespeichert.",
+      "none_one": "{{count}} Datensatz in {{layer}} gespeichert.",
+      "none_other": "{{count}} Datensätze in {{layer}} gespeichert."
     },
+    "captureRecordDescription": "Füllen Sie das Formular aus und speichern Sie den Datensatz. Datensätze in dieser Ebene haben keinen Standort.",
+    "relatedPrompt": "Fügen Sie einen Datensatz hinzu, der mit dem soeben gespeicherten verknüpft ist:",
+    "addRelated": "Zu {{layer}} hinzufügen",
+    "addRelatedVia": "Zu {{layer}} hinzufügen ({{field}})",
     "layerGone": "Die Erfassungsebene ist nicht mehr verfügbar.",
+    "layerLoading": "Diese Ebene lädt ihre Objekte noch. Versuchen Sie es gleich noch einmal.",
     "noGeolocation": "Standortbestimmung ist auf diesem Gerät nicht verfügbar.",
     "geolocationDenied": "Ihr Standort konnte nicht ermittelt werden. Überprüfen Sie die Standortberechtigungen und versuchen Sie es erneut.",
     "photoTooLarge": "Dieses Foto ist zu groß (max. {{max}}). Wählen Sie ein kleineres Bild.",
@@ -1809,6 +1824,42 @@
     "nmeaSerialUnsupported": "Web Serial ist hier nicht verfügbar, daher können serielle Empfänger nicht geöffnet werden.",
     "nmeaBluetoothUnsupported": "Web Bluetooth ist hier nicht verfügbar, daher können Bluetooth-Low-Energy-Empfänger nicht geöffnet werden.",
     "nmeaBluetoothHint": "Die meisten Bluetooth-GPS-Empfänger verwenden klassisches Bluetooth: Koppeln Sie einen in den Systemeinstellungen, dann erscheint er hier als serieller Anschluss. Verwenden Sie „Bluetooth verbinden“ nur für Bluetooth-Low-Energy-Empfänger.",
+    "nmeaPairedDevice": "Gekoppelter Empfänger",
+    "nmeaLoadingDevices": "Gekoppelte Geräte werden geladen…",
+    "nmeaNoPairedDevices": "Keine gekoppelten Geräte",
+    "nmeaDeviceBleOnly": "{{name}} (Bluetooth LE, nicht unterstützt)",
+    "nmeaRefreshDevices": "Gekoppelte Geräte aktualisieren",
+    "nmeaConnectReceiver": "Empfänger verbinden",
+    "nmeaAndroidBluetoothHint": "Koppeln Sie Ihren GPS-Empfänger zuerst in den Bluetooth-Einstellungen von Android und wählen Sie ihn dann hier aus. GeoLibre liest seinen NMEA-Datenstrom über klassisches Bluetooth (Serial Port Profile), einschließlich des RTK-Fix-Status, den der Empfänger meldet.",
+    "nmeaBluetoothOff": "Bluetooth ist ausgeschaltet. Schalten Sie es in den Android-Einstellungen ein und versuchen Sie es erneut.",
+    "nmeaBluetoothPermissionDenied": "GeoLibre benötigt die Berechtigung „Geräte in der Nähe“, um sich mit einem Bluetooth-Empfänger zu verbinden. Erteilen Sie sie in den App-Einstellungen von Android und versuchen Sie es erneut.",
+    "nmeaBluetoothConnectFailed": "Verbindung zum Empfänger nicht möglich. Stellen Sie sicher, dass er eingeschaltet, in Reichweite und nicht mit einer anderen App verbunden ist.",
+    "nmeaBluetoothBusy": "Der vorherige Verbindungsversuch läuft noch. Warten Sie einige Sekunden und versuchen Sie es erneut.",
+    "nmeaBluetoothNotPaired": "Dieser Empfänger ist nicht mehr gekoppelt. Koppeln Sie ihn erneut in den Bluetooth-Einstellungen von Android und aktualisieren Sie dann die Liste.",
+    "ntripTitle": "RTK-Korrekturen (NTRIP)",
+    "ntripHost": "Caster-Host",
+    "ntripPort": "Port",
+    "ntripMountpoint": "Mountpoint",
+    "ntripUsername": "Benutzername",
+    "ntripPassword": "Passwort",
+    "ntripTls": "TLS verwenden",
+    "ntripStart": "Korrekturen starten",
+    "ntripStop": "Korrekturen stoppen",
+    "ntripConnecting": "Verbindung zum Caster wird hergestellt…",
+    "ntripWaiting": "Verbunden. Warten auf Korrekturen; Netzwerk-Caster beginnen, sobald der Empfänger einen Fix meldet.",
+    "ntripReceiving": "Korrekturen werden empfangen · {{size}}",
+    "ntripRetrying": "Verbindung zum Caster verloren ({{message}}). Neuer Versuch…",
+    "ntripAuthFailed": "Der Caster hat den Benutzernamen oder das Passwort abgelehnt.",
+    "ntripMountpointMissing": "Der Caster hat keinen Mountpoint namens „{{mountpoint}}“.",
+    "ntripNeedsHost": "Geben Sie den Caster-Host ein.",
+    "ntripNeedsMountpoint": "Geben Sie einen Mountpoint ein.",
+    "ntripBadPort": "Geben Sie einen Port zwischen 1 und 65535 ein.",
+    "ntripBadHost": "Prüfen Sie den Caster-Host: Schreiben Sie eine IPv6-Adresse in eckige Klammern, z. B. [2001:db8::1], und den Port als Zahl.",
+    "ntripBadCharacters": "Caster-Host und Mountpoint dürfen keine Leerzeichen oder Steuerzeichen enthalten.",
+    "ntripTlsFailed": "Es konnte keine sichere (TLS-)Verbindung zum Caster aufgebaut werden. Prüfen Sie Host und Port und ob der Caster TLS auf diesem Port unterstützt.",
+    "ntripStartFailed": "Korrekturen konnten nicht gestartet werden: {{message}}",
+    "ntripCleartextHint": "Ohne TLS erhält der Caster das Passwort unverschlüsselt, wie es die meisten NTRIP-Caster verlangen. Verwenden Sie TLS, wenn Ihr Caster es anbietet.",
+    "ntripHint": "GeoLibre ruft RTCM-Korrekturen von Ihrem Caster ab und sendet sie über dieselbe Bluetooth-Verbindung an den Empfänger, bei Netzwerk-Castern (VRS) zusammen mit der Position des Empfängers. Die Einstellungen einschließlich des Passworts werden auf diesem Gerät gespeichert, und die Korrekturen starten von selbst neu, wenn sich der Empfänger wieder verbindet.",
     "fixQuality": {
       "invalid": "Kein Fix",
       "gps": "GPS-Fix",
@@ -1931,7 +1982,10 @@
     "lockLayer": "Ebene für Gäste sperren",
     "unlockLayer": "Ebene für Gäste entsperren",
     "layerLocked": "Gesperrt",
-    "layerLockedHint": "Diese Ebene wurde vom Host gesperrt und kann nicht bearbeitet werden"
+    "layerLockedHint": "Diese Ebene wurde vom Host gesperrt und kann nicht bearbeitet werden",
+    "viewOnlyHint": "Sie haben in dieser Sitzung nur Ansichtsrechte und können diese Ebene daher nicht ändern",
+    "layerLockedRejected": "Diese Änderung wurde nicht geteilt, weil der Host die Ebene gesperrt hat. Ihre Karte wurde auf den Stand der Sitzung zurückgesetzt.",
+    "viewOnlyLocalChange": "Sie haben in dieser Sitzung nur Ansichtsrechte, daher bleiben Ihre Änderungen auf Ihrem Bildschirm und werden nicht geteilt."
   },
   "share": {
     "title": "Projekt teilen",
@@ -2082,6 +2136,18 @@
     "resizeDialog": "Galerie in der Größe ändern",
     "scopeFeatured": "Empfohlen",
     "scopeAll": "Alle Projekte",
+    "scopeCollections": "Sammlungen",
+    "loadingCollections": "Sammlungen werden geladen…",
+    "collectionsSearchPlaceholder": "Sammlungen nach Titel, Autor oder Beschreibung filtern",
+    "noCollectionMatches": "Keine Sammlungen entsprechen Ihrem Filter.",
+    "emptyCollections": "Noch keine öffentlichen Sammlungen vorhanden.",
+    "emptyCollection": "Diese Sammlung enthält keine öffentlichen Projekte.",
+    "untitledCollection": "Unbenannte Sammlung",
+    "openCollection": "Projekte dieser Sammlung anzeigen",
+    "openCollectionOnWeb": "Sammlung im Web ansehen",
+    "backToCollections": "Alle Sammlungen",
+    "collectionProjects_one": "{{count}} Projekt",
+    "collectionProjects_other": "{{count}} Projekte",
     "scopeMine": "Meine Projekte",
     "scopeOrganizations": "Organisationen",
     "scopeGroups": "Gruppen",
@@ -2366,7 +2432,9 @@
   },
   "kml": {
     "importFailed": "KML/KMZ konnte nicht importiert werden.",
-    "timeOverlayGroup": "Animation der Zeitüberlagerung"
+    "timeOverlayGroup": "Animation der Zeitüberlagerung",
+    "dataUrlStyleUnsupported": "Auf ein KML-Dokument kann kein Stil angewendet werden.",
+    "dataUrlNoImporter": "{{name}} konnte nicht zur Karte hinzugefügt werden: Es ist kein KML-Importer verfügbar."
   },
   "map": {
     "boundsRestricted": "Grenzen gesperrt",
@@ -2414,6 +2482,8 @@
       "error": "Diese Ebene konnte nicht identifiziert werden.",
       "noData": "Keine Daten an dieser Position.",
       "pixelReadFailed": "Der Pixelwert konnte nicht gelesen werden.",
+      "pixelValue": "Wert",
+      "pixelBand": "Band {{index}}",
       "wmsFailed": "Die WMS-GetFeatureInfo-Anfrage ist fehlgeschlagen.",
       "wmsNotQueryable": "Diese WMS-Ebene liefert keine Objektinformationen.",
       "editGeometry": "Geometrie bearbeiten",
@@ -2427,7 +2497,8 @@
       "nodata": "keine Daten",
       "coordinates": "Lon, Lat",
       "row": "Zeile",
-      "column": "Spalte"
+      "column": "Spalte",
+      "stacItem": "Objekt"
     }
   },
   "terrainSettings": {
@@ -2446,6 +2517,8 @@
     "sourcePlaceholder": "https://example.com/dem.tif",
     "localSourceLabel": "Lokales COG-DEM",
     "localSourceDescription": "Die Datei bleibt auf diesem Gerät und wird bei Bedarf in kleinen Bereichen als Geländekacheln gelesen.",
+    "fillOutside": "Bereich außerhalb des DEM mit globalem Gelände füllen",
+    "fillOutsideDescription": "Umgibt das DEM mit dem globalen Gelände statt mit einer flachen Ebene und füllt damit auch seine NoData-Lücken. Standardmäßig aktiviert für ein DEM von einer URL und deaktiviert für eine lokale Datei, die sonst nichts aus dem Netzwerk liest.",
     "useCog": "COG-DEM verwenden",
     "ionAssetLabel": "Cesium-Ion-Geländeasset",
     "ionAssetDescription": "Ein Quantized-Mesh-Geländeasset von Cesium Ion auf dem Globus verwenden. Das Asset muss für das konfigurierte Ion-Konto verfügbar sein.",
@@ -3345,7 +3418,9 @@
       "profileCount_other": "{{count}} Profile",
       "noProfiles": "Noch keine Profile. Fügen Sie unten eines hinzu, um den KI-Assistenten zu konfigurieren.",
       "setDefault": "Als Standard festlegen",
+      "keepDefault": "Als Standard beibehalten",
       "defaultProfile": "Standard",
+      "proxyIsDefault": "Kein Profil ist als Standard festgelegt, daher startet der Assistent mit dem Proxy der Bereitstellung. Legen Sie ein Profil als Standard fest, um stattdessen damit zu starten.",
       "edit": "Bearbeiten",
       "deleteProfile": "Profil löschen",
       "backToProfiles": "← Zurück zu den Profilen",
@@ -3366,6 +3441,7 @@
         "openaiKey": "sk-…",
         "openrouterKey": "sk-or-…",
         "vercelKey": "AI-Gateway-Schlüssel",
+        "trustedrouterKey": "sk-tr-v1-…",
         "ollamaBaseUrl": "http://localhost:11434",
         "awsAccessKey": "AKIA…",
         "awsSecretKey": "wJalrXUtnFEMI…",
@@ -3374,6 +3450,23 @@
         "customBaseUrl": "https://api.example.com/v1",
         "customModel": "model-id",
         "customApiKey": "sk-… (falls erforderlich)"
+      },
+      "chatgpt": {
+        "account": "ChatGPT-Konto",
+        "intro": "Verwenden Sie Ihr ChatGPT-Abo statt eines API-Schlüssels. Ihr Browser öffnet die Anmeldeseite von OpenAI, auf der Sie GeoLibre erlauben, Ihr Abo zu nutzen.",
+        "continue": "Mit ChatGPT fortfahren",
+        "waiting": "Warten, bis Sie die Anmeldung im Browser abgeschlossen haben…",
+        "openAgain": "Browser erneut öffnen",
+        "signedInAs": "Angemeldet als {{email}}",
+        "usingPlan": "Ihr ChatGPT-Abo wird verwendet.",
+        "planDeclined": "GeoLibre darf Ihr ChatGPT-Abo nicht nutzen. Melden Sie sich erneut an und erlauben Sie es.",
+        "signInAgain": "Erneut anmelden",
+        "notRemembered": "Der Schlüsselbund des Systems ist nicht verfügbar, daher gilt diese Anmeldung nur, bis GeoLibre geschlossen wird.",
+        "signOut": "Abmelden",
+        "useAnotherAccount": "Anderes Konto verwenden",
+        "usage": "Nutzung und verbundene Apps",
+        "revokeUnconfirmed": "Hier abgemeldet, aber OpenAI hat das Beenden der Sitzung nicht bestätigt. Trennen Sie GeoLibre zur Sicherheit in Ihren ChatGPT-Einstellungen.",
+        "desktopOnly": "Die Anmeldung mit ChatGPT ist in der GeoLibre-Desktop-App verfügbar."
       }
     }
   },
@@ -3867,6 +3960,7 @@
       "difference": "Differenz",
       "union": "Vereinigung",
       "spatialJoin": "Räumliche Verknüpfung",
+      "summarizeWithin": "Innerhalb zusammenfassen",
       "attributeJoin": "Attributverknüpfung",
       "selectByValue": "Nach Wert auswählen",
       "selectByLocation": "Nach Lage auswählen",
@@ -4188,9 +4282,29 @@
         "missing-source": "Die Ebene hat keine lesbare Datenquelle.",
         "format": "Das Dateiformat der Ebene wird nicht unterstützt.",
         "remote-file": "Entfernte QGIS-Dateiquellen werden noch nicht unterstützt.",
+        "remote-unreadable": "Die entfernte Datei konnte nicht heruntergeladen oder gelesen werden.",
+        "wmts": "WMTS-Ebenen werden noch nicht importiert. Fügen Sie den Dienst stattdessen über das Menü „Daten hinzufügen“ hinzu.",
         "network-path": "Netzwerkfreigabepfade werden aus Sicherheitsgründen nicht geladen.",
         "browser-local-file": "Die lokale Datei wird referenziert, aber Browser können QGIS-Datenpfade nicht erneut öffnen. Verwenden Sie GeoLibre Desktop, um sie zu laden.",
-        "browser-local-raster": "Das Raster wird über einen lokalen Pfad referenziert. Verwenden Sie GeoLibre Desktop, um es zu laden."
+        "browser-local-raster": "Das Raster wird über einen lokalen Pfad referenziert. Verwenden Sie GeoLibre Desktop, um es zu laden.",
+        "no-geometry": "Eine Tabelle ohne Geometrie kann nur aus einem GeoPackage gelesen werden."
+      },
+      "qgisImportNotes": "Das Projekt wurde importiert. Einige Einstellungen konnten nicht übernommen werden.",
+      "qgisImportFormNotes": "Einige Formulareinstellungen konnten nicht übernommen werden.",
+      "qgisImportStyleNotes": "Ein Teil der Symbolisierung konnte nicht übernommen werden.",
+      "qgisStyleNoteReason": {
+        "renderer-unreadable": "Der Renderer der Ebene konnte nicht gelesen werden; der Standardstil wurde verwendet.",
+        "expression-label": "Beschriftungen, die aus einem QGIS-Ausdruck erzeugt werden, wurden nicht importiert."
+      },
+      "qgisFormNoteFieldCount_one": "{{count}} Feld",
+      "qgisFormNoteFieldCount_other": "{{count}} Felder",
+      "qgisFormNoteReason": {
+        "default": "Der Standardwert verwendet einen nicht unterstützten Ausdruck, daher ist das Feld anfangs leer.",
+        "constraint": "Der Ausdruck der Einschränkung wird nicht unterstützt und wurde weggelassen.",
+        "relation": "Die verknüpfte Tabelle der Auswahlliste konnte nicht gelesen werden, daher ist das Feld ein einfaches Textfeld.",
+        "relation-empty": "Die verknüpfte Tabelle der Auswahlliste enthält keine Werte, daher ist das Feld ein einfaches Textfeld.",
+        "relation-too-large": "Die verknüpfte Tabelle der Auswahlliste hat zu viele Zeilen für eine Liste, daher ist das Feld ein einfaches Textfeld.",
+        "relation-multi": "Die Auswahlliste erlaubt eine Mehrfachauswahl, was nicht unterstützt wird, daher ist das Feld ein einfaches Textfeld."
       },
       "openProjectFromUrlDesc": "Lädt ein `.geolibre.json`-Projekt und fügt es den zuletzt verwendeten Projekten hinzu.",
       "projectUrl": "Projekt-URL",
@@ -4211,7 +4325,8 @@
       "saveProjectAsTitle": "Projekt speichern unter",
       "saveProjectAsDesc": "Geben Sie einen Dateinamen ein. Das Projekt wird beim Klicken auf Speichern in den Downloads-Ordner Ihres Browsers heruntergeladen.",
       "embedVectorTitle": "Lokale Vektordaten einbetten?",
-      "embedEditedGeometryDesc": "Dieses Projekt enthält bearbeitete Geometrien. Betten Sie die Vektordaten ein (etwa {{size}}), um sie zu erhalten. Ohne Einbettung werden referenzierte Layer mit ihren ursprünglichen Geometrien geöffnet und lokale Daten sind möglicherweise nicht verfügbar.",
+      "embedEditedVectorTitle": "Bearbeitete Vektordaten einbetten?",
+      "embedEditedFeaturesDesc": "Dieses Projekt enthält bearbeitete Objekte (Geometrien oder Attributwerte, einschließlich berechneter Felder). Betten Sie die Vektordaten ein (etwa {{size}}), um sie zu erhalten. Ohne Einbettung werden Ebenen, die aus einer URL oder Datei neu geladen werden, mit ihren ursprünglichen Daten geöffnet, und lokale Daten sind möglicherweise nicht verfügbar.",
       "embedVectorDesc": "Dieses Projekt enthält {{count}} lokale Vektorebene(n), die von Ihrem Computer geladen wurden. Der Browser kann sie beim erneuten Öffnen des Projekts nicht erneut einlesen, daher müssen ihre Daten in die Projektdatei eingebettet werden, damit sie wiederhergestellt werden können. Das Einbetten fügt der Datei etwa {{size}} hinzu.",
       "embedVectorDescDesktop": "Dieses Projekt enthält {{count}} lokale Vektorebene(n), die von Ihrem Computer geladen wurden. Betten Sie ihre Daten ein, um das Projekt eigenständig zu machen (fügt etwa {{size}} hinzu), oder speichern Sie Dateiverweise, die beim erneuten Öffnen des Projekts von der Festplatte neu geladen werden. Verweise halten die Datei klein, funktionieren aber nicht mehr, wenn eine Quelldatei später verschoben oder gelöscht wird.",
       "embedVectorDescMas": "Dieses Projekt enthält {{count}} lokale Vektorebene(n), die von Ihrem Computer geladen wurden. Die Mac App Store-Sandbox kann den Zugriff auf diese Dateien nach dem Schließen von GeoLibre nicht beibehalten. Daher müssen ihre Daten in die Projektdatei eingebettet werden, damit sie wiederhergestellt werden können. Das Einbetten fügt der Datei etwa {{size}} hinzu.",
@@ -4286,6 +4401,7 @@
       "loadingVtpk": "Kachelpaket wird geöffnet…",
       "loadingVtpkDesc": "Verzeichnis und Stil des Pakets werden gelesen",
       "projectName": "Projektname",
+      "untitledProject": "Unbenanntes Projekt",
       "storymapEllipsis": "Story Map...",
       "pointerElevationNoticeTitle": "Höhe nutzt einen öffentlichen Höhendienst",
       "pointerElevationNoticeDesc": "Die Höhenanzeige wird aus dem 3D-Gelände der Karte berechnet, wenn dieses aktiv ist – dabei werden keine Daten gesendet. Ohne 3D-Gelände wird die öffentliche Open-Meteo-API abgefragt, und die Koordinaten unter dem Zeiger verlassen Ihr Gerät.",
@@ -4407,6 +4523,8 @@
       "couldNotOpenProject": "Projekt konnte nicht geöffnet werden.",
       "multipleProjectDrop": "Legen Sie jeweils nur ein GeoLibre-Projekt ohne weitere Dateien ab.",
       "projectDropNotAllowed": "Diese Bereitstellung erlaubt keinen Projektwechsel.",
+      "sandboxHiddenDrop_one": "Die Flatpak-Sandbox kann die abgelegte Datei {{names}} nicht lesen. Öffnen Sie sie stattdessen über das Menü „Daten hinzufügen“ oder geben Sie der App Lesezugriff auf den Ordner und starten Sie sie neu: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
+      "sandboxHiddenDrop_other": "Die Flatpak-Sandbox kann {{count}} abgelegte Dateien ({{names}}) nicht lesen. Öffnen Sie sie stattdessen über das Menü „Daten hinzufügen“ oder geben Sie der App Lesezugriff auf den Ordner und starten Sie sie neu: flatpak override --user --filesystem=/path/to/folder:ro app.geolibre.GeoLibre",
       "couldNotImportQgisProject": "QGIS-Projekt konnte nicht importiert werden.",
       "couldNotImportArcgisProject": "ArcGIS-Pro-Projekt konnte nicht importiert werden.",
       "invalidProjectUrl": "Geben Sie eine gültige HTTP- oder HTTPS-Projekt-URL ein.",
@@ -4883,6 +5001,22 @@
     "includeNeighbors": "Nachbarn der ausgewählten Kachel einbeziehen",
     "includeParent": "Übergeordnete Kachel der ausgewählten Kachel einbeziehen"
   },
+  "planetaryComputer": {
+    "stacBrowser": "In STAC-Katalogen durchsuchen",
+    "stacBrowserTitle": "Diese Collection im Panel „STAC-Kataloge“ öffnen, um Punktwolken, GeoParquet, Zarr und andere Assets hinzuzufügen, die der Raster-Tiler nicht zeichnen kann",
+    "timeSlider": "Im Zeitschieberegler animieren",
+    "timeSliderTitle": "Diese Ergebnisse im Zeitschieberegler nach Datum durchlaufen und einen Pixel im Zeitverlauf als Diagramm darstellen",
+    "colorbar": "Farbskala anzeigen",
+    "colorbarTitle": "Der Karte eine Farbskala für das Farbschema und den Wertebereich dieser Ebene hinzufügen",
+    "clipToMap": "Ausschnitt zur Karte hinzufügen",
+    "clipToMapTitle": "Diese Szene auf den gezeichneten Rahmen (oder den Kartenausschnitt) zuschneiden und ihre Rohwerte der Bänder als Rasterebene für Analysen hinzufügen",
+    "clipLayerName": "{{item}} (Ausschnitt)",
+    "clipOutsideItem": "Der Ausschnittbereich überschneidet sich nicht mit dieser Szene. Zeichnen Sie einen Rahmen innerhalb ihres Umrisses oder verschieben Sie die Karte dorthin.",
+    "clipUnavailable": "Diese Szene kann auf dieser Karte nicht als Ausschnitt hinzugefügt werden.",
+    "timeSeriesLayerName": "{{collection}} (Zeitreihe)",
+    "timeSliderNeedsDates": "Für eine Zeitreihe sind mindestens zwei Ergebnisse mit unterschiedlichem Datum erforderlich.",
+    "timeSliderUnavailable": "Der Zeitschieberegler ist auf dieser Karte nicht verfügbar."
+  },
   "timelapse": {
     "title": "Zeitraffer",
     "provider": "Bildquelle",
@@ -5088,6 +5222,39 @@
     "drawHint": "Zum Zeichnen des Suchrahmens auf der Karte klicken und ziehen.",
     "drawnBbox": "Gezeichneter Rahmen: {{bbox}}",
     "drawnBboxCleared": "Gezeichneter Rahmen gelöscht.",
+    "areaLabel": "Suchbereich",
+    "drawPoint": "Punkt",
+    "drawLine": "Linie",
+    "drawPolygon": "Polygon",
+    "useSelection": "Ausgewählte Objekte",
+    "loadAreaFile": "Aus Datei…",
+    "clearArea": "Form löschen",
+    "drawPointHint": "Klicken Sie auf die Karte, um einen Suchpunkt zu setzen. Escape bricht ab.",
+    "drawShapeHint": "Klicken, um Stützpunkte hinzuzufügen; Doppelklick oder Eingabetaste zum Beenden. Escape bricht ab.",
+    "areaCleared": "Suchform gelöscht.",
+    "noSelection": "Wählen Sie zuerst Objekte auf der Karte aus: Öffnen Sie das Menü einer Ebene, wählen Sie „Objekte auswählen“ und versuchen Sie es erneut.",
+    "areaFileFailed": "Aus dieser Datei konnte keine Suchform gelesen werden.",
+    "areaTooLarge": "Diese Form hat {{positions}} Stützpunkte; vereinfachen Sie sie auf höchstens {{max}}.",
+    "areaSet": "Suche innerhalb von {{description}}.",
+    "areaIgnored": "{{count}} Form(en) niedrigerer Dimension wurde(n) ausgelassen.",
+    "addAsset": "Assets",
+    "addAssetHint": "Eines der Assets dieses Objekts zur Karte hinzufügen",
+    "addRendering": "Kanäle",
+    "addRenderingHint": "Eine Kanalkombination oder einen Index dieses Objekts zur Karte hinzufügen",
+    "groupCombinations": "Kanalkombinationen",
+    "groupIndices": "Indizes",
+    "renderNeedsMapLibre": "Darstellungen erfordern den MapLibre-Renderer.",
+    "renderMissingBand": "Dieses Objekt hat keinen Kanal namens {{name}}.",
+    "sortLabel": "Nach Datum sortieren",
+    "sortDefault": "Serverstandard",
+    "sortNewest": "Neueste zuerst",
+    "sortOldest": "Älteste zuerst",
+    "bufferLabel": "Punkte und Linien puffern um",
+    "bufferHint": "Erweitert einen Punkt oder eine Linie vor der Suche um so viele Meter nach jeder Seite zu einem Polygon. Polygone bleiben unverändert.",
+    "bufferDistance": "{{meters}} m",
+    "cloudLabel": "Max. Bewölkung",
+    "cloudHint": "Behält Szenen mit höchstens dieser Bewölkung. Szenen ohne Bewölkungsangabe (Radar, Höhendaten, Luftbilder) bleiben erhalten.",
+    "sortHint": "Sortiert die bisher geladenen Ergebnisse nach Aufnahmedatum. „Weitere laden“ kann Szenen bringen, die weiter vorn oder hinten einzuordnen sind.",
     "mapNotReady": "Die Karte ist nicht bereit zum Zeichnen.",
     "startDate": "Startdatum",
     "endDate": "Enddatum",
@@ -5185,6 +5352,12 @@
     "portalTitle": "Dieses Element im Earthdata-GIS-Portal öffnen",
     "cog": "COG",
     "cogTitle": "Diesen Dienst als Cloud Optimized GeoTIFF herunterladen",
+    "rasterFunction": "Funktion",
+    "rasterFunctionTitle": "Rasterfunktion (Verarbeitungsvorlage), die der Dienst anwendet; die Pixelwerte richten sich danach",
+    "rasterFunctionDefault": "Dienststandard",
+    "rasterFunctionLoading": "Funktionen werden geladen…",
+    "rasterFunctionNone": "Keine veröffentlichten Funktionen",
+    "rasterFunctionError": "Die Rasterfunktionen konnten nicht geladen werden: {{message}}",
     "cogHeading": "Als COG herunterladen",
     "cogAreaView": "Aktueller Ausschnitt",
     "cogAreaExtent": "Volle Ausdehnung",
@@ -5626,6 +5799,7 @@
     "setupTitle": "KI-Assistent einrichten",
     "setupStatus": "Der Assistent benötigt einen KI-Anbieter für die eigentliche Verarbeitung. Fügen Sie unten Zugangsdaten für einen beliebigen Anbieter hinzu, und das Panel wechselt sofort nach dem Speichern in den Chat-Modus.",
     "setupProviders": "Zugangsdaten für einen beliebigen Anbieter hinzufügen",
+    "setupSignIn": "Melden Sie sich unter Einstellungen → KI-Anbieter an",
     "setupOpenSettings": "Einstellungen → KI-Anbieter öffnen",
     "thinking": "Arbeitet…",
     "toolError": "fehlgeschlagen",
@@ -6408,6 +6582,26 @@
                 "inner": "Inner (nur übereinstimmende Objekte behalten)",
                 "left": "Left (alle Eingabeobjekte behalten)"
               }
+            }
+          }
+        },
+        "summarize-within": {
+          "name": "Innerhalb zusammenfassen",
+          "description": "Die Features einer anderen Ebene zählen, die jedes Polygon schneiden, ein numerisches Feld zusammenfassen und messen, wie viel von jedem Polygon sie abdecken",
+          "params": {
+            "layer": {
+              "label": "Polygonebene"
+            },
+            "overlay": {
+              "label": "Zusammenzufassende Ebene"
+            },
+            "field": {
+              "label": "Numerisches Feld",
+              "description": "Optional. Fügt für jedes Polygon Summe, Mittelwert, Minimum und Maximum dieses Felds hinzu."
+            },
+            "min_overlap_pct": {
+              "label": "Überlappungen ignorieren kleiner als (%)",
+              "description": "Wenn die zusammenzufassende Ebene Polygone enthält, werden alle übersprungen, die weniger als diesen Anteil eines Polygons abdecken, etwa Splitterflächen entlang gemeinsamer Kanten."
             }
           }
         },
@@ -8439,6 +8633,7 @@
     "loadingAttributes": "Ebenenattribute werden geladen…",
     "requiresVectorLayer": "Die Attributtabelle erfordert eine Vektor- oder DuckDB-Abfrageebene.",
     "invalidJson": "Ungültiges JSON",
+    "nullValue": "NULL",
     "editCellAria": "{{col}} für Objekt {{featureId}} bearbeiten",
     "resizeColumn": "Größe der Spalte {{name}} ändern",
     "renameFieldAria": "Feld {{name}} umbenennen",
@@ -8611,6 +8806,16 @@
       "saturation": "Sättigung",
       "contrast": "Kontrast",
       "hueRotate": "Farbtondrehung",
+      "stacRendering": {
+        "title": "Kanaldarstellung",
+        "brightness": "Helligkeit",
+        "gamma": "Gamma",
+        "ramp": "Farbverlauf",
+        "min": "Unterer Wert",
+        "max": "Oberer Wert",
+        "reset": "Darstellung zurücksetzen",
+        "resetHint": "Zur Standardspreizung, zum Standardfarbverlauf und zum Standardwertebereich zurückkehren"
+      },
       "footerDeck": "Änderungen werden sofort auf die Deckkraft der Rasterebene angewendet.",
       "footerMaplibre": "Änderungen werden sofort auf die MapLibre-Raster-Paint-Eigenschaften angewendet.",
       "valueAria": "{{label}}-Wert",
@@ -9088,7 +9293,8 @@
         "range": "Bereich",
         "checkbox": "Kontrollkästchen",
         "date": "Datum",
-        "valueMap": "Wertezuordnung"
+        "valueMap": "Wertezuordnung",
+        "attachment": "Foto"
       },
       "alias": "Alias",
       "required": "Erforderlich",
@@ -9105,6 +9311,11 @@
       "constraintPlaceholder": "[\">\", [\"get\", \"population\"], 0]",
       "constraintDescription": "Beschreibung der Einschränkung",
       "constraintDescriptionPlaceholder": "Wird angezeigt, wenn die Einschränkung fehlschlägt",
+      "defaultTag": "Standard",
+      "defaultValue": "Standardwert",
+      "defaultValuePlaceholder": "now()",
+      "defaultValueHelp": "Füllt das Feld, wenn ein Objekt erfasst wird. Verwendet die QGIS-Ausdruckssyntax, zum Beispiel uuid(), now(), \"site\" || '-' || format_date(now(), 'yyyyMMdd') oder @position_horizontal_accuracy.",
+      "defaultValueInvalid": "Nicht unterstützt: {{detail}}",
       "visibilityExpression": "Sichtbarkeitsausdruck",
       "visibilityPlaceholder": "[\"==\", [\"get\", \"type\"], \"school\"]",
       "invalidExpression": "Ungültiger Ausdruck",
@@ -9218,6 +9429,7 @@
     },
     "searchValues": "Werte suchen",
     "noValues": "Dieses Feld hat keine Werte zur Auswahl.",
+    "loadingValues": "Werte werden gelesen…",
     "noMatchingValues": "Keine Werte entsprechen Ihrer Suche.",
     "selectAll": "Alle auswählen",
     "selectNone": "Keine auswählen",
@@ -9235,6 +9447,7 @@
     "noFields": "Diese Ebene hat keine Attribute zum Filtern.",
     "noTileFeatures": "Es sind noch keine Objekte geladen. Verschieben Sie die Karte oder zoomen Sie zu den Daten und öffnen Sie diesen Abschnitt erneut.",
     "viewportSampleHint": "Die Werte stammen aus den aktuell geladenen Kacheln, die Liste wächst also beim Verschieben und Zoomen.",
+    "partialSampleHint": "Anzahlen und Bereiche stammen aus den ersten {{inspected}} von {{total}} Objekten.",
     "layerFilteredHint": "Ein Schnellfilter blendet einen Teil der Objekte dieser Ebene aus."
   },
   "floorPicker": {
@@ -9436,6 +9649,9 @@
     "hiddenByGroup": "Ausgeblendet, da die zugehörige Gruppe nicht sichtbar ist",
     "empty": "Keine Datenebenen. Fügen Sie Daten über die Symbolleiste hinzu.",
     "emptyBeginner": "Noch keine Ebenen. Fügen Sie Basiskarten über Plugins → Basiskarten hinzu, oder Ihre eigenen Daten über das Menü Daten hinzufügen.",
+    "emptyBeginnerBasemapsOnly": "Noch keine Ebenen. Fügen Sie Basiskarten über Plugins → Basiskarten hinzu.",
+    "emptyBeginnerDataOnly": "Noch keine Ebenen. Fügen Sie eigene Daten über das Menü „Daten hinzufügen“ hinzu.",
+    "emptyNoAdd": "Keine Datenebenen.",
     "hideAllLayers": "Alle Ebenen ausblenden",
     "showAllLayers": "Alle Ebenen anzeigen",
     "compactView": "Kompakte Ansicht",
@@ -9753,6 +9969,9 @@
     "localRasterNotRestored_other": "{{count}} lokale Rasterebenen konnten nicht wiederhergestellt werden",
     "localRasterNotRestoredDesc": "Aus einer lokalen Datei geladen: {{names}}. Das Projekt enthält keine Rasterdaten, oder die Datei konnte nicht gelesen werden. Fügen Sie die Datei erneut hinzu."
   },
+  "zarrPanel": {
+    "selectorUnmatched": "Selektorwert nicht gefunden ({{values}}). Verwenden Sie einen Koordinatenwert, ein Datum auf der Zeitachse oder einen Index."
+  },
   "attributeForm": {
     "error": {
       "required": "Ein Wert ist erforderlich",
@@ -9877,6 +10096,7 @@
     "layerLoadFailedHint": "Prüfen Sie die URL, Ihre Netzwerkverbindung und einen ggf. erforderlichen API-Schlüssel. Details stehen im Diagnose-Bereich.",
     "fileReadFailed": "\"{{name}}\" konnte nicht gelesen werden und wurde übersprungen.",
     "libraryLayerRestoreFailed": "\"{{name}}\" konnte nicht aus Meine Daten hinzugefügt werden.",
+    "tableLayerTruncated": "{{layer}} ist zu lang, um vollständig geladen zu werden: Es werden nur die ersten {{count}} Zeilen angezeigt.",
     "localLayersDropped_one": "{{count}} Layer wurde entfernt: Seine Datei konnte nicht gelesen werden ({{path}}).",
     "localLayersDropped_other": "{{count}} Layer wurden entfernt: Ihre Datei konnte nicht gelesen werden ({{path}}).",
     "pluginActivateFailed": "Das Plugin \"{{id}}\" aus dem Link konnte nicht gestartet werden.",
@@ -9904,7 +10124,8 @@
     "panelRenderFailed": "Das Panel „{{name}}“ konnte nicht geöffnet werden.",
     "sharedSettingsFailed": "Die geteilten Einstellungen aus dem Link konnten nicht geladen werden, daher werden Ihre eigenen Einstellungen verwendet.",
     "sharedLanguageFailed": "Der Wechsel zu der Sprache, die die geteilten Einstellungen verlangen, war nicht möglich.",
-    "languageCatalogFailed": "Die Übersetzung für {{language}} konnte nicht geladen werden, daher zeigt GeoLibre Englisch an."
+    "languageCatalogFailed": "Die Übersetzung für {{language}} konnte nicht geladen werden, daher zeigt GeoLibre Englisch an.",
+    "dataUrlLoadFailed": "Die Daten-URL konnte nicht geladen werden."
   },
   "shell": {
     "workspaceTitle": "GeoLibre-Kartenarbeitsbereich",

@@ -1,0 +1,1031 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  getAttributeFormField,
+  isAttributeFormFieldVisible,
+  isAttributeTableLayer,
+  resolveAttributeFormRelations,
+  validateAttributeFormValues,
+} from "@geolibre/core";
+import { DOMParser } from "linkedom";
+import {
+  buildGeometryFeature,
+  detachFromSourceFile,
+  getGeometryType,
+  getSchema,
+  isCollectionLayer,
+  isFileBackedCollectionLayer,
+  minVertices,
+  orderFormFields,
+  relatedRecordTargets,
+} from "../apps/geolibre-desktop/src/lib/field-collection";
+import {
+  applyCaptureDefaults,
+  captureExpressionVariables,
+  defaultValueEpsgCodes,
+} from "../apps/geolibre-desktop/src/lib/field-collection-defaults";
+import {
+  MAX_RELATION_ENTRIES,
+  relationValueMap,
+} from "../apps/geolibre-desktop/src/lib/qgis-form-import";
+import {
+  importQgisProject,
+  materializeQgisFormRelations,
+} from "../apps/geolibre-desktop/src/lib/qgis-project-import";
+
+globalThis.DOMParser = DOMParser as unknown as typeof globalThis.DOMParser;
+
+// linkedom's XML mode hands attribute values back with `<`, `>` and `&` still
+// escaped, where a browser's DOMParser decodes them. QGIS expressions are full
+// of comparison operators, so decode them here to match what the app sees.
+{
+  const sample = new DOMParser().parseFromString("<a/>", "text/xml").documentElement;
+  let proto = Object.getPrototypeOf(sample) as { getAttribute?: unknown } | null;
+  while (proto && !Object.prototype.hasOwnProperty.call(proto, "getAttribute")) {
+    proto = Object.getPrototypeOf(proto);
+  }
+  assert.ok(proto, "linkedom Element prototype not found");
+  const original = proto.getAttribute as (this: unknown, name: string) => string | null;
+  proto.getAttribute = function (this: unknown, name: string) {
+    const value = original.call(this, name);
+    return typeof value === "string"
+      ? value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+      : value;
+  };
+}
+
+const option = (name: string, value: string | number) =>
+  `<Option name="${name}" type="QString" value="${value}"/>`;
+
+/** One `<field>` of a layer's `<fieldConfiguration>`. */
+function field(name: string, widget: string, config = ""): string {
+  return `<field name="${name}"><editWidget type="${widget}"><config>
+    <Option type="Map">${config}</Option></config></editWidget></field>`;
+}
+
+/** A QField-style survey project: a point layer with a form, plus lookup tables. */
+function surveyProject(): string {
+  return `<qgis version="3.44.0">
+    <title>Survey</title>
+    <relations>
+      <relation id="point_owner" referencingLayer="points" referencedLayer="owners">
+        <fieldRef referencingField="owner_id" referencedField="id"/>
+      </relation>
+      <relation id="photo_point" referencingLayer="photos" referencedLayer="points">
+        <fieldRef referencingField="point_uuid" referencedField="uuid"/>
+      </relation>
+    </relations>
+    <projectlayers>
+      <maplayer type="vector" geometry="Point">
+        <id>points</id><layername>Measured points</layername>
+        <datasource>./data/survey.gpkg|layername=points</datasource><provider>ogr</provider>
+        <fieldConfiguration>
+          ${field("fid", "TextEdit")}
+          ${field("uuid", "UuidGenerator")}
+          ${field(
+            "species",
+            "ValueMap",
+            `<Option name="map" type="List">
+               <Option type="Map">${option("Oak", "QUE")}</Option>
+               <Option type="Map">${option("Beech", "FAG")}</Option>
+               <Option type="Map">${option("(none)", "{2839923C-8B7D-419E-B84B-CA2FE9B80EC7}")}</Option>
+             </Option>`,
+          )}
+          ${field("legacy", "ValueMap", `<Option name="map" type="Map">${option("Yes", "y")}${option("No", "n")}</Option>`)}
+          ${field("height", "Range", option("Min", 0) + option("Max", 60) + option("Step", 5) + option("Style", "Slider"))}
+          ${field("count", "Range", option("Min", -2147483648) + option("Max", 2147483647) + option("Style", "SpinBox"))}
+          ${field("damaged", "CheckBox")}
+          ${field("fenced", "CheckBox", option("CheckedState", "Y") + option("UncheckedState", "N"))}
+          ${field("flag", "CheckBox", option("CheckedState", "1") + option("UncheckedState", "0"))}
+          ${field("logged_at", "DateTime", option("field_format", "yyyy-MM-dd HH:mm:ss"))}
+          ${field("synced_at", "DateTime", option("field_format", "yyyy-MM-dd") + option("field_iso_format", "true"))}
+          ${field("tags", "ValueRelation", option("Layer", "materials") + option("Key", "code") + option("Value", "label") + option("AllowMulti", "true"))}
+          ${field("visited", "DateTime")}
+          ${field("accuracy", "TextEdit")}
+          ${field("easting", "Hidden")}
+          ${field("photo_name", "ExternalResource")}
+          ${field("material", "ValueRelation", option("Layer", "materials") + option("Key", "code") + option("Value", "label"))}
+          ${field("owner_id", "RelationReference", option("Relation", "point_owner"))}
+          ${field("note_code", "ValueRelation", option("Layer", "notes") + option("Key", "code") + option("Value", "text"))}
+          ${field("parent", "RelationReference", option("Relation", "gone"))}
+          ${field("note", "TextEdit")}
+        </fieldConfiguration>
+        <aliases>
+          <alias field="species" name="Tree species" index="2"/>
+          <alias field="note" name="" index="14"/>
+        </aliases>
+        <defaults>
+          <default field="visited" expression="now()" applyOnUpdate="0"/>
+          <default field="accuracy" expression="coalesce(@position_horizontal_accuracy, @gnss_horizontal_accuracy)" applyOnUpdate="0"/>
+          <default field="easting" expression="x(transform(@position_coordinate, 'EPSG:4326', 'EPSG:2056'))" applyOnUpdate="0"/>
+          <default field="photo_name" expression="'DCIM/' || species || '_' || format_date(now(), 'yyyyMMdd') || '.jpg'" applyOnUpdate="0"/>
+          <default field="count" expression="aggregate('points', 'count', fid)" applyOnUpdate="0"/>
+          <default field="note" expression="" applyOnUpdate="0"/>
+        </defaults>
+        <constraints>
+          <constraint field="species" constraints="1" notnull_strength="1" exp_strength="0" unique_strength="0"/>
+          <constraint field="damaged" constraints="1" notnull_strength="2" exp_strength="0" unique_strength="0"/>
+          <constraint field="height" constraints="4" notnull_strength="0" exp_strength="1" unique_strength="0"/>
+          <constraint field="count" constraints="4" notnull_strength="0" exp_strength="1" unique_strength="0"/>
+          <constraint field="note" constraints="4" notnull_strength="0" exp_strength="2" unique_strength="0"/>
+        </constraints>
+        <constraintExpressions>
+          <constraint field="height" exp="height > 0 and 60 >= height" desc="between 0 and 60 m"/>
+          <constraint field="count" exp="maximum(count) > count" desc=""/>
+          <constraint field="note" exp="length(note) > 3" desc="soft"/>
+        </constraintExpressions>
+      </maplayer>
+      <maplayer type="vector" geometry="Polygon">
+        <id>parcels</id><layername>Parcels</layername>
+        <datasource>./data/survey.gpkg|layername=parcels|subset=a = 1</datasource><provider>ogr</provider>
+        <fieldConfiguration>${field("fid", "TextEdit")}${field("name", "TextEdit")}</fieldConfiguration>
+      </maplayer>
+      <maplayer type="vector" geometry="No geometry">
+        <id>photos</id><layername>Photos</layername>
+        <datasource>./data/survey.gpkg|layername=photos</datasource><provider>ogr</provider>
+        <fieldConfiguration>
+          ${field("fid", "TextEdit")}
+          ${field("uuid", "UuidGenerator")}
+          ${field("point_uuid", "RelationReference", option("Relation", "photo_point"))}
+          ${field("path", "ExternalResource", option("DocumentViewer", 1))}
+          ${field("manual", "ExternalResource", option("DocumentViewer", 0))}
+          ${field("photo_path", "ExternalResource", option("DocumentViewer", 0))}
+          ${field("picture", "ExternalResource", option("DocumentViewer", 0))}
+          ${field("caption", "TextEdit")}
+          ${field("taken", "DateTime")}
+        </fieldConfiguration>
+        <editorlayout>tablayout</editorlayout>
+        <attributeEditorForm>
+          <attributeEditorField name="point_uuid"/>
+          <attributeEditorContainer name="Picture">
+            <attributeEditorField name="path"/>
+            <attributeEditorContainer name="Details">
+              <attributeEditorField name="caption"/>
+            </attributeEditorContainer>
+            <attributeEditorField name="taken"/>
+          </attributeEditorContainer>
+          <attributeEditorRelation name="ignored"/>
+        </attributeEditorForm>
+      </maplayer>
+      <maplayer type="vector" geometry="No geometry">
+        <id>visits</id><layername>Visits</layername>
+        <datasource>./data/survey.gpkg|layername=visits</datasource><provider>ogr</provider>
+        <fieldConfiguration>${field("fid", "TextEdit")}${field("who", "TextEdit")}</fieldConfiguration>
+        <editorlayout>tablayout</editorlayout>
+        <attributeEditorForm><attributeEditorField name="who"/></attributeEditorForm>
+      </maplayer>
+      <maplayer type="vector" geometry="No geometry">
+        <id>remote</id><layername>Remote list</layername>
+        <datasource>/vsicurl/https://example.com/lists.gpkg|layername=codes</datasource><provider>ogr</provider>
+      </maplayer>
+      <maplayer type="vector" geometry="No geometry">
+        <id>notes</id><layername>Notes</layername>
+        <datasource>./data/notes.csv</datasource><provider>ogr</provider>
+      </maplayer>
+      <maplayer type="vector" geometry="No geometry">
+        <id>materials</id><layername>Materials</layername>
+        <datasource>./data/lookups.gpkg|layername=materials</datasource><provider>ogr</provider>
+      </maplayer>
+      <maplayer type="vector" geometry="No geometry">
+        <id>owners</id><layername>Owners</layername>
+        <datasource>./data/survey.gpkg|layername=owners</datasource><provider>ogr</provider>
+        <previewExpression>"last_name" || ', ' || "first_name"</previewExpression>
+      </maplayer>
+    </projectlayers>
+  </qgis>`;
+}
+
+/** Layers come back bottom-to-top, so tests look them up by QGIS id. */
+function imported() {
+  const result = importQgisProject(surveyProject(), "/home/me/survey/survey.qgs");
+  const layer = (id: string) => {
+    const found = result.project.layers.find((candidate) => candidate.id === id);
+    assert.ok(found, `layer ${id} was not imported`);
+    return found;
+  };
+  return { ...result, result, layer, points: layer("points"), parcels: layer("parcels") };
+}
+
+describe("QGIS form import", () => {
+  it("reads each GeoPackage layer from its own table", () => {
+    const { points, parcels } = imported();
+    assert.deepEqual(
+      [points, parcels].map((layer) => [layer.sourcePath, layer.metadata.sourceLayer]),
+      [
+        ["/home/me/survey/data/survey.gpkg", "points"],
+        ["/home/me/survey/data/survey.gpkg", "parcels"],
+      ],
+    );
+  });
+
+  it("imports GeoPackage tables without geometry as table layers", () => {
+    const { layer, warnings } = imported();
+    const materials = layer("materials");
+    assert.equal(materials.metadata.attributeTable, true);
+    assert.equal(materials.metadata.sourceLayer, "materials");
+    assert.equal(materials.sourcePath, "/home/me/survey/data/lookups.gpkg");
+    assert.equal(isAttributeTableLayer(materials), true);
+    assert.equal(isAttributeTableLayer(layer("points")), false);
+    // A lookup list has no form of its own, so it is not a capture target.
+    assert.equal(isCollectionLayer(materials), false);
+    // A table that has a form is one, capturing records without a location.
+    const photos = layer("photos");
+    assert.equal(isCollectionLayer(photos), true);
+    assert.equal(getGeometryType(photos), "none");
+    // Only a GeoPackage table can be read row by row.
+    // Nor one behind a URL: a table's rows are read from the file itself.
+    assert.deepEqual(
+      warnings.sort((a, b) => a.layerName.localeCompare(b.layerName)),
+      [
+        { layerName: "Notes", reason: "no-geometry" },
+        { layerName: "Remote list", reason: "no-geometry" },
+      ],
+    );
+  });
+
+  it("links relation dropdowns to the layer they read from", () => {
+    const { points, layer } = imported();
+    const byField = new Map(points.attributeForm?.fields.map((entry) => [entry.field, entry]));
+    assert.deepEqual(byField.get("material")?.valueRelation, {
+      layerId: "materials",
+      keyField: "code",
+      labelField: "label",
+    });
+    assert.deepEqual(byField.get("owner_id")?.valueRelation, {
+      layerId: "owners",
+      keyField: "id",
+      labelExpression: `"last_name" || ', ' || "first_name"`,
+    });
+    const link = layer("photos").attributeForm?.fields.find(
+      (entry) => entry.field === "point_uuid",
+    );
+    assert.deepEqual(link?.valueRelation, { layerId: "points", keyField: "uuid" });
+  });
+
+  it("reads live entries from the referenced layer, falling back when it is not loaded", () => {
+    const { points } = imported();
+    const rows = new Map<string, Record<string, unknown>[]>([
+      [
+        "materials",
+        [
+          { code: "ST", label: "Steel" },
+          { code: "WD", label: "Wood" },
+        ],
+      ],
+    ]);
+    const resolved = resolveAttributeFormRelations(points.attributeForm, (id) => rows.get(id));
+    const material = resolved?.fields.find((entry) => entry.field === "material");
+    assert.equal(material?.widget, "valueMap");
+    assert.deepEqual(material?.valueMap, [
+      { value: "ST", label: "Steel" },
+      { value: "WD", label: "Wood" },
+    ]);
+    assert.equal(material?.valueType, "string");
+    // Owners is not loaded: the field is left exactly as it was.
+    const owner = resolved?.fields.find((entry) => entry.field === "owner_id");
+    assert.equal(owner?.widget, "text");
+    // A layer that is loaded but empty offers nothing, not a stale snapshot.
+    const stale = {
+      fields: [
+        {
+          field: "material",
+          widget: "valueMap" as const,
+          valueMap: [{ value: "OLD" }],
+          valueRelation: { layerId: "materials", keyField: "code" },
+        },
+      ],
+    };
+    assert.deepEqual(resolveAttributeFormRelations(stale, () => [])?.fields[0].valueMap, []);
+    assert.deepEqual(resolveAttributeFormRelations(stale, () => undefined)?.fields[0].valueMap, [
+      { value: "OLD" },
+    ]);
+    // A table too long for a list is left alone, without sorting all of it.
+    const long = Array.from({ length: 1500 }, (_, index) => ({ code: `C${index}` }));
+    assert.equal(resolveAttributeFormRelations(stale, () => long)?.fields[0].valueMap?.length, 1);
+    // Nothing to resolve returns the same object, so memoized callers stay put.
+    assert.equal(
+      resolveAttributeFormRelations(points.attributeForm, () => undefined),
+      points.attributeForm,
+    );
+  });
+
+  it("offers the child records of a record that was just saved", () => {
+    const { result } = imported();
+    const parent = { layerId: "points", properties: { uuid: "{abc}", species: "QUE" } };
+    assert.deepEqual(relatedRecordTargets(parent, result.project.layers), [
+      {
+        layerId: "photos",
+        layerName: "Photos",
+        field: "point_uuid",
+        fieldLabel: "point_uuid",
+        value: "{abc}",
+      },
+    ]);
+    // Without the key there is nothing to link to.
+    assert.deepEqual(
+      relatedRecordTargets({ layerId: "points", properties: {} }, result.project.layers),
+      [],
+    );
+    assert.deepEqual(
+      relatedRecordTargets({ layerId: "photos", properties: { uuid: "x" } }, result.project.layers),
+      [],
+    );
+  });
+
+  it("imports a picture attachment as a photo field", () => {
+    const { layer } = imported();
+    const byField = new Map(
+      layer("photos").attributeForm?.fields.map((entry) => [entry.field, entry]),
+    );
+    assert.equal(byField.get("path")?.widget, "attachment");
+    // Not an image viewer and not named like a picture: left as a path.
+    assert.equal(byField.get("manual")?.widget, "text");
+    // The name decides only when it is a whole word for a picture.
+    assert.equal(byField.get("photo_path")?.widget, "text");
+    assert.equal(byField.get("picture")?.widget, "attachment");
+  });
+
+  it("follows a drag-and-drop layout: order, sections and hidden fields", () => {
+    const { layer } = imported();
+    const photos = layer("photos");
+    assert.deepEqual(photos.attributeForm?.sections, [
+      // An untitled run: the field sits above the first tab, and stays there.
+      { title: "", fields: ["point_uuid"] },
+      { title: "Picture", fields: ["path"] },
+      { title: "Picture \u203a Details", fields: ["caption"] },
+      { title: "Picture", fields: ["taken"] },
+    ]);
+    const schema = getSchema(photos);
+    assert.deepEqual(
+      schema.fields.map((entry) => entry.key),
+      ["point_uuid", "path", "caption", "taken", "uuid", "manual", "photo_path", "picture"],
+    );
+    // Left out of the layout: not shown, but still saved (uuid has a default).
+    for (const hidden of ["uuid", "manual", "photo_path", "picture"]) {
+      const config = getAttributeFormField(photos.attributeForm, hidden);
+      assert.ok(config);
+      assert.equal(isAttributeFormFieldVisible(config, {}), false, hidden);
+    }
+    assert.equal(getAttributeFormField(photos.attributeForm, "uuid")?.defaultValue, "uuid()");
+    assert.deepEqual(
+      orderFormFields(schema.fields, photos.attributeForm?.sections).map((group) => [
+        group.title,
+        group.fields.map((entry) => entry.key),
+      ]),
+      [
+        ["", ["point_uuid"]],
+        ["Picture", ["path"]],
+        ["Picture \u203a Details", ["caption"]],
+        ["Picture", ["taken"]],
+        ["", ["uuid", "manual", "photo_path", "picture"]],
+      ],
+    );
+    assert.deepEqual(orderFormFields(schema.fields, undefined).length, 1);
+    // A table whose layout has no tabs is still a form to capture into, and
+    // carries no sections since the field order already says it all.
+    const visits = layer("visits");
+    assert.equal(isCollectionLayer(visits), true);
+    assert.equal(visits.attributeForm?.sections, undefined);
+    // A group split only by fields that are not in the schema reads as one.
+    assert.deepEqual(
+      orderFormFields(schema.fields.slice(1, 4), [
+        { title: "A", fields: ["path"] },
+        { title: "A \u203a gone", fields: ["missing"] },
+        { title: "A", fields: ["caption", "taken"] },
+      ]).map((group) => [group.title, group.fields.length]),
+      [["A", 3]],
+    );
+  });
+
+  it("builds a record without geometry for a table layer", () => {
+    const feature = buildGeometryFeature("none", [], { caption: "north side" });
+    assert.equal(feature.geometry, null);
+    assert.deepEqual(feature.properties, { caption: "north side" });
+    assert.equal(minVertices("none"), 0);
+  });
+
+  it("carries widgets, aliases, required fields, constraints and defaults over", () => {
+    const { points } = imported();
+    const byField = new Map(points.attributeForm?.fields.map((entry) => [entry.field, entry]));
+    assert.equal(byField.has("fid"), false);
+    assert.deepEqual(byField.get("uuid"), {
+      field: "uuid",
+      widget: "text",
+      defaultValue: "uuid()",
+    });
+    assert.deepEqual(byField.get("species"), {
+      field: "species",
+      widget: "valueMap",
+      valueMap: [
+        { value: "QUE", label: "Oak" },
+        { value: "FAG", label: "Beech" },
+      ],
+      alias: "Tree species",
+      required: true,
+    });
+    assert.deepEqual(byField.get("legacy")?.valueMap, [
+      { value: "y", label: "Yes" },
+      { value: "n", label: "No" },
+    ]);
+    assert.deepEqual(byField.get("height"), {
+      field: "height",
+      widget: "range",
+      min: 0,
+      max: 60,
+      step: 5,
+      constraintExpression: JSON.stringify([
+        "any",
+        ["==", ["get", "height"], null],
+        [
+          "all",
+          [">", ["to-number", ["get", "height"]], 0],
+          [">=", 60, ["to-number", ["get", "height"]]],
+        ],
+      ]),
+      constraintDescription: "between 0 and 60 m",
+    });
+    // The 32-bit limits QGIS writes for an unbounded spin box are not bounds.
+    assert.deepEqual(byField.get("count"), { field: "count", widget: "number" });
+    // A soft not-null only warns in QGIS, so it is not a required field here.
+    assert.deepEqual(byField.get("damaged"), { field: "damaged", widget: "checkbox" });
+    assert.deepEqual(byField.get("visited"), {
+      field: "visited",
+      widget: "date",
+      defaultValue: "now()",
+    });
+    // A checkbox that stores custom states keeps writing those states.
+    assert.deepEqual(byField.get("fenced"), {
+      field: "fenced",
+      widget: "valueMap",
+      valueMap: [{ value: "Y" }, { value: "N" }],
+      valueType: "string",
+    });
+    // Numeric states on an integer column keep storing numbers.
+    assert.deepEqual(byField.get("flag"), {
+      field: "flag",
+      widget: "valueMap",
+      valueMap: [{ value: "1" }, { value: "0" }],
+    });
+    // A date/time field keeps its time: the date picker would drop it.
+    assert.deepEqual(byField.get("logged_at"), { field: "logged_at", widget: "text" });
+    assert.deepEqual(byField.get("synced_at"), { field: "synced_at", widget: "text" });
+    // A multi-select holds a list of keys, so it is not made a single choice.
+    assert.deepEqual(byField.get("tags"), { field: "tags", widget: "text" });
+    assert.equal(
+      byField.get("photo_name")?.defaultValue,
+      "'DCIM/' || species || '_' || format_date(now(), 'yyyyMMdd') || '.jpg'",
+    );
+    assert.deepEqual(byField.get("note"), { field: "note", widget: "text" });
+  });
+
+  it("notes what it could not carry over", () => {
+    assert.deepEqual(imported().formNotes, [
+      {
+        layerName: "Measured points",
+        field: "count",
+        reason: "constraint",
+        detail: "maximum(count) > count",
+      },
+      { layerName: "Measured points", field: "count", reason: "default", detail: "aggregate()" },
+      { layerName: "Measured points", field: "tags", reason: "relation-multi" },
+      { layerName: "Measured points", field: "parent", reason: "relation" },
+    ]);
+  });
+
+  it("makes a layer with a form a Field Collection target", () => {
+    const { points, parcels } = imported();
+    assert.equal(isCollectionLayer(points), true);
+    assert.equal(getGeometryType(points), "point");
+    assert.equal(points.metadata.localFileReloadable, true);
+    assert.deepEqual(getSchema(points).fields.slice(0, 3), [
+      { key: "uuid", label: "uuid", type: "text" },
+      { key: "species", label: "Tree species", type: "text", required: true },
+      { key: "legacy", label: "legacy", type: "text" },
+    ]);
+    assert.equal(getSchema(points).fields.find((entry) => entry.key === "height")?.type, "number");
+    // Plain text fields only: nothing to carry over, so not a capture target.
+    assert.equal(parcels.attributeForm, undefined);
+    assert.equal(isCollectionLayer(parcels), false);
+  });
+
+  it("hides a Hidden-widget field", () => {
+    const { points } = imported();
+    const easting = getAttributeFormField(points.attributeForm, "easting");
+    assert.ok(easting);
+    assert.equal(isAttributeFormFieldVisible(easting, {}), false);
+    const height = getAttributeFormField(points.attributeForm, "height");
+    assert.ok(height);
+    assert.equal(isAttributeFormFieldVisible(height, {}), true);
+  });
+
+  it("does not hold an empty optional field against its constraint", () => {
+    const { points } = imported();
+    // height is optional: blank passes, as it does in QGIS.
+    assert.deepEqual(validateAttributeFormValues(points.attributeForm, { species: "QUE" }), {
+      ok: true,
+      errors: {},
+    });
+    const result = validateAttributeFormValues(points.attributeForm, {
+      species: "QUE",
+      height: 20,
+    });
+    assert.deepEqual(result, { ok: true, errors: {} });
+    const failing = validateAttributeFormValues(points.attributeForm, { height: 80 });
+    assert.equal(failing.errors.species?.code, "required");
+    assert.equal(failing.errors.height?.code, "range");
+  });
+
+  it("snapshots every dropdown, marking the ones that read their layer live as optional", async () => {
+    const { result, points } = imported();
+    // Materials, Owners and Points are layers, so those dropdowns are read
+    // live and their snapshot is only a fallback; Notes is a CSV table that
+    // was skipped, so its dropdown depends on the snapshot.
+    const reads: string[] = [];
+    await materializeQgisFormRelations(result, async (path, table, options) => {
+      reads.push(`${table || "notes.csv"}:${options?.optional ? "optional" : "needed"}`);
+      // The host declines the optional read of the owners table.
+      if (table === "owners") throw new Error("too large for a fallback");
+      if (table === "materials") return [{ code: "ST", label: "Steel" }];
+      return [
+        { code: "B", text: "Beta" },
+        { code: "A", text: "Alpha" },
+        { code: "B", text: "Beta again" },
+        { code: null, text: "No code" },
+      ];
+    });
+    assert.deepEqual(reads.sort(), [
+      "materials:optional",
+      "notes.csv:needed",
+      "owners:optional",
+      "points:optional",
+    ]);
+    const fields = points.attributeForm?.fields ?? [];
+    const note = fields.find((entry) => entry.field === "note_code");
+    assert.equal(note?.widget, "valueMap");
+    assert.deepEqual(note?.valueMap, [
+      { value: "A", label: "Alpha" },
+      { value: "B", label: "Beta" },
+    ]);
+    assert.equal(note?.valueType, "string");
+    assert.equal(note?.valueRelation, undefined);
+    // A live dropdown keeps its link and gains the fallback list.
+    const material = fields.find((entry) => entry.field === "material");
+    assert.deepEqual(material?.valueMap, [{ value: "ST", label: "Steel" }]);
+    assert.equal(material?.valueRelation?.layerId, "materials");
+    // A declined fallback leaves the live dropdown as it was, with no note.
+    const owner = fields.find((entry) => entry.field === "owner_id");
+    assert.equal(owner?.valueMap, undefined);
+    assert.equal(owner?.valueRelation?.layerId, "owners");
+    assert.deepEqual(
+      result.formNotes.filter((entry) => entry.field === "owner_id"),
+      [],
+    );
+    assert.deepEqual(result.formRelations, []);
+  });
+
+  it("keeps a text box and says why when a snapshot cannot be taken", async () => {
+    const unreadable = imported();
+    await materializeQgisFormRelations(unreadable.result, async () => {
+      throw new Error("locked");
+    });
+    const empty = imported();
+    await materializeQgisFormRelations(empty.result, async () => []);
+    const tooLong = imported();
+    await materializeQgisFormRelations(tooLong.result, async () =>
+      Array.from({ length: MAX_RELATION_ENTRIES + 1 }, (_, index) => ({
+        code: `N${index}`,
+        text: `Note ${index}`,
+      })),
+    );
+    for (const [run, reason] of [
+      [unreadable, "relation"],
+      [empty, "relation-empty"],
+      [tooLong, "relation-too-large"],
+    ] as const) {
+      const note = run.points.attributeForm?.fields.find((entry) => entry.field === "note_code");
+      assert.equal(note?.widget, "text", reason);
+      assert.deepEqual(
+        run.result.formNotes.filter((entry) => entry.field === "note_code"),
+        [{ layerName: "Measured points", field: "note_code", reason }],
+      );
+    }
+    // Reported at import regardless of the snapshot.
+    assert.deepEqual(
+      unreadable.result.formNotes
+        .filter((entry) => entry.reason.startsWith("relation") && entry.field !== "note_code")
+        .map((entry) => [entry.field, entry.reason]),
+      [
+        ["tags", "relation-multi"],
+        ["parent", "relation"],
+      ],
+    );
+  });
+
+  it("falls back to the display expression for a row with no label", () => {
+    assert.deepEqual(
+      relationValueMap(
+        [
+          { id: 1, label: "One", code: "x" },
+          { id: 2, label: null, code: "y" },
+        ],
+        {
+          field: "f",
+          referencedLayerId: "t",
+          keyField: "id",
+          labelField: "label",
+          useDisplayExpression: true,
+        },
+        "'code ' || code",
+      ).entries,
+      [
+        { value: "2", label: "code y" },
+        { value: "1", label: "One" },
+      ],
+    );
+  });
+
+  it("labels relation entries with the key when nothing else is known", () => {
+    assert.deepEqual(
+      relationValueMap([{ id: "b" }, { id: "a" }], {
+        field: "x",
+        referencedLayerId: "t",
+        keyField: "id",
+        useDisplayExpression: true,
+      }),
+      { entries: [{ value: "a" }, { value: "b" }], valueType: "string" },
+    );
+  });
+
+  it("detaches a file-backed layer once something is captured into it", () => {
+    const { points } = imported();
+    assert.equal(isFileBackedCollectionLayer(points), true);
+    const patch = detachFromSourceFile(points);
+    assert.equal("sourcePath" in patch && patch.sourcePath, undefined);
+    assert.equal(patch.metadata?.localFileReloadable, undefined);
+    assert.equal(patch.metadata?.capturedFromPath, "/home/me/survey/data/survey.gpkg");
+    assert.equal(patch.metadata?.fieldCollection, true);
+    const detached = { ...points, ...patch };
+    assert.equal(isFileBackedCollectionLayer(detached), false);
+    // A layer created in the app, or one read from a URL, has nothing to detach.
+    assert.deepEqual(detachFromSourceFile({ metadata: { fieldCollection: true } }), {});
+    assert.deepEqual(
+      detachFromSourceFile({ sourcePath: "https://example.com/a.geojson", metadata: {} }),
+      {},
+    );
+  });
+});
+
+describe("Field Collection default values", () => {
+  const fix = {
+    lng: 9.25,
+    lat: 46.8,
+    accuracy: 3.5,
+    satellites: 11,
+    altitude: 1020,
+    heading: null,
+    speed: null,
+    timestamp: Date.UTC(2026, 10, 11, 12, 0, 0),
+  };
+
+  it("exposes a GPS fix as QField position variables, under both spellings", () => {
+    const variables = captureExpressionVariables({ fix, layerName: "Points", user: "ada" });
+    assert.deepEqual(variables.position_coordinate, {
+      type: "Point",
+      coordinates: [9.25, 46.8, 1020],
+    });
+    assert.equal(variables.position_horizontal_accuracy, 3.5);
+    assert.equal(variables.gnss_horizontal_accuracy, 3.5);
+    assert.equal(variables.position_number_of_used_satellites, 11);
+    assert.equal("position_direction" in variables, false);
+    assert.equal(variables.layer_name, "Points");
+    assert.equal(variables.user_full_name, "ada");
+  });
+
+  it("sets no position variables for a point picked on the map", () => {
+    const variables = captureExpressionVariables({ fix: null, layerName: "Points" });
+    assert.deepEqual(variables, { layer_name: "Points" });
+  });
+
+  it("lists the EPSG codes a form's defaults need", () => {
+    const { points } = imported();
+    assert.deepEqual(defaultValueEpsgCodes(points.attributeForm), [2056, 4326]);
+  });
+
+  it("refreshes its own values but never overwrites what the user typed", () => {
+    const { points } = imported();
+    const form = points.attributeForm;
+    const now = () => new Date(2026, 10, 11, 9, 30, 0);
+    const first = applyCaptureDefaults(
+      form,
+      {},
+      {},
+      {
+        now,
+        uuid: () => "aaaaaaaa-0000-4000-8000-000000000000",
+        variables: captureExpressionVariables({ fix }),
+        properties: { species: "QUE" },
+      },
+    );
+    assert.equal(first.values.uuid, "{aaaaaaaa-0000-4000-8000-000000000000}");
+    assert.equal(first.values.visited, "2026-11-11");
+    assert.equal(first.values.accuracy, "3.5");
+    assert.equal(first.values.photo_name, "DCIM/QUE_20261111.jpg");
+    // No transform hook yet: the projected easting stays empty, not wrong.
+    assert.equal(first.values.easting ?? "", "");
+
+    // The user fixes the date; the point is then re-picked on the map (no fix).
+    const edited = { ...first.values, visited: "2026-11-01" };
+    const second = applyCaptureDefaults(form, edited, first.autoFilled, {
+      now,
+      uuid: () => "bbbbbbbb-0000-4000-8000-000000000000",
+      variables: captureExpressionVariables({ fix: null }),
+      properties: { species: "QUE" },
+    });
+    assert.equal(second.values.visited, "2026-11-01");
+    assert.equal(second.values.accuracy, "");
+    assert.equal("visited" in second.autoFilled, false);
+  });
+
+  it("fills a default built from a field the user types after the capture", () => {
+    const form = {
+      fields: [
+        { field: "uuid", widget: "text" as const, defaultValue: "uuid('WithoutBraces')" },
+        { field: "site", widget: "text" as const },
+        { field: "file", widget: "text" as const, defaultValue: "site || '.jpg'" },
+      ],
+    };
+    let id = 0;
+    const context = { uuid: () => `id-${(id += 1)}` };
+    const captured = applyCaptureDefaults(form, {}, {}, context);
+    assert.deepEqual(captured.values, { uuid: "id-1" });
+
+    const typed = { ...captured.values, site: "A1" };
+    const updated = applyCaptureDefaults(
+      form,
+      typed,
+      captured.autoFilled,
+      { ...context, properties: { uuid: "id-1", site: "A1" } },
+      "input",
+    );
+    // The file name follows the site; the ID is not regenerated by typing.
+    assert.deepEqual(updated.values, { uuid: "id-1", site: "A1", file: "A1.jpg" });
+    assert.equal(updated.autoFilled.uuid, "id-1");
+
+    const settled = applyCaptureDefaults(
+      form,
+      updated.values,
+      updated.autoFilled,
+      { ...context, properties: { uuid: "id-1", site: "A1", file: "A1.jpg" } },
+      "input",
+    );
+    assert.equal(settled.values, updated.values);
+  });
+
+  it("keeps the capture time when a field in a timestamped name changes", () => {
+    const form = {
+      fields: [
+        { field: "site", widget: "text" as const },
+        {
+          field: "file",
+          widget: "text" as const,
+          defaultValue: "site || '_' || format_date(now(), 'HHmmss') || '.jpg'",
+        },
+      ],
+    };
+    const capturedAt = new Date(2026, 10, 11, 9, 30, 15);
+    const context = { now: () => capturedAt };
+    const captured = applyCaptureDefaults(
+      form,
+      { site: "A1" },
+      {},
+      {
+        ...context,
+        properties: { site: "A1" },
+      },
+    );
+    assert.equal(captured.values.file, "A1_093015.jpg");
+    const renamed = applyCaptureDefaults(
+      form,
+      { ...captured.values, site: "B2" },
+      captured.autoFilled,
+      { ...context, properties: { site: "B2", file: "A1_093015.jpg" } },
+      "input",
+    );
+    assert.equal(renamed.values.file, "B2_093015.jpg");
+  });
+
+  it("leaves a default the user emptied empty", () => {
+    const form = {
+      fields: [
+        { field: "site", widget: "text" as const },
+        { field: "file", widget: "text" as const, defaultValue: "site || '.jpg'" },
+      ],
+    };
+    const captured = applyCaptureDefaults(form, { site: "A1" }, {}, { properties: { site: "A1" } });
+    assert.equal(captured.values.file, "A1.jpg");
+    // The user clears the optional field, then edits something else.
+    const cleared = { ...captured.values, file: "" };
+    const first = applyCaptureDefaults(
+      form,
+      cleared,
+      captured.autoFilled,
+      { properties: { site: "A1" } },
+      "input",
+    );
+    assert.equal(first.values, cleared);
+    const second = applyCaptureDefaults(
+      form,
+      { ...cleared, site: "B2" },
+      first.autoFilled,
+      { properties: { site: "B2" } },
+      "input",
+    );
+    assert.equal(second.values.file, "");
+  });
+
+  it("does not feed a cleared default back into the fields that read it", () => {
+    const form = {
+      fields: [
+        {
+          field: "accuracy",
+          widget: "text" as const,
+          defaultValue: "@position_horizontal_accuracy",
+        },
+        { field: "note", widget: "text" as const, defaultValue: "'Accuracy: ' || accuracy" },
+      ],
+    };
+    const first = applyCaptureDefaults(
+      form,
+      {},
+      {},
+      {
+        variables: captureExpressionVariables({ fix }),
+      },
+    );
+    assert.deepEqual(first.values, { accuracy: "3.5", note: "Accuracy: 3.5" });
+    // Repositioned on the map: no fix, so both defaults clear together.
+    const second = applyCaptureDefaults(form, first.values, first.autoFilled, {
+      variables: captureExpressionVariables({ fix: null }),
+      properties: { accuracy: "3.5", note: "Accuracy: 3.5" },
+    });
+    assert.deepEqual(second.values, { accuracy: "", note: "" });
+  });
+
+  it("returns the same object when nothing changes", () => {
+    const values = { note: "hello" };
+    const result = applyCaptureDefaults(
+      { fields: [{ field: "note", widget: "text" }] },
+      values,
+      {},
+      {},
+    );
+    assert.equal(result.values, values);
+  });
+});
+
+describe("QGIS project symbology", () => {
+  // The color format QGIS 3.40+ writes: 8-bit channels, then the color in its own space.
+  const color = (r: number, g: number, b: number) => `${r},${g},${b},255,rgb:0.5,0.5,0.5,1`;
+  const fill = (name: string, rgb: string) =>
+    `<symbol name="${name}" type="fill" alpha="1"><layer class="SimpleFill">
+       <Option type="Map"><Option name="color" type="QString" value="${rgb}"/>
+       <Option name="outline_color" type="QString" value="${color(0, 0, 0)}"/></Option>
+     </layer></symbol>`;
+  const layer = (id: string, renderer: string, labeling = "") => `
+    <maplayer type="vector" geometry="Polygon">
+      <id>${id}</id><layername>${id}</layername>
+      <datasource>./data/${id}.geojson</datasource><provider>ogr</provider>
+      ${renderer}${labeling}
+    </maplayer>`;
+  const categorized = `<renderer-v2 type="categorizedSymbol" attr="crop">
+      <categories>
+        <category value="colza" label="Colza" symbol="0" render="true"/>
+        <category value="grass" label="Grass" symbol="1" render="true"/>
+      </categories>
+      <symbols>${fill("0", color(255, 200, 0))}${fill("1", color(0, 160, 60))}</symbols>
+    </renderer-v2>`;
+  const styled = () =>
+    importQgisProject(
+      `<qgis version="3.44.0"><projectlayers>
+        ${layer("fields", categorized)}
+        ${layer("clustered", `<renderer-v2 type="pointCluster">${categorized}</renderer-v2>`)}
+        ${layer(
+          "zones",
+          `<renderer-v2 type="graduatedSymbol" attr="area" graduatedMethod="GraduatedColor">
+             <ranges>
+               <range lower="0" upper="10" label="small" symbol="0" render="true"/>
+               <range lower="10" upper="50" label="large" symbol="1" render="true"/>
+             </ranges>
+             <symbols>${fill("0", color(240, 240, 240))}${fill("1", color(20, 20, 120))}</symbols>
+           </renderer-v2>`,
+        )}
+        ${layer(
+          "rules",
+          `<renderer-v2 type="RuleRenderer"><rules key="r">
+             <rule key="a" symbol="0" label="Residential" filter="&quot;landuse&quot; = 'residential'"/>
+             <rule key="b" symbol="1" label="Odd" filter="geom_to_wkt($geometry) = 'x'"/>
+             <rule key="c" symbol="1" label="Odd too" filter="geom_to_wkt($geometry) = 'y'"/>
+           </rules>
+           <symbols>${fill("0", color(200, 50, 50))}${fill("1", color(50, 50, 200))}</symbols>
+           </renderer-v2>`,
+          `<labeling type="simple"><settings><text-style fieldName="upper(name)" isExpression="1"/></settings></labeling>`,
+        )}
+        ${layer(
+          "clusteredSingle",
+          `<renderer-v2 type="pointCluster"><renderer-v2 type="singleSymbol"><symbols><symbol>
+             <layer class="SimpleMarker"><Option name="color" value="${color(200, 10, 10)}"/>
+             <Option name="size" value="4"/></layer>
+           </symbol></symbols></renderer-v2></renderer-v2>`,
+          `<labeling type="simple"><settings><text-style fieldName="&quot;name&quot;" isExpression="1"/></settings></labeling>`,
+        )}
+        ${layer("unreadable", `<renderer-v2 type="categorizedSymbol" attr="crop"/>`)}
+        ${layer(
+          "plain",
+          `<renderer-v2 type="singleSymbol"><symbols><symbol><layer class="SimpleFill">
+             <Option name="color" value="${color(10, 20, 30)}"/>
+           </layer></symbol></symbols></renderer-v2>`,
+          `<labeling type="simple"><settings><text-style fieldName="name" isExpression="0"/></settings></labeling>`,
+        )}
+      </projectlayers></qgis>`,
+      "/work/styled.qgs",
+    );
+  const byId = (result: ReturnType<typeof styled>, id: string) => {
+    const found = result.project.layers.find((candidate) => candidate.id === id);
+    assert.ok(found, `layer ${id} was not imported`);
+    return found;
+  };
+
+  it("imports a categorized renderer with its classes, colors and labels", () => {
+    const { style } = byId(styled(), "fields");
+    assert.equal(style.vectorStyleMode, "categorized");
+    assert.equal(style.vectorStyleProperty, "crop");
+    assert.deepEqual(style.vectorStyleStops, [
+      { value: "colza", color: "#ffc800", label: "Colza" },
+      { value: "grass", color: "#00a03c", label: "Grass" },
+    ]);
+  });
+
+  it("reads through a point cluster renderer to the symbols it wraps", () => {
+    const { style } = byId(styled(), "clustered");
+    assert.equal(style.vectorStyleMode, "categorized");
+    assert.equal(style.vectorStyleStops.length, 2);
+  });
+
+  it("imports a graduated renderer", () => {
+    const { style } = byId(styled(), "zones");
+    assert.equal(style.vectorStyleMode, "graduated");
+    assert.equal(style.vectorStyleProperty, "area");
+    assert.equal(style.vectorStyleStops.length, 2);
+  });
+
+  it("imports the rules it can convert and reports the rest once", () => {
+    const result = styled();
+    const { style } = byId(result, "rules");
+    assert.equal(style.vectorStyleMode, "rule-based");
+    const labels = style.vectorRules.map((rule) => rule.label);
+    assert.equal(labels[0], "Residential");
+    assert.equal(labels.includes("Odd"), false);
+    const notes = result.styleNotes.filter((note) => note.layerName === "rules");
+    // Two unreadable rules share one message; the expression label has its own.
+    assert.equal(notes.length, 2);
+    assert.ok(notes.some((note) => /expression/i.test(note.message) && /rule/i.test(note.message)));
+    assert.ok(notes.some((note) => note.message === "expression-label"));
+    assert.equal(style.labels.enabled, false);
+  });
+
+  it("reads a clustered single symbol, and a label that is only a field reference", () => {
+    const result = styled();
+    const { style } = byId(result, "clusteredSingle");
+    assert.equal(style.vectorStyleMode, "single");
+    assert.equal(style.markerColor, "#c80a0a");
+    // `"name"` typed in expression mode is still the field `name`.
+    assert.equal(style.labels.enabled, true);
+    assert.equal(style.labels.field, "name");
+    assert.deepEqual(
+      result.styleNotes.filter((note) => note.layerName === "clusteredSingle"),
+      [],
+    );
+  });
+
+  it("never falls back to the default style without saying so", () => {
+    const result = styled();
+    assert.equal(byId(result, "unreadable").style.vectorStyleMode, "single");
+    assert.equal(
+      result.styleNotes.filter((note) => note.layerName === "unreadable").length > 0,
+      true,
+    );
+  });
+
+  it("keeps the direct read for a single symbol, including a field label", () => {
+    const result = styled();
+    const { style } = byId(result, "plain");
+    assert.equal(style.vectorStyleMode, "single");
+    assert.equal(style.fillColor, "#0a141e");
+    assert.equal(style.labels.enabled, true);
+    assert.equal(style.labels.field, "name");
+    assert.deepEqual(
+      result.styleNotes.filter((note) => note.layerName === "plain"),
+      [],
+    );
+  });
+});

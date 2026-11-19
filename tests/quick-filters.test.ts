@@ -11,9 +11,21 @@ import {
   type LayerQuickFilter,
 } from "@geolibre/core";
 import {
+  createQuickFilterScan,
   profileQuickFilterFields,
   type QuickFilterFieldProfile,
+  QUICK_FILTER_PROFILE_LIMIT,
 } from "../apps/geolibre-desktop/src/lib/quick-filter-profile";
+import {
+  deselectShownValues,
+  selectShownValues,
+  selectedOptionCount,
+} from "../apps/geolibre-desktop/src/lib/quick-filter-selection";
+import {
+  ensureQuickFilterProfiles,
+  hasQuickFilterProfiles,
+  readQuickFilterProfileCache,
+} from "../apps/geolibre-desktop/src/lib/quick-filter-profile-cache";
 
 /**
  * Run a compiled quick filter through MapLibre's own filter evaluator, so the
@@ -122,6 +134,55 @@ describe("compileQuickFilters", () => {
       keptRows([{ id: "a", field: "code", kind: "categorical", values: [1] }], rows),
       [{ code: 1 }],
     );
+  });
+
+  describe("blank values (issue #3455)", () => {
+    // Every way a feature can have no value, next to values that only look
+    // empty or falsy: whitespace, zero and false are real values.
+    const ROWS = [
+      { id: 1, kind: "A" },
+      { id: 2, kind: "B" },
+      { id: 3, kind: null },
+      { id: 4, kind: "" },
+      { id: 5 },
+      { id: 6, kind: " " },
+      { id: 7, kind: 0 },
+      { id: 8, kind: false },
+    ];
+    const ids = (rows: Record<string, unknown>[]) => rows.map((row) => row.id);
+
+    it("keeps the blanks alongside the chosen values", () => {
+      const kept = keptRows(
+        [{ id: "a", field: "kind", kind: "categorical", values: ["A"], includeBlank: true }],
+        ROWS,
+      );
+      assert.deepEqual(ids(kept), [1, 3, 4, 5]);
+    });
+
+    it("keeps only the blanks when (blank) is the only choice", () => {
+      const kept = keptRows(
+        [{ id: "a", field: "kind", kind: "categorical", values: [], includeBlank: true }],
+        ROWS,
+      );
+      assert.deepEqual(ids(kept), [3, 4, 5]);
+    });
+
+    it("still leaves the blanks out when (blank) is not chosen", () => {
+      const kept = keptRows(
+        [{ id: "a", field: "kind", kind: "categorical", values: ["A", " ", 0, false] }],
+        ROWS,
+      );
+      assert.deepEqual(ids(kept), [1, 6, 7, 8]);
+    });
+
+    it("counts (blank) alone as an active filter", () => {
+      assert.equal(
+        hasActiveQuickFilter(
+          layerWith([{ id: "a", field: "kind", kind: "categorical", includeBlank: true }]),
+        ),
+        true,
+      );
+    });
   });
 
   it("applies inclusive numeric bounds and drops features missing the field", () => {
@@ -393,7 +454,7 @@ describe("active quick filters", () => {
 
   it("clears every selection but keeps the controls", () => {
     const cleared = clearQuickFilterValues([
-      { id: "a", field: "state", kind: "categorical", values: ["OR"] },
+      { id: "a", field: "state", kind: "categorical", values: ["OR"], includeBlank: true },
       { id: "b", field: "pop", kind: "range", min: 1, max: 2 },
       {
         id: "c",
@@ -518,6 +579,56 @@ describe("profileQuickFilterFields", () => {
     assert.equal(a?.present, 2);
   });
 
+  it("counts the blanks the value list leaves out (issue #3455)", () => {
+    // Null, empty, a feature without the property, and one with no properties
+    // at all: the same four the Dashboard charts group as "(blank)".
+    const rows = [{ a: "x" }, { a: null }, { a: "" }, { b: 1 }, null, { a: "x" }];
+    const a = byField(profileQuickFilterFields(rows)).get("a");
+    assert.equal(a?.blankCount, 4);
+    assert.deepEqual(a?.values, [{ value: "x", count: 2 }]);
+  });
+
+  it("offers checkboxes for a field whose sample is all blank", () => {
+    // Only "(blank)" can be picked, but that is still a filter: a large layer's
+    // first features can be blank while later ones carry values.
+    const a = byField(profileQuickFilterFields([{ a: null }, { a: "" }, { b: 1 }])).get("a");
+    assert.equal(a?.blankCount, 3);
+    assert.deepEqual(a?.values, []);
+    assert.deepEqual(a?.availableKinds, ["categorical", "text"]);
+    assert.equal(a?.kind, "text");
+  });
+
+  it("counts every feature by default, not a leading sample", () => {
+    // 8,031 features (more than the 5,000 the profile used to stop at), with
+    // the rarer values and the extreme magnitude only past row 5,000: the
+    // counts and extents must describe the whole layer.
+    const rows = Array.from({ length: 8031 }, (_, index) => ({
+      magType: index < 5000 ? "ml" : index % 3 === 0 ? "md" : "ml",
+      mag: index === 8030 ? 7.1 : 1 + (index % 30) / 10,
+    }));
+    const expectedMd = rows.filter((row) => row.magType === "md").length;
+    const profiles = byField(profileQuickFilterFields(rows));
+    const magType = profiles.get("magType");
+    assert.equal(magType?.sampled, 8031);
+    assert.equal(magType?.present, 8031);
+    assert.deepEqual(magType?.values, [
+      { value: "ml", count: 8031 - expectedMd },
+      { value: "md", count: expectedMd },
+    ]);
+    const total = (magType?.values ?? []).reduce((sum, entry) => sum + entry.count, 0);
+    assert.equal(total, 8031);
+    assert.equal(profiles.get("mag")?.max, 7.1);
+  });
+
+  it("stops at the profile limit on a very large layer", () => {
+    const rows = Array.from({ length: QUICK_FILTER_PROFILE_LIMIT + 10 }, (_, index) => ({
+      a: index % 2,
+    }));
+    const a = byField(profileQuickFilterFields(rows)).get("a");
+    assert.equal(a?.sampled, QUICK_FILTER_PROFILE_LIMIT);
+    assert.equal(a?.present, QUICK_FILTER_PROFILE_LIMIT);
+  });
+
   it("honors the sample limit and the exclusion list", () => {
     const rows = Array.from({ length: 10 }, (_, index) => ({
       a: index,
@@ -532,5 +643,275 @@ describe("profileQuickFilterFields", () => {
       ["a"],
     );
     assert.equal(profiles[0]?.sampled, 3);
+    // The exclusion list also applies to an explicit field list.
+    const named = profileQuickFilterFields(rows, { fields: ["a", "secret"], exclude: ["secret"] });
+    assert.deepEqual(
+      named.map((profile) => profile.field),
+      ["a"],
+    );
+  });
+});
+
+describe("createQuickFilterScan (issue #3426)", () => {
+  const rows = Array.from({ length: 2000 }, (_, index) => ({
+    state: index % 2 === 0 ? "TN" : "OR",
+    pop: index,
+    ...(index === 1500 ? { late: "x" } : {}),
+  }));
+
+  it("profiles only the requested fields, identically to a full pass", () => {
+    const full = new Map(profileQuickFilterFields(rows).map((p) => [p.field, p]));
+    const only = profileQuickFilterFields(rows, { fields: ["pop"] });
+    assert.deepEqual(
+      only.map((profile) => profile.field),
+      ["pop"],
+    );
+    assert.deepEqual(only[0], full.get("pop"));
+  });
+
+  it("gives no profile to a requested field the records do not carry", () => {
+    assert.deepEqual(profileQuickFilterFields(rows, { fields: ["missing"] }), []);
+  });
+
+  it("lists field names without tallying any values", () => {
+    const scan = createQuickFilterScan(rows, { fields: [], names: true });
+    assert.equal(scan.step(), true);
+    assert.deepEqual(scan.fieldNames(), ["state", "pop", "late"]);
+    assert.deepEqual(scan.profiles(), []);
+  });
+
+  it("reads features in place through a property accessor", () => {
+    const features = rows.map((properties) => ({ type: "Feature", properties }));
+    const [state] = profileQuickFilterFields(features, {
+      fields: ["state"],
+      properties: (feature) => feature.properties,
+    });
+    assert.deepEqual(state?.values, [
+      { value: "OR", count: 1000 },
+      { value: "TN", count: 1000 },
+    ]);
+  });
+
+  it("resumes across slices and matches a single pass", () => {
+    const scan = createQuickFilterScan(rows, { fields: ["state", "pop"] });
+    let slices = 1;
+    // Asking to yield at every poll forces the smallest possible slices.
+    while (!scan.step(() => true)) slices += 1;
+    assert.ok(slices > 1, "a 2,000-record scan should take more than one slice");
+    assert.deepEqual(scan.profiles(), profileQuickFilterFields(rows, { fields: ["state", "pop"] }));
+  });
+});
+
+describe("ensureQuickFilterProfiles (issue #3426)", () => {
+  const makeRows = (length = 3000) =>
+    Array.from({ length }, (_, index) => ({ state: index % 3 === 0 ? "TN" : "OR", pop: index }));
+
+  it("answers a small request synchronously and caches it by array identity", () => {
+    const rows = makeRows(10);
+    assert.equal(readQuickFilterProfileCache(rows), undefined);
+    let done = 0;
+    ensureQuickFilterProfiles(rows, { fields: ["state"], names: true }, { onDone: () => done++ });
+    assert.equal(done, 1);
+    const cached = readQuickFilterProfileCache(rows);
+    assert.deepEqual(cached?.names, ["state", "pop"]);
+    assert.equal(cached?.profiles.get("state")?.kind, "categorical");
+    // Only what was asked for is profiled.
+    assert.equal(cached?.profiles.has("pop"), false);
+    assert.equal(hasQuickFilterProfiles(rows, { fields: ["state"], names: true }), true);
+    assert.equal(hasQuickFilterProfiles(rows, { fields: ["pop"] }), false);
+    // An equal but distinct array is a different dataset.
+    assert.equal(readQuickFilterProfileCache(makeRows(10)), undefined);
+  });
+
+  it("scans only the fields the cache is missing", () => {
+    const rows = makeRows(10);
+    ensureQuickFilterProfiles(rows, { fields: ["state"] });
+    const first = readQuickFilterProfileCache(rows)?.profiles.get("state");
+    let reads = 0;
+    ensureQuickFilterProfiles(
+      rows,
+      { fields: ["state", "pop"] },
+      {
+        properties: (row) => {
+          reads += 1;
+          // A second tally of `state` would double its counts.
+          return row;
+        },
+      },
+    );
+    assert.equal(reads, rows.length);
+    const cached = readQuickFilterProfileCache(rows);
+    assert.equal(cached?.profiles.get("state"), first);
+    assert.equal(cached?.profiles.get("pop")?.kind, "range");
+    // Fully cached: no scan at all, and `onDone` still fires.
+    let done = 0;
+    ensureQuickFilterProfiles(
+      rows,
+      { fields: ["pop"] },
+      {
+        properties: () => assert.fail("a cached request must not rescan"),
+        onDone: () => done++,
+      },
+    );
+    assert.equal(done, 1);
+  });
+
+  it("remembers a field no record carries instead of rescanning for it", () => {
+    const rows = makeRows(10);
+    ensureQuickFilterProfiles(rows, { fields: ["missing"] });
+    assert.equal(readQuickFilterProfileCache(rows)?.profiles.get("missing"), null);
+    assert.equal(hasQuickFilterProfiles(rows, { fields: ["missing"] }), true);
+  });
+
+  it("slices a large scan across tasks and commits nothing until it finishes", async () => {
+    const rows = makeRows();
+    const yields: (() => void)[] = [];
+    let done = 0;
+    let clock = 0;
+    ensureQuickFilterProfiles(
+      rows,
+      { fields: ["state"], names: true },
+      {
+        onDone: () => done++,
+        sliceBudgetMs: 1,
+        // Every poll sees the budget spent, so each slice is one poll long.
+        now: () => (clock += 1),
+        yieldControl: () => new Promise<void>((resolve) => yields.push(resolve)),
+      },
+    );
+    assert.equal(done, 0, "the first slice must not finish a 3,000-record scan");
+    assert.equal(readQuickFilterProfileCache(rows), undefined);
+
+    let slices = 1;
+    while (done === 0) {
+      const next = yields.shift();
+      assert.ok(next, "the scan should be waiting on a yield");
+      next();
+      await new Promise((resolve) => setImmediate(resolve));
+      slices += 1;
+      assert.ok(slices < 100, "the scan should terminate");
+    }
+    assert.ok(slices > 2);
+    assert.deepEqual(readQuickFilterProfileCache(rows)?.profiles.get("state")?.values, [
+      { value: "OR", count: 2000 },
+      { value: "TN", count: 1000 },
+    ]);
+  });
+
+  it("drops a cancelled scan without caching or calling back", async () => {
+    const rows = makeRows();
+    const yields: (() => void)[] = [];
+    let done = 0;
+    let clock = 0;
+    const cancel = ensureQuickFilterProfiles(
+      rows,
+      { fields: ["state"] },
+      {
+        onDone: () => done++,
+        sliceBudgetMs: 1,
+        now: () => (clock += 1),
+        yieldControl: () => new Promise<void>((resolve) => yields.push(resolve)),
+      },
+    );
+    cancel();
+    yields.shift()?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(done, 0);
+    assert.equal(yields.length, 0);
+    assert.equal(readQuickFilterProfileCache(rows), undefined);
+  });
+
+  it("settles the caller and records no values when a later slice throws", async (t) => {
+    t.mock.method(console, "error", () => {});
+    const rows = makeRows();
+    let done = 0;
+    let clock = 0;
+    let reads = 0;
+    ensureQuickFilterProfiles(
+      rows,
+      { fields: ["state"] },
+      {
+        onDone: () => done++,
+        sliceBudgetMs: 1,
+        now: () => (clock += 1),
+        yieldControl: () => Promise.resolve(),
+        properties: (row) => {
+          reads += 1;
+          if (reads > 1000) throw new Error("unreadable record");
+          return row;
+        },
+      },
+    );
+    assert.equal(done, 0);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(done, 1, "a failed scan must still call back");
+    // Cached as "no values", so a caller stops reporting the field as loading.
+    assert.equal(readQuickFilterProfileCache(rows)?.profiles.get("state"), null);
+    assert.equal(hasQuickFilterProfiles(rows, { fields: ["state"] }), true);
+  });
+
+  it("settles the caller when the first, synchronous slice throws", (t) => {
+    t.mock.method(console, "error", () => {});
+    const rows = makeRows(10);
+    let done = 0;
+    ensureQuickFilterProfiles(
+      rows,
+      { fields: ["state"], names: true },
+      {
+        onDone: () => done++,
+        properties: () => {
+          throw new Error("unreadable record");
+        },
+      },
+    );
+    assert.equal(done, 1);
+    const cached = readQuickFilterProfileCache(rows);
+    assert.equal(cached?.profiles.get("state"), null);
+    assert.deepEqual(cached?.names, []);
+  });
+});
+
+describe("quick filter selection (issue #3455)", () => {
+  const base: LayerQuickFilter = {
+    id: "a",
+    field: "kind",
+    kind: "categorical",
+    values: ["Park"],
+  };
+
+  it("Select all adds the shown values and (blank)", () => {
+    const next = selectShownValues(base, ["Park", "School"], true);
+    assert.deepEqual(next.values, ["Park", "School"]);
+    assert.equal(next.includeBlank, true);
+    assert.equal(selectedOptionCount(next), 3);
+  });
+
+  it("Select all leaves (blank) alone when a search hides it", () => {
+    assert.equal(selectShownValues(base, ["School"], false).includeBlank, undefined);
+    const withBlank = { ...base, includeBlank: true };
+    assert.equal(selectShownValues(withBlank, ["School"], false).includeBlank, true);
+  });
+
+  it("Select none removes the shown values and (blank)", () => {
+    const next = deselectShownValues(
+      { ...base, values: ["Park", "School"], includeBlank: true },
+      ["Park", "School"],
+      true,
+    );
+    assert.deepEqual(next.values, []);
+    assert.equal(next.includeBlank, undefined);
+    assert.equal(selectedOptionCount(next), 0);
+    assert.equal(compileQuickFilter(next), null);
+  });
+
+  it("Select none keeps (blank) and the values a search hides", () => {
+    const next = deselectShownValues(
+      { ...base, values: ["Park", "School"], includeBlank: true },
+      ["School"],
+      false,
+    );
+    assert.deepEqual(next.values, ["Park"]);
+    assert.equal(next.includeBlank, true);
+    assert.equal(selectedOptionCount(next), 2);
   });
 });

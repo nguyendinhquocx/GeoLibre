@@ -3635,6 +3635,13 @@ html
   max-width: 100%;
 }
 
+/* Several photos of one feature (Field collection's `geolibre_photos`) sit
+   side by side as smaller thumbnails. */
+.geolibre-popup-inline-image-list .geolibre-popup-inline-image {
+  max-height: 5rem;
+  max-width: calc(50% - 0.125rem);
+}
+
 .geolibre-identify-image-popup .geolibre-popup-image {
   max-height: none;
 }
@@ -3649,15 +3656,80 @@ html
   object-fit: contain;
 }
 
+/* The bottom panels (the attribute tables, Dashboard, Python console, SQL
+   workspace and Assistant) each keep the inline height their resize handle
+   sets. That height is a preferred size, not a fixed one: when the open panels
+   and the map don't fit, the panels give up height in proportion, each down to
+   its header, instead of running off the bottom of the window with a header
+   over the status bar. Wherever they fit, nothing changes.
+
+   Not every panel's body shrinks with it (the Python console's input row keeps
+   its height), so a squeezed panel clips what no longer fits rather than
+   drawing it over the panel below or the status bar. Only the bottom edge is
+   clipped: a clip path also cuts fixed-position descendants, and the resize
+   handle straddles the top edge while the attribute table's drag guide (the
+   desktop app's deferred resize) can sit anywhere along the window's width
+   and above the panel. */
+.geolibre-bottom-panel:not([data-collapsed]) {
+  flex-shrink: 1;
+  min-height: 3rem;
+  clip-path: inset(-100vh -100vw 0 -100vw);
+}
+
+/* On a narrow or short viewport (a phone, or a laptop at 200% zoom, which is
+   640x400) the map needs a different floor while any panel is docked, even a
+   collapsed one. Below `md` its own 18rem floor would win and push the panels,
+   or just a collapsed panel's header, off screen; at `md` and up it has none,
+   and the Dashboard's default 360px alone can fill a short window. So the map
+   keeps min(18rem, 35dvh) and the panels share the rest.
+
+   Under the map (the default), the map column may shrink below its content so
+   the panels' shrinking is what absorbs the shortfall. Full width, the
+   workspace row keeps room for the map for the same reason, instead of the map
+   drawing behind the panels. */
+@media (max-width: 767px), (max-height: 540px) {
+  [data-map-column]:has(.geolibre-bottom-panel) {
+    min-height: 0;
+  }
+
+  [data-map-column]:has(.geolibre-bottom-panel) > main,
+  [data-workspace-row]:has(~ .geolibre-bottom-panel) main {
+    min-height: min(18rem, 35dvh);
+  }
+}
+
+/* Below `md` the row stacks the side-tab strip above the map column, so its
+   content height is that strip plus the map's floor. At `md` and up the row
+   holds the side docks, whose content can be taller than the window, so it
+   takes the map's floor directly. */
+@media (max-width: 767px) {
+  [data-workspace-row]:has(~ .geolibre-bottom-panel) {
+    min-height: auto;
+  }
+}
+
+@media (min-width: 768px) and (max-height: 540px) {
+  [data-workspace-row]:has(~ .geolibre-bottom-panel) {
+    min-height: min(18rem, 35dvh);
+  }
+}
+
 /* The attribute-table toolbar wraps into several rows on portrait phones. Its
    desktop default is only 192px tall, which can leave the flexing row viewport
    with no usable height after the toolbar and status bar are laid out. Give the
    open panel a viewport-relative height on narrow portrait screens so the rows
    remain scrollable. The desktop inline height and resize handle still govern
-   every other layout. */
+   every other layout.
+
+   Like any bottom panel's height (above), that is a preferred size: on a
+   typical phone, less still with the browser's own bars showing, the toolbar,
+   the side-tab strips, the status bar and the map's floor leave less than
+   60dvh. The table's floor is higher than the other panels', so its feature
+   count footer and the tab strip under the map stay on screen. */
 @media (max-width: 639px) and (orientation: portrait) {
   .geolibre-attribute-table-panel:not([data-collapsed]) {
     height: clamp(22rem, 60dvh, 32rem) !important;
+    min-height: 13rem;
   }
 
   .geolibre-attribute-table-resize-handle {
@@ -4209,6 +4281,15 @@ html
 .dark .pc-inspector-panel,
 .dark .pc-custom-viz {
   border-color: hsl(var(--border));
+}
+
+/* These cards ship with light backgrounds; without a dark surface their
+   (already lightened) text is unreadable. */
+.dark .pc-stats-card,
+.dark .pc-legend-card,
+.dark .pc-tilejson-card,
+.dark .pc-inspector-panel {
+  background: hsl(var(--muted));
 }
 
 .dark .pc-collection-item:hover,

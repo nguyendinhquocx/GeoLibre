@@ -13,6 +13,7 @@ import {
   reattachSun,
   restoreArcGISViewportLayers,
   restoreArcgisZarrLayers,
+  restoreZarrLayers,
   restoreDeckViz,
   restoreDirections,
   restoreEffects,
@@ -205,7 +206,7 @@ export function usePluginStateRestore({
     // here; MapLibre restores them on the native path below.
     if (engine.capabilities.deckOverlay && !engine.capabilities.nativeMapInstance) {
       restoreThreeDTilesLayers(appAPI);
-      void restoreLidarLayers(appAPI).catch(notifyLidarRestoreFailed);
+      void restoreLidarLayers(appAPI, { keepCamera: true }).catch(notifyLidarRestoreFailed);
     }
     // Same contract for the shared deck.gl overlay: re-attach it to the current
     // map and re-render any deckgl-viz layers a restored project carries. It
@@ -234,8 +235,10 @@ export function usePluginStateRestore({
       // eslint-disable-next-line local/no-renderer-kind-checks -- the globe draws COGs from the record; the 2D engines restore through the raster plugin's own per-engine path
       if (engine.kind === "mapbox" || engine.kind === "arcgis") restoreRasterLayers(appAPI);
       // Both draw Zarr from the layer record, so only the Time Slider binding
-      // needs restoring (opengeos/GeoLibre#2261).
+      // needs restoring (opengeos/GeoLibre#2261). Mapbox hosts the MapLibre
+      // Zarr control, so its saved layers are re-added through it.
       if (engine.capabilities.nativeZarr) restoreArcgisZarrLayers();
+      else void restoreZarrLayers(appAPI);
       void restoreLocalFileLayers();
       // Same cleanup as the native path: this branch also starts an async
       // handleUrlParameters above, so an older completion must not publish its
@@ -247,14 +250,19 @@ export function usePluginStateRestore({
     restoreThreeDTilesLayers(appAPI);
     restoreRasterLayers(appAPI);
     restorePlanetaryComputerLayers(appAPI);
+    // Re-draw saved Zarr layers. Like a COG or a point cloud, a `zarr` layer
+    // restores into the store as an inert record: the Zarr control draws it,
+    // not layer sync, so without this it shows in the panel and paints nothing.
+    void restoreZarrLayers(appAPI);
     // Re-bind saved ArcGIS feature layers to the viewport. Without this a
     // reopened project's layer stays frozen on the extent it was saved with.
     restoreArcGISViewportLayers(appAPI);
     // Re-stream saved LiDAR (COPC) point clouds. A `lidar-url` layer restores
     // into the store as inert metadata; the point cloud is loaded by the LiDAR
     // control, not the store, so without this the layer shows in the panel but
-    // renders nothing.
-    void restoreLidarLayers(appAPI).catch(notifyLidarRestoreFailed);
+    // renders nothing. `keepCamera` holds the project's saved view instead of
+    // flying to each cloud.
+    void restoreLidarLayers(appAPI, { keepCamera: true }).catch(notifyLidarRestoreFailed);
     // Same for saved Gaussian splats and 3D models (`splatting-url`): the
     // splatting control draws them, so reload them through it.
     void restoreSplattingLayers(appAPI).catch((error: unknown) => {

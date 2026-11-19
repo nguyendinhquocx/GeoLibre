@@ -17,6 +17,7 @@ import {
   setOlcLabels,
   setOpenAerialMapLabels,
   setOpenDataCatalogLabels,
+  setPlanetaryComputerLabels,
   setReverseGeocodeLabels,
   setS2Labels,
   setS3BrowserLabels,
@@ -337,6 +338,12 @@ export function usePluginLabelSync(): void {
       portalTitle: t("earthdataGis.portalTitle"),
       cog: t("earthdataGis.cog"),
       cogTitle: t("earthdataGis.cogTitle"),
+      rasterFunction: t("earthdataGis.rasterFunction"),
+      rasterFunctionTitle: t("earthdataGis.rasterFunctionTitle"),
+      rasterFunctionDefault: t("earthdataGis.rasterFunctionDefault"),
+      rasterFunctionLoading: t("earthdataGis.rasterFunctionLoading"),
+      rasterFunctionNone: t("earthdataGis.rasterFunctionNone"),
+      rasterFunctionError: (message) => t("earthdataGis.rasterFunctionError", { message }),
       cogHeading: t("earthdataGis.cogHeading"),
       cogAreaView: t("earthdataGis.cogAreaView"),
       cogAreaExtent: t("earthdataGis.cogAreaExtent"),
@@ -951,6 +958,25 @@ export function usePluginLabelSync(): void {
       loadingTiles: t("timelapse.loadingTiles"),
     });
     setStacLabels(buildStacLabels(t, i18n));
+    setPlanetaryComputerLabels({
+      stacBrowser: t("planetaryComputer.stacBrowser"),
+      stacBrowserTitle: t("planetaryComputer.stacBrowserTitle"),
+      timeSlider: t("planetaryComputer.timeSlider"),
+      timeSliderTitle: t("planetaryComputer.timeSliderTitle"),
+      colorbar: t("planetaryComputer.colorbar"),
+      colorbarTitle: t("planetaryComputer.colorbarTitle"),
+      clipToMap: t("planetaryComputer.clipToMap"),
+      clipToMapTitle: t("planetaryComputer.clipToMapTitle"),
+      clipLayerName: t("planetaryComputer.clipLayerName", { item: "{{item}}" }),
+      clipOutsideItem: t("planetaryComputer.clipOutsideItem"),
+      clipUnavailable: t("planetaryComputer.clipUnavailable"),
+      // The plugin substitutes {{collection}} itself, so pass the placeholder through.
+      timeSeriesLayerName: t("planetaryComputer.timeSeriesLayerName", {
+        collection: "{{collection}}",
+      }),
+      timeSliderNeedsDates: t("planetaryComputer.timeSliderNeedsDates"),
+      timeSliderUnavailable: t("planetaryComputer.timeSliderUnavailable"),
+    });
     setSamGeoLabels({
       panelTitle: t("samgeoPlugin.panelTitle"),
       intro: t("samgeoPlugin.intro"),
