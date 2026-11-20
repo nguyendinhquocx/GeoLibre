@@ -1,3 +1,10 @@
+export {
+  DEFAULT_GEO_EDITOR_SETTINGS,
+  normalizeGeoEditorSettings,
+  isGeoEditorFieldName,
+  type GeoEditorSettings,
+  type GeoEditorAttributeField,
+} from "./geo-editor-settings";
 export * from "./types";
 export * from "./tile-address";
 export * from "./diagram";
@@ -94,6 +101,8 @@ export {
   useAppStore,
   useAppCapability,
   type AppState,
+  type AttributeTableDrafts,
+  type AttributeTableDraftTarget,
   type ConversionToolKind,
   type GpsStatusFix,
   type NetworkToolKind,
