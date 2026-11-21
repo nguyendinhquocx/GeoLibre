@@ -19,6 +19,7 @@ export interface ArcgisProjectImportWarning {
     | "file-geodatabase-raster"
     | "network-path"
     | "service"
+    | "service-unavailable"
     | "browser-local-file"
     | "map-extent"
     | "nesting";
@@ -41,11 +42,41 @@ export interface ArcgisRasterImport {
   groupId?: string;
 }
 
-export interface ArcgisServiceImport {
+/**
+ * A service layer the ArcGIS plugin adds once the project has loaded: a portal
+ * vector tile item, or one numbered sublayer of a FeatureServer.
+ */
+export type ArcgisServiceImport = ArcgisVectorTileServiceImport | ArcgisFeatureServiceImport;
+
+export interface ArcgisVectorTileServiceImport {
+  kind: "vector-tile";
   name: string;
   itemId: string;
   visible: boolean;
   groupId?: string;
+}
+
+export interface ArcgisFeatureServiceImport {
+  kind: "feature";
+  name: string;
+  /**
+   * The sublayer URL (`…/FeatureServer/<n>`), rebuilt from scheme, host and
+   * path only, so no query string or user info from the project file reaches
+   * a request, a saved project or a log.
+   */
+  url: string;
+  visible: boolean;
+  opacity: number;
+  groupId?: string;
+  /** The CIM layer URI, kept on the store layer as its ArcGIS identity. */
+  arcgisLayerUri: string;
+  /**
+   * Ids of the project layers that follow this one in ArcGIS order. The
+   * import ranks the service just ahead of the first of them that is still in
+   * the loaded project, so it keeps its place among the file layers even when
+   * the browser build has dropped some of them.
+   */
+  nextLayerIds: string[];
 }
 
 type CimObject = Record<string, unknown>;
@@ -83,21 +114,62 @@ const SUPPORTED_VECTOR_EXTENSIONS = new Set([
   "zip",
 ]);
 
+/** A 2D map in an ArcGIS Pro project that the user can choose to import. */
+export interface ArcgisProjectMapChoice {
+  /** Position among the project's 2D maps, in project order. */
+  index: number;
+  /** The map's own name; empty when the CIM document does not give one. */
+  name: string;
+}
+
+/** An ArcGIS Pro project read once, listing its 2D maps for the caller to choose from. */
+export interface ArcgisProjectReader {
+  /** The project's 2D maps in project order. Scenes are left out. */
+  maps: ArcgisProjectMapChoice[];
+  /** Import one map by its {@link ArcgisProjectMapChoice.index}; the first by default. */
+  importMap(index?: number): ArcgisProjectImportResult;
+}
+
 /**
- * Convert an ArcGIS Pro project (.aprx) or map file (.mapx) from its documented
+ * Read an ArcGIS Pro project (.aprx) or map file (.mapx) from its documented
  * CIM JSON representation without executing scripts or requiring ArcPy.
  *
- * ArcGIS projects can contain several maps. GeoLibre imports the first 2D map
- * in project order because one GeoLibre project represents one map.
+ * An ArcGIS project can contain several maps, but one GeoLibre project
+ * represents one map, so the caller picks which 2D map to import.
+ */
+export function readArcgisProject(
+  data: ArrayBuffer | Uint8Array | string,
+  sourcePath: string,
+): ArcgisProjectReader {
+  const files = readCimFiles(data, sourcePath);
+  const maps = findMaps(files);
+  if (maps.length === 0) throw new Error("This file does not contain an ArcGIS Pro map.");
+  return {
+    maps: maps.map((map, index) => ({ index, name: stringValue(map.name) })),
+    importMap: (index = 0) => {
+      const map = maps[index];
+      if (!map) throw new Error("This ArcGIS Pro project has no such map.");
+      return importMap(map, files, sourcePath);
+    },
+  };
+}
+
+/**
+ * Convert an ArcGIS Pro project or map file, importing its first 2D map in
+ * project order. Use {@link readArcgisProject} to import a different map.
  */
 export function importArcgisProject(
   data: ArrayBuffer | Uint8Array | string,
   sourcePath: string,
 ): ArcgisProjectImportResult {
-  const files = readCimFiles(data, sourcePath);
-  const map = findMap(files);
-  if (!map) throw new Error("This file does not contain an ArcGIS Pro map.");
+  return readArcgisProject(data, sourcePath).importMap();
+}
 
+function importMap(
+  map: CimObject,
+  files: Map<string, CimObject>,
+  sourcePath: string,
+): ArcgisProjectImportResult {
   const projectName = stringValue(map.name) || fileStem(sourcePath) || "Imported ArcGIS Project";
   const { view: mapView, extentRestored } = parseMapView(map);
   const project = createEmptyProject(projectName, { mapView });
@@ -111,6 +183,7 @@ export function importArcgisProject(
   const services: ArcgisServiceImport[] = [];
   const groups: LayerGroup[] = [];
   const usedIds = new Set<string>();
+  const serviceLayerIndex = new Map<ArcgisFeatureServiceImport, number>();
 
   const definitions = resolveLayerList(map, files);
   for (const definition of definitions) {
@@ -126,7 +199,11 @@ export function importArcgisProject(
       warnings,
       usedIds,
       new Set(),
+      serviceLayerIndex,
     );
+  }
+  for (const [service, index] of serviceLayerIndex) {
+    service.nextLayerIds = layers.slice(index).map((layer) => layer.id);
   }
 
   project.layers = layers;
@@ -209,31 +286,39 @@ function readCimFiles(
   return files;
 }
 
-function findMap(files: Map<string, CimObject>): CimObject | null {
+/**
+ * The project's 2D maps in project order: those its catalogue lists, or, when
+ * the catalogue names none that can be read, every map document in the file.
+ */
+function findMaps(files: Map<string, CimObject>): CimObject[] {
+  // CIM MapType "Map" is the only 2D map; Scene, Basemap, NetworkDiagram,
+  // ContainmentMap and LinkChart share the CIMMap type but are not maps a
+  // GeoLibre project can stand in for. Older documents omit the field.
+  const is2dMap = (map: CimObject | null): map is CimObject =>
+    map !== null && ["", "map"].includes(stringValue(map.mapType).toLowerCase());
   const project = files.get("gisproject.json");
-  const projectItems = arrayValue(project?.projectItems);
-  for (const item of projectItems) {
+  const listed: CimObject[] = [];
+  const seenPaths = new Set<string>();
+  for (const item of arrayValue(project?.projectItems)) {
     if (!isObject(item)) continue;
     const itemType = stringValue(item.itemType).toLowerCase();
     const type = stringValue(item.type).toLowerCase();
     if (itemType !== "map" && !type.includes("cimmapdocument")) continue;
     const path = cimPath(item.catalogPath ?? item.uRI ?? item.uri);
-    const candidate = path ? files.get(path) : undefined;
-    const map = unwrapMap(candidate);
-    if (map && stringValue(map.mapType).toLowerCase() !== "scene") return map;
+    if (!path || seenPaths.has(path)) continue;
+    seenPaths.add(path);
+    const map = unwrapMap(files.get(path));
+    if (is2dMap(map)) listed.push(map);
   }
-  for (const candidate of files.values()) {
-    const map = unwrapMap(candidate);
-    if (map && stringValue(map.mapType).toLowerCase() !== "scene") return map;
-  }
-  return null;
+  if (listed.length > 0) return listed;
+  return [...files.values()].map(unwrapMap).filter(is2dMap);
 }
 
 function unwrapMap(value: CimObject | undefined): CimObject | null {
   if (!value) return null;
-  if (stringValue(value.type).includes("CIMMap") && !stringValue(value.type).includes("Document")) {
-    return value;
-  }
+  // Exact match: layer and layout element types such as CIMMapImageLayer and
+  // CIMMapFrame also start with "CIMMap".
+  if (stringValue(value.type) === "CIMMap") return value;
   if (isObject(value.mapDefinition)) return value.mapDefinition;
   if (isObject(value.map)) return value.map;
   return null;
@@ -277,6 +362,7 @@ function importLayer(
   warnings: ArcgisProjectImportWarning[],
   usedIds: Set<string>,
   ancestors: ReadonlySet<CimObject>,
+  serviceLayerIndex: Map<ArcgisFeatureServiceImport, number>,
 ): void {
   const type = stringValue(layer.type);
   const name = stringValue(layer.name) || type || "ArcGIS layer";
@@ -315,6 +401,7 @@ function importLayer(
         warnings,
         usedIds,
         branch,
+        serviceLayerIndex,
       );
     }
     return;
@@ -366,6 +453,7 @@ function importLayer(
     const itemId = stringValue(layer.sourceURI);
     if (/^[a-f0-9]{32}$/i.test(itemId)) {
       services.push({
+        kind: "vector-tile",
         name,
         itemId,
         visible,
@@ -385,6 +473,24 @@ function importLayer(
   }
 
   const connection = objectValue(objectValue(layer.featureTable)?.dataConnection);
+  const serviceUrl = featureServiceSublayerUrl(connection);
+  if (serviceUrl) {
+    const service: ArcgisFeatureServiceImport = {
+      kind: "feature",
+      name,
+      url: serviceUrl,
+      visible,
+      opacity: layerOpacity(layer),
+      arcgisLayerUri: stringValue(layer.uRI),
+      nextLayerIds: [],
+      ...(parentId ? { groupId: parentId } : {}),
+    };
+    services.push(service);
+    // Filled in once the whole tree is read: only then are the layers that
+    // follow this one known.
+    serviceLayerIndex.set(service, layers.length);
+    return;
+  }
   const resolved = resolveDataSource(connection, sourcePath);
   if (!resolved.path) {
     warnings.push({
@@ -471,12 +577,54 @@ function resolveRasterSource(
   return looksLikeGeodatabase ? { reason: "file-geodatabase-raster" } : { reason: "format" };
 }
 
+/**
+ * The FeatureServer sublayer a feature layer reads, when its connection names
+ * one explicitly.
+ *
+ * ArcGIS Pro saves a hosted feature layer as a `CIMStandardDataConnection` with
+ * `workspaceFactory: "FeatureService"`, the service root in the connection
+ * string (`URL=https://…/FeatureServer`) and the sublayer number as the
+ * `dataset`. Only that shape is accepted: a connection without a numeric
+ * dataset is reported rather than guessed as sublayer 0.
+ *
+ * The URL is rebuilt from scheme, host and path, so a token or user info in the
+ * connection string never reaches a request, a saved project or a log.
+ *
+ * Plain `http:` is accepted, as Add Data accepts it, because ArcGIS Server on
+ * an intranet often has no certificate; such a layer loads anonymously, since
+ * a sign-in token is only ever sent over https.
+ */
+function featureServiceSublayerUrl(connection: CimObject | undefined): string | null {
+  if (!connection || !isFeatureServiceFactory(connection)) return null;
+  const dataset = stringValue(connection.dataset).trim();
+  if (!/^\d+$/.test(dataset)) return null;
+  const match = stringValue(connection.workspaceConnectionString).match(
+    /(?:^|;)URL=(?:"([^"]+)"|([^;]+))/i,
+  );
+  let url: URL;
+  try {
+    url = new URL((match?.[1] ?? match?.[2] ?? "").trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const path = url.pathname.replace(/\/+$/, "");
+  if (!/\/FeatureServer$/i.test(path)) return null;
+  return `${url.origin}${path}/${dataset.replace(/^0+(?=\d)/, "")}`;
+}
+
+function isFeatureServiceFactory(connection: CimObject): boolean {
+  return stringValue(connection.workspaceFactory).toLowerCase() === "featureservice";
+}
+
 function resolveDataSource(
   connection: CimObject | undefined,
   projectPath: string,
 ): { path?: string; reason?: ArcgisProjectImportWarning["reason"] } {
   if (!connection) return { reason: "missing-source" };
-  if (stringValue(connection.url)) return { reason: "service" };
+  if (stringValue(connection.url) || isFeatureServiceFactory(connection)) {
+    return { reason: "service" };
+  }
 
   const workspace = parseWorkspacePath(stringValue(connection.workspaceConnectionString));
   const dataset = stringValue(connection.dataset);

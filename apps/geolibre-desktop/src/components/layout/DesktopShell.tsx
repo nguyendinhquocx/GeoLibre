@@ -130,6 +130,7 @@ import { ProjectHistoryDialog } from "./ProjectHistoryDialog";
 import { ProjectRecoveryDialog } from "./ProjectRecoveryDialog";
 import { BottomPanels } from "./BottomPanels";
 import { MobileBottomNav } from "./mobile/MobileBottomNav";
+import { MobileMapOverlays } from "./mobile/MobileMapOverlays";
 import { MobileShellSheets, useMobileShellState } from "./mobile/MobileShellSheets";
 import { MobileStatusPill } from "./mobile/MobileStatusPill";
 import { StatusBar } from "./StatusBar";
@@ -586,6 +587,7 @@ export function DesktopShell({
       attributePanelVisible={layoutOptions.attributePanelVisible}
       mapControllerRef={mapControllerRef}
       layerRefresh={layerRefresh}
+      mobileShell={mobileShell}
     />
   );
 
@@ -1057,6 +1059,7 @@ export function DesktopShell({
                 api={collaboration}
               />
             )}
+            {touchUi ? <MobileMapOverlays mapControllerRef={mapControllerRef} /> : null}
           </main>
           {mobileShell && layoutOptions.statusBarVisible ? (
             <MobileStatusPill
