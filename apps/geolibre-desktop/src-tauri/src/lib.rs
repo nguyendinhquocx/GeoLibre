@@ -1,6 +1,10 @@
+mod app_error;
 mod arcgis_http;
 mod aws_credentials;
 mod aws_sts;
+mod fs_util;
+mod http_client;
+mod in_flight;
 mod plugin_http;
 mod remote_download;
 // Earth Engine sign-in uses Google's OAuth loopback-redirect flow, which binds
@@ -20,7 +24,8 @@ mod earth_engine_oauth;
 // message instead of an "unknown command" error) but no socket is ever bound.
 #[cfg(any(feature = "mas", target_os = "ios"))]
 mod earth_engine_oauth {
-    const UNAVAILABLE: &str = "Earth Engine sign-in is not available in the App Store build of GeoLibre.";
+    const UNAVAILABLE: &str =
+        "Earth Engine sign-in is not available in the App Store build of GeoLibre.";
 
     #[tauri::command]
     pub fn start_earth_engine_oauth(_client_id: String) -> Result<serde_json::Value, String> {
@@ -129,7 +134,9 @@ mod secure_store {
     const UNAVAILABLE: &str = "Secure credential storage is not available on this platform.";
 
     #[tauri::command]
-    pub async fn secure_store_get_many(_accounts: Vec<String>) -> Result<HashMap<String, String>, String> {
+    pub async fn secure_store_get_many(
+        _accounts: Vec<String>,
+    ) -> Result<HashMap<String, String>, String> {
         Err(UNAVAILABLE.to_string())
     }
 
@@ -150,9 +157,9 @@ mod secure_store {
     }
 }
 
-use earth_engine_oauth::{poll_earth_engine_oauth, start_earth_engine_oauth};
 #[cfg(not(any(feature = "mas", target_os = "ios")))]
 use earth_engine_oauth::EarthEngineOAuthState;
+use earth_engine_oauth::{poll_earth_engine_oauth, start_earth_engine_oauth};
 use flate2::read::{GzDecoder, ZlibDecoder};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -178,8 +185,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri_plugin_dialog::DialogExt;
 
 const PERSISTED_SCOPE_FILES: [&str; 2] = [".persisted-scope", ".persisted-scope-asset"];
-const PERSISTED_PHOTO_EXTENSIONS: [&str; 6] =
-    [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
+const PERSISTED_PHOTO_EXTENSIONS: [&str; 6] = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
 const IMAGE_PICKER_EXTENSIONS: [&str; 8] =
     ["jpg", "jpeg", "png", "webp", "heic", "heif", "tif", "tiff"];
 
@@ -214,7 +220,10 @@ impl LoadedPluginBundles {
             .into_iter()
             .filter_map(|source| source.as_ref().canonicalize().ok())
             .collect::<HashSet<_>>();
-        *self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = canonical;
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = canonical;
     }
 
     /// The canonical path of `source` when it is a recorded bundle, else None.
@@ -360,6 +369,11 @@ unsafe extern "C" {
 #[cfg(not(feature = "mas"))]
 struct MartinServerState {
     process: Mutex<Option<MartinProcess>>,
+    // Serialize concurrent starts so two callers do not race to bind ports.
+    lifecycle: Mutex<()>,
+    // Bumped immediately on stop/exit so an in-progress startup drops its child
+    // instead of installing it, without making Stop wait for startup to finish.
+    generation: std::sync::atomic::AtomicU64,
 }
 
 #[cfg(not(feature = "mas"))]
@@ -369,6 +383,9 @@ struct SidecarServerState {
     // sidecar. Without this, two callers can both pass the reuse check and race
     // to bind the fixed port, or a restart can overlap the previous teardown.
     lifecycle: Mutex<()>,
+    // Bumped on exit so an in-progress startup drops its child instead of
+    // storing it after teardown.
+    generation: std::sync::atomic::AtomicU64,
 }
 
 #[cfg(not(feature = "mas"))]
@@ -380,6 +397,9 @@ struct JupyterServerState {
     // Held for the whole of start_jupyter_server_blocking so two concurrent
     // start calls can't both spawn on the same port (the loser would exit 1).
     startup: Mutex<()>,
+    // Bumped immediately on stop/exit so Stop returns immediately while any
+    // in-progress startup discards its child instead of installing it.
+    generation: std::sync::atomic::AtomicU64,
 }
 
 #[cfg(not(feature = "mas"))]
@@ -579,15 +599,19 @@ pub fn run() {
     let builder = builder
         .manage(MartinServerState {
             process: Mutex::new(None),
+            lifecycle: Mutex::new(()),
+            generation: std::sync::atomic::AtomicU64::new(0),
         })
         .manage(SidecarServerState {
             process: Mutex::new(None),
             lifecycle: Mutex::new(()),
+            generation: std::sync::atomic::AtomicU64::new(0),
         })
         .manage(JupyterServerState {
             process: Mutex::new(None),
             token: Mutex::new(None),
             startup: Mutex::new(()),
+            generation: std::sync::atomic::AtomicU64::new(0),
         });
 
     let app = builder
@@ -695,21 +719,52 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building GeoLibre Desktop");
 
-    app.run(|_app, _event| {
+    app.run(|app, event| {
+        #[cfg(all(feature = "mas", not(target_os = "macos")))]
+        let _ = (&app, &event);
+        #[cfg(not(feature = "mas"))]
+        if let tauri::RunEvent::Exit = event {
+            let martin = app.state::<MartinServerState>();
+            martin
+                .generation
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            take_and_drop(&martin.process);
+
+            let sidecar = app.state::<SidecarServerState>();
+            sidecar
+                .generation
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            take_and_drop(&sidecar.process);
+
+            let jupyter = app.state::<JupyterServerState>();
+            jupyter
+                .generation
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            take_and_drop(&jupyter.process);
+        }
         // macOS delivers associated files as native open events instead
         // of argv. Queue them through the same path as a second desktop launch.
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Opened { urls } = _event {
+        if let tauri::RunEvent::Opened { urls } = event {
             let paths = project_paths_from_args(
                 urls.into_iter()
                     .filter_map(|url| url.to_file_path().ok())
                     .map(std::ffi::OsString::from),
                 Path::new("/"),
             );
-            enqueue_project_paths(_app, paths);
-            focus_main_window(_app);
+            enqueue_project_paths(app, paths);
+            focus_main_window(app);
         }
     });
+}
+
+#[cfg(not(feature = "mas"))]
+fn take_and_drop<T>(slot: &Mutex<Option<T>>) {
+    if let Ok(mut guard) = slot.lock() {
+        let taken = guard.take();
+        drop(guard);
+        drop(taken);
+    }
 }
 
 #[cfg(any(target_os = "linux", windows))]
@@ -1017,6 +1072,14 @@ const RESTORABLE_VECTOR_EXTENSIONS: [&str; 17] = [
     "zip",
 ];
 
+/// Whether `path` ends in one of the known restorable local vector extensions.
+pub(crate) fn has_allowed_local_vector_extension(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| RESTORABLE_VECTOR_EXTENSIONS.contains(&extension))
+}
+
 /// Whether the renderer is permitted to re-read `path` through `read_local_file`:
 /// an absolute local path (POSIX `/...` or a Windows drive-letter `C:\...`, never
 /// a UNC `\\host\share`), free of `..` traversal segments, ending in a known
@@ -1043,11 +1106,23 @@ pub(crate) fn is_allowed_local_vector_path(path: &str) -> bool {
 
     // Known vector extension, case-insensitive, matching the JS
     // `RESTORABLE_VECTOR_PATH` regex (built from `VECTOR_FILE_DIALOG_EXTENSIONS`).
-    // `rsplit_once` takes the text after the final dot without allocating.
-    let lower = path.to_ascii_lowercase();
-    lower
-        .rsplit_once('.')
-        .is_some_and(|(_, extension)| RESTORABLE_VECTOR_EXTENSIONS.contains(&extension))
+    has_allowed_local_vector_extension(path)
+}
+
+/// Convert a canonicalized local path to a UTF-8 string usable by native libraries
+/// and asset-protocol scopes (stripping Windows' `\\?\` verbatim drive prefix
+/// while preserving POSIX paths). Rejects non-UTF-8 canonical paths rather than
+/// substituting replacement characters that could alias a different file.
+/// Callers must check `is_unc_resolved_path` first.
+pub(crate) fn canonical_local_path_string(canonical: &Path) -> Result<String, String> {
+    let raw = canonical
+        .to_str()
+        .ok_or_else(|| "resolved path is not valid UTF-8".to_string())?;
+    #[cfg(windows)]
+    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+        return Ok(stripped.to_string());
+    }
+    Ok(raw.to_string())
 }
 
 /// Read a local file's raw bytes so a project's file-referenced vector layers
@@ -1060,10 +1135,10 @@ pub(crate) fn is_allowed_local_vector_path(path: &str) -> bool {
 /// mirroring `read_project_file` (which bypasses the same scope to read the
 /// project file itself). The path is validated here by
 /// `is_allowed_local_vector_path` (absolute, no `..` traversal, known vector
-/// extension) so the command cannot be abused to read arbitrary files even if
-/// the frontend guard is bypassed. Bytes are returned as a raw IPC response (an
-/// `ArrayBuffer` on the JS side) so a large GeoJSON does not pay the cost of a
-/// JSON number array.
+/// extension) and canonicalized so symlinks cannot redirect the read to
+/// arbitrary files or network shares. Bytes are returned as a raw IPC response
+/// (an `ArrayBuffer` on the JS side) so a large GeoJSON does not pay the cost
+/// of a JSON number array.
 #[tauri::command]
 fn read_local_file(path: String) -> Result<tauri::ipc::Response, String> {
     if !is_allowed_local_vector_path(&path) {
@@ -1071,7 +1146,23 @@ fn read_local_file(path: String) -> Result<tauri::ipc::Response, String> {
             "Refusing to read \"{path}\": not an absolute local vector file path"
         ));
     }
-    fs::read(&path)
+    let canonical =
+        fs::canonicalize(&path).map_err(|error| format!("Could not read local file: {error}"))?;
+    let resolved = canonical.to_string_lossy();
+    if is_unc_resolved_path(&resolved) {
+        return Err(format!(
+            "Refusing to read \"{path}\": resolves to a network path"
+        ));
+    }
+    if !has_allowed_local_vector_extension(&resolved) {
+        return Err(format!(
+            "Refusing to read \"{path}\": resolves to a non-vector file"
+        ));
+    }
+    if !canonical.is_file() {
+        return Err(format!("Refusing to read \"{path}\": not a file"));
+    }
+    fs::read(&canonical)
         .map(tauri::ipc::Response::new)
         .map_err(|error| format!("Could not read local file: {error}"))
 }
@@ -1113,7 +1204,7 @@ fn is_geojson_feature_collection(bytes: &[u8]) -> bool {
 /// Windows returns a verbatim path, `\\?\C:\…` for a local drive but
 /// `\\?\UNC\host\share\…` for a share; a symlink or junction can resolve to
 /// one even when the path the caller passed was local.
-fn is_unc_resolved_path(resolved: &str) -> bool {
+pub(crate) fn is_unc_resolved_path(resolved: &str) -> bool {
     let rest = resolved
         .strip_prefix(r"\\?\")
         .or_else(|| resolved.strip_prefix(r"\\.\"));
@@ -1122,10 +1213,6 @@ fn is_unc_resolved_path(resolved: &str) -> bool {
         None => resolved.starts_with(r"\\") || resolved.starts_with("//"),
     }
 }
-
-/// Distinguishes concurrent writes to the same file (a double-clicked save), so
-/// they never share a temporary file.
-static GEOJSON_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Overwrite an existing local GeoJSON file with edited contents, for Layer
 /// actions > Save edits to source file (GeoLibre#2439).
@@ -1187,38 +1274,17 @@ fn write_local_geojson_file(path: String, contents: String) -> Result<(), String
     let permissions = fs::metadata(&canonical)
         .map_err(|error| format!("Could not save to source file: {error}"))?
         .permissions();
-    let file_name = canonical
-        .file_name()
-        .ok_or_else(|| format!("Refusing to write \"{path}\": no file name"))?;
-    let mut temp_name = std::ffi::OsString::from(".");
-    temp_name.push(file_name);
-    temp_name.push(format!(
-        ".geolibre-{}-{}.tmp",
-        std::process::id(),
-        GEOJSON_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let temp = canonical.with_file_name(temp_name);
-    // `create_new` refuses a path that already exists, so a symlink planted at
-    // the temporary name cannot redirect the write. The file starts owner-only
-    // (Unix) so the contents are never readable more widely than intended, and
-    // takes the target's permissions before the rename so a restrictive (e.g.
-    // 0600) source is not loosened.
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let write = options
-        .open(&temp)
-        .and_then(|mut file| {
-            std::io::Write::write_all(&mut file, contents.as_bytes())?;
-            file.sync_all()
-        })
-        .and_then(|()| fs::set_permissions(&temp, permissions))
-        .and_then(|()| fs::rename(&temp, &canonical));
-    if let Err(error) = write {
-        let _ = fs::remove_file(&temp);
-        return Err(format!("Could not save to source file: {error}"));
-    }
+    fs_util::write_file_atomic(
+        &canonical,
+        contents.as_bytes(),
+        fs_util::AtomicWriteOptions {
+            create_parents: false,
+            owner_only_unix: true,
+            sync: true,
+            preserve_permissions: Some(permissions),
+        },
+    )
+    .map_err(|error| format!("Could not save to source file: {error}"))?;
     Ok(())
 }
 
@@ -1315,8 +1381,28 @@ fn allow_raster_asset(
             "Refusing to expose \"{path}\": neither the file nor its imported project was selected by the user"
         ));
     }
+    let canonical = fs::canonicalize(&path)
+        .map_err(|error| format!("Could not authorize local raster: {error}"))?;
+    let resolved = canonical
+        .to_str()
+        .ok_or_else(|| format!("Refusing to expose \"{path}\": resolved path is not valid UTF-8"))?
+        .to_ascii_lowercase();
+    if is_unc_resolved_path(&resolved) {
+        return Err(format!(
+            "Refusing to expose \"{path}\": resolves to a network path"
+        ));
+    }
+    if !(resolved.ends_with(".tif") || resolved.ends_with(".tiff")) || !canonical.is_file() {
+        return Err(format!(
+            "Refusing to expose \"{path}\": resolves to a non-GeoTIFF file"
+        ));
+    }
+    let allowed_path = PathBuf::from(
+        canonical_local_path_string(&canonical)
+            .map_err(|error| format!("Refusing to expose \"{path}\": {error}"))?,
+    );
     app.asset_protocol_scope()
-        .allow_file(&path)
+        .allow_file(&allowed_path)
         .map_err(|error| format!("Could not authorize local raster: {error}"))
 }
 
@@ -1391,23 +1477,38 @@ struct ShapefileSibling {
 /// siblings are skipped; an unreadable directory yields an empty list.
 #[tauri::command]
 fn read_shapefile_siblings(path: String) -> Result<Vec<ShapefileSibling>, String> {
-    let shp = Path::new(&path);
-    let Some(parent) = shp.parent() else {
+    if !is_safe_absolute_path(&path) || !path.to_ascii_lowercase().ends_with(".shp") {
+        return Err(format!(
+            "Refusing to read siblings for \"{path}\": not an absolute local shapefile path"
+        ));
+    }
+    let canonical_shp = match fs::canonicalize(&path) {
+        Ok(canonical) => canonical,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let resolved_shp = canonical_shp.to_string_lossy();
+    if is_unc_resolved_path(&resolved_shp)
+        || !resolved_shp.to_ascii_lowercase().ends_with(".shp")
+        || !canonical_shp.is_file()
+    {
+        return Ok(Vec::new());
+    }
+    let Some(canonical_parent) = canonical_shp.parent() else {
         return Ok(Vec::new());
     };
-    let Some(stem) = shp.file_stem().and_then(|stem| stem.to_str()) else {
+    let Some(canonical_stem) = canonical_shp.file_stem().and_then(|stem| stem.to_str()) else {
         return Ok(Vec::new());
     };
-    let entries = match fs::read_dir(parent) {
+    let Some(requested_stem) = Path::new(&path).file_stem().and_then(|stem| stem.to_str()) else {
+        return Ok(Vec::new());
+    };
+    let entries = match fs::read_dir(canonical_parent) {
         Ok(entries) => entries,
         Err(_) => return Ok(Vec::new()),
     };
     let mut siblings = Vec::new();
     for entry in entries.flatten() {
         let entry_path = entry.path();
-        if !entry_path.is_file() {
-            continue;
-        }
         let (Some(entry_stem), Some(extension)) = (
             entry_path.file_stem().and_then(|stem| stem.to_str()),
             entry_path
@@ -1416,16 +1517,38 @@ fn read_shapefile_siblings(path: String) -> Result<Vec<ShapefileSibling>, String
         ) else {
             continue;
         };
-        if !entry_stem.eq_ignore_ascii_case(stem) {
+        if !entry_stem.eq_ignore_ascii_case(canonical_stem) {
             continue;
         }
         let extension = extension.to_ascii_lowercase();
         if !SHAPEFILE_SIDECAR_EXTENSIONS.contains(&extension.as_str()) {
             continue;
         }
-        if let Ok(data) = fs::read(&entry_path) {
+        // Canonicalize each sibling and verify it remains a regular sidecar
+        // file inside the shapefile's directory so symlinks cannot escape.
+        let Ok(canonical_entry) = fs::canonicalize(&entry_path) else {
+            continue;
+        };
+        let resolved_entry = canonical_entry.to_string_lossy();
+        if is_unc_resolved_path(&resolved_entry)
+            || !canonical_entry.starts_with(canonical_parent)
+            || !canonical_entry.is_file()
+        {
+            continue;
+        }
+        let canonical_ext = canonical_entry
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+        if !canonical_ext
+            .as_deref()
+            .is_some_and(|ext| SHAPEFILE_SIDECAR_EXTENSIONS.contains(&ext))
+        {
+            continue;
+        }
+        if let Ok(data) = fs::read(&canonical_entry) {
             siblings.push(ShapefileSibling {
-                name: format!("{stem}.{extension}"),
+                name: format!("{requested_stem}.{extension}"),
                 data,
             });
         }
@@ -1438,7 +1561,7 @@ fn read_shapefile_siblings(path: String) -> Result<Vec<ShapefileSibling>, String
 /// free of `..` traversal segments. The shared absolute/non-UNC/no-traversal
 /// guard behind [`is_allowed_local_vector_path`], kept separate so that
 /// byte-parsing lives in one place rather than being duplicated per caller.
-fn is_safe_absolute_path(path: &str) -> bool {
+pub(crate) fn is_safe_absolute_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     let is_separator = |byte: u8| byte == b'/' || byte == b'\\';
     if bytes.len() >= 2 && is_separator(bytes[0]) && is_separator(bytes[1]) {
@@ -1508,7 +1631,9 @@ fn machine_deployment_policy_path() -> Option<std::path::PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        Some(std::path::PathBuf::from("/Library/Application Support/GeoLibre/deployment.json"))
+        Some(std::path::PathBuf::from(
+            "/Library/Application Support/GeoLibre/deployment.json",
+        ))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -1558,7 +1683,11 @@ fn read_deployment_policy(app: tauri::AppHandle) -> Result<Option<String>, Strin
 /// escapes.
 #[tauri::command]
 fn read_allowed_file(plugin_id: String, path: String) -> Result<String, String> {
-    read_allowed_file_impl(&plugin_id, &path, machine_deployment_policy_path().as_deref())
+    read_allowed_file_impl(
+        &plugin_id,
+        &path,
+        machine_deployment_policy_path().as_deref(),
+    )
 }
 
 /// The `plugins.fileAccess` entries for `plugin_id`, validated with the UI
@@ -1622,12 +1751,16 @@ fn read_allowed_file_impl(
     }
 
     let Some(policy_path) = policy_path else {
-        return Err("No machine deployment policy configured; plugin fileAccess is denied".to_string());
+        return Err(
+            "No machine deployment policy configured; plugin fileAccess is denied".to_string(),
+        );
     };
     let Some(policy_contents) = read_optional_config_file(policy_path)
         .map_err(|error| format!("Could not read machine deployment policy: {error}"))?
     else {
-        return Err("Machine deployment policy does not exist; plugin fileAccess is denied".to_string());
+        return Err(
+            "Machine deployment policy does not exist; plugin fileAccess is denied".to_string(),
+        );
     };
 
     // The UI parser accepts a leading UTF-8 BOM, so the native gate must too.
@@ -1638,7 +1771,10 @@ fn read_allowed_file_impl(
         .map_err(|error| format!("Could not parse machine deployment policy: {error}"))?;
     // The UI ignores a policy with an unsupported version; never grant from one.
     if policy.get("version").and_then(Value::as_u64) != Some(1) {
-        return Err("Machine deployment policy has an unsupported version; plugin fileAccess is denied".to_string());
+        return Err(
+            "Machine deployment policy has an unsupported version; plugin fileAccess is denied"
+                .to_string(),
+        );
     }
 
     let allowlist = machine_file_access_allowlist(&policy, trimmed_id)?;
@@ -1836,6 +1972,8 @@ fn is_disallowed_ip(ip: std::net::IpAddr) -> bool {
                 || v6.is_multicast()
                 // fe80::/10 link-local
                 || (segments[0] & 0xffc0) == 0xfe80
+                // fd00:ec2::/32 AWS IPv6 IMDS (fd00:ec2::254) and EKS Pod Identity (fd00:ec2::23)
+                || (segments[0] == 0xfd00 && segments[1] == 0x0ec2)
         }
     }
 }
@@ -1956,10 +2094,20 @@ impl reqwest::dns::Resolve for GuardedDnsResolver {
         use std::net::ToSocketAddrs;
         Box::pin(async move {
             let host = name.as_str().to_string();
-            // std getaddrinfo blocks, but these are low-volume tile/URL fetches.
-            let resolved = (host.as_str(), 0u16).to_socket_addrs();
+            // Offload blocking std getaddrinfo onto Tokio's blocking pool so
+            // slow or unreachable DNS never stalls async workers.
+            let resolved = tauri::async_runtime::spawn_blocking(move || {
+                (host.as_str(), 0u16)
+                    .to_socket_addrs()
+                    .map(|iter| iter.collect::<Vec<_>>())
+            })
+            .await
+            .map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)?;
             let addrs: Vec<std::net::SocketAddr> = match resolved {
-                Ok(iter) => iter.filter(|addr| !is_disallowed_ip(addr.ip())).collect(),
+                Ok(list) => list
+                    .into_iter()
+                    .filter(|addr| !is_disallowed_ip(addr.ip()))
+                    .collect(),
                 Err(error) => {
                     return Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>);
                 }
@@ -2323,15 +2471,29 @@ fn install_external_plugin_archive_blocking(
     app: &tauri::AppHandle,
     source_path: String,
 ) -> Result<String, String> {
+    if !is_safe_absolute_path(&source_path) {
+        return Err(format!(
+            "Refusing to install \"{source_path}\": plugin path must be an absolute local path"
+        ));
+    }
     let source = PathBuf::from(&source_path);
     if !is_zip_path(&source) {
         return Err("Plugin file must be a .zip archive".to_string());
+    }
+    let canonical_source = fs::canonicalize(&source)
+        .map_err(|error| format!("Could not resolve plugin archive: {error}"))?;
+    let resolved = canonical_source.to_string_lossy();
+    if is_unc_resolved_path(&resolved)
+        || !is_zip_path(&canonical_source)
+        || !canonical_source.is_file()
+    {
+        return Err("Plugin file must resolve to a local .zip archive".to_string());
     }
 
     // Validate the archive up front by loading it the same way the startup scan
     // does; this rejects a malformed manifest, a missing/oversized entry, or an
     // unsafe asset path before any file is written.
-    let bundle = load_external_plugin_archive(&source, &source_path)?;
+    let bundle = load_external_plugin_archive(&canonical_source, &source_path)?;
     let plugin_id = bundle.manifest.id;
 
     let plugins_dir = app
@@ -2347,14 +2509,12 @@ fn install_external_plugin_archive_blocking(
     // Reinstalling from a file already inside the plugins directory (e.g. the
     // user re-selects the installed copy) would otherwise truncate the source
     // mid-copy. Treat the no-op copy as a successful install.
-    let same_file = source
+    let same_file = destination
         .canonicalize()
         .ok()
-        .zip(destination.canonicalize().ok())
-        .map(|(from, to)| from == to)
-        .unwrap_or(false);
+        .is_some_and(|to| canonical_source == to);
     if !same_file {
-        fs::copy(&source, &destination)
+        fs::copy(&canonical_source, &destination)
             .map_err(|error| format!("Could not install plugin archive: {error}"))?;
     }
 
@@ -2429,8 +2589,11 @@ fn load_external_plugin_bundles_blocking(
     }
     // Remember exactly what loaded, so read_external_plugin_asset can refuse
     // any source the scan did not itself find.
-    app.state::<LoadedPluginBundles>()
-        .replace(bundles.iter().map(|bundle| PathBuf::from(&bundle.archive_name)));
+    app.state::<LoadedPluginBundles>().replace(
+        bundles
+            .iter()
+            .map(|bundle| PathBuf::from(&bundle.archive_name)),
+    );
 
     Ok(ExternalPluginBundleLoadResult {
         plugins_directories: plugin_dirs
@@ -2504,10 +2667,9 @@ fn read_external_plugin_asset_blocking(
         .map_err(|error| format!("Plugin source is unavailable: {error}"))?
         .is_dir();
     if is_directory {
-        Ok(tauri::ipc::Response::new(read_directory_plugin_asset_bytes(
-            &canonical_source,
-            relative_path,
-        )?))
+        Ok(tauri::ipc::Response::new(
+            read_directory_plugin_asset_bytes(&canonical_source, relative_path)?,
+        ))
     } else {
         Ok(tauri::ipc::Response::new(read_zip_plugin_asset_bytes(
             &canonical_source,
@@ -2521,10 +2683,10 @@ fn read_zip_plugin_asset_bytes(
     archive_path: &Path,
     relative_path: &str,
 ) -> Result<Vec<u8>, String> {
-    let file = File::open(archive_path)
-        .map_err(|error| format!("Could not open plugin zip: {error}"))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|error| format!("Could not read plugin zip: {error}"))?;
+    let file =
+        File::open(archive_path).map_err(|error| format!("Could not open plugin zip: {error}"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| format!("Could not read plugin zip: {error}"))?;
     // Assets resolve against the manifest's own directory, mirroring how the
     // entry/style paths resolve at load time (a wrapping folder is tolerated).
     let manifest_path = find_zip_manifest_path(&archive)
@@ -2778,14 +2940,23 @@ fn load_external_plugin_directory(
 
 #[cfg(not(feature = "mas"))]
 fn read_fs_text_entry(root: &Path, entry_name: &str, label: &str) -> Result<String, String> {
-    let entry_path = root.join(entry_name);
-    if !entry_path.is_file() {
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let entry_path = canonical_root.join(entry_name);
+    let canonical_entry = entry_path
+        .canonicalize()
+        .map_err(|_| format!("Could not read {label} '{entry_name}': file does not exist"))?;
+    if !canonical_entry.starts_with(&canonical_root) {
+        return Err(format!(
+            "Refusing to read {label} '{entry_name}': resolves outside the plugin directory"
+        ));
+    }
+    if !canonical_entry.is_file() {
         return Err(format!(
             "Could not read {label} '{entry_name}': file does not exist"
         ));
     }
 
-    let file = File::open(&entry_path)
+    let file = File::open(&canonical_entry)
         .map_err(|error| format!("Could not read {label} '{entry_name}': {error}"))?;
     let mut text = String::new();
     file.take(MAX_PLUGIN_ENTRY_BYTES + 1)
@@ -3025,7 +3196,7 @@ struct JupyterServerInfo {
 // plugins bundled into the app are unaffected.
 #[cfg(feature = "mas")]
 #[tauri::command]
-fn ensure_martin_binary(_app: tauri::AppHandle) -> Result<MartinBinaryInfo, String> {
+async fn ensure_martin_binary(_app: tauri::AppHandle) -> Result<MartinBinaryInfo, String> {
     Err("The Martin tile server is not available in the Mac App Store build.".to_string())
 }
 
@@ -3044,7 +3215,7 @@ async fn start_martin_server(
 // frontend passes none; state is injected server-side).
 #[cfg(feature = "mas")]
 #[tauri::command]
-fn stop_martin_server() -> Result<(), String> {
+async fn stop_martin_server() -> Result<(), String> {
     Err("The Martin tile server is not available in the Mac App Store build.".to_string())
 }
 
@@ -3110,8 +3281,10 @@ async fn read_external_plugin_asset(
 
 #[cfg(not(feature = "mas"))]
 #[tauri::command]
-fn ensure_martin_binary(app: tauri::AppHandle) -> Result<MartinBinaryInfo, String> {
-    ensure_martin_binary_path(&app)
+async fn ensure_martin_binary(app: tauri::AppHandle) -> Result<MartinBinaryInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || ensure_martin_binary_path(&app))
+        .await
+        .map_err(|error| format!("Could not join Martin binary check task: {error}"))?
 }
 
 #[cfg(not(feature = "mas"))]
@@ -3121,8 +3294,12 @@ async fn start_martin_server(
     connection_string: String,
     default_srid: Option<String>,
 ) -> Result<MartinServerInfo, String> {
+    let start_gen = app
+        .state::<MartinServerState>()
+        .generation
+        .load(std::sync::atomic::Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || {
-        start_martin_server_blocking(app, connection_string, default_srid)
+        start_martin_server_blocking(app, connection_string, default_srid, start_gen)
     })
     .await
     .map_err(|error| format!("Could not join Martin startup task: {error}"))?
@@ -3133,13 +3310,24 @@ fn start_martin_server_blocking(
     app: tauri::AppHandle,
     connection_string: String,
     default_srid: Option<String>,
+    start_gen: u64,
 ) -> Result<MartinServerInfo, String> {
     if connection_string.trim().is_empty() {
         return Err("Enter a PostgreSQL connection string.".to_string());
     }
 
-    let binary = ensure_martin_binary_path(&app)?;
     let state = app.state::<MartinServerState>();
+    if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+        return Err("Martin server startup was cancelled.".to_string());
+    }
+    let binary = ensure_martin_binary_path(&app)?;
+    let _lifecycle = state
+        .lifecycle
+        .lock()
+        .map_err(|_| "Could not lock Martin lifecycle.".to_string())?;
+    if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+        return Err("Martin server startup was cancelled.".to_string());
+    }
     {
         let mut process = state
             .process
@@ -3155,6 +3343,9 @@ fn start_martin_server_blocking(
 
     let mut last_error = "Could not start Martin.".to_string();
     for _ in 0..MARTIN_START_ATTEMPTS {
+        if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+            return Err("Martin server startup was cancelled.".to_string());
+        }
         match spawn_martin_server(
             &binary.path,
             connection_string.trim(),
@@ -3165,7 +3356,13 @@ fn start_martin_server_blocking(
                     .process
                     .lock()
                     .map_err(|_| "Could not lock Martin process state.".to_string())?;
+                if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+                    drop(process);
+                    drop(info.process);
+                    return Err("Martin server startup was cancelled.".to_string());
+                }
                 if martin_slot_is_busy(&mut process) {
+                    drop(process);
                     drop(info.process);
                     return Err(
                         "A Martin server is already running. Stop it before starting a new one."
@@ -3190,19 +3387,39 @@ fn start_martin_server_blocking(
 
 #[cfg(not(feature = "mas"))]
 #[tauri::command]
-fn stop_martin_server(state: tauri::State<MartinServerState>) -> Result<(), String> {
+async fn stop_martin_server(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || stop_martin_server_blocking(app))
+        .await
+        .map_err(|error| format!("Could not join Martin stop task: {error}"))?
+}
+
+#[cfg(not(feature = "mas"))]
+fn stop_martin_server_blocking(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<MartinServerState>();
+    // Bump generation without blocking on `lifecycle` so Stop is immediate even
+    // while a startup attempt is in flight; the startup checks `generation`
+    // under `process.lock()` before storing any child.
+    state
+        .generation
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let mut process = state
         .process
         .lock()
         .map_err(|_| "Could not lock Martin process state.".to_string())?;
-    *process = None;
+    let taken = process.take();
+    drop(process);
+    drop(taken);
     Ok(())
 }
 
 #[cfg(not(feature = "mas"))]
 #[tauri::command]
 async fn start_geolibre_sidecar(app: tauri::AppHandle) -> Result<SidecarServerInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || start_geolibre_sidecar_blocking(app))
+    let start_gen = app
+        .state::<SidecarServerState>()
+        .generation
+        .load(std::sync::atomic::Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || start_geolibre_sidecar_blocking(app, start_gen))
         .await
         .map_err(|error| format!("Could not join sidecar startup task: {error}"))?
 }
@@ -3234,13 +3451,19 @@ fn add_main_sidecar_extras(command: &mut Command) {
 }
 
 #[cfg(not(feature = "mas"))]
-fn start_geolibre_sidecar_blocking(app: tauri::AppHandle) -> Result<SidecarServerInfo, String> {
+fn start_geolibre_sidecar_blocking(
+    app: tauri::AppHandle,
+    start_gen: u64,
+) -> Result<SidecarServerInfo, String> {
     let base_url = sidecar_base_url();
     let state = app.state::<SidecarServerState>();
     let _lifecycle = state
         .lifecycle
         .lock()
         .map_err(|_| "Could not lock sidecar lifecycle.".to_string())?;
+    if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+        return Err("GeoLibre sidecar startup was cancelled.".to_string());
+    }
     {
         let mut process = state
             .process
@@ -3354,9 +3577,15 @@ fn start_geolibre_sidecar_blocking(app: tauri::AppHandle) -> Result<SidecarServe
         .process
         .lock()
         .map_err(|_| "Could not lock sidecar process state.".to_string())?;
+    if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+        drop(process);
+        // Drop triggers `SidecarProcess::drop` -> `terminate()` exactly once.
+        drop(SidecarProcess { child });
+        return Err("GeoLibre sidecar startup was cancelled.".to_string());
+    }
     if process.is_some() {
-        let mut duplicate = SidecarProcess { child };
-        duplicate.terminate();
+        drop(process);
+        drop(SidecarProcess { child });
     } else {
         *process = Some(SidecarProcess { child });
     }
@@ -3379,10 +3608,14 @@ async fn stop_geolibre_sidecar(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(not(feature = "mas"))]
 fn stop_geolibre_sidecar_blocking(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<SidecarServerState>();
-    let _lifecycle = state
-        .lifecycle
-        .lock()
-        .map_err(|_| "Could not lock sidecar lifecycle.".to_string())?;
+    // Bump generation immediately without blocking on `lifecycle` so Stop stays
+    // responsive during a slow `uv` install or health wait; any in-progress
+    // startup checks `generation` under `process.lock()` and tears down its
+    // child instead of installing it.
+    let stop_gen = state
+        .generation
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1;
     {
         let mut process = state
             .process
@@ -3396,19 +3629,25 @@ fn stop_geolibre_sidecar_blocking(app: tauri::AppHandle) -> Result<(), String> {
         drop(taken); // terminate() runs here, outside the lock
     }
 
-    let base_url = sidecar_base_url();
-    if sidecar_health_is_ready(&base_url) {
-        request_sidecar_shutdown(&base_url);
-        wait_for_sidecar_stop(&base_url);
-    }
-    if sidecar_health_is_ready(&base_url) {
-        terminate_sidecar_listeners_on_port(SIDECAR_PORT)?;
-        wait_for_sidecar_stop(&base_url);
-    }
-    if sidecar_health_is_ready(&base_url) {
-        return Err(format!(
-            "GeoLibre sidecar is still running on port {SIDECAR_PORT}."
-        ));
+    if let Ok(_lifecycle) = state.lifecycle.try_lock() {
+        let should_reap_port = || {
+            state.generation.load(std::sync::atomic::Ordering::SeqCst) == stop_gen
+                && state.process.lock().is_ok_and(|process| process.is_none())
+        };
+        let base_url = sidecar_base_url();
+        if should_reap_port() && sidecar_health_is_ready(&base_url) {
+            request_sidecar_shutdown(&base_url);
+            wait_for_sidecar_stop(&base_url);
+        }
+        if should_reap_port() && sidecar_health_is_ready(&base_url) {
+            terminate_sidecar_listeners_on_port(SIDECAR_PORT)?;
+            wait_for_sidecar_stop(&base_url);
+        }
+        if should_reap_port() && sidecar_health_is_ready(&base_url) {
+            return Err(format!(
+                "GeoLibre sidecar is still running on port {SIDECAR_PORT}."
+            ));
+        }
     }
     Ok(())
 }
@@ -3416,13 +3655,20 @@ fn stop_geolibre_sidecar_blocking(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(not(feature = "mas"))]
 #[tauri::command]
 async fn start_jupyter_server(app: tauri::AppHandle) -> Result<JupyterServerInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || start_jupyter_server_blocking(app))
+    let start_gen = app
+        .state::<JupyterServerState>()
+        .generation
+        .load(std::sync::atomic::Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || start_jupyter_server_blocking(app, start_gen))
         .await
         .map_err(|error| format!("Could not join Jupyter startup task: {error}"))?
 }
 
 #[cfg(not(feature = "mas"))]
-fn start_jupyter_server_blocking(app: tauri::AppHandle) -> Result<JupyterServerInfo, String> {
+fn start_jupyter_server_blocking(
+    app: tauri::AppHandle,
+    start_gen: u64,
+) -> Result<JupyterServerInfo, String> {
     let state = app.state::<JupyterServerState>();
     // Serialize the whole startup. Concurrent calls (e.g. React StrictMode
     // double-invoking the Notebook panel's mount effect in dev) would otherwise
@@ -3433,6 +3679,9 @@ fn start_jupyter_server_blocking(app: tauri::AppHandle) -> Result<JupyterServerI
         .startup
         .lock()
         .map_err(|_| "Could not lock Jupyter startup.".to_string())?;
+    if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+        return Err("Jupyter server startup was cancelled.".to_string());
+    }
     // Reuse an already-running server: hand back the same URL + token.
     {
         let mut process = state
@@ -3586,17 +3835,24 @@ fn start_jupyter_server_blocking(app: tauri::AppHandle) -> Result<JupyterServerI
         return Err(error);
     }
 
-    // We hold the startup lock, so no concurrent start could have stored a
-    // process; record ours as the live server.
-    *state
-        .process
-        .lock()
-        .map_err(|_| "Could not lock Jupyter process state.".to_string())? =
-        Some(JupyterProcess { child });
-    *state
-        .token
-        .lock()
-        .map_err(|_| "Could not lock Jupyter token.".to_string())? = Some(token.clone());
+    // Record our server unless a concurrent stop or app exit bumped
+    // `generation` while startup was running.
+    {
+        let mut process = state
+            .process
+            .lock()
+            .map_err(|_| "Could not lock Jupyter process state.".to_string())?;
+        if state.generation.load(std::sync::atomic::Ordering::SeqCst) != start_gen {
+            drop(process);
+            terminate_sidecar_child(&mut child);
+            return Err("Jupyter server startup was cancelled.".to_string());
+        }
+        *process = Some(JupyterProcess { child });
+        *state
+            .token
+            .lock()
+            .map_err(|_| "Could not lock Jupyter token.".to_string())? = Some(token.clone());
+    }
 
     Ok(JupyterServerInfo {
         url: base_url,
@@ -3616,32 +3872,45 @@ async fn stop_jupyter_server(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(not(feature = "mas"))]
 fn stop_jupyter_server_blocking(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<JupyterServerState>();
+    // Bump generation immediately without blocking on `startup` so Stop stays
+    // responsive even during a slow `uv sync` or health wait; any in-progress
+    // startup checks `generation` under `process.lock()` and tears down its
+    // child instead of installing it.
+    let stop_gen = state
+        .generation
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1;
     {
         let mut process = state
             .process
             .lock()
             .map_err(|_| "Could not lock Jupyter process state.".to_string())?;
-        // JupyterProcess::Drop terminates the child's process group; taking the
-        // value out is enough (see stop_geolibre_sidecar_blocking).
+        // Clear the token in the same `process` critical section as taking the
+        // process so a concurrent start cannot publish a fresh token that gets
+        // wiped by a late clear.
         let taken = process.take();
+        if let Ok(mut token) = state.token.lock() {
+            *token = None;
+        }
         drop(process);
+        // JupyterProcess::Drop terminates the child's process group outside the lock.
         drop(taken);
     }
-    if let Ok(mut token) = state.token.lock() {
-        *token = None;
-    }
-    // Backstop: reap anything still bound to the port (no-op when nothing of
-    // ours is listening). Best-effort, because the child this call exists to
-    // clean up after is already gone by now: returning an error here would
-    // leave the frontend believing the server it just stopped is still running
-    // (stopJupyterServer only clears its state once this invoke resolves).
-    // Best-effort, but not silent: skipping the backstop is what a later
-    // "stale Jupyter still holding the port" report would trace back to.
-    match app_runtime_dir(&app) {
-        Ok(runtime_dir) => {
-            let _ = terminate_jupyter_listeners_on_port(JUPYTER_PORT, &runtime_dir);
+    // Backstop: reap anything still bound to the port only when no startup is
+    // in flight and no newer start has installed a live server in the meantime.
+    if let Ok(_startup) = state.startup.try_lock() {
+        if state.generation.load(std::sync::atomic::Ordering::SeqCst) == stop_gen
+            && state.process.lock().is_ok_and(|process| process.is_none())
+        {
+            match app_runtime_dir(&app) {
+                Ok(runtime_dir) => {
+                    let _ = terminate_jupyter_listeners_on_port(JUPYTER_PORT, &runtime_dir);
+                }
+                Err(error) => {
+                    eprintln!("Jupyter: skipping the port {JUPYTER_PORT} backstop ({error}).")
+                }
+            }
         }
-        Err(error) => eprintln!("Jupyter: skipping the port {JUPYTER_PORT} backstop ({error})."),
     }
     Ok(())
 }
@@ -4149,7 +4418,14 @@ fn hide_console_window(_command: &mut Command) {}
 
 #[cfg(not(feature = "mas"))]
 fn terminate_sidecar_child(child: &mut Child) {
+    // Signal the process group first so surviving grandchildren (such as
+    // Jupyter kernels or uvicorn workers) are terminated even if the group
+    // leader already exited. Skip `child.kill()` / `child.wait()` once
+    // `try_wait()` confirms the leader was already reaped.
     terminate_sidecar_process_group(child);
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return;
+    }
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -4671,8 +4947,10 @@ fn terminate_sidecar_listeners_on_port(_port: u16) -> Result<(), String> {
 #[cfg(all(target_os = "linux", not(feature = "mas")))]
 fn listening_tcp_inodes(port: u16) -> Result<HashSet<String>, String> {
     let mut inodes = HashSet::new();
-    collect_listening_tcp_inodes("/proc/net/tcp", port, &mut inodes)?;
-    collect_listening_tcp_inodes("/proc/net/tcp6", port, &mut inodes)?;
+    collect_listening_tcp_inodes("/proc/net/tcp", port, &mut inodes, false)?;
+    // Systems booted with `ipv6.disable=1` have no `/proc/net/tcp6`; treat a
+    // missing IPv6 table as empty rather than failing IPv4 port reclaim.
+    collect_listening_tcp_inodes("/proc/net/tcp6", port, &mut inodes, true)?;
     Ok(inodes)
 }
 
@@ -4681,9 +4959,13 @@ fn collect_listening_tcp_inodes(
     path: &str,
     port: u16,
     inodes: &mut HashSet<String>,
+    optional: bool,
 ) -> Result<(), String> {
-    let content =
-        fs::read_to_string(path).map_err(|error| format!("Could not read {path}: {error}"))?;
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if optional && error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("Could not read {path}: {error}")),
+    };
     let expected_port = format!("{port:04X}");
     for line in content.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
@@ -5277,7 +5559,13 @@ struct MbtilesMetadata {
 }
 
 #[tauri::command]
-fn read_mbtiles_metadata(path: String) -> Result<MbtilesMetadata, String> {
+async fn read_mbtiles_metadata(path: String) -> Result<MbtilesMetadata, String> {
+    tauri::async_runtime::spawn_blocking(move || read_mbtiles_metadata_blocking(path))
+        .await
+        .map_err(|error| format!("Could not join MBTiles metadata task: {error}"))?
+}
+
+fn read_mbtiles_metadata_blocking(path: String) -> Result<MbtilesMetadata, String> {
     let connection = open_mbtiles(&path)?;
     let metadata = read_metadata_rows(&connection)?;
     let metadata_min_zoom = metadata
@@ -5346,8 +5634,20 @@ fn read_mbtiles_zoom_range(
     ))
 }
 
+const MAX_MBTILES_ZOOM: u32 = 30;
+const MAX_DECOMPRESSED_TILE_BYTES: u64 = 32 * 1024 * 1024;
+
 #[tauri::command]
-fn read_mbtiles_tile(path: String, z: u32, x: u32, y: u32) -> Result<Vec<u8>, String> {
+async fn read_mbtiles_tile(path: String, z: u32, x: u32, y: u32) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || read_mbtiles_tile_blocking(path, z, x, y))
+        .await
+        .map_err(|error| format!("Could not join MBTiles tile task: {error}"))?
+}
+
+fn read_mbtiles_tile_blocking(path: String, z: u32, x: u32, y: u32) -> Result<Vec<u8>, String> {
+    if z > MAX_MBTILES_ZOOM {
+        return Err("Tile zoom level is too large".to_string());
+    }
     let connection = open_mbtiles(&path)?;
     let scheme = read_metadata_value(&connection, "scheme")?
         .map(|value| value.to_ascii_lowercase())
@@ -5380,11 +5680,26 @@ fn read_mbtiles_tile(path: String, z: u32, x: u32, y: u32) -> Result<Vec<u8>, St
 }
 
 fn open_mbtiles(path: &str) -> Result<Connection, String> {
-    if !Path::new(path).exists() {
-        return Err("The selected MBTiles file does not exist".to_string());
+    if !is_safe_absolute_path(path) || !path.to_ascii_lowercase().ends_with(".mbtiles") {
+        return Err(format!(
+            "Refusing to open \"{path}\": not an absolute local MBTiles file path"
+        ));
+    }
+    let canonical = fs::canonicalize(path)
+        .map_err(|_| "The selected MBTiles file does not exist".to_string())?;
+    let resolved = canonical.to_string_lossy();
+    if is_unc_resolved_path(&resolved) {
+        return Err(format!(
+            "Refusing to open \"{path}\": resolves to a network path"
+        ));
+    }
+    if !resolved.to_ascii_lowercase().ends_with(".mbtiles") || !canonical.is_file() {
+        return Err(format!(
+            "Refusing to open \"{path}\": resolves to a non-MBTiles file"
+        ));
     }
 
-    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    Connection::open_with_flags(&canonical, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| format!("Could not open MBTiles file: {error}"))
 }
 
@@ -5465,18 +5780,29 @@ fn parse_number_list(value: &str) -> Vec<f64> {
 
 fn decompress_tile_data(data: Vec<u8>) -> Result<Vec<u8>, String> {
     if data.starts_with(&[0x1f, 0x8b]) {
-        let mut decoder = GzDecoder::new(data.as_slice());
+        let decoder = GzDecoder::new(data.as_slice());
         let mut decoded = Vec::new();
         decoder
+            .take(MAX_DECOMPRESSED_TILE_BYTES + 1)
             .read_to_end(&mut decoded)
             .map_err(|error| format!("Could not decompress gzip tile: {error}"))?;
+        if decoded.len() as u64 > MAX_DECOMPRESSED_TILE_BYTES {
+            return Err("Decompressed gzip tile exceeds the size limit".to_string());
+        }
         return Ok(decoded);
     }
 
     if data.len() > 2 && data[0] == 0x78 {
-        let mut decoder = ZlibDecoder::new(data.as_slice());
+        let decoder = ZlibDecoder::new(data.as_slice());
         let mut decoded = Vec::new();
-        if decoder.read_to_end(&mut decoded).is_ok() {
+        if decoder
+            .take(MAX_DECOMPRESSED_TILE_BYTES + 1)
+            .read_to_end(&mut decoded)
+            .is_ok()
+        {
+            if decoded.len() as u64 > MAX_DECOMPRESSED_TILE_BYTES {
+                return Err("Decompressed zlib tile exceeds the size limit".to_string());
+            }
             return Ok(decoded);
         }
     }
@@ -5770,12 +6096,12 @@ mod tests {
     // tests that exercise it (and their scaffolding) are gated with it.
     #[cfg(not(feature = "mas"))]
     use super::{
-        add_main_sidecar_extras, add_sidecar_python_pin, child_failure_message, clear_appimage_python_env,
-        find_zip_manifest_path, plugin_archive_file_name, read_directory_plugin_asset_bytes,
-        LoadedPluginBundles,
-        read_zip_plugin_asset_bytes, resolve_sidecar_in_resource_dir,
-        sidecar_accepts_token, sidecar_health_is_ready, CapturedOutput, CAPTURED_LOG_MAX_LINES,
-        CAPTURED_LOG_REPORTED_LINES, CAPTURED_LOG_SETTLE,
+        add_main_sidecar_extras, add_sidecar_python_pin, child_failure_message,
+        clear_appimage_python_env, find_zip_manifest_path, plugin_archive_file_name,
+        read_directory_plugin_asset_bytes, read_zip_plugin_asset_bytes,
+        resolve_sidecar_in_resource_dir, sidecar_accepts_token, sidecar_health_is_ready,
+        CapturedOutput, LoadedPluginBundles, CAPTURED_LOG_MAX_LINES, CAPTURED_LOG_REPORTED_LINES,
+        CAPTURED_LOG_SETTLE,
     };
     // Only the unix-only Martin tests (they spawn `sh`) use these.
     #[cfg(all(unix, not(feature = "mas")))]
@@ -5950,28 +6276,48 @@ mod tests {
         assert_eq!(res.unwrap(), "{\"hello\":\"world\"}");
 
         // 2. Unlisted path is rejected
-        let res_unlisted = super::read_allowed_file_impl("my-plugin", &unlisted_str, Some(&policy_path));
+        let res_unlisted =
+            super::read_allowed_file_impl("my-plugin", &unlisted_str, Some(&policy_path));
         assert!(res_unlisted.is_err());
-        assert!(res_unlisted.unwrap_err().contains("not in the fileAccess allowlist"));
+        assert!(res_unlisted
+            .unwrap_err()
+            .contains("not in the fileAccess allowlist"));
 
         // 3. Wrong plugin id is rejected
-        let res_wrong_id = super::read_allowed_file_impl("other-plugin", &allowed_str, Some(&policy_path));
+        let res_wrong_id =
+            super::read_allowed_file_impl("other-plugin", &allowed_str, Some(&policy_path));
         assert!(res_wrong_id.is_err());
-        assert!(res_wrong_id.unwrap_err().contains("has no fileAccess allowlist"));
+        assert!(res_wrong_id
+            .unwrap_err()
+            .contains("has no fileAccess allowlist"));
 
         // 4. Traversal using .. is rejected
-        let traversal_str = format!("{}/../secret.json", allowed_file.parent().unwrap().to_str().unwrap().replace('\\', "/"));
-        let res_traversal = super::read_allowed_file_impl("my-plugin", &traversal_str, Some(&policy_path));
+        let traversal_str = format!(
+            "{}/../secret.json",
+            allowed_file
+                .parent()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .replace('\\', "/")
+        );
+        let res_traversal =
+            super::read_allowed_file_impl("my-plugin", &traversal_str, Some(&policy_path));
         assert!(res_traversal.is_err());
-        assert!(res_traversal.unwrap_err().contains("not a safe absolute local file path"));
+        assert!(res_traversal
+            .unwrap_err()
+            .contains("not a safe absolute local file path"));
 
         // 5. No machine-wide policy (None, or an absent file) denies every read
         let res_none = super::read_allowed_file_impl("my-plugin", &allowed_str, None);
         assert!(res_none.is_err());
-        assert!(res_none.unwrap_err().contains("No machine deployment policy configured"));
+        assert!(res_none
+            .unwrap_err()
+            .contains("No machine deployment policy configured"));
 
         let absent_policy = root.path().join("absent.json");
-        let res_absent = super::read_allowed_file_impl("my-plugin", &allowed_str, Some(&absent_policy));
+        let res_absent =
+            super::read_allowed_file_impl("my-plugin", &allowed_str, Some(&absent_policy));
         assert!(res_absent.is_err());
         assert!(res_absent.unwrap_err().contains("does not exist"));
 
@@ -5985,7 +6331,8 @@ mod tests {
             ),
         )
         .unwrap();
-        let res_padded = super::read_allowed_file_impl("my-plugin", &allowed_str, Some(&padded_policy));
+        let res_padded =
+            super::read_allowed_file_impl("my-plugin", &allowed_str, Some(&padded_policy));
         assert_eq!(res_padded.unwrap(), "{\"hello\":\"world\"}");
 
         // 7. A BOM-prefixed policy parses, as it does in the UI.
@@ -6017,7 +6364,9 @@ mod tests {
         // 9. A fileAccess section the UI would drop grants nothing natively.
         for bad in [
             format!(r#"{{"my-plugin":["{allowed_str}",""]}}"#),
-            format!(r#"{{"my-plugin":["{allowed_str}"],"other":[" {allowed_str} ","{allowed_str}"]}}"#),
+            format!(
+                r#"{{"my-plugin":["{allowed_str}"],"other":[" {allowed_str} ","{allowed_str}"]}}"#
+            ),
             format!(r#"{{"my-plugin":["{allowed_str}"]," my-plugin":["{allowed_str}"]}}"#),
             format!(r#"{{"my-plugin":["{allowed_str}"],"   ":[]}}"#),
             r#"["not-an-object"]"#.to_string(),
@@ -6028,7 +6377,8 @@ mod tests {
                 format!(r#"{{"version":1,"plugins":{{"fileAccess":{bad}}}}}"#),
             )
             .unwrap();
-            let res_bad = super::read_allowed_file_impl("my-plugin", &allowed_str, Some(&bad_policy));
+            let res_bad =
+                super::read_allowed_file_impl("my-plugin", &allowed_str, Some(&bad_policy));
             assert!(
                 res_bad.unwrap_err().contains("invalid plugins.fileAccess"),
                 "{bad}"
@@ -6040,7 +6390,10 @@ mod tests {
         let dir_policy = root.path().join("dir.json");
         fs::write(
             &dir_policy,
-            format!(r#"{{"version":1,"plugins":{{"fileAccess":{{"my-plugin":["{}"]}}}}}}"#, dir_str),
+            format!(
+                r#"{{"version":1,"plugins":{{"fileAccess":{{"my-plugin":["{}"]}}}}}}"#,
+                dir_str
+            ),
         )
         .unwrap();
         let res_dir = super::read_allowed_file_impl("my-plugin", &dir_str, Some(&dir_policy));
@@ -6392,7 +6745,10 @@ mod tests {
         let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
         let mut flag_lines = cpuinfo.lines().filter(|line| line.starts_with("flags"));
         if let Some(flags) = flag_lines.next() {
-            assert_eq!(supported, flags.split_whitespace().any(|flag| flag == "avx"));
+            assert_eq!(
+                supported,
+                flags.split_whitespace().any(|flag| flag == "avx")
+            );
         }
     }
 
@@ -6471,6 +6827,8 @@ mod tests {
             "255.255.255.255",        // broadcast
             "::",                     // unspecified
             "fe80::1",                // link-local
+            "fd00:ec2::254",          // AWS IPv6 IMDS
+            "fd00:ec2::23",           // AWS EKS Pod Identity
             "::ffff:169.254.169.254", // IPv4-mapped metadata
             "::169.254.169.254",      // IPv4-compatible metadata (deprecated)
         ] {
@@ -6795,8 +7153,12 @@ mod tests {
         // A directory the scan never loaded is refused, even one that contains
         // the bundle (the caller-chosen-root attack: `$HOME` + `.ssh/id_rsa`).
         assert!(bundles.canonical_known_source(&root).is_none());
-        assert!(bundles.canonical_known_source(&root.join("plugins")).is_none());
-        assert!(bundles.canonical_known_source(&root.join("missing")).is_none());
+        assert!(bundles
+            .canonical_known_source(&root.join("plugins"))
+            .is_none());
+        assert!(bundles
+            .canonical_known_source(&root.join("missing"))
+            .is_none());
         // A rescan replaces the set rather than adding to it.
         bundles.replace(Vec::<PathBuf>::new());
         assert!(bundles.canonical_known_source(&plugin).is_none());
@@ -7320,9 +7682,15 @@ mod tests {
         assert_eq!(resolve_fetch_timeout_secs(Some(180)), 180);
         // Zero would mean "no timeout" to reqwest, so it is raised to the floor
         // rather than letting a stalled request hang forever.
-        assert_eq!(resolve_fetch_timeout_secs(Some(0)), REMOTE_TILE_TIMEOUT_SECS);
+        assert_eq!(
+            resolve_fetch_timeout_secs(Some(0)),
+            REMOTE_TILE_TIMEOUT_SECS
+        );
         // Below the floor is raised; above the ceiling is capped.
-        assert_eq!(resolve_fetch_timeout_secs(Some(1)), REMOTE_TILE_TIMEOUT_SECS);
+        assert_eq!(
+            resolve_fetch_timeout_secs(Some(1)),
+            REMOTE_TILE_TIMEOUT_SECS
+        );
         assert_eq!(
             resolve_fetch_timeout_secs(Some(u64::MAX)),
             MAX_FETCH_TIMEOUT_SECS
@@ -7437,5 +7805,126 @@ mod tests {
     #[test]
     fn stale_sidecar_error_keeps_the_phrase_the_frontend_matches() {
         assert!(super::STALE_SIDECAR_ERROR.contains("does not accept this session's token"));
+    }
+
+    #[test]
+    fn open_mbtiles_rejects_non_mbtiles_and_unc_paths() {
+        assert!(super::open_mbtiles("relative.mbtiles").is_err());
+        assert!(super::open_mbtiles("/etc/passwd").is_err());
+        assert!(super::open_mbtiles(r"\\evil\share\tiles.mbtiles").is_err());
+        assert!(super::open_mbtiles("/tmp/../etc/tiles.mbtiles").is_err());
+    }
+
+    #[test]
+    fn read_mbtiles_tile_rejects_excessive_zoom() {
+        let err =
+            super::read_mbtiles_tile_blocking("/tmp/nonexistent.mbtiles".to_string(), 63, 0, 0)
+                .expect_err("zoom 63 must be rejected");
+        assert!(err.contains("zoom level is too large"));
+    }
+
+    #[test]
+    fn decompress_tile_data_caps_decompressed_size() {
+        use flate2::{write::GzEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+        let chunk = vec![0u8; 1024 * 1024];
+        for _ in 0..33 {
+            encoder.write_all(&chunk).unwrap();
+        }
+        let bomb = encoder.finish().unwrap();
+        let err = super::decompress_tile_data(bomb).expect_err("oversized gzip tile must fail");
+        assert!(err.contains("exceeds the size limit"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_local_file_and_siblings_reject_symlink_escapes() {
+        let dir = std::env::temp_dir().join(format!(
+            "geolibre-symlink-guard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret = dir.join("secret.txt");
+        std::fs::write(&secret, b"secret").unwrap();
+        let link = dir.join("evil.geojson");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        let err = match super::read_local_file(link.to_string_lossy().into_owned()) {
+            Ok(_) => panic!("symlink to non-vector file must fail"),
+            Err(err) => err,
+        };
+        assert!(err.contains("non-vector file"));
+
+        let shp = dir.join("roads.shp");
+        std::fs::write(&shp, b"shp").unwrap();
+        let dbf_link = dir.join("roads.dbf");
+        std::os::unix::fs::symlink(&secret, &dbf_link).unwrap();
+        let siblings = super::read_shapefile_siblings(shp.to_string_lossy().into_owned()).unwrap();
+        assert!(
+            siblings.is_empty(),
+            "symlinked non-sidecar sibling must be skipped"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn read_fs_text_entry_rejects_symlink_escape() {
+        let base = std::env::temp_dir().join(format!(
+            "geolibre-plugin-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let plugin_dir = base.join("plugin");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        let outside = base.join("outside.txt");
+        std::fs::write(&outside, "outside").unwrap();
+        std::os::unix::fs::symlink(&outside, plugin_dir.join("entry.js")).unwrap();
+        let err = super::read_fs_text_entry(&plugin_dir, "entry.js", "plugin entry")
+            .expect_err("symlink escaping plugin dir must fail");
+        assert!(err.contains("resolves outside the plugin directory"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(all(target_os = "linux", not(feature = "mas")))]
+    #[test]
+    fn collect_listening_tcp_inodes_ignores_missing_optional_table() {
+        let mut inodes = std::collections::HashSet::new();
+        let result = super::collect_listening_tcp_inodes(
+            "/proc/net/geolibre_nonexistent_tcp6",
+            8080,
+            &mut inodes,
+            true,
+        );
+        assert!(result.is_ok());
+        assert!(inodes.is_empty());
+
+        let required = super::collect_listening_tcp_inodes(
+            "/proc/net/geolibre_nonexistent_tcp",
+            8080,
+            &mut inodes,
+            false,
+        );
+        assert!(required.is_err());
+    }
+
+    #[cfg(all(unix, not(feature = "mas")))]
+    #[test]
+    fn terminate_sidecar_child_handles_already_exited_process() {
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("spawn true");
+        let status = child.wait().expect("wait for true");
+        assert!(status.success());
+        super::terminate_sidecar_child(&mut child);
+        assert!(matches!(child.try_wait(), Ok(Some(s)) if s.success()));
     }
 }

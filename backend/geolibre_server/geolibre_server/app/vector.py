@@ -134,22 +134,23 @@ def _validate_write_path(path: str) -> Path:
     if not path or not path.strip():
         raise HTTPException(status_code=400, detail="path is required")
     target = Path(path).expanduser()
-    if target.suffix.lower() not in _WRITABLE_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Write-back is not supported for '{target.suffix}' files yet.",
-        )
-    if not target.is_file():
-        raise HTTPException(status_code=400, detail=f"Source file not found: {path}")
     resolved = target.resolve()
     # Confine writes (and the temp files beside the target) to the allowlisted
-    # roots so a same-origin caller cannot overwrite arbitrary files. Shares the
-    # conversion allowlist so both endpoints honor GEOLIBRE_CONVERSION_ROOTS.
+    # roots BEFORE checking existence so callers cannot probe files outside
+    # GEOLIBRE_CONVERSION_ROOTS, and validate the extension on the resolved path
+    # so a symlink cannot bypass the format check.
     if not _is_within_roots(resolved):
         raise HTTPException(
             status_code=403,
             detail="Path is outside the allowed directories",
         )
+    if resolved.suffix.lower() not in _WRITABLE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Write-back is not supported for '{resolved.suffix}' files yet.",
+        )
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail=f"Source file not found: {path}")
     if not os.access(resolved, os.W_OK):
         raise HTTPException(status_code=403, detail=f"Source file is not writable: {path}")
     return resolved
@@ -176,7 +177,10 @@ def _atomic_write(target: Path, write: Any) -> None:
 
     ``write`` receives a temp :class:`Path` to write to; on success it is
     ``os.replace``d onto ``target`` (atomic on the same filesystem, so the
-    original is never left half-written). The temp directory is always removed.
+    original is never left half-written). The target's permission bits are
+    copied onto the temp file first, so the replacement does not reset them to
+    the umask default (a private 0600 file must not come back 0644). The temp
+    directory is always removed.
 
     Args:
         target: The destination path to replace.
@@ -186,6 +190,8 @@ def _atomic_write(target: Path, write: Any) -> None:
     try:
         tmp = Path(tmpdir) / target.name
         write(tmp)
+        if target.exists():
+            shutil.copymode(target, tmp)
         os.replace(tmp, target)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

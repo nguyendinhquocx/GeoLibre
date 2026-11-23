@@ -145,11 +145,16 @@ def password_hash(password: str, salt: bytes | None = None) -> str:
 def password_matches(password: str, encoded: str) -> bool:
     """Return whether ``password`` matches an scrypt-encoded hash, in constant time."""
     try:
-        _, salt, expected = encoded.split("$")
+        scheme, salt, expected = encoded.split("$")
+        if scheme != "scrypt":
+            raise ValueError("unsupported password scheme")
         return hmac.compare_digest(
             password_hash(password, bytes.fromhex(salt)).split("$")[2], expected
         )
     except (ValueError, TypeError):
+        # Always perform an scrypt derivation on non-password/sentinel hashes
+        # (such as "!sso") so response timing matches built-in accounts.
+        password_hash(password or "unused")
         return False
 
 
@@ -532,7 +537,8 @@ def verify_password_login(
     allow_expired: bool = False,
 ) -> Account:
     """Verify built-in credentials under the account's effective security policy."""
-    account = session.scalar(select(Account).where(Account.username == username))
+    normalized = username.strip().lower()
+    account = session.scalar(select(Account).where(Account.username == normalized))
     if account is None:
         # Hash anyway before failing. Short-circuiting here would skip the
         # scrypt call that a real username always pays for, and the timing
@@ -543,10 +549,14 @@ def verify_password_login(
     security = session.get(AccountSecurity, account.id)
     locked_until = security.locked_until if security is not None else None
     if locked_until is not None and locked_until > now_ts:
+        password_hash(password or "unused")
         raise PasswordLoginError("locked")
     policy = effective_policy(session, account.id)
     if not password_matches(password, account.password_hash):
-        record_failed_login(session, account.id, now_ts, policy)
+        # Federated/SCIM/proxy accounts carry a sentinel hash ("!sso") and
+        # cannot log in by password; do not accumulate lockout state on them.
+        if account.password_hash.startswith("scrypt$"):
+            record_failed_login(session, account.id, now_ts, policy)
         raise PasswordLoginError("invalid")
     if is_deactivated(session, account.id):
         raise PasswordLoginError("invalid")
@@ -977,6 +987,8 @@ def render_consent_form(
     *,
     sso_available: bool = False,
     proxy_user: str | None = None,
+    reauth: bool = False,
+    requested_max_age: int | None = None,
 ) -> str:
     scope_items = "".join(
         f"<li>{html.escape(scope_description(s))}</li>" for s in canonical_scope(scope).split()
@@ -996,6 +1008,11 @@ def render_consent_form(
             "autocomplete='current-password' required></label>"
         )
         allow_text = "Sign in and allow"
+    reauth_inputs = ""
+    if requested_max_age is not None:
+        reauth_inputs += f"<input type='hidden' name='max_age' value='{requested_max_age}'>"
+    if reauth or requested_max_age is not None:
+        reauth_inputs += "<input type='hidden' name='reauth' value='1'>"
     sso_html = ""
     if sso_available and proxy_user is None:
         sso_html = (
@@ -1003,6 +1020,7 @@ def render_consent_form(
             f"<input type='hidden' name='interaction' value='{html.escape(interaction_id)}'>"
             f"<input type='hidden' name='csrf' value='{html.escape(csrf_value)}'>"
             f"<input type='hidden' name='label' value='{html.escape(label)}'>"
+            f"{reauth_inputs}"
             "<label>Organization <input type='text' name='organization' "
             "autocomplete='organization' required></label>"
             "<button type='submit' name='decision' value='sso'>"
@@ -1022,6 +1040,7 @@ def render_consent_form(
         "<form method='post'>"
         f"<input type='hidden' name='interaction' value='{html.escape(interaction_id)}'>"
         f"<input type='hidden' name='csrf' value='{html.escape(csrf_value)}'>"
+        f"{reauth_inputs}"
         "<label>Device label <input type='text' name='label' maxlength='100' "
         f"value='{html.escape(label)}'></label>"
         f"{credentials_html}"
@@ -1182,7 +1201,7 @@ class RevokeOtherSessionsRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     """Body for ``POST /api/account/password``."""
 
-    username: str
+    username: str = Field(max_length=39)
     current_password: str = Field(alias="currentPassword", max_length=1024)
     new_password: str = Field(alias="newPassword", max_length=1024)
 
@@ -1332,8 +1351,28 @@ def build_identity_router() -> APIRouter:
         error = password_policy_error(body.new_password, effective_policy(session, account.id))
         if error:
             raise HTTPException(422, error)
+        # Lock the account row so concurrent OAuth code exchanges serialize
+        # against password rotation on READ COMMITTED backends (PostgreSQL).
+        session.execute(select(Account.id).where(Account.id == account.id).with_for_update())
         account.password_hash = password_hash(body.new_password)
         ensure_account_security(session, account.id).password_changed_at = now_ts
+        # Revoke active OAuth sessions on password change so compromised or
+        # stale interactive sessions cannot survive credential rotation.
+        session.execute(
+            update(OAuthSession)
+            .where(OAuthSession.account_id == account.id, OAuthSession.revoked_at.is_(None))
+            .values(revoked_at=now_ts)
+        )
+        # Consume outstanding authorization codes approved before rotation so
+        # they cannot be exchanged for a fresh session after the password changes.
+        session.execute(
+            update(OAuthAuthorizationCode)
+            .where(
+                OAuthAuthorizationCode.account_id == account.id,
+                OAuthAuthorizationCode.consumed_at.is_(None),
+            )
+            .values(consumed_at=now_ts)
+        )
         session.commit()
         return Response(status_code=204)
 
@@ -1641,6 +1680,7 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
             "code_challenge",
             "code_challenge_method",
             "device_label",
+            "max_age",
         ):
             if len(params.getlist(key)) > 1:
                 return oauth_error_page(400, "invalid_request", "duplicate parameter")
@@ -1674,6 +1714,15 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
         label = params.get("device_label", "") or client.name
         if len(label) > 100:
             return oauth_error_redirect(config.issuer, redirect_uri, "invalid_request", state)
+        raw_max_age = params.get("max_age")
+        requested_max_age: int | None = None
+        if raw_max_age is not None:
+            if not (raw_max_age.isascii() and raw_max_age.isdigit()) or len(raw_max_age) > 10:
+                return oauth_error_redirect(config.issuer, redirect_uri, "invalid_request", state)
+            requested_max_age = int(raw_max_age)
+            if requested_max_age > 2_147_483_647:
+                return oauth_error_redirect(config.issuer, redirect_uri, "invalid_request", state)
+        reauth_requested = requested_max_age is not None
         try:
             identity = proxy_identity(request)
         except ValueError:
@@ -1744,6 +1793,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
                 None,
                 sso_available=sso_available,
                 proxy_user=proxy_user,
+                reauth=reauth_requested,
+                requested_max_age=requested_max_age,
             ),
             form_redirect_uri=redirect_uri,
             sso_form_action=sso_available,
@@ -1856,6 +1907,21 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
             return oauth_error_page(400, "invalid_request", "invalid proxy identity")
         proxy_user = identity.user if identity is not None else None
 
+        raw_form_max_age = fields.get("max_age", "").strip()
+        form_max_age: int | None = None
+        if (
+            raw_form_max_age.isascii()
+            and raw_form_max_age.isdigit()
+            and len(raw_form_max_age) <= 10
+        ):
+            parsed_max_age = int(raw_form_max_age)
+            if parsed_max_age <= 2_147_483_647:
+                form_max_age = parsed_max_age
+        form_reauth = form_max_age is not None or fields.get("reauth", "").strip().lower() in (
+            "1",
+            "true",
+        )
+
         if decision == "sso":
             if identity is not None:
                 # The proxy's identity is authoritative; the consent form never
@@ -1872,6 +1938,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
                 fields.get("organization", "").strip().lower(),
                 now_ts,
                 proxy_user=proxy_user,
+                reauth=form_reauth,
+                requested_max_age=form_max_age,
             )
 
         if identity is not None:
@@ -1891,6 +1959,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
                     label,
                     DEACTIVATED_MESSAGE,
                     proxy_user=proxy_user,
+                    reauth=form_reauth,
+                    requested_max_age=form_max_age,
                 )
             return _approve_interaction(
                 session, interaction, account.id, label, now_ts, authenticated_at=now_ts
@@ -1909,6 +1979,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
                 label,
                 CONSENT_LOGIN_ERRORS[exc.code],
                 proxy_user=proxy_user,
+                reauth=form_reauth,
+                requested_max_age=form_max_age,
             )
         return _approve_interaction(
             session, interaction, account.id, label, now_ts, authenticated_at=now_ts
@@ -1924,6 +1996,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
         now_ts: int,
         *,
         proxy_user: str | None,
+        reauth: bool = False,
+        requested_max_age: int | None = None,
     ) -> Response:
         """Redirect the browser to the named organization's identity provider."""
         provider = None
@@ -1942,9 +2016,19 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
                 label,
                 "Single sign-on is not configured for that organization",
                 proxy_user=proxy_user,
+                reauth=reauth,
+                requested_max_age=requested_max_age,
             )
         org_policy = session.get(OrganizationSecurityPolicy, provider.organization_id)
-        max_age = org_policy.admin_reauth_seconds if org_policy is not None else None
+        policy_max_age = org_policy.admin_reauth_seconds if org_policy is not None else None
+        if requested_max_age is not None and policy_max_age is not None:
+            max_age = min(requested_max_age, policy_max_age)
+        elif requested_max_age is not None:
+            max_age = requested_max_age
+        elif reauth or interaction.scope == MANAGEMENT_SCOPE:
+            max_age = policy_max_age
+        else:
+            max_age = None
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
         code_verifier = secrets.token_urlsafe(64)
@@ -1982,6 +2066,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
         message: str,
         *,
         proxy_user: str | None,
+        reauth: bool = False,
+        requested_max_age: int | None = None,
     ) -> HTMLResponse:
         """Re-render the consent form for this interaction with an error message."""
         sso_available = _sso_available(session, proxy_user)
@@ -1997,6 +2083,8 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
                 message,
                 sso_available=sso_available,
                 proxy_user=proxy_user,
+                reauth=reauth,
+                requested_max_age=requested_max_age,
             ),
             form_redirect_uri=interaction.redirect_uri,
             sso_form_action=sso_available,
@@ -2215,6 +2303,20 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
         if not hmac.compare_digest(computed, code_row.code_challenge):
             # Wrong verifier: not an authenticated replay, so no revocation.
             return oauth_token_error(400, "invalid_grant")
+        if code_row.account_id is not None:
+            # Serialize with change_password (which locks the same account row
+            # before revoking sessions and consuming outstanding codes) so a
+            # concurrent exchange cannot commit a live session after rotation.
+            session.execute(
+                select(Account.id).where(Account.id == code_row.account_id).with_for_update()
+            )
+            code_row = session.scalar(
+                select(OAuthAuthorizationCode)
+                .where(OAuthAuthorizationCode.id == code_row.id)
+                .execution_options(populate_existing=True)
+            )
+            if code_row is None:
+                return oauth_token_error(400, "invalid_grant")
         if code_row.consumed_at is not None:
             # Authenticated replay (correct verifier + binding): revoke the
             # family previously issued for this code, then report invalid_grant.
@@ -2242,10 +2344,15 @@ def build_oauth_router(config: OAuthConfig) -> APIRouter:
         if not management:
             policy = effective_policy(session, code_row.account_id)
             if policy.absolute_lifetime:
+                auth_ts = (
+                    code_row.authenticated_at if code_row.authenticated_at is not None else now_ts
+                )
                 family_expires = min(
                     family_expires,
-                    (code_row.authenticated_at or now_ts) + policy.absolute_lifetime,
+                    auth_ts + policy.absolute_lifetime,
                 )
+        if family_expires <= now_ts:
+            return oauth_token_error(400, "invalid_grant")
         access_expires = min(now_ts + config.access_ttl, family_expires)
         oauth_session = OAuthSession(
             id=session_id,

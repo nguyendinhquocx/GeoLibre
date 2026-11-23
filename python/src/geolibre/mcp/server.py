@@ -2189,7 +2189,7 @@ def build_server(workspace: Workspace) -> MCPServer:
         _require_previewable(file, project)
         return {
             "path": str(file),
-            "project": _project.redact_credentials(project),
+            "project": _project.redact_credentials(project, strip_non_exportable=False),
             "previewId": preview_sessions.create(),
         }
 
@@ -2621,7 +2621,7 @@ def build_server(workspace: Workspace) -> MCPServer:
         return value
 
     @tool()
-    def live_set_identify(layer_id: str | None = None) -> dict[str, Any]:
+    def live_set_identify(layer_id: str | list[str] | None = None) -> dict[str, Any]:
         """Set or clear the click-to-identify target on the open map.
 
         Args:

@@ -367,6 +367,10 @@ export function ModelBuilderPanel({
   /** The sample workflow being fetched, so the menu can show progress and ignore repeats. */
   const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
   const [graph, setGraph] = useState<ProcessingModelGraph>(emptyModelGraph);
+  const graphRef = useRef(graph);
+  useLayoutEffect(() => {
+    graphRef.current = graph;
+  }, [graph]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelToolDescriptor[]>([]);
   const [catalogFailed, setCatalogFailed] = useState(false);
@@ -387,6 +391,10 @@ export function ModelBuilderPanel({
    * own in-flight state in {@link linking}.
    */
   const [armedPort, setArmedPort] = useState<{ nodeId: string; portId: string } | null>(null);
+  const armedPortRef = useRef(armedPort);
+  useLayoutEffect(() => {
+    armedPortRef.current = armedPort;
+  }, [armedPort]);
   const abortRef = useRef<AbortController | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -416,6 +424,9 @@ export function ModelBuilderPanel({
    * shrinks to fit instead of hanging off the edge with its buttons out of
    * reach.
    */
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+
   const fitToContainer = useCallback(() => {
     const bounds = sectionRef.current?.parentElement?.getBoundingClientRect();
     if (!bounds) return;
@@ -424,16 +435,17 @@ export function ModelBuilderPanel({
       setSize({ width: bounds.width, height: bounds.height });
       return;
     }
+    const currentSize = sizeRef.current;
     const maxWidth = Math.max(FLOOR_WIDTH, bounds.width - EDGE_MARGIN * 2);
     const maxHeight = Math.max(FLOOR_HEIGHT, bounds.height - EDGE_MARGIN * 2);
-    const width = clamp(size.width, Math.min(MIN_WIDTH, maxWidth), maxWidth);
-    const height = clamp(size.height, Math.min(MIN_HEIGHT, maxHeight), maxHeight);
-    if (width !== size.width || height !== size.height) setSize({ width, height });
+    const width = clamp(currentSize.width, Math.min(MIN_WIDTH, maxWidth), maxWidth);
+    const height = clamp(currentSize.height, Math.min(MIN_HEIGHT, maxHeight), maxHeight);
+    if (width !== currentSize.width || height !== currentSize.height) setSize({ width, height });
     setPosition((current) => ({
       x: clamp(current.x, 0, Math.max(0, bounds.width - width - EDGE_MARGIN)),
       y: clamp(current.y, 0, Math.max(0, bounds.height - height - EDGE_MARGIN)),
     }));
-  }, [maximized, size.width, size.height]);
+  }, [maximized]);
 
   // Re-fit whenever the map area changes, not just when the panel opens: a
   // resized window or a side panel opening would otherwise leave the panel
@@ -731,6 +743,7 @@ export function ModelBuilderPanel({
         const parsed = parseModelFile(await file.text());
         if (!parsed.ok) throw new Error(t(MODEL_FILE_ERROR_KEYS[parsed.error]));
         const { graph } = parsed;
+        setModelId(createId());
         setModelName(parsed.name);
         setGraph(autoLayout(graph, layoutOptions()));
         setSelectedNodeId(null);
@@ -1027,24 +1040,22 @@ export function ModelBuilderPanel({
    */
   const connectPorts = useCallback(
     (from: { nodeId: string; portId: string }, to: { nodeId: string; portId: string }) => {
-      setGraph((current) => {
-        // connectNodes does not check that both endpoints still exist, and an
-        // edge onto a deleted node renders nowhere — GraphEdges resolves no
-        // anchor for it, so neither the curve nor its click-to-remove hit area
-        // is drawn, leaving a dangling-edge issue with no way to clear it.
-        if (!current.nodes.some((node) => node.id === from.nodeId)) return current;
-        if (!current.nodes.some((node) => node.id === to.nodeId)) return current;
-        const result = connectNodes(current, from, to, createId);
-        if ("rejected" in result) {
-          appendLog(
-            result.rejected === "cycle"
-              ? t("processing.modelBuilder.connectCycle")
-              : t("processing.modelBuilder.connectSameNode"),
-          );
-          return current;
-        }
-        return result.graph;
-      });
+      const current = graphRef.current;
+      // connectNodes does not check that both endpoints still exist, and an
+      // edge onto a deleted node renders nowhere.
+      if (!current.nodes.some((node) => node.id === from.nodeId)) return;
+      if (!current.nodes.some((node) => node.id === to.nodeId)) return;
+      const result = connectNodes(current, from, to, createId);
+      if ("rejected" in result) {
+        appendLog(
+          result.rejected === "cycle"
+            ? t("processing.modelBuilder.connectCycle")
+            : t("processing.modelBuilder.connectSameNode"),
+        );
+        return;
+      }
+      graphRef.current = result.graph;
+      setGraph(result.graph);
     },
     [appendLog, t],
   );
@@ -1070,19 +1081,17 @@ export function ModelBuilderPanel({
         );
         return;
       }
-      setArmedPort((current) => {
-        if (current) {
-          connectPorts(current, { nodeId, portId });
-        } else {
-          setGraph((graphNow) => {
-            const wired = graphNow.edges.find(
-              (edge) => edge.to === nodeId && edge.toPort === portId,
-            );
-            return wired ? removeEdge(graphNow, wired.id) : graphNow;
-          });
-        }
-        return null;
-      });
+      const current = armedPortRef.current;
+      armedPortRef.current = null;
+      setArmedPort(null);
+      if (current) {
+        connectPorts(current, { nodeId, portId });
+      } else {
+        setGraph((graphNow) => {
+          const wired = graphNow.edges.find((edge) => edge.to === nodeId && edge.toPort === portId);
+          return wired ? removeEdge(graphNow, wired.id) : graphNow;
+        });
+      }
     },
     [connectPorts],
   );
@@ -1435,22 +1444,40 @@ export function ModelBuilderPanel({
     event.stopPropagation();
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
+    const isRtl = getComputedStyle(handle).direction === "rtl";
     const startX = event.clientX;
     const startY = event.clientY;
     const start = size;
+    const startLeft = position.x;
+    const startRight = startLeft + start.width;
     const handleMove = (move: PointerEvent) => {
       const bounds = (
         handle.closest("section") as HTMLElement
       )?.parentElement?.getBoundingClientRect();
-      const maxWidth = bounds ? bounds.width - position.x - EDGE_MARGIN : Infinity;
       const maxHeight = bounds ? bounds.height - position.y - EDGE_MARGIN : Infinity;
+      const nextHeight = clamp(
+        start.height + (move.clientY - startY),
+        minHeight,
+        Math.max(minHeight, maxHeight),
+      );
+      if (isRtl) {
+        // In RTL the `end-0` grip sits on the left edge while the panel is
+        // positioned with `left: position.x`: keep the right edge anchored and
+        // shift `position.x` as the clamped width changes.
+        const maxWidth = bounds ? startRight - EDGE_MARGIN : Infinity;
+        const nextWidth = clamp(
+          start.width - (move.clientX - startX),
+          minWidth,
+          Math.max(minWidth, maxWidth),
+        );
+        setSize({ width: nextWidth, height: nextHeight });
+        setPosition((current) => ({ ...current, x: startRight - nextWidth }));
+        return;
+      }
+      const maxWidth = bounds ? bounds.width - startLeft - EDGE_MARGIN : Infinity;
       setSize({
         width: clamp(start.width + (move.clientX - startX), minWidth, Math.max(minWidth, maxWidth)),
-        height: clamp(
-          start.height + (move.clientY - startY),
-          minHeight,
-          Math.max(minHeight, maxHeight),
-        ),
+        height: nextHeight,
       });
     };
     const handleEnd = () => {

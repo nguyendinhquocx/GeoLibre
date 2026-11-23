@@ -192,6 +192,7 @@ import { useDesktopSettingsStore } from "./useDesktopSettings";
 import { isPluginVisible } from "../lib/ui-profile";
 import type { ActivatablePlugin } from "../lib/assistant/plugin-activation";
 import { createSettleGate } from "../lib/settle-gate";
+import { ensurePluginStylesLoaded } from "../lib/lazy-plugin-styles";
 
 /** Records a plugin failure in the diagnostics panel without crashing the app. */
 function reportPluginError(pluginId: string, action: string, error: unknown): void {
@@ -206,6 +207,9 @@ function reportPluginError(pluginId: string, action: string, error: unknown): vo
 }
 
 const manager = new PluginManager();
+manager.onBeforeActivate((pluginId) => {
+  void ensurePluginStylesLoaded(pluginId);
+});
 
 /**
  * Seeds the GeoLens plugin's default server URL from the deployment settings.
@@ -679,6 +683,7 @@ export async function installPluginArchive(
     sourcePath,
   });
   const app = createAppAPI(mapControllerRef);
+  const wasActive = manager.isActive(pluginId);
   // The archive was overwritten in place for a reinstall; drop the loaded copy
   // so the forced re-scan re-registers the updated version under the same id.
   unloadFilesystemPlugin(manager, pluginId, app);
@@ -686,6 +691,13 @@ export async function installPluginArchive(
   await ensureExternalPluginsLoadedWithSettings(desktopSettings, app, {
     force: true,
   });
+  if (wasActive && !manager.isActive(pluginId)) {
+    try {
+      await manager.activate(pluginId, app);
+    } catch (error) {
+      reportPluginError(pluginId, "activate", error);
+    }
+  }
   return pluginId;
 }
 
@@ -830,7 +842,14 @@ export function usePluginRegistry() {
 // plugin menu items on the first pass. This hook additionally kicks off the
 // external plugin scan and reports whether it has finished.
 export function useExternalPluginsReady(mapControllerRef: RefObject<MapEngine | null>): boolean {
-  const desktopSettings = useDesktopSettingsStore((state) => state.desktopSettings);
+  // Narrow subscription: only re-scan when plugin manifest URLs or plugin
+  // directories change, not on unrelated desktop setting edits.
+  const pluginManifestUrls = useDesktopSettingsStore(
+    (state) => state.desktopSettings.pluginManifestUrls,
+  );
+  const additionalPluginDirectories = useDesktopSettingsStore(
+    (state) => state.desktopSettings.additionalPluginDirectories,
+  );
 
   useEffect(() => {
     // mapControllerRef is a stable ref object, so it is intentionally not a
@@ -841,8 +860,9 @@ export function useExternalPluginsReady(mapControllerRef: RefObject<MapEngine | 
     // the bundled drop-ins. Untrusted project URLs are surfaced by
     // useProjectPluginTrust and only reach this scan after the user trusts them
     // (which adds them to desktopSettings and re-runs this effect). See #1062.
+    const desktopSettings = useDesktopSettingsStore.getState().desktopSettings;
     void ensureExternalPluginsLoadedWithSettings(desktopSettings, createAppAPI(mapControllerRef));
-  }, [desktopSettings]);
+  }, [pluginManifestUrls, additionalPluginDirectories]);
 
   return useSyncExternalStore(
     (listener) => {
@@ -1002,7 +1022,24 @@ async function registryManifestUrlsForPolicy(
   }
 }
 
-async function ensureExternalPluginsLoadedWithSettings(
+// Serializes every invocation of `ensureExternalPluginsLoadedWithSettings`
+// BEFORE any async blocklist or registry fetches so concurrent calls cannot
+// resolve out of order and overwrite each other's loadKey / loaded state.
+let externalPluginsCallQueue: Promise<void> = Promise.resolve();
+
+function ensureExternalPluginsLoadedWithSettings(
+  desktopSettings: ReturnType<typeof useDesktopSettingsStore.getState>["desktopSettings"],
+  app: ReturnType<typeof createAppAPI>,
+  options?: { force?: boolean },
+): Promise<void> {
+  const run = externalPluginsCallQueue.then(() =>
+    runEnsureExternalPluginsLoadedWithSettings(desktopSettings, app, options),
+  );
+  externalPluginsCallQueue = run.catch(() => {});
+  return run;
+}
+
+async function runEnsureExternalPluginsLoadedWithSettings(
   desktopSettings: ReturnType<typeof useDesktopSettingsStore.getState>["desktopSettings"],
   app: ReturnType<typeof createAppAPI>,
   options?: { force?: boolean },

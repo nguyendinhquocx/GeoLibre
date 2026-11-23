@@ -14,6 +14,7 @@ import type {
   MapLayerMouseEvent,
   MapMouseEvent,
 } from "maplibre-gl";
+import { saveBinaryFileWithHost, withSelectChevron } from "../panel-dom";
 import type { GeoLibreAppAPI, GeoLibrePlugin } from "../types";
 import { getControlMap } from "./style-map";
 import {
@@ -376,15 +377,13 @@ function downloadDemItem(item: UsgsDemItem): void {
 function exportFootprintsAsGeoJson(items: UsgsDemItem[]): void {
   const fc = footprintCollection(items);
   const blob = new Blob([JSON.stringify(fc, null, 2)], { type: "application/geo+json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "usgs-dem-footprints.geojson";
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  saveBinaryFileWithHost(appRef, "usgs-dem-footprints.geojson", blob, {
+    extensions: ["geojson"],
+    mimeType: "application/geo+json",
+    description: "GeoJSON",
+  }).catch((error: unknown) => {
+    console.error("Could not save USGS DEM footprints.", error);
+  });
 }
 
 function mountPanel(container: HTMLElement): () => void {
@@ -526,7 +525,7 @@ function mountPanel(container: HTMLElement): () => void {
   const filterRow = document.createElement("div");
   filterRow.style.cssText =
     "display:flex;gap:8px;align-items:center;justify-content:space-between;";
-  const formatSelect = document.createElement("select");
+  const formatSelect = withSelectChevron(document.createElement("select"));
   formatSelect.style.cssText =
     "padding:4px 6px;border-radius:4px;border:1px solid hsl(var(--border));background:hsl(var(--background));font-size:11px;";
   ["GeoTIFF", "IMG", "All"].forEach((fmt) => {
