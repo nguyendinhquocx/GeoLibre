@@ -1,3 +1,4 @@
+import { updateGeoJsonSourceData } from "@geolibre/map/geojson-source-data";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Feature, FeatureCollection, Position } from "geojson";
@@ -58,6 +59,8 @@ import {
   trackStats,
 } from "../../lib/gps-tracking";
 import { watchPosition } from "../../lib/geolocation";
+import { loadGpsTrackCheckpoint } from "../../lib/gps-wake-lock";
+import { useGpsBackgroundRecording } from "../../hooks/useGpsBackgroundRecording";
 import type { NmeaStreamStats } from "../../lib/nmea";
 import {
   androidBluetoothNmeaSupported,
@@ -240,7 +243,7 @@ function setSourceData(
   data: FeatureCollection | Feature,
 ): void {
   const src = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
-  src?.setData(data);
+  updateGeoJsonSourceData(src, data);
 }
 
 function removeGpsSources(map: maplibregl.Map): void {
@@ -334,7 +337,14 @@ export function GpsTrackingDialog({
   // Logged track fixes as pause/resume segments; a ref so the high-frequency
   // watch callback appends in place without re-creating itself, with
   // `fixCount` mirroring the total for renders. Always holds >= 1 segment.
-  const fixesRef = useRef<GpsTrackSegments>([[]]);
+  const [initialFixes] = useState<GpsTrackSegments>(() => loadGpsTrackCheckpoint() ?? [[]]);
+  const fixesRef = useRef<GpsTrackSegments>(initialFixes);
+  const { scheduleCheckpoint, clearCheckpoint, reconcileAfterExport } = useGpsBackgroundRecording(
+    recording,
+    fixesRef,
+    setFixCount,
+  );
+  const trackRevisionRef = useRef(0);
   const lastFixRef = useRef<GpsFix | null>(null);
   const recordingRef = useRef<RecordingState>("off");
   const followRef = useRef(true);
@@ -423,6 +433,8 @@ export function GpsTrackingDialog({
         const prev = segment[segment.length - 1] ?? null;
         if (shouldLogFix(prev, fix, settingsRef.current)) {
           segment.push(fix);
+          trackRevisionRef.current += 1;
+          scheduleCheckpoint(fixesRef.current);
           setFixCount((n) => n + 1);
           logged = true;
         }
@@ -519,7 +531,7 @@ export function GpsTrackingDialog({
         }
       }
     },
-    [getMap, mapControllerRef, recenterOnFix, setGpsStatus],
+    [getMap, mapControllerRef, recenterOnFix, scheduleCheckpoint, setGpsStatus],
   );
 
   // The first fix of every tracking session zooms in, whichever source it came
@@ -867,11 +879,13 @@ export function GpsTrackingDialog({
 
   const clearTrack = useCallback(() => {
     fixesRef.current = [[]];
+    trackRevisionRef.current += 1;
+    clearCheckpoint();
     setFixCount(0);
     const map = getMap();
     if (map) setSourceData(map, TRACK_SOURCE, EMPTY_FC);
     neutralOverlayRef.current?.setTrack([]);
-  }, [getMap]);
+  }, [getMap, clearCheckpoint]);
 
   const handleStartRecording = useCallback(() => {
     if (!canTrack) return;
@@ -921,6 +935,7 @@ export function GpsTrackingDialog({
   const handleExportTrack = useCallback(
     async (format: "gpx" | "geojson") => {
       if (lineSegments(fixesRef.current).length === 0) return;
+      const exportRevision = trackRevisionRef.current;
       const name = trackName();
       const content =
         format === "gpx"
@@ -944,13 +959,14 @@ export function GpsTrackingDialog({
           ],
           mimeType: format === "gpx" ? "application/gpx+xml" : "application/geo+json",
         });
+        if (path) reconcileAfterExport(trackRevisionRef.current === exportRevision);
         setNotice(path ? t("gps.trackExported") : t("gps.exportCancelled"));
       } catch (error) {
         logGpsFailure(`GPS: exporting the track as ${format} failed`, error);
         setNotice(t("gps.exportFailed"));
       }
     },
-    [trackName, t],
+    [trackName, t, reconcileAfterExport],
   );
 
   const handleCapturePoint = useCallback(() => {

@@ -113,12 +113,14 @@ export {
 } from "./store";
 export {
   NO_LAYERS,
+  createLayerSliceSelector,
   selectLayerById,
   selectLayerIds,
   selectLayerSummaries,
   selectLayersWhen,
   useLayer,
   useLayerIds,
+  useLayerSlices,
   useLayerSummaries,
   useLayersWhen,
   type LayerSummary,
@@ -297,6 +299,7 @@ export {
   datumShiftFor,
   installCogTilerDatumShift,
   withDatumShift,
+  normalizeProj4Definition,
   withGeoKeysDatumShift,
   withWktDatumShift,
 } from "./datum-shift";
@@ -309,5 +312,3 @@ export {
 } from "./cog-jpeg-tables";
 
 export * from "./geoarrow";
-
-export * from "./gcs";

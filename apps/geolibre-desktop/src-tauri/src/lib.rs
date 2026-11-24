@@ -2,11 +2,17 @@ mod app_error;
 mod arcgis_http;
 mod aws_credentials;
 mod aws_sts;
+mod desktop_updater;
 mod fs_util;
 mod http_client;
 mod in_flight;
+mod local_media_protocol;
 mod plugin_http;
+#[cfg(not(feature = "mas"))]
+mod process_lifetime;
 mod remote_download;
+#[cfg(not(feature = "mas"))]
+mod uv_bootstrap;
 // Earth Engine sign-in uses Google's OAuth loopback-redirect flow, which binds
 // a listener on 127.0.0.1 to accept the browser's redirect. Accepting an
 // inbound connection requires the `com.apple.security.network.server`
@@ -94,6 +100,8 @@ mod native_duckdb {
     pub async fn count_native_vector_file_features(
         _path: String,
         _layer: Option<String>,
+        _override_source_crs: Option<String>,
+        _bbox: Option<[f64; 4]>,
     ) -> Result<usize, String> {
         Err("Native DuckDB is not enabled in this build.".to_string())
     }
@@ -103,7 +111,19 @@ mod native_duckdb {
         _path: String,
         _layer: Option<String>,
         _override_source_crs: Option<String>,
+        _bbox: Option<[f64; 4]>,
     ) -> Result<serde_json::Value, String> {
+        Err("Native DuckDB is not enabled in this build.".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn load_native_vector_file_binary(
+        _path: String,
+        _layer: Option<String>,
+        _override_source_crs: Option<String>,
+        _bbox: Option<[f64; 4]>,
+        _format: Option<String>,
+    ) -> Result<tauri::ipc::Response, String> {
         Err("Native DuckDB is not enabled in this build.".to_string())
     }
 }
@@ -120,48 +140,18 @@ mod http_body;
 // the Martin tile server (GeoLibre#2091). Outbound connections only: no
 // listening socket and no spawned process, so every build target can carry it.
 mod postgis_tiles;
-// OS credential store (macOS Keychain, Windows Credential Manager, Linux Secret
-// Service) for tokens and API keys saved in Settings (issue #1667). Mobile has
-// no keyring backend, and the keyring crate silently falls back to an
-// in-memory mock store on unsupported targets, which would lose credentials
-// without an error. Those targets get a stub that fails loudly instead.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+// OS credential store across all platforms: macOS/iOS Keychain, Windows
+// Credential Manager, Linux Secret Service, and encrypted AES-256-GCM vault on
+// Android (issue #1667, #3570).
 mod secure_store;
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-mod secure_store {
-    use std::collections::HashMap;
-
-    const UNAVAILABLE: &str = "Secure credential storage is not available on this platform.";
-
-    #[tauri::command]
-    pub async fn secure_store_get_many(
-        _accounts: Vec<String>,
-    ) -> Result<HashMap<String, String>, String> {
-        Err(UNAVAILABLE.to_string())
-    }
-
-    /// Nothing to seal: reads always fail here.
-    #[tauri::command]
-    pub fn secure_store_seal() {}
-
-    pub fn reset_read_gate(_label: &str) {}
-
-    #[tauri::command]
-    pub async fn secure_store_set(_account: String, _secret: String) -> Result<(), String> {
-        Err(UNAVAILABLE.to_string())
-    }
-
-    #[tauri::command]
-    pub async fn secure_store_delete(_account: String) -> Result<(), String> {
-        Err(UNAVAILABLE.to_string())
-    }
-}
 
 #[cfg(not(any(feature = "mas", target_os = "ios")))]
 use earth_engine_oauth::EarthEngineOAuthState;
 use earth_engine_oauth::{poll_earth_engine_oauth, start_earth_engine_oauth};
 use flate2::read::{GzDecoder, ZlibDecoder};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+#[cfg(test)]
+use rusqlite::OpenFlags;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -341,8 +331,6 @@ const JUPYTER_PORT: u16 = 8766;
 // first-run `uv sync` of JupyterLab on a cold cache.
 #[cfg(not(feature = "mas"))]
 const JUPYTER_HEALTH_ATTEMPTS: usize = 240;
-#[cfg(not(feature = "mas"))]
-const UV_INSTALL_BASE_URL: &str = "https://astral.sh/uv";
 const REMOTE_TILE_TIMEOUT_SECS: u64 = 8;
 const MAX_HTTP_REDIRECTS: usize = 10;
 const REMOTE_TILE_CONNECT_TIMEOUT_SECS: u64 = 4;
@@ -450,6 +438,19 @@ struct ExternalPluginManifest {
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledExternalPluginArchive {
+    id: String,
+    name: String,
+    version: String,
+    archive_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -542,6 +543,32 @@ pub fn run() {
         .manage(arcgis_http::ArcGISRequests::default())
         .manage(plugin_http::PluginHttpRequests::default())
         .manage(remote_download::RemoteDownloads::default())
+        .manage(local_media_protocol::LocalMediaPools::default())
+        .register_asynchronous_uri_scheme_protocol("mbtiles", |ctx, request, responder| {
+            local_media_protocol::handle_mbtiles_protocol(
+                ctx.app_handle().clone(),
+                request,
+                responder,
+            );
+        })
+        .register_asynchronous_uri_scheme_protocol("local-pmtiles", |ctx, request, responder| {
+            local_media_protocol::handle_range_media_protocol(
+                ctx.app_handle().clone(),
+                request,
+                responder,
+                &[".pmtiles"],
+                "application/octet-stream",
+            );
+        })
+        .register_asynchronous_uri_scheme_protocol("local-cog", |ctx, request, responder| {
+            local_media_protocol::handle_range_media_protocol(
+                ctx.app_handle().clone(),
+                request,
+                responder,
+                &[".tif", ".tiff"],
+                "image/tiff",
+            );
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         // Runs before persisted-scope's setup hook so legacy photo grants are
@@ -571,6 +598,14 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init());
+
+    // Signed desktop auto-updater for non-Store desktop builds.
+    #[cfg(all(
+        any(target_os = "macos", target_os = "windows", target_os = "linux"),
+        feature = "desktop-updater",
+        not(feature = "mas")
+    ))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
     // The Earth Engine OAuth loopback listener is compiled out of the Apple App
     // Store builds (see the module gate at the top of this file); the stub
@@ -635,7 +670,12 @@ pub fn run() {
             aws_credentials::aws_sso_login_start,
             aws_credentials::aws_sso_login_poll,
             install_external_plugin_archive,
+            list_installed_plugin_archives,
+            uninstall_external_plugin_archive,
             native_duckdb::load_native_vector_file,
+            native_duckdb::load_native_vector_file_binary,
+            desktop_updater::check_desktop_update,
+            desktop_updater::install_desktop_update,
             load_external_plugin_bundles,
             read_external_plugin_asset,
             pick_image_paths,
@@ -2521,6 +2561,198 @@ fn install_external_plugin_archive_blocking(
     Ok(plugin_id)
 }
 
+#[cfg(not(feature = "mas"))]
+#[tauri::command]
+async fn list_installed_plugin_archives(
+    app: tauri::AppHandle,
+) -> Result<Vec<InstalledExternalPluginArchive>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_installed_plugin_archives_blocking(&app))
+        .await
+        .map_err(|error| format!("Plugin archive list task failed: {error}"))?
+}
+
+#[cfg(not(feature = "mas"))]
+fn list_installed_plugin_archives_blocking(
+    app: &tauri::AppHandle,
+) -> Result<Vec<InstalledExternalPluginArchive>, String> {
+    let plugins_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not resolve app data directory: {error}"))?
+        .join("plugins");
+    if !plugins_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let entries = fs::read_dir(&plugins_dir)
+        .map_err(|error| format!("Could not read plugins directory: {error}"))?;
+    let mut installed = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || !is_zip_path(&path) {
+            continue;
+        }
+        // Use the bare file name as a readable display label for the Manage Plugins UI;
+        // `scan_external_plugin_directory` separately records the canonical absolute path
+        // as the collision-free source key used for exact-match uninstall and asset reads.
+        let archive_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        if let Ok(bundle) = load_external_plugin_archive(&path, &archive_name) {
+            let capabilities = bundle.manifest.capabilities.map(|caps| {
+                caps.into_iter()
+                    .filter(|cap| {
+                        matches!(
+                            cap.as_str(),
+                            "network" | "filesystem" | "sidecar" | "mapWrite" | "ui"
+                        )
+                    })
+                    .collect()
+            });
+            installed.push(InstalledExternalPluginArchive {
+                id: bundle.manifest.id,
+                name: bundle.manifest.name,
+                version: bundle.manifest.version,
+                archive_name,
+                capabilities,
+            });
+        }
+    }
+    installed.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.id.cmp(&b.id))
+    });
+    Ok(installed)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UninstallExternalPluginArchiveResult {
+    removed_paths: Vec<String>,
+    plugins_dir: String,
+    error: Option<String>,
+}
+
+#[cfg(not(feature = "mas"))]
+#[tauri::command]
+async fn uninstall_external_plugin_archive(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<UninstallExternalPluginArchiveResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        uninstall_external_plugin_archive_blocking(&app, &plugin_id)
+    })
+    .await
+    .map_err(|error| format!("Plugin uninstall task failed: {error}"))?
+}
+
+#[cfg(not(feature = "mas"))]
+fn uninstall_external_plugin_archive_blocking(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+) -> Result<UninstallExternalPluginArchiveResult, String> {
+    validate_required_manifest_string("plugin_id", plugin_id)?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not resolve app data directory: {error}"))?;
+    let plugins_dir = app_data_dir.join("plugins");
+    if !plugins_dir.exists() {
+        let resolved_plugins_dir = fs::canonicalize(&app_data_dir)
+            .map(|canonical_app_data| canonical_app_data.join("plugins"))
+            .unwrap_or(plugins_dir);
+        return Ok(UninstallExternalPluginArchiveResult {
+            removed_paths: Vec::new(),
+            plugins_dir: resolved_plugins_dir.to_string_lossy().into_owned(),
+            error: None,
+        });
+    }
+    let canonical_dir = fs::canonicalize(&plugins_dir)
+        .map_err(|error| format!("Could not resolve plugins directory: {error}"))?;
+    let plugins_dir_str = canonical_dir.to_string_lossy().into_owned();
+
+    let mut targets: Vec<PathBuf> = Vec::new();
+    let mut seen_canonical: HashSet<PathBuf> = HashSet::new();
+    let direct = plugins_dir.join(plugin_archive_file_name(plugin_id));
+    if direct.is_file() {
+        let label = direct.to_string_lossy().to_string();
+        if let Ok(bundle) = load_external_plugin_archive(&direct, &label) {
+            if bundle.manifest.id == plugin_id {
+                if let Ok(canonical) = fs::canonicalize(&direct) {
+                    if seen_canonical.insert(canonical) {
+                        targets.push(direct);
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(&plugins_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || !is_zip_path(&path) {
+                continue;
+            }
+            let Ok(canonical) = fs::canonicalize(&path) else {
+                continue;
+            };
+            if seen_canonical.contains(&canonical) {
+                continue;
+            }
+            let label = path.to_string_lossy().to_string();
+            if let Ok(bundle) = load_external_plugin_archive(&path, &label) {
+                if bundle.manifest.id == plugin_id && seen_canonical.insert(canonical) {
+                    targets.push(path);
+                }
+            }
+        }
+    }
+
+    // Preflight-validate every target before deleting any archive so a symlink
+    // or non-zip target cannot leave a partial deletion behind.
+    let mut validated_targets: Vec<PathBuf> = Vec::with_capacity(targets.len());
+    for candidate in targets {
+        let canonical = fs::canonicalize(&candidate)
+            .map_err(|error| format!("Could not resolve installed plugin archive: {error}"))?;
+        if !canonical.starts_with(&canonical_dir)
+            || !canonical.is_file()
+            || !is_zip_path(&canonical)
+        {
+            return Err("Refusing to remove a file outside the plugins directory.".to_string());
+        }
+        validated_targets.push(canonical);
+    }
+
+    let mut removed_paths = Vec::new();
+    let mut removal_error: Option<String> = None;
+    for canonical in validated_targets {
+        match fs::remove_file(&canonical) {
+            Ok(()) => removed_paths.push(canonical.to_string_lossy().into_owned()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                removal_error = Some(format!("Could not remove plugin archive: {error}"));
+                break;
+            }
+        }
+    }
+    if let Some(error) = removal_error {
+        if removed_paths.is_empty() {
+            return Err(error);
+        }
+        return Ok(UninstallExternalPluginArchiveResult {
+            removed_paths,
+            plugins_dir: plugins_dir_str,
+            error: Some(error),
+        });
+    }
+    Ok(UninstallExternalPluginArchiveResult {
+        removed_paths,
+        plugins_dir: plugins_dir_str,
+        error: None,
+    })
+}
+
 /// Build a filesystem-safe `<id>.zip` name for an installed plugin archive.
 ///
 /// The manifest `id` is validated for emptiness and whitespace but not for
@@ -2815,8 +3047,9 @@ fn scan_external_plugin_directory(
         };
 
         if metadata.is_file() && is_zip_path(&path) {
-            let bundle_name = path.to_string_lossy().to_string();
-            match load_external_plugin_archive(&path, &bundle_name) {
+            let canonical = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            let bundle_name = canonical.to_string_lossy().to_string();
+            match load_external_plugin_archive(&canonical, &bundle_name) {
                 Ok(bundle) => bundles.push(bundle),
                 Err(message) => errors.push(ExternalPluginBundleError {
                     archive_name: bundle_name,
@@ -3019,6 +3252,22 @@ fn validate_external_plugin_manifest(manifest: &ExternalPluginManifest) -> Resul
         validate_external_plugin_path("style", style)?;
         if !style.ends_with(".css") {
             return Err("style must point to a .css file".to_string());
+        }
+    }
+    if let Some(capabilities) = manifest.capabilities.as_deref() {
+        for capability in capabilities {
+            validate_required_manifest_string("capabilities", capability)?;
+            match capability.as_str() {
+                "network" | "filesystem" | "sidecar" | "mapWrite" | "ui" => {}
+                other => {
+                    // Capabilities are advisory metadata; ignore unknown labels
+                    // so manifests declaring future capabilities stay loadable.
+                    eprintln!(
+                        "[GeoLibre] Ignoring unrecognized advisory plugin capability '{other}' in '{}'",
+                        manifest.id
+                    );
+                }
+            }
         }
     }
 
@@ -3250,6 +3499,23 @@ async fn install_external_plugin_archive(
     _source_path: String,
 ) -> Result<String, String> {
     Err("External plugin installation is not available in the Mac App Store build.".to_string())
+}
+
+#[cfg(feature = "mas")]
+#[tauri::command]
+async fn list_installed_plugin_archives(
+    _app: tauri::AppHandle,
+) -> Result<Vec<InstalledExternalPluginArchive>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(feature = "mas")]
+#[tauri::command]
+async fn uninstall_external_plugin_archive(
+    _app: tauri::AppHandle,
+    _plugin_id: String,
+) -> Result<UninstallExternalPluginArchiveResult, String> {
+    Err("External plugin removal is not available in the Mac App Store build.".to_string())
 }
 
 // Succeeds with an empty scan rather than erroring, so the startup plugin load
@@ -3558,8 +3824,7 @@ fn start_geolibre_sidecar_blocking(
         .stderr(Stdio::piped());
     configure_sidecar_process(&mut command);
 
-    let mut child = command
-        .spawn()
+    let mut child = process_lifetime::spawn_managed_child(command)
         .map_err(|error| format!("Could not start GeoLibre sidecar: {error}"))?;
     // Drain both pipes from the moment we spawn. Reading them only after the
     // child exits (the old shape) deadlocks a cold-cache `uv sync`, whose
@@ -3824,8 +4089,7 @@ fn start_jupyter_server_blocking(
         .stderr(Stdio::piped());
     configure_sidecar_process(&mut command);
 
-    let mut child = command
-        .spawn()
+    let mut child = process_lifetime::spawn_managed_child(command)
         .map_err(|error| format!("Could not start Jupyter server: {error}"))?;
     let output = CapturedOutput::attach(&mut child);
 
@@ -4103,7 +4367,7 @@ fn sidecar_health_is_ready(base_url: &str) -> bool {
 /// Whether the sidecar already listening at `base_url` accepts `token`.
 ///
 /// `/health` is token-exempt, so it cannot reveal a token mismatch. This probes
-/// `/algorithms` (a cheap authenticated endpoint) *with* the token so an orphan
+/// `/token-check` (a no-op authenticated endpoint) *with* the token so an orphan
 /// sidecar from a previous launch — started with a different per-launch token,
 /// and not killed because `Drop` doesn't run on `SIGKILL` — is detected rather
 /// than silently 401ing every later request. A tokenless dev sidecar
@@ -4115,7 +4379,7 @@ fn sidecar_accepts_token(base_url: &str, token: &str) -> bool {
         return false;
     };
     client
-        .get(format!("{base_url}/algorithms"))
+        .get(format!("{base_url}/token-check"))
         .header("x-geolibre-token", token)
         .send()
         .map(|response| response.status().is_success())
@@ -5136,89 +5400,9 @@ fn ensure_managed_uv(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[cfg(not(feature = "mas"))]
 fn install_managed_uv(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let uv_dir = app_runtime_dir(app)?.join("uv-bin");
-    let uv = uv_dir.join(uv_executable_name());
-    if uv.exists() {
-        return Ok(uv);
-    }
-
-    fs::create_dir_all(&uv_dir)
-        .map_err(|error| format!("Could not create uv cache directory: {error}"))?;
-    let script = download_uv_installer(app)?;
-    let mut command = if cfg!(target_os = "windows") {
-        let mut command = Command::new("powershell");
-        command
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(&script);
-        command
-    } else {
-        let mut command = Command::new("sh");
-        command.arg(&script);
-        command
-    };
-    // First run only, but it is the one that would flash a PowerShell window
-    // across the user's desktop while uv installs.
-    hide_console_window(&mut command);
-    let output = command
-        .env("UV_UNMANAGED_INSTALL", &uv_dir)
-        .output()
-        .map_err(|error| format!("Could not run uv installer: {error}"))?;
-    let _ = fs::remove_file(script);
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(if output.stderr.is_empty() {
-            &output.stdout
-        } else {
-            &output.stderr
-        });
-        return Err(format!("uv installer failed: {detail}"));
-    }
-    if !uv.exists() {
-        return Err(format!("uv installer did not create {}", uv.display()));
-    }
-    Ok(uv)
-}
-
-#[cfg(not(feature = "mas"))]
-fn download_uv_installer(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let url = if cfg!(target_os = "windows") {
-        format!("{UV_INSTALL_BASE_URL}/install.ps1")
-    } else {
-        format!("{UV_INSTALL_BASE_URL}/install.sh")
-    };
-    let response = reqwest::blocking::Client::builder()
-        .user_agent("GeoLibre Desktop")
-        .build()
-        .map_err(|error| format!("Could not create HTTP client: {error}"))?
-        .get(url)
-        .send()
-        .map_err(|error| format!("Could not download uv installer: {error}"))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("uv installer download failed with status {status}"));
-    }
-    let extension = if cfg!(target_os = "windows") {
-        "ps1"
-    } else {
-        "sh"
-    };
-    let installer_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("Could not resolve app cache directory: {error}"))?
-        .join("installers");
-    fs::create_dir_all(&installer_dir)
-        .map_err(|error| format!("Could not create installer cache directory: {error}"))?;
-    let script = installer_dir.join(format!("uv-install.{extension}"));
-    fs::write(
-        &script,
-        response
-            .bytes()
-            .map_err(|error| format!("Could not read uv installer: {error}"))?,
-    )
-    .map_err(|error| format!("Could not write uv installer: {error}"))?;
-    Ok(script)
+    // A pinned release archive, SHA-256 verified before extraction; no remote
+    // install script is ever run. The shared lock covers sidecar and Jupyter.
+    uv_bootstrap::ensure_pinned_uv(&uv_dir)
 }
 
 #[cfg(not(feature = "mas"))]
@@ -5482,8 +5666,7 @@ fn spawn_martin_server(
     hide_console_window(&mut command);
 
     drop(listener);
-    let mut child = command
-        .spawn()
+    let mut child = process_lifetime::spawn_managed_child(command)
         .map_err(|error| format!("Could not start Martin: {error}"))?;
     // Drain both pipes from the moment we spawn, and for as long as Martin
     // runs. Martin logs at least one line per auto-published table before it
@@ -5559,15 +5742,28 @@ struct MbtilesMetadata {
 }
 
 #[tauri::command]
-async fn read_mbtiles_metadata(path: String) -> Result<MbtilesMetadata, String> {
-    tauri::async_runtime::spawn_blocking(move || read_mbtiles_metadata_blocking(path))
-        .await
-        .map_err(|error| format!("Could not join MBTiles metadata task: {error}"))?
+async fn read_mbtiles_metadata(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<MbtilesMetadata, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let pools = app.state::<local_media_protocol::LocalMediaPools>();
+        let pooled = pools.mbtiles.get_or_open(&path)?;
+        let connection = pooled
+            .connection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        read_mbtiles_metadata_from_connection(&path, &connection)
+    })
+    .await
+    .map_err(|error| format!("Could not join MBTiles metadata task: {error}"))?
 }
 
-fn read_mbtiles_metadata_blocking(path: String) -> Result<MbtilesMetadata, String> {
-    let connection = open_mbtiles(&path)?;
-    let metadata = read_metadata_rows(&connection)?;
+fn read_mbtiles_metadata_from_connection(
+    path: &str,
+    connection: &Connection,
+) -> Result<MbtilesMetadata, String> {
+    let metadata = read_metadata_rows(connection)?;
     let metadata_min_zoom = metadata
         .get("minzoom")
         .and_then(|value| value.parse::<i64>().ok());
@@ -5575,11 +5771,11 @@ fn read_mbtiles_metadata_blocking(path: String) -> Result<MbtilesMetadata, Strin
         .get("maxzoom")
         .and_then(|value| value.parse::<i64>().ok());
     let (tile_min_zoom, tile_max_zoom) = read_mbtiles_zoom_range(
-        &connection,
+        connection,
         metadata_min_zoom.is_none(),
         metadata_max_zoom.is_none(),
     )?;
-    let fallback_name = Path::new(&path)
+    let fallback_name = Path::new(path)
         .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or("MBTiles Layer")
@@ -5634,51 +5830,32 @@ fn read_mbtiles_zoom_range(
     ))
 }
 
-const MAX_MBTILES_ZOOM: u32 = 30;
+pub(crate) const MAX_MBTILES_ZOOM: u32 = 30;
 const MAX_DECOMPRESSED_TILE_BYTES: u64 = 32 * 1024 * 1024;
 
 #[tauri::command]
-async fn read_mbtiles_tile(path: String, z: u32, x: u32, y: u32) -> Result<Vec<u8>, String> {
-    tauri::async_runtime::spawn_blocking(move || read_mbtiles_tile_blocking(path, z, x, y))
-        .await
-        .map_err(|error| format!("Could not join MBTiles tile task: {error}"))?
+async fn read_mbtiles_tile(
+    app: tauri::AppHandle,
+    path: String,
+    z: u32,
+    x: u32,
+    y: u32,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let pools = app.state::<local_media_protocol::LocalMediaPools>();
+        pools.mbtiles.read_tile(&path, z, x, y)
+    })
+    .await
+    .map_err(|error| format!("Could not join MBTiles tile task: {error}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
+#[cfg(test)]
 fn read_mbtiles_tile_blocking(path: String, z: u32, x: u32, y: u32) -> Result<Vec<u8>, String> {
-    if z > MAX_MBTILES_ZOOM {
-        return Err("Tile zoom level is too large".to_string());
-    }
-    let connection = open_mbtiles(&path)?;
-    let scheme = read_metadata_value(&connection, "scheme")?
-        .map(|value| value.to_ascii_lowercase())
-        .unwrap_or_else(|| "tms".to_string());
-    let tile_row = if scheme == "xyz" {
-        i64::from(y)
-    } else {
-        let row_count = 1_i64
-            .checked_shl(z)
-            .ok_or_else(|| "Tile zoom level is too large".to_string())?;
-        row_count - 1 - i64::from(y)
-    };
-    if tile_row < 0 {
-        return Ok(Vec::new());
-    }
-
-    let tile_data = connection
-        .query_row(
-            "SELECT tile_data FROM tiles WHERE zoom_level = ?1 AND tile_column = ?2 AND tile_row = ?3",
-            params![i64::from(z), i64::from(x), tile_row],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
-        .optional()
-        .map_err(|error| format!("Could not read MBTiles tile: {error}"))?;
-
-    Ok(tile_data
-        .map(decompress_tile_data)
-        .transpose()?
-        .unwrap_or_default())
+    local_media_protocol::MbtilesConnectionPool::default().read_tile(&path, z, x, y)
 }
 
+#[cfg(test)]
 fn open_mbtiles(path: &str) -> Result<Connection, String> {
     if !is_safe_absolute_path(path) || !path.to_ascii_lowercase().ends_with(".mbtiles") {
         return Err(format!(
@@ -5724,7 +5901,10 @@ fn read_metadata_rows(
     Ok(metadata)
 }
 
-fn read_metadata_value(connection: &Connection, name: &str) -> Result<Option<String>, String> {
+pub(crate) fn read_metadata_value(
+    connection: &Connection,
+    name: &str,
+) -> Result<Option<String>, String> {
     connection
         .query_row(
             "SELECT value FROM metadata WHERE lower(name) = lower(?1)",
@@ -5778,7 +5958,7 @@ fn parse_number_list(value: &str) -> Vec<f64> {
         .collect()
 }
 
-fn decompress_tile_data(data: Vec<u8>) -> Result<Vec<u8>, String> {
+pub(crate) fn decompress_tile_data(data: Vec<u8>) -> Result<Vec<u8>, String> {
     if data.starts_with(&[0x1f, 0x8b]) {
         let decoder = GzDecoder::new(data.as_slice());
         let mut decoded = Vec::new();

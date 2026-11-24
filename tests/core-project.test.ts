@@ -1109,7 +1109,6 @@ describe("project serialization", () => {
 
   it("writes a sparse array's holes as null, matching JSON.stringify", () => {
     const project = createEmptyProject("Sparse");
-    // eslint-disable-next-line no-sparse-arrays
     project.metadata = { gappy: [1, , 2] };
     const text = serializeProject(project);
     assert.equal(text, JSON.stringify(project, null, 2));
@@ -1129,11 +1128,8 @@ describe("project serialization", () => {
   it("unwraps boxed primitives the way JSON.stringify does", () => {
     const project = createEmptyProject("Boxed");
     project.metadata = {
-      // eslint-disable-next-line no-new-wrappers
       count: new Number(7),
-      // eslint-disable-next-line no-new-wrappers
       label: new String("x"),
-      // eslint-disable-next-line no-new-wrappers
       flag: new Boolean(true),
     };
     const text = serializeProject(project);
@@ -2230,37 +2226,6 @@ describe("print layout persistence", () => {
     useAppStore.getState().setPrintLayout({ ...createDefaultPrintLayout(), title: "Edited" });
     assert.equal(useAppStore.getState().isDirty, true);
   });
-});
-
-describe("GCS project sources", () => {
-  it("normalizes GCS URLs without mutating the original source", () => {
-    const layer = geojsonLayer({ source: { url: " GS://bucket/a.geojson?token=x#part " } });
-    const project = { ...createEmptyProject(), layers: [layer] };
-    assert.equal(
-      parseProject(JSON.stringify(project)).layers[0].source.url,
-      "https://storage.googleapis.com/bucket/a.geojson?token=x#part",
-    );
-    assert.equal(layer.source.url, " GS://bucket/a.geojson?token=x#part ");
-  });
-  it("defaults absent and null sources to an empty object", () => {
-    for (const source of [undefined, null]) {
-      const layer = { ...geojsonLayer(), source };
-      const project = { ...createEmptyProject(), layers: [layer] };
-      assert.deepEqual(parseProject(JSON.stringify(project)).layers[0].source, {});
-    }
-  });
-});
-
-it("keeps projects with an unaddressable GCS layer loadable", () => {
-  for (const url of ["gs://bucket/../data.json", "gs:///data.json"]) {
-    const project = {
-      ...createEmptyProject(),
-      layers: [geojsonLayer({ source: { url } }), geojsonLayer({ id: "valid" })],
-    };
-    const parsed = parseProject(JSON.stringify(project));
-    assert.equal(parsed.layers.length, 2);
-    assert.equal(parsed.layers[0].source.url, url);
-  }
 });
 
 describe("parseProject and applyProjectToStore hardening", () => {

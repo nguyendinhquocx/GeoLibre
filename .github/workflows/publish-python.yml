@@ -45,8 +45,11 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install anywidget traitlets pytest
 
-      - name: Run tests
-        run: python -m pytest python/tests
+      # Gated on a coverage floor like the backend suites; the floor is
+      # `fail_under` in python/pyproject.toml (see "Coverage floors" in
+      # docs/maintenance.md). Same command as `npm run test:python:coverage`.
+      - name: Run tests with coverage floor
+        run: python -m pytest python/tests --cov=geolibre --cov-config=python/pyproject.toml --cov-report=term-missing
         env:
           PYTHONPATH: python/src
 
