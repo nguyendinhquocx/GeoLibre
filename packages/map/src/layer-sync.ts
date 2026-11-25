@@ -10,6 +10,7 @@ import {
   labelFieldTextField,
   pluginOwnsPaint,
   proportionalRadiusExpression,
+  removeTrailingJsonCommas,
   ruleBasedVisibilityFilter,
   shouldUseTiledRendering,
   styleValue,
@@ -26,6 +27,8 @@ import {
   pmtilesControlLayerId,
   pmtilesIdNamesSourceLayer,
   pmtilesLayerKinds,
+  pmtilesLayerDrawsLineDecorations,
+  pmtilesLineDecorationLayerId,
   pmtilesVectorLayerId,
 } from "./pmtiles-layer";
 import { encodeVectorTileLayerPart } from "./vector-tile-layer-ids";
@@ -42,7 +45,7 @@ import {
   hasZoomDependentClusterFilter,
   resolveVectorRenderMode,
 } from "./cluster-input";
-import type { GeoJSON } from "geojson";
+import type { FeatureCollection, GeoJSON } from "geojson";
 import type * as maplibregl from "maplibre-gl";
 import type { DataDrivenPropertyValueSpecification, PropertyValueSpecification } from "maplibre-gl";
 import { ensurePMTilesProtocol, unregisterPMTilesArchive } from "./pmtiles-archive";
@@ -121,6 +124,7 @@ import {
   getLineGapLabels,
   type LineGapLabelResult,
 } from "./line-gap-labels";
+import { POLYGON_LABEL_AREA_PROPERTY, polygonLabelPoints } from "./polygon-label-points";
 
 // Existing importers (MapController, tests) read it from here.
 export { hasZoomDependentClusterFilter };
@@ -481,7 +485,7 @@ function clampLayerZoom(value: number, fallback: number): number {
   return Math.min(MAX_LAYER_ZOOM, Math.max(MIN_LAYER_ZOOM, value));
 }
 
-function styleLayerZoomRange(style: LayerStyle): {
+export function styleLayerZoomRange(style: LayerStyle): {
   maxzoom: number;
   minzoom: number;
 } {
@@ -700,6 +704,8 @@ function syncExternalNativeLayer(
     !controlOwnsPaint(layer) &&
     syncExternalNativeExtrusion(map, layer, nativeLayerIds, beforeId)
   ) {
+    // Extruded archives carry no line decorations; drop any left from 2D.
+    syncPMTilesLineDecorations(map, layer, nativeLayerIds, beforeId);
     return;
   }
 
@@ -740,6 +746,10 @@ function syncExternalNativeLayer(
 
     moveLayer(map, nativeLayerId, beforeId);
   }
+
+  // After the native layers have been moved, so the decorations land above
+  // the archive's own lines.
+  syncPMTilesLineDecorations(map, layer, nativeLayerIds, beforeId);
 }
 
 /**
@@ -1109,6 +1119,116 @@ function ensurePMTilesExternalLayer(
       beforeId,
     );
   }
+}
+
+// Bound cleanup to the decorations this map instance has actually created.
+const pmtilesDecorationOwners = new WeakMap<maplibregl.Map, Map<string, Set<string>>>();
+
+/**
+ * Line decorations (flow-direction arrows and other repeated symbols) for a
+ * vector PMTiles archive: one GeoLibre-owned symbol layer per rendered source
+ * layer, reading the archive's own source, mirroring
+ * {@link applyLineDecorationLayer} on the GeoJSON path. With line placement
+ * MapLibre rotates each icon to follow its line, so an arrow points along the
+ * direction the feature was digitized in. Decoration layers for source layers
+ * no longer rendered (or every one, when decorations are off, the layer is
+ * extruded, or the archive is raster) are removed.
+ *
+ * @param map - The MapLibre map to reconcile against.
+ * @param layer - The store layer.
+ * @param nativeLayerIds - Native layer ids registered for the archive.
+ * @param beforeId - The style layer the decorations are placed below.
+ */
+function syncPMTilesLineDecorations(
+  map: maplibregl.Map,
+  layer: GeoLibreLayer,
+  nativeLayerIds: string[],
+  beforeId?: string,
+): void {
+  if (!isPMTilesExternalLayer(layer)) return;
+  const sourceId = getPMTilesSourceId(layer);
+  const imageId =
+    sourceId &&
+    map.getSource(sourceId) &&
+    pmtilesLayerDrawsLineDecorations(layer) &&
+    !layer.style.extrusionEnabled
+      ? prepareLineDecoration(layer.style)
+      : null;
+  const rendered = new Set(
+    imageId && sourceId ? getPMTilesRenderableSourceLayers(layer, sourceId, nativeLayerIds) : [],
+  );
+  removeStalePMTilesLineDecorations(
+    map,
+    layer.id,
+    new Set([...rendered].map((name) => pmtilesLineDecorationLayerId(layer.id, name))),
+  );
+  if (rendered.size > 0) ensureGeneratedImageHandler(map);
+  for (const sourceLayer of new Set([...getPMTilesSourceLayers(layer), ...rendered])) {
+    const decorationId = pmtilesLineDecorationLayerId(layer.id, sourceLayer);
+    if (!imageId || !sourceId || !rendered.has(sourceLayer)) {
+      removeIfExists(map, decorationId);
+      continue;
+    }
+    ensureLayer(
+      map,
+      decorationId,
+      {
+        id: decorationId,
+        type: "symbol",
+        source: sourceId,
+        "source-layer": sourceLayer,
+        ...styleLayerZoomRange(layer.style),
+        metadata: { "geolibre:internal": true, "geolibre:line-decoration-owner": layer.id },
+        filter: withFeatureFilters(layer, [
+          "match",
+          ["geometry-type"],
+          ["LineString", "MultiLineString", "Polygon", "MultiPolygon"],
+          true,
+          false,
+        ]),
+        layout: {
+          "icon-image": imageId,
+          "icon-size": 1,
+          "symbol-placement": "line",
+          "symbol-spacing": Math.max(1, styleValue(layer.style, "lineDecorationSpacing")),
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-rotation-alignment": "map",
+          visibility: layer.visible ? "visible" : "none",
+        },
+        paint: { "icon-opacity": layer.opacity },
+      },
+      beforeId,
+    );
+    let owners = pmtilesDecorationOwners.get(map);
+    if (!owners) pmtilesDecorationOwners.set(map, (owners = new Map()));
+    let ids = owners.get(layer.id);
+    if (!ids) owners.set(layer.id, (ids = new Set()));
+    ids.add(decorationId);
+  }
+}
+
+/** Remove owned decorations absent from the desired set, including source layers no longer in metadata. */
+function removeStalePMTilesLineDecorations(
+  map: maplibregl.Map,
+  layerId: string,
+  keep: ReadonlySet<string> = new Set(),
+): void {
+  const owners = pmtilesDecorationOwners.get(map);
+  const ids = owners?.get(layerId);
+  if (!ids) return;
+  for (const id of ids) {
+    if (keep.has(id)) continue;
+    const metadata = map.getLayer(id)?.metadata as Record<string, unknown> | undefined;
+    if (
+      metadata?.["geolibre:internal"] === true &&
+      metadata["geolibre:line-decoration-owner"] === layerId
+    )
+      removeIfExists(map, id);
+    ids.delete(id);
+  }
+  if (ids.size === 0) owners?.delete(layerId);
+  if (owners?.size === 0) pmtilesDecorationOwners.delete(map);
 }
 
 function getPMTilesSourceId(layer: GeoLibreLayer): string | undefined {
@@ -2631,6 +2751,94 @@ function dedupedAttributeLabels(
 }
 
 /**
+ * The one-label-per-polygon points for a point-placed label on a layer with
+ * polygons, or null when MapLibre's own placement applies: the option is off,
+ * the labels follow lines, or the features are not inline GeoJSON (a
+ * GeoArrow-only layer has no feature collection to derive points from).
+ * Attribute filters need no gating here (unlike dedup) because each point
+ * keeps its feature's properties, so the label layer's filter still evaluates
+ * on it. Past MAX_POLYGON_LABEL_FEATURES polygons it is null too (the search
+ * would stall the first draw). Geometry-dependent filters and expressions
+ * keep MapLibre's placement: a derived Point can have a different geometry
+ * type, containment, or distance result than the original polygon.
+ */
+function onePerPolygonLabelPoints(
+  ctx: VectorRenderContext,
+  labels: LabelStyle,
+): FeatureCollection | null {
+  const { layer, profile } = ctx;
+  if (
+    labels.onePerPolygon === false ||
+    labels.placement !== "point" ||
+    !profile.hasPolygon ||
+    !layer.geojson
+  ) {
+    return null;
+  }
+  return readsFeatureGeometry(layer, labels) ? null : polygonLabelPoints(layer.geojson);
+}
+
+/**
+ * Whether the label layer's filter or any label expression reads the feature's
+ * geometry type, containment, or distance. These must evaluate on the original
+ * geometry rather than on a derived label anchor.
+ */
+function readsFeatureGeometry(layer: GeoLibreLayer, labels: LabelStyle): boolean {
+  const sources = [
+    JSON.stringify(withFeatureFilters(layer, ["all"] as unknown as maplibregl.FilterSpecification)),
+    labels.expression,
+    labels.sizeExpression,
+    labels.colorExpression,
+    labels.opacityExpression,
+    labels.visibilityExpression,
+    labels.priorityExpression,
+  ];
+  return sources.some((text) => {
+    // Escaped operator names must still be parsed (for example \u0064istance).
+    if (!text || !/geometry-type|\$type|within|distance|\\/.test(text)) return false;
+    let expression: unknown;
+    try {
+      expression = JSON.parse(removeTrailingJsonCommas(text));
+    } catch {
+      return false;
+    }
+    const pending = [expression];
+    while (pending.length) {
+      const current = pending.pop();
+      if (!Array.isArray(current) || current[0] === "literal") continue;
+      const operator = current[0];
+      if (operator === "geometry-type" || operator === "within" || operator === "distance")
+        return true;
+      if (operator === "semiliteral" && Array.isArray(current[1])) {
+        for (const item of current[1]) pending.push(item);
+        continue;
+      }
+      if (
+        current[1] === "$type" &&
+        ["==", "!=", ">", ">=", "<", "<=", "in", "!in", "has", "!has"].includes(operator)
+      )
+        return true;
+      for (let i = 1; i < current.length; i++) {
+        // Match labels are literal arrays, unlike its input and outputs.
+        if (operator === "match" && i >= 2 && i < current.length - 1 && i % 2 === 0) continue;
+        if (
+          operator === "format" &&
+          current[i] &&
+          !Array.isArray(current[i]) &&
+          typeof current[i] === "object"
+        ) {
+          for (const key of ["font-scale", "text-font", "text-color", "vertical-align"]) {
+            if (Array.isArray(current[i][key])) pending.push(current[i][key]);
+          }
+        }
+        if (Array.isArray(current[i])) pending.push(current[i]);
+      }
+    }
+    return false;
+  });
+}
+
+/**
  * The label layer's `text-field`: the aggregated label on the dedup source,
  * else the parsed label expression, else the field. An empty string means
  * there is nothing to label.
@@ -2881,30 +3089,35 @@ function ensureAttributeLabelLayer(
     layer.style,
   );
   const dedupSourceId = labelSourceId(layer.id);
-  // The aggregated label features live in their own GeoJSON source so the
-  // symbol layer can read one-per-point labels without altering the data the
-  // other render layers draw.
-  if (dedupedLabelFc) {
+  // One label point per polygon feature (GH discussion #3554). Unlike the
+  // dedup source, these points keep every feature's id and properties, so the
+  // layer filters and data-defined overrides below still apply to them.
+  const polygonLabelFc = dedupedLabelFc ? null : onePerPolygonLabelPoints(ctx, labels);
+  // The aggregated (or one-per-polygon) label features live in their own
+  // GeoJSON source so the symbol layer can read them without altering the
+  // data the other render layers draw.
+  const ownLabelFc = dedupedLabelFc ?? polygonLabelFc;
+  if (ownLabelFc) {
     if (map.getSource(dedupSourceId)) {
-      setGeoJsonData(map.getSource(dedupSourceId) as maplibregl.GeoJSONSource, dedupedLabelFc);
+      setGeoJsonData(map.getSource(dedupSourceId) as maplibregl.GeoJSONSource, ownLabelFc);
     } else {
       map.addSource(dedupSourceId, {
         type: "geojson",
-        data: dedupedLabelFc,
+        data: ownLabelFc,
       });
-      rememberGeoJsonData(map, dedupSourceId, dedupedLabelFc);
+      rememberGeoJsonData(map, dedupSourceId, ownLabelFc);
     }
   }
   // A layer's source is immutable, so when the label source switches between
-  // the shared source and the dedup source the layer must be recreated.
-  const targetSource = dedupedLabelFc ? dedupSourceId : src;
+  // the shared source and the label source the layer must be recreated.
+  const targetSource = ownLabelFc ? dedupSourceId : src;
   const existingLabel = map.getLayer(labelLayerId(layer.id)) as { source?: string } | undefined;
   if (existingLabel && existingLabel.source !== targetSource) {
     removeIfExists(map, labelLayerId(layer.id));
   }
   const { labelBaseFilter, sizeOverride, colorOverride, opacityOverride, priorityOverride } =
     attributeLabelOverrides(labels, dedupedLabelFc);
-  const sourceRef = dedupedLabelFc ? { source: dedupSourceId } : sourceSpec;
+  const sourceRef = ownLabelFc ? { source: dedupSourceId } : sourceSpec;
   ensureLayer(
     map,
     labelLayerId(layer.id),
@@ -2937,9 +3150,17 @@ function ensureAttributeLabelLayer(
         "text-max-width": Math.max(1, labels.maxWidth),
         "text-transform": labels.transform,
         // Lower sort keys place first, so they win when space is tight.
+        // Without an explicit priority, one-per-polygon labels place the
+        // largest polygons first, so a country is not crowded out by its
+        // smaller neighbours now that it has a single label candidate. Only
+        // on polygon-only layers: in a mixed layer the polygon labels would
+        // otherwise all jump ahead of the point and line labels.
         // `null` resets a previously applied priority (stripped on first
         // add by ensureLayer).
-        "symbol-sort-key": priorityOverride as unknown as PropertyValueSpecification<number>,
+        "symbol-sort-key": (priorityOverride ??
+          (polygonLabelFc && !ctx.profile.hasPoint && !ctx.profile.hasLine
+            ? ["-", ["coalesce", ["get", POLYGON_LABEL_AREA_PROPERTY], 0]]
+            : null)) as unknown as PropertyValueSpecification<number>,
         visibility,
       },
       paint: {
@@ -2954,9 +3175,9 @@ function ensureAttributeLabelLayer(
     },
     beforeId,
   );
-  // Drop the dedup source once the label layer no longer references it (it is
+  // Drop the label source once the label layer no longer references it (it is
   // recreated on the shared source above before this runs).
-  if (!dedupedLabelFc) {
+  if (!ownLabelFc) {
     removeSourceIfExists(map, dedupSourceId);
   }
 }
@@ -4039,10 +4260,17 @@ export function removeLayerFromMap(
   // Drop cached paint-bridge state so a later layer reusing this id never
   // skips a fresh opacity/visibility apply against a new bridge.
   appliedBridgeState.delete(layerId);
+  // Ownership is recorded per map, so this is safe (and needed) even when the caller has no layer.
+  removeStalePMTilesLineDecorations(map, layerId);
   for (const id of [
     ...getExternalNativeLayerIds(layer),
     ...getExternalNativeLayerIds(layer).map(externalExtrusionLayerId),
     ...(layer ? mbtilesAllStyleLayerIds(layer) : []),
+    ...(layer?.type === "pmtiles"
+      ? getPMTilesSourceLayers(layer).map((sourceLayer) =>
+          pmtilesLineDecorationLayerId(layerId, sourceLayer),
+        )
+      : []),
     fillLayerId(layerId),
     fillExtrusionLayerId(layerId),
     lineLayerId(layerId),

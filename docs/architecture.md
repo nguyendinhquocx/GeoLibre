@@ -33,6 +33,31 @@ flowchart LR
 | `@geolibre/collab-core` | Transport-neutral collaboration relay core (wire protocol, permissions, payload validators) shared by the `workers/collab` and `workers/collab-node` relays |
 | `geolibre-desktop`     | Shell layout, Tauri I/O, composition                                                           |
 
+## Plugin host boundaries
+
+`@geolibre/plugins/builtin-plugin-metadata` supplies built-in names, versions,
+capabilities, menu groups, and lifecycle flags without evaluating implementations.
+Stable plugin IDs live in `plugin-ids.ts`. Implementations use the same metadata
+through `builtInPluginProperties` or `defineBuiltInPlugin`.
+
+`@geolibre/plugins/builtin-plugins` owns the dynamic imports and shared module
+cache. Configure translated labels and host I/O with separate named channels via
+`configureBuiltInPluginModule`; updating a label channel preserves file savers and
+other setup on the same module. Failed imports or setup can be retried.
+`@geolibre/plugins/runtime` exposes registries and plugin contracts. App imports
+use that entry point or a specific helper entry point; the root SDK barrel
+retains its existing exports for consumers.
+
+`PluginManager.registerLazy` registers metadata immediately. Its adapter retains
+pending project settings and control positions for synchronous snapshots until
+the implementation can apply them. Restore generations and registration identity
+reject stale completions. Host panel actions use `runPluginHelper` to prepare
+saved settings and receive an app scope owned by the current project before
+calling implementation helpers. Host helpers use the engine's control adapter
+capabilities; plugin activation still follows the metadata engine list. The import guard in
+`tests/builtin-plugin-loader.test.ts` checks that registries, metadata, and label
+hooks remain importable without implementations.
+
 ## State flow
 
 1. User adds data through the Add Data menu, the Tauri dialog, browser file picker, drag and drop, or a built-in plugin control.
@@ -144,6 +169,14 @@ Caching is split to keep the first visit light:
 - **Basemaps.** Tiles and styles from the CORS-friendly default hosts (OpenFreeMap, CARTO) are runtime-cached. Other remote tiles, services, and ArcGIS/WMS/WFS sources stay network-only by design and are unavailable offline.
 
 So each of these CDN engines needs the network on **first** use, then works offline. To remove even the first-use dependency, build with `GEOLIBRE_PGLITE_CDN=0` and `GEOLIBRE_CEREUS_CDN=0`, which vendor PGlite/PostGIS and the CereusDB wasm back into the build under `/assets/`, where the same-origin rule covers them (PGlite alone re-adds ~22 MB to the Tauri binary).
+
+The CDN engine cache requires CORS-readable status-200 responses, including
+requests from classic workers. Opaque entries stored by older service workers
+are bypassed and replaced on the next online fetch (issue #3607). Until that
+fetch, an affected asset cannot satisfy a console module import. If the network
+is unavailable, classic workers may still use an existing opaque response;
+CORS and module requests never receive that fallback. Readable cached engine
+assets are retained for offline use.
 
 To strip **all GeoLibre-controlled** external CDN references from the build output — for deployments that cannot load any resource from untrusted CDNs — use `GEOLIBRE_NO_EXTERNAL_CDN=1`. This implies `GEOLIBRE_PGLITE_CDN=0`, `GEOLIBRE_CEREUS_CDN=0`, `GEOLIBRE_GDAL_CDN=0`, and `GEOLIBRE_DUCKDB_WASM_CDN=0`, and additionally disables features whose code references external CDNs: storymap HTML export (which injects `<script>` tags from `unpkg.com`), built-in object detection models (YOLO ONNX weights from `cdn.jsdelivr.net`), Segment Everything, 3D Tiles Draco/KTX2 decoders, GDAL export, and the Mapbox renderer (Mapbox GL JS loads from Mapbox's CDN). Pyodide remains available when `VITE_PYODIDE_INDEX_URL` points to an approved mirror. Runtime `deployment.json` configures client policy; it does not change this build-time CDN packaging.
 

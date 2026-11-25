@@ -404,6 +404,34 @@ describe("maplibre-gl-components", () => {
     );
   });
 
+  it("still renders the PMTiles popup classes index.css re-themes", () => {
+    // index.css re-keys the feature-picking popup's hardcoded white table onto
+    // the theme tokens; a rename would silently bring back the white block in
+    // dark mode.
+    const classes = [
+      "maplibre-gl-pmtiles-popup",
+      "maplibre-gl-pmtiles-popup-header",
+      "maplibre-gl-pmtiles-popup-table",
+      "maplibre-gl-pmtiles-popup-key",
+      "maplibre-gl-pmtiles-popup-value",
+      "maplibre-gl-pmtiles-popup-empty",
+    ];
+    const css = readRepoFile("apps/geolibre-desktop/src/index.css");
+    const text = readPublishedText("maplibre-gl-components", { workspace: "packages/plugins" });
+    for (const cls of classes) {
+      assert.ok(hasClassToken(css, cls));
+      assert.ok(
+        hasClassToken(text, cls),
+        contractMessage(
+          "maplibre-gl-components",
+          section,
+          `the PMTiles feature-picking popup no longer carries the class "${cls}" (index.css dark-mode override)`,
+          "packages/plugins",
+        ),
+      );
+    }
+  });
+
   it("keeps MeasureControl's private `_panel`, `_sourceId` and source setup", async () => {
     const { MeasureControl } = await import("maplibre-gl-components");
     const control = new MeasureControl({}) as unknown as Record<string, unknown>;
@@ -699,6 +727,11 @@ describe("@geoman-io/maplibre-geoman-free", () => {
       );
       const message = (detail: string) =>
         contractMessage("@geoman-io/maplibre-geoman-free", section, detail, workspace);
+      assert.match(
+        text,
+        /return this\.gm\.options\.settings\.snapDistance\s*;/,
+        message("the snapping engine no longer reads options.settings.snapDistance"),
+      );
       assert.ok(
         text.includes("actionInstances = {}"),
         message("Geoman no longer has a plain `actionInstances` object"),
