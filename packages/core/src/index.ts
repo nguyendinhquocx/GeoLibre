@@ -24,6 +24,7 @@ export * from "./geojson-z";
 export * from "./antimeridian";
 export * from "./color-ramp";
 export * from "./paths";
+export * from "./imported-document-paths";
 export * from "./routing";
 export * from "./polyline";
 export * from "./vector-color";
@@ -98,6 +99,7 @@ export {
   resolveIdentifyTarget,
   projectPathLabel,
   registerProjectRestoreHistory,
+  reserveLayerSourceRemoval,
   subscribeProjectRestoreHistory,
   redo,
   undo,

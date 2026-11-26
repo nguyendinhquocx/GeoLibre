@@ -606,7 +606,11 @@
       },
       "wcs": {
         "label": "WCS layer",
-        "description": "Load a numerical GeoTIFF subset from a WCS 1.0.0 service."
+        "description": "Load a numerical GeoTIFF subset from a WCS 1.0.0 / 2.0.1 service."
+      },
+      "ogcCoverages": {
+        "label": "Add OGC API - Coverages",
+        "description": "Discover coverage collections and import a GeoTIFF or CoverageJSON numerical subset."
       }
     },
     "shared": {
@@ -1598,13 +1602,28 @@
       "errors": {
         "url": "Enter an HTTP or HTTPS WCS service URL.",
         "xml": "The service returned invalid XML.",
-        "version": "This source requires WCS 1.0.0. The service returned an unsupported response.",
+        "version": "This source requires WCS 1.0.0 / 2.0.1. The service returned an unsupported response.",
         "empty": "No matching coverages are available.",
         "format": "The coverage does not advertise GeoTIFF output.",
         "bounds": "Enter a valid box: west/east within -180 to 180, south/north within -90 to 90, with west < east and south < north.",
         "size": "Choose dimensions from 1 to 4096 pixels. Downloads are limited to 128 MB.",
         "metadata": "The service returned more metadata than GeoLibre can load. Metadata responses are limited to 32 MB.",
-        "response": "The service did not return a valid GeoTIFF."
+        "response": "The service did not return a valid GeoTIFF.",
+        "grid": "This coverage needs a supported two-dimensional rectified grid and WCS scaling support.",
+        "crs": "This request CRS is unavailable. Without the WCS CRS extension, only a native EPSG:4326 or EPSG:3857 CRS is supported."
+      }
+    },
+    "ogcCoverages": {
+      "subset": "Additional axis subsets (optional)",
+      "parameter": "CoverageJSON fields (optional)",
+      "hint": "Enter a CRS84 bounding box. Leave fields blank to import every numeric CoverageJSON range, or enter comma-separated names. Extra axes must be sliced to one value. Downloads are limited to 128 MiB and 8 million samples. Layers are snapshots; export their GeoTIFF to keep the bytes.",
+      "errors": {
+        "response": "The service did not return a supported coverage document or GeoTIFF.",
+        "grid": "Select a numeric, regular two-dimensional grid in CRS84, EPSG:4326 or EPSG:3857. Slice other axes to one value.",
+        "empty": "No GeoTIFF or CoverageJSON coverage collections were advertised.",
+        "size": "The coverage exceeds the 128 MiB download limit or 8 million decoded samples.",
+        "metadata": "The service catalog is too large to retrieve safely.",
+        "bbox": "Enter valid west, south, east and north coordinates in CRS84. Split areas crossing the antimeridian into separate requests."
       }
     }
   },
@@ -2722,6 +2741,16 @@
   },
   "basemapExtract": {
     "title": "Extract offline basemap",
+    "source": "Source",
+    "remotePmtiles": "Remote PMTiles archive",
+    "localMbtiles": "Local MBTiles file",
+    "chooseMbtiles": "Choose MBTiles file…",
+    "mbtilesHint": "Choose a local archive, then select an area and zoom range. The original file stays unchanged.",
+    "mbtilesRenderingHint": "Raster packages become basemap imagery. Other vector schemas are added as layers.",
+    "mbtilesProgress": "Tiles copied: {{count}} · {{size}}",
+    "inspectingMbtiles": "Reading MBTiles metadata…",
+    "successMbtiles": "Saved {{count}} tiles in a package on this device.",
+    "addPackageToMap": "Add package to map",
     "url": "Basemap URL",
     "urlPlaceholder": "https://data.source.coop/…/planet.pmtiles",
     "useView": "Use map view",
@@ -2738,6 +2767,10 @@
     "maxZoom": "Max zoom",
     "zoomHint": "Zoom levels must be whole numbers with min ≤ max (0–30). Levels above the archive's maximum are ignored.",
     "errorNoSourceLayers": "This vector archive has no layer metadata, so it can't be rendered. Try a different archive.",
+    "errorPackageZoom": "This package needs zoom {{zoom}}. Increase the project's maximum zoom in Map Settings, or choose an archive with tiles at lower zoom levels. The map supports zoom levels up to 24.",
+    "errorSavedPackageZoom": "Saved \"{{name}}\" on this device, but it needs zoom {{zoom}} to display. Increase the project's maximum zoom in Map Settings, then apply it from Saved basemaps. Do not extract it again. The map supports zoom levels up to 24.",
+    "errorPackageZoomUnsupported": "This package needs zoom {{zoom}}, above the map's supported maximum of 24. Choose an archive with tiles at zoom 24 or below.",
+    "errorSavedPackageZoomUnsupported": "Saved \"{{name}}\" on this device, but this map cannot display tiles starting at zoom {{zoom}}. The supported maximum is 24. Choose an archive with tiles at zoom 24 or below. Do not repeat this extraction.",
     "savedTitle": "Saved basemaps",
     "openFile": "Open file…",
     "savedEmpty": "No saved basemaps yet. Extract one above, or open a .pmtiles file.",
@@ -2771,7 +2804,17 @@
     "successAddedSaveFailed": "Added to the map, but saving to disk failed: {{error}}",
     "successBasemapSaved": "Saved to {{path}} and set as the basemap.",
     "successBasemapApplied": "Set as the basemap (the file was not saved).",
-    "successBasemapSaveFailed": "Set as the basemap, but saving to disk failed: {{error}}"
+    "successBasemapSaveFailed": "Set as the basemap, but saving to disk failed: {{error}}",
+    "errorNativePackages": "Could not load the saved offline packages. Open Offline basemap to retry.",
+    "errorPackageInUse": "Remove layers using this package before deleting it.",
+    "successCached": "Saved on this device for offline use and added to the map.",
+    "successCachedApplied": "Using the package saved on this device.",
+    "confirmDeletePackage": "Delete the package from this device? Saved projects using it will lose their offline map.",
+    "exportPackage": "Export package…",
+    "unavailablePackage": "Unavailable offline package",
+    "errorUnavailablePackage": "The archive or its metadata is damaged or missing.",
+    "unavailablePackages_one": "One offline package is unavailable. Open Offline basemap to review it.",
+    "unavailablePackages_other": "{{count}} offline packages are unavailable. Open Offline basemap to review them."
   },
   "rasterSubset": {
     "title": "Extract subset",
@@ -4109,7 +4152,8 @@
       "postgres": "PostgreSQL layer",
       "mssql": "SQL Server layer",
       "iceberg": "Apache Iceberg layer",
-      "wcs": "WCS layer"
+      "wcs": "WCS layer",
+      "ogcCoverages": "OGC API - Coverages"
     },
     "conversion": {
       "vectorToVector": "Vector to vector",
@@ -4380,6 +4424,8 @@
       "selectByExpressionEllipsis": "Select by expression…",
       "selectByLocationEllipsis": "Select by location…",
       "zoomToSelection": "Zoom to selection",
+      "showEdgeLengths": "Show edge lengths",
+      "showEdgeLengthsUnsupported": "Edge lengths are shown on the MapLibre and Mapbox maps only.",
       "invertSelection": "Invert selection",
       "clearSelection": "Clear selection",
       "exportSelection": "Export selected features as layer",
@@ -6455,7 +6501,8 @@
     "endpointNotice": "Point coordinates are sent to the routing server ({{endpoint}}). The default is a shared public Valhalla server (FOSSGIS), which is rate-limited. For heavy use, enter your own server's URL in the \"Routing server (Valhalla)\" field above.",
     "localNotice": "This tool runs in your browser over the selected line layer. Nothing is sent to a routing server.",
     "consentRequired": "This tool sends point coordinates to a routing server. Open it from the Processing menu to review and accept the routing notice first.",
-    "styleFailed": "Could not style \"{{name}}\": {{reason}}"
+    "styleFailed": "Could not style \"{{name}}\": {{reason}}",
+    "cancelled": "Cancelled. Nothing was added to the map."
   },
   "statistics": {
     "cancelled": "Cancelled",
@@ -8062,6 +8109,53 @@
               "label": "Snap tolerance (m)",
               "description": "Line ends closer than this to another line are joined to it. Lines that share a vertex are always connected; lines that only cross are not."
             },
+            "turns": {
+              "label": "Turn rules",
+              "description": "Prohibit or charge turns with a turn table, a cost per left or right turn, or a U-turn limit. Costs are in the edge cost unit.",
+              "options": {
+                "none": "None (turns are free)",
+                "rules": "Turn restrictions and costs"
+              }
+            },
+            "turnTable": {
+              "label": "Turn table (optional)",
+              "description": "One row per turn from one network line onto another, matched by the line id field. The row applies wherever the two lines meet."
+            },
+            "networkIdField": {
+              "label": "Network line id field",
+              "description": "The network attribute that the turn table's from and to fields refer to."
+            },
+            "turnFromField": {
+              "label": "Turn from-line field"
+            },
+            "turnToField": {
+              "label": "Turn to-line field"
+            },
+            "turnCostField": {
+              "label": "Turn cost field (optional)",
+              "description": "Cost added for the turn. Without this field every row prohibits its turn; with it, a blank, negative or non-numeric value prohibits the turn."
+            },
+            "leftTurnCost": {
+              "label": "Left turn cost",
+              "description": "Added at junctions of three or more lines when the route bends left by more than 30 degrees."
+            },
+            "rightTurnCost": {
+              "label": "Right turn cost",
+              "description": "Added at junctions of three or more lines when the route bends right by more than 30 degrees."
+            },
+            "uturns": {
+              "label": "U-turns",
+              "options": {
+                "allow": "Allowed anywhere",
+                "junctions": "At junctions and dead ends",
+                "dead-ends": "At dead ends only",
+                "never": "Never"
+              }
+            },
+            "uturnCost": {
+              "label": "U-turn cost",
+              "description": "Added for each U-turn where one is allowed."
+            },
             "stops": {
               "label": "Stops"
             },
@@ -8104,6 +8198,53 @@
             "snapTolerance": {
               "label": "Snap tolerance (m)",
               "description": "Line ends closer than this to another line are joined to it. Lines that share a vertex are always connected; lines that only cross are not."
+            },
+            "turns": {
+              "label": "Turn rules",
+              "description": "Prohibit or charge turns with a turn table, a cost per left or right turn, or a U-turn limit. Costs are in the edge cost unit.",
+              "options": {
+                "none": "None (turns are free)",
+                "rules": "Turn restrictions and costs"
+              }
+            },
+            "turnTable": {
+              "label": "Turn table (optional)",
+              "description": "One row per turn from one network line onto another, matched by the line id field. The row applies wherever the two lines meet."
+            },
+            "networkIdField": {
+              "label": "Network line id field",
+              "description": "The network attribute that the turn table's from and to fields refer to."
+            },
+            "turnFromField": {
+              "label": "Turn from-line field"
+            },
+            "turnToField": {
+              "label": "Turn to-line field"
+            },
+            "turnCostField": {
+              "label": "Turn cost field (optional)",
+              "description": "Cost added for the turn. Without this field every row prohibits its turn; with it, a blank, negative or non-numeric value prohibits the turn."
+            },
+            "leftTurnCost": {
+              "label": "Left turn cost",
+              "description": "Added at junctions of three or more lines when the route bends left by more than 30 degrees."
+            },
+            "rightTurnCost": {
+              "label": "Right turn cost",
+              "description": "Added at junctions of three or more lines when the route bends right by more than 30 degrees."
+            },
+            "uturns": {
+              "label": "U-turns",
+              "options": {
+                "allow": "Allowed anywhere",
+                "junctions": "At junctions and dead ends",
+                "dead-ends": "At dead ends only",
+                "never": "Never"
+              }
+            },
+            "uturnCost": {
+              "label": "U-turn cost",
+              "description": "Added for each U-turn where one is allowed."
             },
             "incidents": {
               "label": "Incidents"
@@ -8152,6 +8293,53 @@
             "snapTolerance": {
               "label": "Snap tolerance (m)",
               "description": "Line ends closer than this to another line are joined to it. Lines that share a vertex are always connected; lines that only cross are not."
+            },
+            "turns": {
+              "label": "Turn rules",
+              "description": "Prohibit or charge turns with a turn table, a cost per left or right turn, or a U-turn limit. Costs are in the edge cost unit.",
+              "options": {
+                "none": "None (turns are free)",
+                "rules": "Turn restrictions and costs"
+              }
+            },
+            "turnTable": {
+              "label": "Turn table (optional)",
+              "description": "One row per turn from one network line onto another, matched by the line id field. The row applies wherever the two lines meet."
+            },
+            "networkIdField": {
+              "label": "Network line id field",
+              "description": "The network attribute that the turn table's from and to fields refer to."
+            },
+            "turnFromField": {
+              "label": "Turn from-line field"
+            },
+            "turnToField": {
+              "label": "Turn to-line field"
+            },
+            "turnCostField": {
+              "label": "Turn cost field (optional)",
+              "description": "Cost added for the turn. Without this field every row prohibits its turn; with it, a blank, negative or non-numeric value prohibits the turn."
+            },
+            "leftTurnCost": {
+              "label": "Left turn cost",
+              "description": "Added at junctions of three or more lines when the route bends left by more than 30 degrees."
+            },
+            "rightTurnCost": {
+              "label": "Right turn cost",
+              "description": "Added at junctions of three or more lines when the route bends right by more than 30 degrees."
+            },
+            "uturns": {
+              "label": "U-turns",
+              "options": {
+                "allow": "Allowed anywhere",
+                "junctions": "At junctions and dead ends",
+                "dead-ends": "At dead ends only",
+                "never": "Never"
+              }
+            },
+            "uturnCost": {
+              "label": "U-turn cost",
+              "description": "Added for each U-turn where one is allowed."
             },
             "facilities": {
               "label": "Facilities"
@@ -11196,6 +11384,8 @@
     "emptyNetworkError": "No network error diagnostics captured."
   },
   "notifications": {
+    "nativeDocumentCopiesFailed": "Some imported files could not be restored. Open a new workspace or import the affected files again. Details are in Diagnostics.",
+    "nativeDocumentCopiesInitFailed": "Could not restore access to imported files. Restart GeoLibre to retry. You can use a blank workspace meanwhile. Details are in Diagnostics.",
     "liveMcpEnableRetry": "Live MCP access could not be enabled. Retrying automatically; processing remains available.",
     "liveMcpDisableRetry": "Live MCP server access has not been revoked yet. This window is disconnected and GeoLibre is retrying; processing remains available.",
     "regionLabel": "Notifications",

@@ -11,11 +11,12 @@ export function browserSafeFileName(path: string): string {
   return localFileName(path) || "project.geolibre";
 }
 
-/** Whether the source is one of Android's durable document-picker copies. */
+/** Whether a mobile source uses the managed document-copy layout (display wording only). */
 export function isImportedDocumentCopyPath(path: string | undefined): boolean {
   return (
     typeof path === "string" &&
-    /\/files\/picked-documents\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/data\/[^/]+$/i.test(
+    path.startsWith("/") &&
+    /\/(?:files|Library\/Application Support\/org\.geolibre\.app)\/picked-documents\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/data\/[^/]+$/i.test(
       path,
     )
   );
@@ -45,7 +46,7 @@ export function ensureGeoLibreProjectExtension(path: string): string {
 }
 
 export const SHAPEFILE_SIDECAR_EXTENSIONS = ["dbf", "shx", "prj", "cpg"];
-// SYNC: RESTORABLE_VECTOR_EXTENSIONS in src-tauri/src/lib.rs must list the same
+// SYNC: RESTORABLE_VECTOR_EXTENSIONS in src-tauri/src/local_files.rs must list the same
 // extensions, or a format added here would be rejected by the Rust restore
 // guard on every project reopen (the bug this PR fixes). Grep "SYNC:" to find
 // the partner list.

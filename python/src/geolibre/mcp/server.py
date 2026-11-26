@@ -469,6 +469,42 @@ def build_server(workspace: Workspace) -> MCPServer:
         return _summarize(file, project, layerId=layer_id, layerName=layer.get("name"))
 
     @tool()
+    def add_sql_query_layer(
+        path: str,
+        name: str,
+        data: str,
+        sql: str,
+        style: dict[str, Any] | None = None,
+        index: int | None = None,
+    ) -> dict[str, Any]:
+        """Add a DuckDB query definition and an embedded GeoJSON result.
+
+        This tool stores a supplied result without executing SQL. The result
+        renders immediately on open. Refresh in the app executes the query
+        against the other project layers using SQL Workspace table names.
+
+        Args:
+            path: Destination .geolibre.json file in the workspace.
+            name: Layer display name.
+            data: Result GeoJSON text, public URL, or workspace file, capped at
+                50 MB. Source layers for refresh must also be in the project.
+            sql: Non-empty DuckDB SQL statement that produced the result.
+            style: Layer style overrides, such as fillColor or circleRadius.
+            index: Draw-order position; appended on top when omitted.
+
+        Returns:
+            The new layer id and the updated project summary.
+
+        Raises:
+            ValueError: If the result, SQL, or style options are invalid.
+        """
+        with edit(path) as (file, project):
+            collection, _source_url = load_geojson(data)
+            layer = _build_layer(_project.sql_query_layer, name, collection, sql, style=style)
+            layer_id = authoring.add_layer(project, layer, index=index)
+        return _summarize(file, project, layerId=layer_id, layerName=layer.get("name"))
+
+    @tool()
     def add_vector_layer(
         path: str,
         name: str,
@@ -775,6 +811,7 @@ def build_server(workspace: Workspace) -> MCPServer:
         name: str,
         url: str,
         service: str = "map",
+        tiled: bool = False,
         sublayers: str | None = None,
         rendering_rule: dict[str, Any] | str | None = None,
         max_features: int | None = None,
@@ -789,6 +826,8 @@ def build_server(workspace: Workspace) -> MCPServer:
         endpoint when the project opens (MapLibre renderer). Token-protected
         services are not supported. For a VectorTileServer use
         `add_tiles_layer` with its tile URL.
+        With `tiled=True`, public map/image cache metadata is fetched and its
+        Web Mercator XYZ grid is validated before the project is changed.
 
         Args:
             path: Path to the `.geolibre.json` file.
@@ -796,6 +835,11 @@ def build_server(workspace: Workspace) -> MCPServer:
             url: `.../MapServer`, `.../ImageServer`, or a feature layer URL
                 such as `.../FeatureServer/0`.
             service: `map`, `image`, or `feature`.
+            tiled: Use a validated map/image cache rather than dynamic export.
+                Incompatible grids and raw LERC caches are refused. Cannot be
+                combined with sublayers or a rendering rule. Public metadata
+                reads are limited to 2 MiB with a 30-second socket inactivity
+                timeout and an elapsed-time check between reads.
             sublayers: MapServer sublayer ids to show, e.g. `0,2`.
             rendering_rule: ImageServer rendering rule, e.g.
                 `{"rasterFunction": "Hillshade"}`.
@@ -812,6 +856,7 @@ def build_server(workspace: Workspace) -> MCPServer:
             name,
             url,
             service=service,
+            tiled=tiled,
             sublayers=sublayers,
             rendering_rule=rendering_rule,
             max_features=max_features,
@@ -832,11 +877,12 @@ def build_server(workspace: Workspace) -> MCPServer:
         bounds: list[float] | None = None,
         crs: str | None = None,
         index: int | None = None,
+        icechunk_branch: str | None = None,
     ) -> dict[str, Any]:
         """Add one variable of a Zarr data cube (climate, ocean, imagery stacks).
 
-        The app's Zarr control draws it when the project opens. Icechunk
-        repositories and local stores cannot be saved in a project.
+        The app draws it when the project opens. Public Icechunk repositories
+        reopen on the saved branch; local stores require a session-only reader.
 
         Args:
             path: Path to the `.geolibre.json` file.
@@ -851,6 +897,7 @@ def build_server(workspace: Workspace) -> MCPServer:
                 coordinate arrays.
             crs: The store's CRS when it is not EPSG:4326.
             index: Draw-order position; appended on top when omitted.
+            icechunk_branch: Branch of a public HTTP(S) Icechunk repository.
 
         Returns:
             The new layer's id and the project's updated layer count.
@@ -859,6 +906,7 @@ def build_server(workspace: Workspace) -> MCPServer:
             name,
             url,
             variable,
+            icechunk_branch=icechunk_branch,
             selector=selector,
             clim=clim,
             colormap=colormap,

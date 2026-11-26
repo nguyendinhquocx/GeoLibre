@@ -101,6 +101,8 @@ The click payload has the form `{"lngLat": {"lng": ..., "lat": ...},
 | --- | --- |
 | `Map(center, zoom, basemap=, height=, app_layout=, layout=, theme=)` | Create a map. `app_layout` is `"embed"`, `"full"`, or `"maponly"`. `layout` takes an `ipywidgets.Layout`, as on any widget. |
 | `add_geojson(data, name=, **style)` | Add GeoJSON (dict, path, URL, JSON, or GeoDataFrame). |
+| `add_zarr(url, variable, name=, icechunk_branch=, selector=, **style)` | Add a Zarr variable. Set `icechunk_branch="main"` for a public HTTP(S) Icechunk repository; the app reopens that branch when the project loads. |
+| `add_sql_query_layer(data, sql, name=, **style)` | Store a GeoJSON result and its DuckDB SQL definition. The snapshot renders on open; Refresh in the app re-executes SQL against the other project layers using SQL Workspace table names. Python does not execute the query. |
 | `add_gdf(gdf, name=, column=None, **style)` | Add a GeoDataFrame, optionally as a choropleth. |
 | `add_csv` / `add_xy_data` `(data, x=, y=, name=, **style)` | Add points from CSV, a DataFrame, or row mappings. |
 | `add_heatmap(points, name=, radius=, intensity=, color_ramp=, weight_field=, **style)` | Add a point density heatmap, optionally weighted by a numeric field. |
@@ -113,6 +115,7 @@ The click payload has the form `{"lngLat": {"lng": ..., "lat": ...},
 | `add_wms(endpoint, layers, name=, styles=, image_format=, transparent=, tile_size=, **style)` | Add a WMS (GetMap) tiled raster layer. |
 | `add_wmts(url, name=, tile_size=, **style)` | Add a WMTS tile URL template. |
 | `add_wfs(endpoint, type_name, name=, version=, output_format=, srs_name=, max_features=, **style)` | Add a WFS layer (GeoJSON, fetched and inlined). |
+| `add_arcgis_layer(url, name=, service="map", tiled=False, **style)` | Add an ArcGIS map/image export or feature service. `tiled=True` reads public map/image metadata and uses a validated Web Mercator image cache. |
 | `add_cog(url, name=, bands=, colormap=, rescale=)` | Add a Cloud Optimized GeoTIFF. |
 | `add_raster(source, name=, bands=, colormap=, rescale=, array_args=)` | Add a COG/GeoTIFF or an xarray DataArray/Dataset (xarray needs `geolibre[raster]`). |
 | `add_3d_tiles(url, name=, altitude_offset=, request_headers=, **style)` | Add a 3D Tiles `tileset.json`. |

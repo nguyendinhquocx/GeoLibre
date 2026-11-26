@@ -37,6 +37,13 @@ updates:
         update-types:
           - minor
           - patch
+        # Held renderer versions (docs/maintenance.md, `maplibre-gl` and
+        # `mapbox-gl`) get their own PRs, so a hold does not block the
+        # routine bumps batched with them.
+        exclude-patterns:
+          - "maplibre-gl"
+          - "@maplibre/maplibre-gl-style-spec"
+          - "mapbox-gl"
 
   # Python — the FastAPI sidecar.
   - package-ecosystem: pip
@@ -80,7 +87,7 @@ updates:
     open-pull-requests-limit: 5
     ignore:
       # `bincode` must stay on the 1.x line: `PersistedScopeState` in
-      # `src/lib.rs` reads and rewrites the file `tauri-plugin-persisted-scope`
+      # `src/image_scope.rs` reads and rewrites the file `tauri-plugin-persisted-scope`
       # serializes with bincode 1, so a major bump silently breaks the on-disk
       # format. bincode 3.0.0 is also a deliberately unbuildable release whose
       # whole source is `compile_error!("https://xkcd.com/2347/")` (see #2194).

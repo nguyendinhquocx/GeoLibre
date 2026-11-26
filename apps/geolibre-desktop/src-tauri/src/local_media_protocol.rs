@@ -291,7 +291,7 @@ impl MbtilesConnectionPool {
     }
 
     pub(crate) fn read_tile(&self, path: &str, z: u32, x: u32, y: u32) -> Result<Vec<u8>, String> {
-        if z > crate::MAX_MBTILES_ZOOM {
+        if z > crate::mbtiles::MAX_MBTILES_ZOOM {
             return Err("Tile zoom level is too large".to_string());
         }
         let canonical = canonicalize_allowed_mbtiles(path)?;
@@ -305,7 +305,7 @@ impl MbtilesConnectionPool {
         x: u32,
         y: u32,
     ) -> Result<Vec<u8>, String> {
-        if z > crate::MAX_MBTILES_ZOOM {
+        if z > crate::mbtiles::MAX_MBTILES_ZOOM {
             return Err("Tile zoom level is too large".to_string());
         }
         let pooled = self.get_or_open_canonical(canonical)?;
@@ -321,7 +321,7 @@ impl MbtilesConnectionPool {
             let tx = connection
                 .transaction()
                 .map_err(|error| format!("Could not start MBTiles read transaction: {error}"))?;
-            let scheme = crate::read_metadata_value(&tx, "scheme")?
+            let scheme = crate::mbtiles::read_metadata_value(&tx, "scheme")?
                 .map(|value| value.to_ascii_lowercase())
                 .unwrap_or_else(|| "tms".to_string());
             let tile_row = if scheme == "xyz" {
@@ -346,7 +346,7 @@ impl MbtilesConnectionPool {
         };
 
         Ok(tile_data
-            .map(crate::decompress_tile_data)
+            .map(crate::mbtiles::decompress_tile_data)
             .transpose()?
             .unwrap_or_default())
     }
@@ -773,8 +773,28 @@ pub(crate) struct LocalMediaPools {
     pub(crate) files: LocalFilePool,
 }
 
+impl LocalMediaPools {
+    /// Release cached readers before explicitly deleting an owned archive.
+    /// In-flight readers retain their handles until their current read ends.
+    pub(crate) fn release_path(&self, path: &Path) -> Result<(), String> {
+        self.files
+            .entries
+            .lock()
+            .map_err(|_| "Local file pool is unavailable")?
+            .remove(path);
+        self.mbtiles
+            .entries
+            .lock()
+            .map_err(|_| "MBTiles pool is unavailable")?
+            .remove(path);
+        Ok(())
+    }
+}
+
 fn canonicalize_allowed_mbtiles(path: &str) -> Result<PathBuf, String> {
-    if !crate::is_safe_absolute_path(path) || !path.to_ascii_lowercase().ends_with(".mbtiles") {
+    if !crate::local_files::is_safe_absolute_path(path)
+        || !path.to_ascii_lowercase().ends_with(".mbtiles")
+    {
         return Err(format!(
             "Refusing to open \"{path}\": not an absolute local MBTiles file path"
         ));
@@ -782,7 +802,7 @@ fn canonicalize_allowed_mbtiles(path: &str) -> Result<PathBuf, String> {
     let canonical = fs::canonicalize(path)
         .map_err(|_| "The selected MBTiles file does not exist".to_string())?;
     let resolved = canonical.to_string_lossy();
-    if crate::is_unc_resolved_path(&resolved) {
+    if crate::local_files::is_unc_resolved_path(&resolved) {
         return Err(format!(
             "Refusing to open \"{path}\": resolves to a network path"
         ));
@@ -795,12 +815,17 @@ fn canonicalize_allowed_mbtiles(path: &str) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+/// Resolve a selected MBTiles source under existing native file permissions.
+pub(crate) fn authorized_mbtiles_source(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+    canonicalize_scoped_media_path(app, path, &[".mbtiles"])
+}
+
 fn canonicalize_scoped_media_path(
     app: &AppHandle,
     path: &str,
     allowed_extensions: &[&str],
 ) -> Result<PathBuf, String> {
-    if !crate::is_safe_absolute_path(path) {
+    if !crate::local_files::is_safe_absolute_path(path) {
         return Err(format!("Refusing to stream \"{path}\": unsafe path"));
     }
     let lower = path.to_ascii_lowercase();
@@ -812,7 +837,7 @@ fn canonicalize_scoped_media_path(
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("Could not resolve local media file: {error}"))?;
     let resolved = canonical.to_string_lossy().to_ascii_lowercase();
-    if crate::is_unc_resolved_path(&resolved) {
+    if crate::local_files::is_unc_resolved_path(&resolved) {
         return Err(format!(
             "Refusing to stream \"{path}\": resolves to a network path"
         ));

@@ -286,6 +286,7 @@ Give it a directory meant for maps, not your home directory.
 | Tool | For |
 | --- | --- |
 | `add_geojson_layer` | Vector data inlined into the project, from a URL, a workspace file, or literal GeoJSON. Self-contained, and the only kind `classify_layer` can style. |
+| `add_sql_query_layer` | A supplied GeoJSON result snapshot plus its DuckDB SQL definition. Renders on open; Refresh re-executes SQL against the other project layers using SQL Workspace table names. This tool stores results without executing SQL. |
 | `add_vector_layer` | A large remote FlatGeobuf / GeoParquet / GeoJSON read in place. |
 | `add_raster_layer` | A Cloud Optimized GeoTIFF, with band, colormap, and rescale options. |
 | `add_tile_layer` | A raster XYZ tile template. |
@@ -293,8 +294,8 @@ Give it a directory meant for maps, not your home directory.
 | `add_tiles_layer` | PMTiles archives and vector tile services. |
 | `add_ogc_layer` | WMS and WMTS endpoints. |
 | `add_wfs_layer` | A WFS feature type, fetched by the app when the project opens. |
-| `add_arcgis_layer` | ArcGIS REST MapServer and ImageServer (raster tiles from the export endpoint, with sublayers or a rendering rule) and FeatureServer layers (features in view loaded on open). |
-| `add_zarr_layer` | One variable of a Zarr data cube, sliced with a dimension selector, drawn by the app's Zarr control. |
+| `add_arcgis_layer` | ArcGIS REST MapServer and ImageServer (dynamic export, or a validated public image cache with `tiled=true`) and FeatureServer layers (features in view loaded on open). Cached mode refuses sublayers, rendering rules, incompatible grids and raw LERC caches before changing the project. |
+| `add_zarr_layer` | One variable of a Zarr data cube, sliced with a dimension selector. Set `icechunk_branch="main"` for a public HTTP(S) Icechunk repository; its branch and settings survive reopening. |
 | `add_video_layer` | A georeferenced video overlay from `https://` URLs and four corners. |
 | `add_lidar_layer` | LAS/LAZ/COPC/EPT point clouds by URL. |
 | `add_spaceborne_lidar_layer` | ICESat-2 (ATL06, ATL08) or GEDI (L2A, L2B, L4A) footprints from a local HDF5 granule (needs `geolibre[spaceborne]`). |

@@ -125,6 +125,12 @@ export const DATA_SOURCE_CATALOG: readonly DataSourceCatalogEntry[] = [
     tier: "intermediate",
   },
   {
+    id: "ogc-coverages",
+    section: "webServices",
+    labelKey: "toolbar.layerType.ogcCoverages",
+    tier: "intermediate",
+  },
+  {
     id: "ogc-vector-tiles",
     section: "webServices",
     labelKey: "toolbar.layerType.ogcVectorTiles",
@@ -458,6 +464,12 @@ export const MENU_ITEM_CATALOG: readonly MenuItemCatalogEntry[] = [
     menuId: "edit",
     labelKey: "toolbar.item.clearSelection",
     tier: "basic",
+  },
+  {
+    id: "edit.showEdgeLengths",
+    menuId: "edit",
+    labelKey: "toolbar.item.showEdgeLengths",
+    tier: "intermediate",
   },
   {
     id: "edit.exportSelection",

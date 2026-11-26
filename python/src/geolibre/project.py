@@ -20,12 +20,14 @@ import uuid
 import warnings
 import zlib
 from decimal import Decimal
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.error import URLError
-from urllib.parse import quote, unquote_plus, urlsplit
+from urllib.parse import quote, unquote, unquote_plus, urlsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 
+from ._arcgis_cache import cached_arcgis_source
 from .basemaps import DEFAULT_BASEMAP
 
 # Shared TS/Python constants synced from packages/core/src/project-constants.json.
@@ -394,7 +396,7 @@ class _PublicOnlyRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-# Opener used for all remote GeoJSON fetches: follows redirects but rejects any
+# Opener used for public JSON fetches: follows redirects but rejects any
 # hop that points at a non-public address (SSRF defence).
 _GEOJSON_OPENER = build_opener(_PublicOnlyRedirectHandler)
 
@@ -1444,6 +1446,50 @@ def geojson_layer(
         layer["sourcePath"] = source_url
     layer["source"] = source
     layer["geojson"] = data
+    return layer
+
+
+def sql_query_layer(name: str, data: Any, sql: str, **style: Any) -> dict[str, Any]:
+    """Build a DuckDB SQL query layer with an embedded result snapshot.
+
+    The snapshot renders immediately when the project opens. Refresh in the app
+    re-executes SQL against the other project layers, using their table names.
+    This builder stores the supplied result; it does not execute SQL in Python.
+
+    Args:
+        name: Layer display name.
+        data: GeoJSON result, using the inputs accepted by load_featurecollection.
+        sql: DuckDB SQL that produced the result. Source layers must be present
+            in the project to refresh; table names follow the SQL Workspace.
+        **style: Style overrides merged into the default layer style.
+
+    Returns:
+        A GeoJSON layer carrying the snapshot and a refreshable query definition.
+
+    Raises:
+        ValueError: If SQL is blank or is not a string, or GeoJSON is invalid.
+    """
+    if not isinstance(sql, str) or not sql.strip():
+        raise ValueError("sql must be a non-empty DuckDB SQL string")
+    snapshot = copy.deepcopy(load_featurecollection(data))
+    for index, feature in enumerate(snapshot["features"]):
+        if (
+            not isinstance(feature, dict)
+            or feature.get("type") != "Feature"
+            or "geometry" not in feature
+            or "properties" not in feature
+            or (feature["geometry"] is not None and not isinstance(feature["geometry"], dict))
+            or (feature["properties"] is not None and not isinstance(feature["properties"], dict))
+        ):
+            raise ValueError(
+                f"Snapshot entry {index} must be a GeoJSON Feature with geometry and properties"
+            )
+    layer = _layer_base(name, "geojson", **style)
+    layer["source"] = {"type": "geojson"}
+    layer["geojson"] = snapshot
+    # Mirror SQL_QUERY_SOURCE_KIND and sqlQueryLayerMetadata in the app. Keep
+    # the snapshot independent of its input URL: refresh must run the query.
+    layer["metadata"] = {"sourceKind": "sql-query", "sqlQuery": {"engine": "duckdb", "sql": sql}}
     return layer
 
 
@@ -4478,6 +4524,52 @@ ARCGIS_SERVICES: dict[str, tuple[str, str]] = {
 _ARCGIS_EXPORT_TILE_SIZE = 256
 
 
+def _load_arcgis_cached_source(service_url: str) -> dict[str, Any]:
+    """Read bounded public service metadata and validate its image tile cache.
+
+    Args:
+        service_url: The normalized MapServer or ImageServer URL.
+
+    Returns:
+        The validated raster source shape.
+
+    Raises:
+        ValueError: If the request is unsafe, fails, exceeds the size limit or
+            describes an incompatible cache.
+    """
+    url = f"{service_url}?f=json"
+    _assert_public_url(url)
+    limit = 2 * 1024 * 1024
+    deadline = time.monotonic() + 30
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        with _GEOJSON_OPENER.open(url, timeout=30) as response:  # noqa: S310 - public URL checked
+            # The socket timeout bounds each read, not the whole response, so
+            # read one buffer at a time and enforce a total deadline as well.
+            read = getattr(response, "read1", response.read)
+            while size <= limit:
+                if time.monotonic() > deadline:
+                    raise ValueError("ArcGIS cache metadata took longer than 30 seconds to load")
+                chunk = read(min(65536, limit + 1 - size))
+                if time.monotonic() > deadline:
+                    raise ValueError("ArcGIS cache metadata took longer than 30 seconds to load")
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+    except (OSError, HTTPException) as exc:
+        raise ValueError("Could not load ArcGIS cache metadata") from exc
+    raw = b"".join(chunks)
+    if len(raw) > limit:
+        raise ValueError("ArcGIS cache metadata exceeds the 2 MiB size limit")
+    try:
+        info = json.loads(raw.decode("utf-8"))
+    except RecursionError as exc:
+        raise ValueError("ArcGIS cache metadata is too deeply nested") from exc
+    return cached_arcgis_source(info, service_url)
+
+
 def _arcgis_export_tile_url(
     service_url: str, *, image: bool, sublayers: str | None, rendering_rule: str | None
 ) -> str:
@@ -4520,6 +4612,7 @@ def arcgis_layer(
     url: str,
     *,
     service: str = "map",
+    tiled: bool = False,
     sublayers: str | list[int] | None = None,
     rendering_rule: str | dict[str, Any] | None = None,
     max_features: int | None = None,
@@ -4538,12 +4631,23 @@ def arcgis_layer(
       MapLibre map. Other renderers show it empty until it is refreshed.
 
     Credentials are not supported: a token would be written into the project.
+    With ``tiled=True``, map/image services use their existing image cache.
+    Public service metadata is fetched to verify the Web Mercator XYZ grid;
+    incompatible caches are refused rather than saved with misplaced tiles.
 
     Args:
         name: Layer display name.
         url: The service URL, e.g. ``.../MapServer``, ``.../ImageServer``, or
             ``.../FeatureServer/0``.
         service: ``"map"``, ``"image"``, or ``"feature"``.
+        tiled: Use a validated public map/image cache instead of dynamic export.
+            Cannot be combined with sublayers or a rendering rule. Raw LERC
+            caches are not supported by this raster authoring path. Metadata
+            reads have a 2 MiB size limit and a 30-second deadline checked
+            before and after each read. An in-flight socket read can delay
+            reporting a deadline error until that read finishes or times out.
+            Connect, redirect and header processing use the socket inactivity
+            timeout; the elapsed-time checks only run around body reads.
         sublayers: MapServer sublayer ids to show (``"0,2"`` or ``[0, 2]``).
         rendering_rule: ImageServer rendering rule, as a dict or JSON string
             (e.g. ``{"rasterFunction": "Hillshade"}``).
@@ -4558,10 +4662,15 @@ def arcgis_layer(
 
     Raises:
         ValueError: If ``service`` is unknown, ``url`` is not an http(s) URL,
-            carries credentials or a ``token``, or an option does not apply to ``service``.
+            carries credentials or a ``token``, an option does not apply to
+            ``service``, or a requested cache cannot be read or is incompatible.
     """
     if service not in ARCGIS_SERVICES:
         raise ValueError(f"service must be one of {sorted(ARCGIS_SERVICES)}, got {service!r}")
+    if not isinstance(tiled, bool):
+        raise ValueError("tiled must be a boolean")
+    if tiled and (service == "feature" or sublayers is not None or rendering_rule is not None):
+        raise ValueError("tiled requires a map/image service without sublayers or a rendering_rule")
     if not isinstance(url, str) or not url.strip().lower().startswith(("https://", "http://")):
         raise ValueError("url must be an http(s) ArcGIS REST service URL")
     service_url = url.strip().split("?", 1)[0].split("#", 1)[0].rstrip("/")
@@ -4632,15 +4741,18 @@ def arcgis_layer(
             raise ValueError("rendering_rule must be a JSON object")
     image = service == "image"
     layer = _layer_base(name, "raster", **style)
-    raster_source: dict[str, Any] = {
-        "type": "raster",
-        "tiles": [
-            _arcgis_export_tile_url(
-                service_url, image=image, sublayers=sublayer_text, rendering_rule=rule_text
-            )
-        ],
-        "tileSize": _ARCGIS_EXPORT_TILE_SIZE,
-    }
+    if tiled:
+        raster_source = _load_arcgis_cached_source(service_url)
+    else:
+        raster_source = {
+            "type": "raster",
+            "tiles": [
+                _arcgis_export_tile_url(
+                    service_url, image=image, sublayers=sublayer_text, rendering_rule=rule_text
+                )
+            ],
+            "tileSize": _ARCGIS_EXPORT_TILE_SIZE,
+        }
     if resolved_bounds is not None:
         raster_source["bounds"] = resolved_bounds
     if attribution:
@@ -4649,7 +4761,7 @@ def arcgis_layer(
     raster_metadata: dict[str, Any] = {
         "arcgisLayerType": layer_type,
         "arcgisSourceType": "url",
-        "arcgisTiled": False,
+        "arcgisTiled": tiled,
         "hasAccessToken": False,
         "sourceKind": source_kind,
     }
@@ -4669,6 +4781,7 @@ def zarr_layer(
     url: str,
     variable: str,
     *,
+    icechunk_branch: str | None = None,
     selector: dict[str, int | float | str] | None = None,
     clim: list[float] | None = None,
     colormap: str | None = None,
@@ -4682,8 +4795,8 @@ def zarr_layer(
     The app re-adds it through the Zarr control when the project opens
     (``restoreZarrLayers``), which assigns the live layer a new id.
 
-    Icechunk repositories (``#icechunk=`` URLs) and local stores cannot be
-    reopened from a project, so they are refused.
+    Public Icechunk repositories retain their branch in the URL so the app can
+    reopen their reader. Local stores still require a session-only reader.
 
     Args:
         name: Layer display name.
@@ -4691,6 +4804,9 @@ def zarr_layer(
             Google Storage URLs are saved as public HTTPS endpoints, preserving
             their query parameters so the app can reopen them.
         variable: The array to draw (e.g. ``"tas"``).
+        icechunk_branch: Branch of a public HTTP(S) Icechunk repository, e.g.
+            ``"main"``. Omit for a plain Zarr store. Encoded ``#icechunk=``
+            URLs from saved projects are also accepted.
         selector: Non-spatial dimension values to slice, e.g.
             ``{"time": 0}`` or ``{"band": "B04"}``.
         clim: ``[min, max]`` color range.
@@ -4705,16 +4821,15 @@ def zarr_layer(
         A layer dict for the project's ``layers`` array.
 
     Raises:
-        ValueError: If ``url`` or ``variable`` is blank, the URL is an Icechunk
-            or local store, embeds credentials, or an option is malformed.
+        ValueError: If the URL, branch, variable, or options are invalid, or the
+            URL names a local store or embeds credentials.
     """
     if not isinstance(url, str) or not url.strip():
         raise ValueError("zarr_layer: url must be a non-empty string")
     store_url = url.strip()
-    if "#icechunk=" in store_url or re.match(r"^local(-zarr)?:", store_url):
+    if re.match(r"^local(-zarr)?:", store_url):
         raise ValueError(
-            "zarr_layer: Icechunk and local stores cannot be reopened from a project; "
-            "use a plain Zarr store URL"
+            "zarr_layer: local stores cannot be reopened from a project; use a public store URL"
         )
     if not re.match(r"^(https?|s3|gs)://", store_url, re.IGNORECASE):
         raise ValueError("zarr_layer: url must be http(s)://, s3://, or gs://")
@@ -4726,6 +4841,24 @@ def zarr_layer(
         store_url = parts._replace(
             scheme="https", netloc="storage.googleapis.com", path=f"/{parts.netloc}{parts.path}"
         ).geturl()
+    parts = urlsplit(store_url)
+    if parts.fragment.startswith("icechunk="):
+        encoded_branch = parts.fragment[len("icechunk=") :]
+        if re.search(r"%(?![0-9a-fA-F]{2})", encoded_branch):
+            raise ValueError("zarr_layer: invalid encoded Icechunk branch")
+        try:
+            saved_branch = unquote(encoded_branch, errors="strict")
+        except UnicodeDecodeError as error:
+            raise ValueError("zarr_layer: invalid encoded Icechunk branch") from error
+        if icechunk_branch is not None and icechunk_branch != saved_branch:
+            raise ValueError("zarr_layer: conflicting Icechunk branches")
+        icechunk_branch = saved_branch
+    if icechunk_branch is not None:
+        if not isinstance(icechunk_branch, str) or not icechunk_branch.strip():
+            raise ValueError("zarr_layer: icechunk_branch must be a non-empty string")
+        if parts.scheme.lower() not in {"http", "https"}:
+            raise ValueError("zarr_layer: an Icechunk repository requires an HTTP(S) URL")
+        store_url = parts._replace(fragment="icechunk=" + quote(icechunk_branch, safe="")).geturl()
     if not isinstance(variable, str) or not variable.strip():
         raise ValueError("zarr_layer: variable must be a non-empty string")
     if selector is not None and (

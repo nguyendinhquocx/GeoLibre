@@ -85,6 +85,46 @@ reprojected.
 | `styleLibrary` | array | Project-scoped Style Manager entries |
 | `metadata` | object | Free-form |
 
+Native offline basemaps may use `geolibre://offline-basemap/pkg-<id>/<flavor>`.
+These refer to an app-managed package on the same device, with a stable flavor
+such as `light` or `dark`. They are restored from the native package catalog
+before a project renders. They are not portable archive URLs: another device
+must import the archive and select its own package. Do not invent these ids
+when authoring a project or replace the address with an export/share result.
+
+Native PMTiles and MBTiles packages can back these addresses. Raster packages
+use image tiles without glyph or sprite downloads; generic vector MBTiles are
+project layers rather than Protomaps basemaps. Obtain package references from a
+project exported on the device that owns the archive. Project exports preserve
+references, rather than bundling the archives.
+
+Preserve exported tile templates for managed vector MBTiles. Android and
+custom-scheme platforms use `geolibre-native-mbtiles://tile/` to dispatch reads
+through the main document; replacing it with native HTTP breaks Android worker
+reads. Windows keeps the native HTTP form, also usable by Mapbox. Mapbox does
+not support the custom protocols on the other platforms.
+
+MBTiles extraction does not generate overview tiles. Newly extracted or
+reapplied packages open at or above their minimum tile zoom; zooming below the
+stored pyramid can show an empty map.
+Sparse extracts retain the requested selection extent separately from their
+copied-tile default view, omitting archive bounds when complete coverage cannot
+be established at every stored zoom. Applying a package above the project
+maximum zoom reports an error before changing the map; the renderer supports
+zoom levels up to 24. Declared roads/places/landcover fields must include `kind`
+for native Protomaps styling; incompatible sources use generic overlays.
+
+For local MBTiles area extraction in the native app, use a non-wrapping extent
+and zooms 0 through 30. The native writer preserves encoded tile bytes,
+normalizes rows to TMS, and limits each output to 200,000 tiles, 32 MiB per tile,
+1 MiB of metadata in at most 1,024 rows, and a final SQLite file of 512 MiB.
+These are accepted-data limits, not a whole-process memory bound. Duplicate
+metadata keys, including case-only duplicates, are rejected before extraction.
+Cancellation interrupts SQLite work and staged publication; an already committed package may
+remain in the catalog after a late cancel. Prepared/running jobs are limited to
+eight, with unclaimed preparations expiring after 60 seconds. Native iOS device
+verification remains outstanding.
+
 ## The layer object
 
 ```json
@@ -120,6 +160,14 @@ the stroke width, `[]` for solid, e.g. `[4, 2]`), `strokeBlur` (px),
 
 ArcGIS FeatureServer layers are saved as `geojson`; MapServer and ImageServer as
 `raster`. GeoParquet imported from a local file becomes `geojson`.
+
+The app's **Add data > WCS layer** supports WCS 1.0.0 and 2.0.1 numerical
+GeoTIFF subsets. WCS 2 needs a two-dimensional axis-aligned rectified grid and
+the scaling extension, with the CRS extension for reprojection. Its coverage
+and grid axes are read from metadata, and both direct TIFF and multipart
+GML/TIFF responses are accepted. This imports a fixed file-backed raster;
+export its GeoTIFF to retain the bytes. A saved project alone does not retain
+that downloaded file, and a WCS service endpoint is not a tile-source URL.
 
 ### Other layer fields
 

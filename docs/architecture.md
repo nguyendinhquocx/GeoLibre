@@ -22,16 +22,16 @@ flowchart LR
 
 ## Packages
 
-| Package                | Responsibility                                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `@geolibre/core`       | Domain types, project JSON schema, global store                                                |
-| `@geolibre/map`        | Rendering-engine lifecycles and adapters, layer sync, GeoJSON, raster, tile, MBTiles, controls, and selection styling |
-| `@geolibre/ui`         | Shared UI primitives (shadcn-style)                                                            |
-| `@geolibre/processing` | Client-side algorithm registry                                                                 |
-| `@geolibre/plugins`    | Plugin interface and built-in plugins                                                          |
-| `@geolibre/embed`      | Typed, dependency-free client for the iframe embed API, published to npm                       |
+| Package                 | Responsibility                                                                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@geolibre/core`        | Domain types, project JSON schema, global store                                                                                                             |
+| `@geolibre/map`         | Rendering-engine lifecycles and adapters, layer sync, GeoJSON, raster, tile, MBTiles, controls, and selection styling                                       |
+| `@geolibre/ui`          | Shared UI primitives (shadcn-style)                                                                                                                         |
+| `@geolibre/processing`  | Client-side algorithm registry                                                                                                                              |
+| `@geolibre/plugins`     | Plugin interface and built-in plugins                                                                                                                       |
+| `@geolibre/embed`       | Typed, dependency-free client for the iframe embed API, published to npm                                                                                    |
 | `@geolibre/collab-core` | Transport-neutral collaboration relay core (wire protocol, permissions, payload validators) shared by the `workers/collab` and `workers/collab-node` relays |
-| `geolibre-desktop`     | Shell layout, Tauri I/O, composition                                                           |
+| `geolibre-desktop`      | Shell layout, Tauri I/O, composition                                                                                                                        |
 
 ## Plugin host boundaries
 
@@ -71,6 +71,54 @@ hooks remain importable without implementations.
 Every layer action replaces the `layers` array, so `useAppStore((s) => s.layers)` re-renders a component on any edit of any layer. Only subscribers that genuinely need every field of every layer (the map canvases' sync, the Layers panel) should do that. Everything else uses the narrow hooks in `packages/core/src/layer-selectors.ts`: `useLayer(id)` for one record, `useLayerIds()` for the id list, `useLayerSummaries()` for `{ id, name, type, visible, groupId }` rows, `useLayersWhen(open)` for always-mounted dialogs and panels that need the full array only while open, and `useLayerSlices(selector)` with a `createLayerSliceSelector(pick)` memoized per component mount for a list that needs a few more fields than a summary (a layer's features, its refresh cadence): each slice keeps its identity until one of its own picked fields changes. A handler that needs full layer records only when it runs reads `useAppStore.getState().layers` instead of subscribing.
 
 `useAppStore` is one Zustand store, but its code is split into slices under `packages/core/src/store/` (project, map view, layers, layer groups, project content, processing, libraries, session, collaboration, capabilities, and the `ui` dialog flags), composed in `packages/core/src/store.ts`. Add a new field or action to the slice that owns its data; an action that must also update another slice's fields (as `removeLayer` scrubs references everywhere) reads and writes the whole state through `set`/`get`. Undo history (`store/undo-history.ts`) tracks only the fields `partializeHistory` lists (layers, layer groups, basemap, story map, comments, dashboard widgets, legend). Everything else, including the whole `ui` sub-state, the selection and the camera, never records an undo step and is never reverted by undo or redo. Secondary panes and the Print Layout also reference layers but stay untracked (panes carry their own camera and must match the untracked grid layout; the composer writes back a local copy), so each undo/redo step scrubs their references to layers the step removed.
+
+### Field Collection session ownership
+
+`useFieldCollectionController` owns capture targets, placement, GPS requests,
+photo reads, form values, validation, and saving. The dialog renders its grouped
+view props and on-map controls. Placement and capture-context generations stay
+inside the controller: changing a target or project invalidates its pending
+work, while dismissing a captured draft preserves it for reopening. Photo reads
+belong to the capture context rather than one GPS placement, and an old read
+cannot release the next capture's busy state. Unmount invalidates pending work
+before removing previews, preventing late GPS replies from moving the map or
+recreating a marker. Saved observations enter the core
+store, independent of whether a map is available.
+
+### Whitebox toolbox ownership
+
+`useWhiteboxToolboxController` owns the Whitebox toolbox's catalog load (WASM
+manifests or the sidecar, with the remote snapshot as a fallback), menu
+preselection, History re-runs, the parameter form, run dispatch, sidecar job
+polling and cancellation, History recording, output import, and the "Use map
+extent" / "Draw on map" shortcuts. `ProcessingDialog` keeps only the floating
+window's drag, resize, focus and Escape handling, and renders the view-model.
+Network and runtime calls go through an injectable `services` object
+(`WHITEBOX_TOOLBOX_SERVICES` in production), so tests drive the controller
+without a sidecar or the WASM runner. A WASM or sidecar job records the
+project it was dispatched in, and its GeoJSON outputs are dropped rather than
+imported if a different project has loaded since (#3665 tracks the Global DEM
+download and the raster/LiDAR import paths, which do not yet hold that
+guarantee).
+
+### GPS session ownership
+
+`useGpsPositionSource` owns the device location watch, external NMEA receiver,
+connection generations, receiver statistics, and NTRIP correction session. The
+GPS dialog uses its state and actions once mounted on first open; closing the
+dialog body does not stop tracking. Viewer mode unmounts the owner. A source
+change, stop, or unmount invalidates pending
+receiver connections and releases late arrivals. Device callbacks from a stopped
+watch are ignored before they can recreate a position overlay or change errors.
+Connection choices are hidden while a receiver is connected. Disconnecting
+pauses an active recording; reconnecting leaves it paused until the user resumes.
+
+`GpsTrackingDialog` owns track recording, capture, and transient map overlays.
+Fixes enter the recording before map availability is checked, so recording works
+while a renderer is absent. Pause/resume creates separate segments; only saved
+tracks and captured points become project layers. The controller tests exercise
+the real geolocation and NMEA adapters through browser hardware interfaces, and
+dialog tests cover recording, capture, visibility changes, and teardown.
 
 ## Rendering-engine model
 
@@ -200,11 +248,11 @@ GeoLibre executes client-side geospatial analysis and Whitebox tools via WebAsse
 
 ### Three Execution Modes
 
-| Execution Mode | Requirements | Concurrent runs | Best Used For |
-|---|---|---|---|
-| `threaded-simd` | Browser SIMD128 + `crossOriginIsolated` (COOP/COEP) + `SharedArrayBuffer` + WebAssembly Shared Memory | One worker per concurrent run; bounded to 1–16 (from `hardwareConcurrency` or `maxThreads`) only when explicitly requested | Multi-tile batch processing via `runParallelWasmTools` |
-| `simd-single-thread` | Browser SIMD128 supported | One worker per concurrent run, one kept warm | Standard non-isolated environments, public web deployments without COOP/COEP |
-| `portable-single-thread` | Baseline WebAssembly support | One worker per concurrent run, one kept warm | Universal fallback for legacy embeds, constrained WebViews, and sandbox iframes |
+| Execution Mode           | Requirements                                                                                          | Concurrent runs                                                                                                            | Best Used For                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `threaded-simd`          | Browser SIMD128 + `crossOriginIsolated` (COOP/COEP) + `SharedArrayBuffer` + WebAssembly Shared Memory | One worker per concurrent run; bounded to 1–16 (from `hardwareConcurrency` or `maxThreads`) only when explicitly requested | Multi-tile batch processing via `runParallelWasmTools`                          |
+| `simd-single-thread`     | Browser SIMD128 supported                                                                             | One worker per concurrent run, one kept warm                                                                               | Standard non-isolated environments, public web deployments without COOP/COEP    |
+| `portable-single-thread` | Baseline WebAssembly support                                                                          | One worker per concurrent run, one kept warm                                                                               | Universal fallback for legacy embeds, constrained WebViews, and sandbox iframes |
 
 ### Capability Detection & Mode Selection
 
@@ -382,7 +430,7 @@ writes them without an explicit choice.
 
 The desktop app issues some remote fetches (tile/URL resolution, OGC
 GetCapabilities, and similar) from the native Rust process rather than the
-WebView. That path (`guarded_http_client` in `src-tauri/src/lib.rs`) trusts the
+WebView. That path (`guarded_http_client` in `src-tauri/src/guarded_http.rs`) trusts the
 **OS/system certificate store** in addition to the bundled Mozilla roots, so a
 server signed by an enterprise CA installed on the machine is accepted without
 extra configuration.

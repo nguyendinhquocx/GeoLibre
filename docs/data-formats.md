@@ -52,9 +52,10 @@ see [vector import details](user-guide/adding-data.md#files).
 | --- | --- | --- |
 | XYZ tiles | XYZ Layer | Raster or vector tiles from a `{z}/{x}/{y}` URL template. |
 | WMS | WMS Layer | Rendered map images; discover layers and query GetFeatureInfo where supported. |
-| [WCS 1.0.0](#wcs-raster-subsets) | WCS Layer | Numerical GeoTIFF subsets with chosen extent, pixel dimensions, and an EPSG:4326 or EPSG:3857 request CRS. |
+| [WCS 1.0.0 / 2.0.1](#wcs-raster-subsets) | WCS Layer | Numerical GeoTIFF subsets with chosen extent, pixel dimensions, and an EPSG:4326 or EPSG:3857 request CRS. |
 | WFS | WFS Layer | Vector features with feature-type discovery and optional refresh. Loads GeoJSON, or GML (2, 3.1, 3.2) from servers that offer no GeoJSON output; GML in other EPSG coordinate systems is reprojected. |
 | WMTS | WMTS Layer | Map tiles from a Web Map Tile Service. |
+| [OGC API - Coverages](#ogc-api-coverages-numerical-snapshots) | OGC API - Coverages | Discover collections and import bounded numerical GeoTIFF or regular CoverageJSON snapshots. |
 | OGC API - Features | OGC API - Features | Browse collections and load their features. |
 | OGC API - Tiles | OGC Vector Tiles | Vector tile services. |
 | ArcGIS FeatureServer | ArcGIS Layer: Feature layer | Features and attributes from a service URL or portal item. |
@@ -127,10 +128,19 @@ This is a convenience; GeoServer and other WCS endpoints use the same protocol.
 
 ### Supported requests
 
-The initial implementation supports **WCS 1.0.0** KVP `GetCapabilities`,
-`DescribeCoverage`, and `GetCoverage`. Services must advertise GeoTIFF output;
-unsupported versions and formats produce an error before the coverage download.
-WCS 1.1 and 2.x requests are not yet implemented.
+GeoLibre supports **WCS 1.0.0 and 2.0.1** KVP `GetCapabilities`,
+`DescribeCoverage`, and `GetCoverage`. Discovery prefers 2.0.1 and retries
+1.0.0 when a service refuses the newer protocol. Services must advertise
+GeoTIFF output. WCS 1.1 and 2.1 are not implemented.
+
+WCS 2.0.1 requests use the coverage and grid axis names from
+`DescribeCoverage`, repeated `SUBSET` parameters, and `SCALESIZE` to honor the
+chosen width and height. Two-dimensional, axis-aligned rectified grids and
+the WCS scaling extension are required; unsupported dimensions or rotated
+grids are refused before downloading. Requesting a different CRS also needs
+the service's CRS extension. Multipart responses such as USGS 3DEP's GML plus
+TIFF are unpacked without decoding or changing the numerical TIFF bytes;
+ambiguous, encoded, or truncated raster parts are refused.
 
 The coverage is requested in **EPSG:4326** or **EPSG:3857** (Web Mercator).
 The box is always entered in longitude/latitude and projected to the chosen
@@ -160,3 +170,15 @@ support on the hosted site.
 
 References: [OGC WCS 1.0.0 conformance tests](https://cite.opengeospatial.org/teamengine/about/wcs/1.0.0/site/testreq.html)
 and [GeoServer WCS documentation](https://docs.geoserver.org/main/en/user/services/wcs/reference/).
+
+## OGC API Coverages numerical snapshots
+
+Use **Add data > OGC API - Coverages** to discover collections from a service landing page, a collections catalog or a collection URL. Select a coverage, enter a longitude/latitude bounding box and add the layer. **Use map view** and **Full extent** can fill the box. Optional date/time and axis subsets are passed to the service. Use axis subsets such as `height(10)` to select one slice from a multidimensional coverage. The service must support the requested subset parameters.
+
+GeoLibre follows advertised coverage links and negotiates GeoTIFF or CoverageJSON. Regular CoverageJSON grids in CRS84, EPSG:4326 or EPSG:3857 become numerical GeoTIFFs with the original values preserved as Float64 and missing values represented as NoData. Latitude-first CRS axis order, reversed grid axes and row-major range dimension order are respected. EPSG:4979 horizontal coordinates are supported when the height axis is a single selected slice. Spatial axes with one cell require explicit cell bounds. Irregular grids, unsliced extra dimensions, other CRSes and nonnumeric range types are rejected. The optional CoverageJSON fields entry selects a comma-separated list of range names after download; it does not reduce the server response size.
+
+Metadata is limited to 2 MiB per response. A coverage and all linked domain/range components share a 128 MiB download limit. The decoded raster is limited to 8 million samples across all bands. Importing requires working memory beyond the download size, including additional copies during desktop transfer and raster decoding. Striped TIFFs are converted to COGs before loading. Non-byte samples from both CoverageJSON and striped server GeoTIFFs are encoded as Float64 to preserve numerical precision; this uses more memory and uncompressed storage than Float32 or integer samples. Already tiled server GeoTIFFs retain their sample types. This is a fixed numerical snapshot: panning does not request more data. Export the GeoTIFF before ending the session to retain its bytes; saving only the project does not preserve imported raster files.
+
+The sample preset uses the public pygeoapi GDPS temperature collection and a small bounding box near Toronto. It is sample weather data, not a current forecast. Desktop uses guarded native HTTP; the hosted web app requires CORS support from the service. A successful development-proxy request does not establish hosted-site CORS support.
+
+This import path implements coverage discovery and supported representations. OGC API Processes is a separate capability and is not included.

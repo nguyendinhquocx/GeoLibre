@@ -16,6 +16,7 @@ Pick by what the data **is**:
 | You have | Tool | Notes |
 | --- | --- | --- |
 | A GeoJSON URL, file, or literal | `add_geojson_layer` | Inlined into the project. Self-contained. **The only kind `classify_layer` can style.** Cap: 50 MB. |
+| A supplied GeoJSON query result and its DuckDB SQL | `add_sql_query_layer` | Saves the snapshot. Refresh in the app re-executes SQL against the other project layers using SQL Workspace table names. |
 | A big remote FlatGeobuf / GeoParquet / GeoJSON | `add_vector_layer` | Read in place, not copied. No attribute table in the file. |
 | A Cloud Optimized GeoTIFF / COG | `add_raster_layer` | `bands`, `colormap`, `rescale`. |
 | An XYZ raster tile template (`{z}/{x}/{y}.png`) | `add_tile_layer` | Basemaps like OSM go here, not `set_basemap`. |
@@ -23,8 +24,8 @@ Pick by what the data **is**:
 | A PMTiles archive, or a vector tile service | `add_tiles_layer` | `kind="pmtiles"` (with `tile_type`) or `kind="vector-tiles"`. |
 | A WMS or WMTS endpoint | `add_ogc_layer` | `service="wms"` or `"wmts"`. |
 | A WFS feature type | `add_wfs_layer` | Fetched by the app each time the project opens; the endpoint must return GeoJSON. |
-| An ArcGIS REST MapServer, ImageServer, or FeatureServer layer | `add_arcgis_layer` | `service="map"`, `"image"`, or `"feature"`. No tokens. A VectorTileServer goes to `add_tiles_layer`. |
-| A Zarr data cube (climate, ocean, imagery stacks) | `add_zarr_layer` | One `variable`, sliced with `selector`. Not Icechunk or local stores. |
+| An ArcGIS REST MapServer, ImageServer, or FeatureServer layer | `add_arcgis_layer` | `service="map"`, `"image"`, or `"feature"`; `tiled=True` uses a validated public map/image cache. No tokens. A VectorTileServer goes to `add_tiles_layer`. |
+| A Zarr data cube (climate, ocean, imagery stacks) | `add_zarr_layer` | One `variable`, sliced with `selector`. For a public HTTP(S) Icechunk repository, set `icechunk_branch="main"`. Local stores need a session reader. |
 | A georeferenced video | `add_video_layer` | `https://` URLs plus four corner coordinates. |
 | A LAS/LAZ/COPC/EPT point cloud | `add_lidar_layer` | COPC and EPT stream by level of detail; the app's Point Cloud Annotation plugin can label it. |
 | An ICESat-2 (ATL06, ATL08) or GEDI (L2A, L2B, L4A) `.h5` granule | `add_spaceborne_lidar_layer` | Local file in the workspace; needs `geolibre[spaceborne]`. `bbox` for a regional subset of a GEDI orbit. |
@@ -81,6 +82,7 @@ active workspace roots. Call it before guessing any of those names.
 
 ```text
 add_geojson_layer(path, name, data, style=None, index=None)
+add_sql_query_layer(path, name, data, sql, style=None, index=None)
 add_vector_layer(path, name, url, render_mode="geojson", data_format=None,
                  source_layer=None, style=None, index=None)
 add_raster_layer(path, name, url, bands=None, colormap=None, rescale=None,
@@ -96,11 +98,11 @@ add_ogc_layer(path, name, service, endpoint, layers=None, styles="",
 add_wfs_layer(path, name, endpoint, type_name, version="2.0.0",
               output_format="application/json", srs_name="EPSG:4326",
               max_features=1000, index=None)
-add_arcgis_layer(path, name, url, service="map", sublayers=None,
+add_arcgis_layer(path, name, url, service="map", tiled=False, sublayers=None,
                  rendering_rule=None, max_features=None, bounds=None,
                  attribution=None, index=None)
 add_zarr_layer(path, name, url, variable, selector=None, clim=None,
-               colormap=None, bounds=None, crs=None, index=None)
+               colormap=None, bounds=None, crs=None, index=None, icechunk_branch=None)
 add_video_layer(path, name, urls, coordinates, index=None)
 add_tiles_layer(path, name, url, kind="pmtiles", tile_type="vector",
                 source_layers=None, style=None, index=None)
@@ -161,7 +163,17 @@ add_cesium_kml_layer(path, name, url=None, data=None, index=None)
   MapServer, `rendering_rule` such as `{"rasterFunction": "Hillshade"}` for
   an ImageServer). `feature` takes a layer URL ending in `/<id>` and loads the
   features in view on the MapLibre renderer. Pass `bounds` so zoom to layer
-  works.
+  works. `tiled=True` fetches public map/image metadata and validates its XYZ
+  grid before saving a `/tile/{z}/{y}/{x}` source, tile size and zoom range.
+  This mode refuses dynamic sublayers/rendering rules, incompatible grids and
+  raw LERC caches; use the default export mode for dynamic rendering. Public
+  metadata reads are limited to 2 MiB with a 30-second deadline checked before
+  and after each read, including public-address checks on redirects. An
+  in-flight socket read can delay reporting the deadline error until it
+  finishes or reaches its 30-second socket timeout. The declared grid must stay within one
+  pixel of the standard XYZ grid over each full zoom-level extent.
+  Connection, redirects and headers use the socket inactivity timeout; elapsed
+  time is checked only around body reads, without hard wall-clock cancellation.
 - `add_zarr_layer`: `selector` fixes the non-spatial dimensions
   (`{"time": 0}`), `clim` is the `[min, max]` color range. The app re-adds
   the layer through its Zarr control on open and gives it a new id.
