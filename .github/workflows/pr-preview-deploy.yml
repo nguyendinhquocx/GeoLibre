@@ -191,11 +191,7 @@ jobs:
   github-pages:
     name: Deploy GitHub Pages preview
     needs: resolve
-    # Removals run in `github-pages-remove` below, outside this job's
-    # concurrency group -- see the note there.
-    if: >-
-      needs.resolve.outputs.found == 'true' &&
-      needs.resolve.outputs.action == 'deploy'
+    if: needs.resolve.outputs.found == 'true'
     runs-on: ubuntu-latest
     steps:
       # The Pages deploy action needs a git repository in the workspace. This
@@ -268,40 +264,3 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
-
-  # Removes a closed PR's preview from opengeos/pages-preview. Deliberately NOT
-  # in the `pages-preview-deploy` concurrency group: a pending job in a group is
-  # cancelled whenever another one queues, and a removal that is cancelled never
-  # runs again. That left hundreds of ~280 MB previews of closed PRs on
-  # gh-pages, until the site passed the 1 GB Pages limit and every deploy
-  # failed. A removal does not wait on a Pages build, so it gains nothing from
-  # the serialization; a push that races a deploy is rebased by the action.
-  github-pages-remove:
-    name: Remove GitHub Pages preview
-    needs: resolve
-    if: >-
-      needs.resolve.outputs.found == 'true' &&
-      needs.resolve.outputs.action == 'remove'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      # The action runs `git config` in the workspace, so it needs a git
-      # repository there. DEFAULT BRANCH only -- never the PR head.
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Remove preview from GitHub Pages
-        uses: rossjrw/pr-preview-action@873417d2df72380da1f3978378fb58560bcde976 # v1.8.2
-        with:
-          deploy-repository: opengeos/pages-preview
-          token: ${{ secrets.PREVIEW_DEPLOY_TOKEN }}
-          pages-base-url: opengeos.org/pages-preview
-          preview-branch: gh-pages
-          umbrella-dir: GeoLibre
-          pr-number: ${{ needs.resolve.outputs.number }}
-          action: remove
-          remove-commit-message: Remove preview for PR ${{ needs.resolve.outputs.number }} 🛬
-          wait-for-pages-deployment: false
-          comment: false
