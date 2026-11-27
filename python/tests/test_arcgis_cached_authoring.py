@@ -45,7 +45,7 @@ def cache_metadata(monkeypatch):
         },
     }
     requested = []
-    monkeypatch.setattr(project_api, "_assert_public_url", lambda _url: None)
+    monkeypatch.setattr(project_api.services, "_assert_public_url", lambda _url: None)
 
     def open_metadata(url, timeout):
         """Return the current service document as a bounded binary response.
@@ -183,7 +183,7 @@ def test_cached_service_uses_the_public_url_guard(cache_metadata, monkeypatch):
         monkeypatch: Pytest fixture for restoring the real public URL check.
     """
     # Restore the real guard replaced by the metadata fixture.
-    monkeypatch.setattr(project_api, "_assert_public_url", _PUBLIC_URL_GUARD)
+    monkeypatch.setattr(project_api.services, "_assert_public_url", _PUBLIC_URL_GUARD)
     with pytest.raises(ValueError, match="non-public"):
         project_api.arcgis_layer("Private", "http://127.0.0.1/A/MapServer", tiled=True)
     assert cache_metadata[1] == []
@@ -254,7 +254,9 @@ def test_slow_metadata_stream_stops_at_the_total_deadline(cache_metadata, monkey
         monkeypatch: Pytest fixture for the response and the clock.
     """
     clock = count(0, 10)
-    monkeypatch.setattr(project_api, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    monkeypatch.setattr(
+        project_api.services, "time", SimpleNamespace(monotonic=lambda: next(clock))
+    )
 
     class Response(io.BytesIO):
         """A response that returns one byte per read, forever."""
@@ -284,7 +286,7 @@ def test_metadata_eof_after_deadline_is_refused(cache_metadata, monkeypatch):
     """
     info, _ = cache_metadata
     clock = [0.0]
-    monkeypatch.setattr(project_api, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(project_api.services, "time", SimpleNamespace(monotonic=lambda: clock[0]))
 
     class Response(io.BytesIO):
         """Return valid metadata, then a delayed end of response."""
@@ -354,7 +356,7 @@ def test_decoder_recursion_error_uses_the_documented_error(cache_metadata, monke
         monkeypatch: Pytest fixture for replacing only this module's decoder.
     """
     decoder = Mock(side_effect=RecursionError("decoder recursion limit"))
-    monkeypatch.setattr(project_api, "json", SimpleNamespace(loads=decoder))
+    monkeypatch.setattr(project_api.services, "json", SimpleNamespace(loads=decoder))
     with pytest.raises(ValueError, match="too deeply nested"):
         project_api.arcgis_layer("Nested", "https://example.org/A/MapServer", tiled=True)
     decoder.assert_called_once()
@@ -398,3 +400,16 @@ def test_real_standard_resolution_rounding_stays_within_one_pixel(cache_metadata
     declared_east = grid["origin"]["x"] + resolution * 256 * 2**23
     expected_east = math.pi * 6378137
     assert abs(declared_east - expected_east) / resolution < 1
+
+
+def test_non_json_numbers_in_cache_metadata_are_refused(cache_metadata, monkeypatch):
+    """Refuse NaN in cache metadata, which a project file cannot store.
+
+    Args:
+        cache_metadata: The fixture disabling actual network access.
+        monkeypatch: Pytest fixture for replacing the response body.
+    """
+    info, _ = cache_metadata
+    info["tileInfo"]["lods"][0]["resolution"] = float("nan")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        project_api.arcgis_layer("NaN", "https://example.org/A/MapServer", tiled=True)

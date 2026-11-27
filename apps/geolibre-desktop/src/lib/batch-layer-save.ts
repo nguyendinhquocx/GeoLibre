@@ -42,6 +42,32 @@ import {
 import { participantCanEditLayer } from "./collab-protocol";
 import { databaseBaselineKeys, databaseFeatureKeys } from "./database-tables";
 import { embedEditedGeometry, hasEditedGeometry } from "./edited-geometry-save";
+import {
+  arcgisOutboxId,
+  arcgisOutboxTarget,
+  buildArcGISChangeSet,
+  withLocalFeatureIds,
+} from "./edit-sync/arcgis-edit-sync";
+import { editSessionToken } from "./edit-sync/edit-outbox-runner";
+import {
+  buildGeoPackageChangeSet,
+  geopackageOutboxId,
+  geopackageOutboxTarget,
+  isGeoPackagePath,
+  withGeoPackageLocalIds,
+} from "./edit-sync/geopackage-edit-sync";
+import { saveThroughOutbox } from "./edit-sync/outbox-save";
+import { ensureEditSyncBackends } from "./edit-sync/register-backends";
+import {
+  buildPostgisChangeSet,
+  EDIT_SYNC_BASELINE_KEY,
+  EDIT_SYNC_REFRESH_REQUIRED_KEY,
+  hasPostgisSyncBaseline,
+  postgisOutboxId,
+  postgisOutboxTarget,
+  postgisSyncBaseline,
+  recoverPostgisLayer,
+} from "./edit-sync/postgis-edit-sync";
 import { isGeojsonSourcePath, isImportedDocumentCopyPath, joinLocalPath } from "./file-io/paths";
 import { collectGeojsonLayersForExport, type CollectGeojsonExportDeps } from "./geojson-zip-export";
 import { isTauri } from "./is-tauri";
@@ -318,6 +344,12 @@ export function clearLayerGeometryEditedFlag(
   }));
 }
 
+/** Queue-and-sync with the built-in backends registered (they load lazily elsewhere). */
+const defaultSaveOutbox: typeof saveThroughOutbox = (input, t, outboxDeps) => {
+  ensureEditSyncBackends();
+  return saveThroughOutbox(input, t, outboxDeps);
+};
+
 /** Injectable dependencies for {@link writeLayerEditsToSource} (unit tests). */
 export interface WriteLayerEditsDeps {
   isDesktop?: () => boolean;
@@ -344,6 +376,10 @@ export interface WriteLayerEditsDeps {
   updateLayer?: (layerId: string, patch: Partial<GeoLibreLayer>) => void;
   markMssqlRefreshRequired?: (layerId: string) => void;
   inFlightMssqlIds?: Set<string>;
+  /** Queue-and-sync through the offline edit outbox (#3530). */
+  saveOutbox?: typeof saveThroughOutbox;
+  /** Reload a PostGIS layer whose last sync could not be reloaded. */
+  recoverPostgis?: (layer: GeoLibreLayer) => Promise<boolean>;
 }
 
 /**
@@ -456,6 +492,34 @@ export async function writeLayerEditsToSource(
     const path = typeof layer.sourcePath === "string" ? layer.sourcePath.trim() : "";
     if (!isMssql && !isPostgis && !isArcGISWritableLayer(layer) && !path) {
       return { status: "error", message: t("layers.saveEditsError"), silent: true };
+    }
+
+    if (isArcGISWritableLayer(layer) && layer.metadata.arcgisSaveUncertain !== true) {
+      // Offline-first save (#3530): queue the changed features, then sync with
+      // per-feature conflict detection against the service's current version.
+      const target = arcgisOutboxTarget(layer);
+      if (target && layer.geojson) {
+        // New features need a stable id to receive their assigned object ID.
+        const geojsonWithIds = withLocalFeatureIds(layer.geojson, target.objectIdField);
+        if (geojsonWithIds !== layer.geojson) updateLayer(layer.id, { geojson: geojsonWithIds });
+        const ops = buildArcGISChangeSet({ ...layer, geojson: geojsonWithIds }, target);
+        if (ops) {
+          const saveOutbox = deps?.saveOutbox ?? defaultSaveOutbox;
+          return await saveOutbox(
+            {
+              id: arcgisOutboxId(target, layer.id),
+              backend: "arcgis",
+              target,
+              targetLabel: layer.name,
+              layerId: layer.id,
+              layerName: layer.name,
+              ops,
+              session: editSessionToken(layer.id, requestProjectGeneration),
+            },
+            t,
+          );
+        }
+      }
     }
 
     if (isArcGISWritableLayer(layer)) {
@@ -594,6 +658,37 @@ export async function writeLayerEditsToSource(
       return { status, message };
     }
 
+    if (isPostgis && layer.metadata[EDIT_SYNC_REFRESH_REQUIRED_KEY]) {
+      // A sync landed but the layer was not reloaded: saving now could send
+      // its new features twice. Reload it first; the user then saves again.
+      const recover = deps?.recoverPostgis ?? recoverPostgisLayer;
+      return (await recover(layer))
+        ? { status: "warning", message: t("editOutbox.save.reloaded") }
+        : { status: "error", message: t("layers.saveEditsPostgisRefreshWarning") };
+    }
+    if (isPostgis && hasPostgisSyncBaseline(layer)) {
+      // Offline-first save (#3530): queue only the changed features, then sync
+      // with per-row conflict detection. The queue survives a lost connection.
+      const target = postgisOutboxTarget(layer);
+      const ops = target ? buildPostgisChangeSet(layer, geojson) : null;
+      if (target && ops) {
+        const saveOutbox = deps?.saveOutbox ?? defaultSaveOutbox;
+        return await saveOutbox(
+          {
+            id: postgisOutboxId(target, layer.id),
+            backend: "postgis",
+            target,
+            targetLabel: `${target.schema}.${target.table}`,
+            layerId: layer.id,
+            layerName: layer.name,
+            ops,
+            session: editSessionToken(layer.id, requestProjectGeneration),
+          },
+          t,
+        );
+      }
+    }
+
     if (isPostgis) {
       const connection = resolvePostgisConn(layer);
       if (!connection) {
@@ -626,6 +721,10 @@ export async function writeLayerEditsToSource(
         }
         throw error;
       }
+      const excludedList = layer.fieldVisibility
+        ? Object.keys(layer.fieldVisibility).filter((k) => layer.fieldVisibility![k] === "excluded")
+        : [];
+      const excludedFields = excludedList.length ? excludedList : undefined;
       let fresh;
       try {
         fresh = await readPostgis({
@@ -633,11 +732,7 @@ export async function writeLayerEditsToSource(
           schema_name: schema,
           table,
           geometry_column: geometryColumn,
-          excluded_fields: layer.fieldVisibility
-            ? Object.keys(layer.fieldVisibility).filter(
-                (k) => layer.fieldVisibility![k] === "excluded",
-              )
-            : undefined,
+          excluded_fields: layer.fieldVisibility ? excludedList : undefined,
         });
       } catch {
         if (isCurrentPostgisRequest()) {
@@ -657,6 +752,19 @@ export async function writeLayerEditsToSource(
           ...restMetadata,
           featureCount: fresh.feature_count,
           postgisBaselineKeys: databaseFeatureKeys(fresh.geojson),
+          // From now on this layer saves through the offline edit outbox. Not
+          // when this read dropped "excluded" columns: the outbox compares
+          // full rows, so a base without them would fake conflicts.
+          ...(excludedFields
+            ? {}
+            : {
+                [EDIT_SYNC_BASELINE_KEY]: postgisSyncBaseline(
+                  fresh.geojson,
+                  typeof layer.metadata.postgisPrimaryKey === "string"
+                    ? layer.metadata.postgisPrimaryKey
+                    : undefined,
+                ),
+              }),
         },
       });
       let message = t("layers.saveEditsPostgisSuccess", {
@@ -687,6 +795,34 @@ export async function writeLayerEditsToSource(
           { count: geojson.features.length },
         ),
       };
+    }
+
+    if (isDesktop() && isGeoPackagePath(path)) {
+      // Offline-first save (#3530): queue the changed rows, then sync with a
+      // per-row conflict check against the file's current content.
+      const tableName = localFileSourceLayer(layer) || undefined;
+      const withIds = withGeoPackageLocalIds(geojson);
+      const target = geopackageOutboxTarget(layer, tableName);
+      if (target) {
+        if (withIds !== geojson) updateLayer(layer.id, { geojson: withIds });
+        const ops = buildGeoPackageChangeSet({ ...layer, geojson: withIds });
+        if (ops) {
+          const saveOutbox = deps?.saveOutbox ?? defaultSaveOutbox;
+          return await saveOutbox(
+            {
+              id: geopackageOutboxId(target, layer.id),
+              backend: "geopackage",
+              target,
+              targetLabel: tableName ? `${path} (${tableName})` : path,
+              layerId: layer.id,
+              layerName: layer.name,
+              ops,
+              session: editSessionToken(layer.id, requestProjectGeneration),
+            },
+            t,
+          );
+        }
+      }
     }
 
     if (isDesktop()) await startSidecar();

@@ -6,10 +6,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
-    "./comment-validate": "./src/comment-validate.ts"
+    "./comment-validate": "./src/comment-validate.ts",
+    "./crdt": "./src/crdt.ts",
+    "./crdt-relay": "./src/crdt-relay.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

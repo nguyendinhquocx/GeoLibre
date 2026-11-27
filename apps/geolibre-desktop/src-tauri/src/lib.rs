@@ -14,6 +14,41 @@ mod image_scope;
 mod in_flight;
 mod jupyter;
 mod linux_webkit;
+// Live MCP command relay served by the shell itself (no sidecar or Jupyter),
+// so every desktop build, the Mac App Store one included, can be driven by the
+// MCP server's live tools. Mobile apps have no MCP client to serve.
+#[cfg(desktop)]
+mod live_relay;
+#[cfg(mobile)]
+mod live_relay {
+    pub(crate) mod commands {
+        const UNAVAILABLE: &str = "Live MCP is only available in GeoLibre Desktop.";
+
+        #[tauri::command]
+        pub(crate) fn live_relay_set_access(enabled: bool) -> Result<(), String> {
+            // Turning it off is a no-op here; the app syncs the (default off)
+            // setting at every launch and must not see an error for that.
+            if enabled {
+                Err(UNAVAILABLE.to_string())
+            } else {
+                Ok(())
+            }
+        }
+
+        #[tauri::command]
+        pub(crate) fn live_relay_subscribe() -> Result<(), String> {
+            Err(UNAVAILABLE.to_string())
+        }
+
+        #[tauri::command]
+        pub(crate) fn live_relay_unsubscribe() {}
+
+        #[tauri::command]
+        pub(crate) fn live_relay_result(_frame: String) -> Result<(), String> {
+            Err(UNAVAILABLE.to_string())
+        }
+    }
+}
 mod local_files;
 mod local_media_protocol;
 mod martin;
@@ -23,6 +58,7 @@ mod offline_extraction_jobs;
 mod offline_mbtiles;
 mod offline_package_commands;
 mod offline_packages;
+mod ogc_process_http;
 mod plugin_http;
 mod plugins_io;
 mod port_reclaim;
@@ -354,6 +390,7 @@ pub fn run() {
             martin::ensure_martin_binary,
             guarded_http::fetch_url_bytes,
             guarded_http::fetch_url_response,
+            ogc_process_http::ogc_process_http_request,
             arcgis_http::fetch_arcgis_response,
             arcgis_http::cancel_arcgis_request,
             plugin_http::plugin_http_request,
@@ -400,6 +437,10 @@ pub fn run() {
             sidecar::stop_geolibre_sidecar,
             jupyter::start_jupyter_server,
             jupyter::stop_jupyter_server,
+            live_relay::commands::live_relay_set_access,
+            live_relay::commands::live_relay_subscribe,
+            live_relay::commands::live_relay_unsubscribe,
+            live_relay::commands::live_relay_result,
             start_earth_engine_oauth,
             poll_earth_engine_oauth,
             chatgpt_auth::chatgpt_status,
@@ -423,9 +464,27 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 secure_store::reset_read_gate(webview.label());
+                // A reloaded document has lost its relay listener; it
+                // subscribes again once its settings load.
+                #[cfg(desktop)]
+                if let Some(relay) = webview.try_state::<live_relay::commands::LiveRelayState>() {
+                    relay.0.unsubscribe(webview.label());
+                }
             }
         })
+        .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(relay) = window.try_state::<live_relay::commands::LiveRelayState>() {
+                    relay.0.unsubscribe(window.label());
+                }
+            }
+            #[cfg(mobile)]
+            let _ = (window, event);
+        })
         .setup(|app| {
+            #[cfg(desktop)]
+            app.manage(live_relay::commands::state(app.handle()));
             create_main_window(app)?;
             // Nothing on Linux claims the OAuth callback scheme for us.
             // `tauri-bundler` writes `Exec=` into the bundled .desktop with no
@@ -461,6 +520,13 @@ pub fn run() {
     app.run(|app, event| {
         #[cfg(all(feature = "mas", not(target_os = "macos")))]
         let _ = (&app, &event);
+        // Close the Live MCP listener and withdraw its discovery file.
+        #[cfg(desktop)]
+        if let tauri::RunEvent::Exit = event {
+            if let Some(relay) = app.try_state::<live_relay::commands::LiveRelayState>() {
+                relay.0.shutdown();
+            }
+        }
         #[cfg(not(feature = "mas"))]
         if let tauri::RunEvent::Exit = event {
             let martin = app.state::<martin::MartinServerState>();

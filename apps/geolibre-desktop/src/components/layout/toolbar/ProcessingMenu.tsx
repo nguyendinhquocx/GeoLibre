@@ -27,6 +27,7 @@ import { DOWNLOAD_GLOBAL_DEM_TOOL_ID } from "../../../lib/global-dem";
 import { openObiaWorkbench } from "../../../lib/obia/obia-panel";
 import { CapabilityNotice, capabilityNoticeId, useCapabilityReason } from "./CapabilityNotice";
 import {
+  RASTER_3D_TERRAIN_TOOLS,
   RASTER_CHANGE_TOOLS,
   RASTER_SAR_TOOLS,
   VECTOR_JOIN_TOOL_COMMANDS,
@@ -90,6 +91,7 @@ export function ProcessingMenu({
   const setStatisticsToolOpen = useAppStore((s) => s.setStatisticsToolOpen);
   const setGeocodeOpen = useAppStore((s) => s.setGeocodeOpen);
   const setBatchToolsOpen = useAppStore((s) => s.setBatchToolsOpen);
+  const setOgcProcessesOpen = useAppStore((s) => s.setOgcProcessesOpen);
   const setModelBuilderOpen = useAppStore((s) => s.setModelBuilderOpen);
   const setRasterToolOpen = useAppStore((s) => s.setRasterToolOpen);
   const setSegmentationOpen = useAppStore((s) => s.setSegmentationOpen);
@@ -172,6 +174,7 @@ export function ProcessingMenu({
   const showGeolibreActions =
     show("processing.geocode") ||
     show("processing.batchTools") ||
+    show("processing.ogcProcesses") ||
     (!mobile && show("processing.segmentation")) ||
     show("processing.objectDetection") ||
     show("processing.segmentEverything");
@@ -754,6 +757,15 @@ export function ProcessingMenu({
                     {/* Browser-only tools: no sidecar gate, the submenu
                             trigger already carries the processing gate. */}
                     <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      {t("toolbar.item.subGroup3dTerrain")}
+                    </DropdownMenuLabel>
+                    {RASTER_3D_TERRAIN_TOOLS.map(({ kind, titleKey }) => (
+                      <DropdownMenuItem key={kind} onSelect={() => setRasterToolOpen(kind)}>
+                        {t(titleKey)}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
                       {t("toolbar.item.subGroupChangeDetection")}
                     </DropdownMenuLabel>
                     {RASTER_CHANGE_TOOLS.map(({ kind, titleKey }) => (
@@ -793,6 +805,15 @@ export function ProcessingMenu({
               {show("processing.geocode") && (
                 <DropdownMenuItem onSelect={() => setGeocodeOpen(true)}>
                   {t("toolbar.item.geocode")}
+                </DropdownMenuItem>
+              )}
+              {show("processing.ogcProcesses") && (
+                <DropdownMenuItem
+                  onSelect={() => setOgcProcessesOpen(true)}
+                  disabled={processingDenied}
+                  aria-describedby={processingDeniedBy}
+                >
+                  {t("toolbar.item.ogcProcesses")}
                 </DropdownMenuItem>
               )}
               {show("processing.batchTools") && (

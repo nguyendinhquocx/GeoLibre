@@ -28,7 +28,9 @@ export type RasterToolId =
   | "sar-db"
   | "speckle-filter"
   | "sar-rgb"
-  | "flood-map";
+  | "flood-map"
+  | "cut-fill"
+  | "building-shadows";
 
 /** A native file-dialog filter (Tauri `open`/`save` shape). */
 export interface FileFilter {
@@ -57,7 +59,8 @@ export interface RasterTool {
     | "Vector to Raster"
     | "Analysis"
     | "Change Detection"
-    | "SAR";
+    | "SAR"
+    | "3D Terrain";
   /** Raster output writes a GeoTIFF; vector output writes a GeoJSON. */
   outputKind: "raster" | "vector";
   defaultOutputName: string;
@@ -1156,6 +1159,196 @@ export const floodMapTool: RasterTool = {
   ],
 };
 
+export const cutFillTool: RasterTool = {
+  id: "cut-fill",
+  name: "Cut and fill volume",
+  description:
+    "Compare an existing surface with a reference plane or a second surface on the same grid, optionally inside a boundary polygon. Reports cut, fill and net volume (m³) and their areas, and writes the difference raster (existing - reference; positive = cut, negative = fill).",
+  group: "3D Terrain",
+  outputKind: "raster",
+  defaultOutputName: "cut-fill.tif",
+  inputFilters: GEOTIFF_INPUT,
+  outputFilters: GEOTIFF_OUTPUT,
+  inputLabel: "toolbar.rasterTool.inputExistingSurface",
+  supportsClient: true,
+  clientOnly: true,
+  parameters: [
+    {
+      id: "reference",
+      label: "Reference",
+      type: "select",
+      default: "plane",
+      options: [
+        { value: "plane", label: "Plane at a fixed elevation" },
+        { value: "surface", label: "Second surface (design or later survey)" },
+      ],
+    },
+    {
+      id: "plane_elevation",
+      label: "Plane elevation",
+      type: "number",
+      required: true,
+      default: 0,
+      step: 0.1,
+      visibleWhen: { param: "reference", in: ["plane"] },
+      description: "Elevation of the reference plane, in the raster's elevation units.",
+    },
+    {
+      id: "surface_path",
+      label: "Reference surface",
+      type: "path",
+      required: true,
+      fileFilters: GEOTIFF_INPUT,
+      visibleWhen: { param: "reference", in: ["surface"] },
+      description:
+        "A design surface or later survey on the same pixel grid as the existing surface (reproject or resample it first if needed).",
+    },
+    {
+      id: "boundary_path",
+      label: "Boundary polygon (optional)",
+      type: "path",
+      fileFilters: GEOJSON_INPUT,
+      description:
+        "Only cells whose centres fall inside these polygons are counted, and the output is cropped to them.",
+    },
+    {
+      id: "band",
+      label: "Band",
+      type: "number",
+      default: 1,
+      min: 1,
+      max: 99,
+      step: 1,
+    },
+    {
+      id: "z_units",
+      label: "Elevation units",
+      type: "select",
+      default: "m",
+      options: [
+        { value: "m", label: "Metres" },
+        { value: "ft", label: "Feet" },
+        { value: "us-ft", label: "US survey feet" },
+      ],
+      description: "Volumes are always reported in cubic metres and areas in square metres.",
+    },
+  ],
+};
+
+const SHADOW_DAY_MODES = { param: "mode", in: ["sun-hours", "insolation"] };
+
+export const buildingShadowsTool: RasterTool = {
+  id: "building-shadows",
+  name: "Building shadows and sun hours",
+  description:
+    "Cast shadows from extruded building footprints (a height or storey-count attribute) for a date and time, or simulate a whole day: hours of direct sun, or clear-sky direct insolation (kWh/m²), on the ground and on roofs.",
+  group: "3D Terrain",
+  outputKind: "raster",
+  defaultOutputName: "building-shadows.tif",
+  inputFilters: GEOJSON_INPUT,
+  outputFilters: GEOTIFF_OUTPUT,
+  inputLabel: "toolbar.rasterTool.inputBuildings",
+  supportsClient: true,
+  clientOnly: true,
+  parameters: [
+    {
+      id: "mode",
+      label: "Output",
+      type: "select",
+      default: "shadow",
+      options: [
+        { value: "shadow", label: "Shadows at a date and time" },
+        { value: "sun-hours", label: "Hours of direct sun over the day" },
+        { value: "insolation", label: "Clear-sky direct insolation over the day (kWh/m²)" },
+      ],
+    },
+    {
+      id: "date",
+      label: "Date (YYYY-MM-DD)",
+      type: "string",
+      required: true,
+      default: "2026-06-21",
+    },
+    {
+      id: "time",
+      label: "Local time (HH:MM)",
+      type: "string",
+      required: true,
+      default: "15:00",
+      visibleWhen: { param: "mode", in: ["shadow"] },
+    },
+    {
+      id: "utc_offset",
+      label: "UTC offset (hours)",
+      type: "number",
+      default: 0,
+      min: -14,
+      max: 14,
+      step: 0.5,
+      description: "Local time minus UTC, e.g. -4 for US Eastern daylight time or 2 for CEST.",
+    },
+    {
+      id: "step_minutes",
+      label: "Time step (minutes)",
+      type: "number",
+      default: 15,
+      min: 1,
+      max: 120,
+      step: 1,
+      visibleWhen: SHADOW_DAY_MODES,
+      description: "How often the sun position is sampled across the day.",
+    },
+    {
+      id: "height_field",
+      label: "Height attribute",
+      type: "string",
+      default: "height",
+      description: "Building height in metres.",
+    },
+    {
+      id: "levels_field",
+      label: "Storeys attribute",
+      type: "string",
+      default: "building:levels",
+      description: "Used when a building has no height: storeys times the storey height.",
+    },
+    {
+      id: "level_height",
+      label: "Storey height (m)",
+      type: "number",
+      default: 3,
+      min: 0.5,
+      step: 0.1,
+    },
+    {
+      id: "default_height",
+      label: "Default height (m)",
+      type: "number",
+      default: 10,
+      min: 0.5,
+      step: 0.5,
+      description: "Used when a building has neither attribute.",
+    },
+    {
+      id: "cell_size",
+      label: "Cell size (m)",
+      type: "number",
+      default: 2,
+      min: 0.25,
+      step: 0.25,
+    },
+    {
+      id: "margin",
+      label: "Ground margin (m)",
+      type: "number",
+      default: 100,
+      min: 0,
+      step: 10,
+      description: "Open ground added around the buildings so their shadows have room to fall.",
+    },
+  ],
+};
+
 /** Every raster tool, in display order (grouped by `group`). */
 export const RASTER_TOOLS: RasterTool[] = [
   hillshadeTool,
@@ -1181,6 +1374,8 @@ export const RASTER_TOOLS: RasterTool[] = [
   speckleFilterTool,
   dualPolRgbTool,
   floodMapTool,
+  cutFillTool,
+  buildingShadowsTool,
 ];
 
 export function getRasterTool(id: string): RasterTool | undefined {

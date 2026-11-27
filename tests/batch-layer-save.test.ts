@@ -22,6 +22,10 @@ const {
   writableLayerSourceKind,
   writeLayerEditsToSource,
 } = await import("../apps/geolibre-desktop/src/lib/batch-layer-save");
+const { EDIT_SYNC_BASELINE_KEY, postgisSyncBaseline } =
+  await import("../apps/geolibre-desktop/src/lib/edit-sync/postgis-edit-sync");
+type EnqueueInput =
+  import("../apps/geolibre-desktop/src/lib/edit-sync/edit-outbox-runner").EnqueueInput;
 
 const t = ((key: string, params?: Record<string, unknown>) =>
   params ? `${key}:${JSON.stringify(params)}` : key) as unknown as TFunction;
@@ -437,6 +441,188 @@ describe("writeLayerEditsToSource and saveLayerEditsBatch", () => {
     } finally {
       clearPostgisWritebackRefreshRequired("pg1", 7);
     }
+  });
+
+  it("routes a PostGIS layer with a sync baseline through the offline edit outbox", async () => {
+    const loaded = {
+      type: "FeatureCollection" as const,
+      features: [
+        {
+          type: "Feature" as const,
+          id: 1,
+          geometry: { type: "Point" as const, coordinates: [0, 0] },
+          properties: { id: 1, name: "a" },
+        },
+      ],
+    };
+    const pgLayer = makeLayer("pg2", "PG Outbox", {
+      sourcePath: undefined,
+      geojson: {
+        ...loaded,
+        features: [{ ...loaded.features[0], properties: { id: 1, name: "edited" } }],
+      },
+      metadata: {
+        sourceKind: "postgis-table",
+        postgisSchema: "public",
+        postgisTable: "roads",
+        postgisPrimaryKey: "id",
+        postgisBaselineKeys: [1],
+        postgisConnectionLabel: "postgresql://postgres:***@localhost/gis",
+        [EDIT_SYNC_BASELINE_KEY]: postgisSyncBaseline(loaded),
+      },
+    });
+    let queued: EnqueueInput | undefined;
+    const res = await writeLayerEditsToSource(pgLayer, {
+      map: undefined,
+      t,
+      canEditLayer: () => true,
+      deps: {
+        commitDrafts: () => "none",
+        readLatestLayer: () => pgLayer,
+        readProjectGeneration: () => 7,
+        resolveGeojson: async () => pgLayer.geojson!,
+        writePostgis: async () => {
+          throw new Error("the direct write path must not run");
+        },
+        saveOutbox: async (input) => {
+          queued = input;
+          return { status: "warning", message: "queued" };
+        },
+      },
+    });
+    assert.equal(res.message, "queued");
+    assert.equal(queued?.backend, "postgis");
+    assert.equal(queued?.targetLabel, "public.roads");
+    assert.deepEqual(
+      queued?.ops.map((op) => [op.kind, op.key]),
+      [["update", "1"]],
+    );
+    assert.ok(!JSON.stringify(queued).includes("secret"));
+  });
+
+  it("refuses an outbox save while a landed sync still awaits its reload", async () => {
+    const pgLayer = makeLayer("pg3", "PG Refresh", {
+      sourcePath: undefined,
+      metadata: {
+        sourceKind: "postgis-table",
+        postgisTable: "roads",
+        postgisPrimaryKey: "id",
+        editSyncRefreshRequired: { settled: [] },
+      },
+    });
+    let queued = false;
+    const res = await writeLayerEditsToSource(pgLayer, {
+      map: undefined,
+      t,
+      canEditLayer: () => true,
+      deps: {
+        commitDrafts: () => "none",
+        readLatestLayer: () => pgLayer,
+        readProjectGeneration: () => 7,
+        resolveGeojson: async () => pgLayer.geojson!,
+        saveOutbox: async () => {
+          queued = true;
+          return { status: "success", message: "" };
+        },
+      },
+    });
+    assert.equal(res.status, "error");
+    assert.equal(res.message, "layers.saveEditsPostgisRefreshWarning");
+    assert.equal(queued, false);
+    // Once the table can be read again, the save reloads the layer instead.
+    const reloaded = await writeLayerEditsToSource(pgLayer, {
+      map: undefined,
+      t,
+      canEditLayer: () => true,
+      deps: {
+        commitDrafts: () => "none",
+        readLatestLayer: () => pgLayer,
+        readProjectGeneration: () => 7,
+        recoverPostgis: async () => true,
+        saveOutbox: async () => {
+          queued = true;
+          return { status: "success", message: "" };
+        },
+      },
+    });
+    assert.equal(reloaded.message, "editOutbox.save.reloaded");
+    assert.equal(queued, false);
+  });
+
+  it("routes a writable ArcGIS layer through the offline edit outbox", async () => {
+    const loaded = {
+      type: "FeatureCollection" as const,
+      features: [
+        {
+          type: "Feature" as const,
+          id: "a",
+          geometry: { type: "Point" as const, coordinates: [0, 0] },
+          properties: { OBJECTID: 7, status: "ok" },
+        },
+      ],
+    };
+    const info = {
+      objectIdField: "OBJECTID",
+      capabilities: "Create,Update,Delete",
+      fields: [
+        { name: "OBJECTID", type: "esriFieldTypeOID", editable: false },
+        { name: "status", type: "esriFieldTypeString", editable: true },
+      ],
+    };
+    const drawn = {
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [1, 1] },
+      properties: { status: "new" },
+    };
+    const agLayer = makeLayer("ag1", "Assets", {
+      sourcePath: undefined,
+      source: {
+        type: "geojson",
+        arcgisQueryUrl: "https://example.com/arcgis/rest/services/A/FeatureServer/0/query",
+      },
+      geojson: {
+        ...loaded,
+        features: [{ ...loaded.features[0], properties: { OBJECTID: 7, status: "fixed" } }, drawn],
+      },
+      metadata: {
+        sourceKind: "arcgis-feature-query",
+        arcgisEditInfo: info,
+        arcgisEditBaseline: loaded,
+      },
+    });
+    let queued: EnqueueInput | undefined;
+    const patches: Array<Partial<GeoLibreLayer>> = [];
+    const res = await writeLayerEditsToSource(agLayer, {
+      map: undefined,
+      t,
+      canEditLayer: () => true,
+      deps: {
+        commitDrafts: () => "none",
+        readLatestLayer: () => agLayer,
+        readProjectGeneration: () => 7,
+        saveArcgis: async () => {
+          throw new Error("the direct ArcGIS save must not run");
+        },
+        updateLayer: (_id, patch) => patches.push(patch),
+        saveOutbox: async (input) => {
+          queued = input;
+          return { status: "success", message: "synced" };
+        },
+      },
+    });
+    assert.equal(res.message, "synced");
+    assert.equal(queued?.backend, "arcgis");
+    assert.deepEqual(
+      queued?.ops.map((op) => [op.kind, op.key]),
+      [
+        ["update", "7"],
+        ["insert", null],
+      ],
+    );
+    // The drawn feature got a stable id so its object ID can be stamped back.
+    const stamped = patches[0].geojson!.features[1];
+    assert.match(String(stamped.id), /^arcgis-new-/);
+    assert.equal(queued?.ops[1].feature?.id, stamped.id);
   });
 
   it("catches synchronous commitDrafts throws so later batch layers still run", async () => {

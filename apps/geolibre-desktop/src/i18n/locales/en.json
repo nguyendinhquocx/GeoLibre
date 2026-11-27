@@ -363,6 +363,83 @@
     "autosaveUnavailable": "Autosave off",
     "autosaveUnavailableDetail": "Autosave is off: this browser is blocking local storage (IndexedDB), as some private windows do, so no project history or crash recovery is kept. Save the project to disk to keep your work."
   },
+  "editOutbox": {
+    "status_one": "{{count}} edit to sync",
+    "status_other": "{{count}} edits to sync",
+    "statusReview_one": "{{count}} edit needs review",
+    "statusReview_other": "{{count}} edits need review",
+    "statusOffline": "Offline",
+    "statusUnreadable": "Queued edits unreadable",
+    "title": "Pending edits",
+    "description": "Edits saved to remote sources wait here until they reach the source. They survive reloads and restarts, and sync automatically when the connection returns.",
+    "notDurable": "This browser is not keeping data between sessions, so queued edits are lost if you close or reload the page.",
+    "storageUnreadable": "Edits queued in an earlier session could not be read from this device's storage ({{error}}). They are still stored, but cannot be synced until storage is readable again; new edits are kept for this session only.",
+    "errors": {
+      "postgisNoConnection": "No PostgreSQL connection is available for this table. Reconnect in Add data > PostgreSQL, then sync again.",
+      "arcgisLayerClosed": "Open the project that holds this ArcGIS layer to sync its queued edits. They sync on their own once it is open.",
+      "arcgisTargetMismatch": "This layer now points at a different ArcGIS service than the queued edits, so they were not sent. Discard them, or point the layer back at the original service.",
+      "geolensNotConnected": "Connect to this GeoLens server with an API key in the GeoLens panel to sync its queued edits.",
+      "geopackageUnreachable": "The GeoPackage cannot be reached (is its drive or network share connected?). The edits sync once it is back.",
+      "geopackageNoRowIds": "The GeoPackage's row ids could not be read, so its edits cannot be matched to rows safely.",
+      "geopackageEmpty": "Saving would leave the GeoPackage layer with no features, which is not allowed."
+    },
+    "offlineNotice": "You are offline. Queued edits sync automatically when the connection returns.",
+    "empty": "No edits are waiting to sync.",
+    "counts": "{{inserted}} new, {{updated}} changed, {{deleted}} deleted",
+    "backend": {
+      "postgis": "PostGIS",
+      "arcgis": "ArcGIS",
+      "geolens": "GeoLens",
+      "geopackage": "GeoPackage"
+    },
+    "entryStatus": {
+      "pending": "Waiting to sync",
+      "syncing": "Syncing…",
+      "conflict": "Needs review",
+      "error": "Failed"
+    },
+    "nextRetry": "next retry at {{time}}",
+    "lastError": "Last error: {{error}}",
+    "syncNow": "Sync now",
+    "review_one": "Review {{count}} conflict",
+    "review_other": "Review {{count}} conflicts",
+    "discard": "Discard",
+    "discardConfirm": "Discard these queued edits? The source keeps its current data.",
+    "conflictsTitle": "Review conflicts: {{target}}",
+    "conflictsDescription": "These features also changed on the source after you loaded them. Choose which version to keep for each one. Features you decide later stay queued.",
+    "conflictReason": {
+      "remoteChanged": "Changed on the source",
+      "remoteDeleted": "Deleted on the source"
+    },
+    "feature": "Feature {{key}}",
+    "mineDeleted": "You deleted this feature.",
+    "theirsDeleted": "The source no longer has this feature. Keeping yours adds it again.",
+    "attribute": "Attribute",
+    "mine": "Mine",
+    "theirs": "Source",
+    "geometryDiffers": "The shape or position differs.",
+    "keepMine": "Keep mine",
+    "keepMineDelete": "Delete it anyway",
+    "keepTheirs": "Keep source",
+    "skip": "Decide later",
+    "allMine": "Keep all mine",
+    "allTheirs": "Keep all from source",
+    "apply_one": "Apply {{count}} choice and sync",
+    "apply_other": "Apply {{count}} choices and sync",
+    "back": "Back",
+    "save": {
+      "synced": "Synced to {{target}}: {{inserted}} inserted, {{updated}} updated, {{deleted}} deleted.",
+      "conflicts_one": "{{count}} feature also changed on the source; review it under Pending edits in the status bar.",
+      "conflicts_other": "{{count}} features also changed on the source; review them under Pending edits in the status bar.",
+      "queued_one": "{{target}} cannot be reached, so {{count}} edit is queued and syncs automatically when it is back. {{error}}",
+      "queued_other": "{{target}} cannot be reached, so {{count}} edits are queued and sync automatically when it is back. {{error}}",
+      "failed": "Could not sync to {{target}}. The edits stay queued under Pending edits in the status bar. {{error}}",
+      "busy": "A sync to {{target}} is already running. Try again when it finishes.",
+      "noChanges": "No changes to save to {{target}}.",
+      "layerGone": "The layer is no longer in the project, so nothing was saved.",
+      "reloaded": "The layer was reloaded from the table, because the last sync could not refresh it. Check it and save again."
+    }
+  },
   "fileNamePrompt": {
     "title": "Save file as",
     "description": "Enter a file name. The file downloads to your browser's downloads folder.",
@@ -2930,6 +3007,9 @@
     "viewshedLayerName": "Viewshed ({{radius}})",
     "viewshedToolName": "Viewshed",
     "viewshedNoResult": "No visible area could be computed here.",
+    "viewshedCurvature": "Viewshed: Earth curvature and refraction",
+    "viewshedCurvatureOn": "On. Tap to turn off.",
+    "viewshedCurvatureOff": "Off. Tap to turn on.",
     "lineOfSightHere": "Line of sight from here",
     "cogoHere": "Start a COGO traverse here"
   },
@@ -2992,6 +3072,9 @@
     "observerHeight": "Observer height (m)",
     "targetHeight": "Target height (m)",
     "curvature": "Earth curvature and refraction",
+    "refractionCoefficient": "Refraction coefficient",
+    "earthRadius": "Earth radius (km)",
+    "usingValue": "Using {{value, number}} (allowed range).",
     "pickObserver": "Click the map to place the observer.",
     "pickTarget": "Click the map to place the target.",
     "pickAgain": "Click the map to start a new line.",
@@ -3306,7 +3389,7 @@
       "openS3Browser": "Open the S3 browser at startup",
       "openS3BrowserHint": "Show the S3 browser panel each time GeoLibre starts. It stays open when you open a project.",
       "allowLiveMcp": "Allow AI agents to drive the map",
-      "allowLiveMcpHint": "Start the local processing server at launch so the GeoLibre MCP server's live tools can control this map. No Jupyter notebook is needed. Only programs on this computer that can read your user folder can connect.",
+      "allowLiveMcpHint": "Let the GeoLibre MCP server's live tools control this map. GeoLibre listens for them itself, so no Jupyter notebook or processing server is needed. Only programs on this computer that can read your user folder can connect.",
       "defaultView": "Default map view",
       "defaultViewHint": "Set the center and zoom for the untitled workspace.",
       "longitude": "Center longitude",
@@ -4123,7 +4206,8 @@
       "about": "About",
       "togglePlugin": "Toggle {{name}}",
       "managePlugins": "Manage plugins",
-      "styleManager": "Style manager…"
+      "styleManager": "Style manager…",
+      "ogcProcesses": "OGC API - Processes…"
     },
     "layerType": {
       "delimitedText": "Delimited text layer",
@@ -4328,6 +4412,10 @@
       "speckleFilter": "Speckle filter",
       "sarRgb": "Dual-pol RGB composite",
       "floodMap": "Flood mapping (SAR threshold)",
+      "cutFill": "Cut and fill volume",
+      "inputExistingSurface": "Existing surface",
+      "buildingShadows": "Building shadows and sun hours",
+      "inputBuildings": "Building footprints (GeoJSON)",
       "inputBefore": "Before raster",
       "inputVv": "VV raster",
       "inputPostEvent": "Post-event raster",
@@ -4350,6 +4438,7 @@
       "downloadGeoJson": "Download GeoJSON",
       "chooseInputRaster": "Choose an input raster.",
       "chooseInputPoints": "Choose an input point layer (GeoJSON).",
+      "chooseInputGeoJson": "Choose an input GeoJSON file.",
       "invalidGeoJson": "\"{{name}}\" is not valid GeoJSON.",
       "clientOnlyHint": "This tool runs in your browser and adds the result to the map.",
       "useAddedLayer": "Use a layer on the map",
@@ -4515,6 +4604,7 @@
       "subGroupRasterToVector": "Raster to vector",
       "subGroupVectorToRaster": "Vector to raster",
       "subGroupAnalysis": "Analysis",
+      "subGroup3dTerrain": "3D terrain analysis",
       "subGroupChangeDetection": "Change detection",
       "subGroupSar": "SAR",
       "mapControls": "Map controls",
@@ -4796,7 +4886,8 @@
       "storymapEllipsis": "Story map…",
       "pointerElevationNoticeTitle": "Elevation uses a public elevation service",
       "pointerElevationNoticeDesc": "The status bar's elevation readout is resolved from the map's own 3D terrain when that is enabled, which sends nothing anywhere. Without 3D terrain it falls back to the public Open-Meteo elevation API, and the coordinates under your pointer leave your device for those requests.",
-      "batchTools": "Batch tools"
+      "batchTools": "Batch tools",
+      "ogcProcesses": "OGC API - Processes"
     },
     "plugin": {
       "maplibre-gl-annotations": "Annotations",
@@ -6843,6 +6934,7 @@
       "stopServer": "Stop server",
       "loadingTools": "Loading…",
       "lockedPrefix": "[Locked] ",
+      "lockedFallback": "This tool is locked.",
       "missingRequiredParameter": "Missing required parameter: {{label}}",
       "sidecarCannotReadBrowserFiles": "The sidecar cannot read browser-selected files for {{label}}. Run locally (WASM), or enter filesystem paths available to the sidecar.",
       "selectedLayersMissing": "One or more selected layers for {{label}} no longer exist.",
@@ -6850,7 +6942,9 @@
       "layerNotFetchable": "Layer \"{{layer}}\" is not fetchable for {{label}}.",
       "layerMissingPath": "Layer \"{{layer}}\" has no filesystem path for {{label}}.",
       "importOutputFailed": "Could not import Whitebox output.",
+      "backgroundImportFailed": "Could not import the output of {{tool}}: {{message}}",
       "showingSnapshotOnly": "Showing GitHub catalog only.",
+      "sidecarStopped": "GeoLibre sidecar is stopped.",
       "liveCatalogEmpty": "Live catalog is empty. Showing GitHub catalog only.",
       "jobStatus": {
         "pending": "Pending",
@@ -9223,10 +9317,98 @@
               "description": "With a pre-event image: how much darker a pixel must get to count as new flooding."
             }
           }
+        },
+        "cut-fill": {
+          "name": "Cut and fill volume",
+          "description": "Compare an existing surface with a reference plane or a second surface on the same grid, optionally inside a boundary polygon. Reports cut, fill and net volume (m³) and their areas, and writes the difference raster (existing - reference; positive = cut, negative = fill).",
+          "params": {
+            "reference": {
+              "label": "Reference",
+              "options": {
+                "plane": "Plane at a fixed elevation",
+                "surface": "Second surface (design or later survey)"
+              }
+            },
+            "plane_elevation": {
+              "label": "Plane elevation",
+              "description": "Elevation of the reference plane, in the raster's elevation units."
+            },
+            "surface_path": {
+              "label": "Reference surface",
+              "description": "A design surface or later survey on the same pixel grid as the existing surface (reproject or resample it first if needed)."
+            },
+            "boundary_path": {
+              "label": "Boundary polygon (optional)",
+              "description": "Only cells whose centres fall inside these polygons are counted, and the output is cropped to them."
+            },
+            "band": {
+              "label": "Band"
+            },
+            "z_units": {
+              "label": "Elevation units",
+              "description": "Volumes are always reported in cubic metres and areas in square metres.",
+              "options": {
+                "m": "Metres",
+                "ft": "Feet",
+                "us-ft": "US survey feet"
+              }
+            }
+          }
+        },
+        "building-shadows": {
+          "name": "Building shadows and sun hours",
+          "description": "Cast shadows from extruded building footprints (a height or storey-count attribute) for a date and time, or simulate a whole day: hours of direct sun, or clear-sky direct insolation (kWh/m²), on the ground and on roofs.",
+          "params": {
+            "mode": {
+              "label": "Output",
+              "options": {
+                "shadow": "Shadows at a date and time",
+                "sun-hours": "Hours of direct sun over the day",
+                "insolation": "Clear-sky direct insolation over the day (kWh/m²)"
+              }
+            },
+            "date": {
+              "label": "Date (YYYY-MM-DD)"
+            },
+            "time": {
+              "label": "Local time (HH:MM)"
+            },
+            "utc_offset": {
+              "label": "UTC offset (hours)",
+              "description": "Local time minus UTC, e.g. -4 for US Eastern daylight time or 2 for CEST."
+            },
+            "step_minutes": {
+              "label": "Time step (minutes)",
+              "description": "How often the sun position is sampled across the day."
+            },
+            "height_field": {
+              "label": "Height attribute",
+              "description": "Building height in metres."
+            },
+            "levels_field": {
+              "label": "Storeys attribute",
+              "description": "Used when a building has no height: storeys times the storey height."
+            },
+            "level_height": {
+              "label": "Storey height (m)"
+            },
+            "default_height": {
+              "label": "Default height (m)",
+              "description": "Used when a building has neither attribute."
+            },
+            "cell_size": {
+              "label": "Cell size (m)"
+            },
+            "margin": {
+              "label": "Ground margin (m)",
+              "description": "Open ground added around the buildings so their shadows have room to fall."
+            }
+          }
         }
       }
     },
     "toolGroup": {
+      "3dTerrain": "3D Terrain",
       "analysis": "Analysis",
       "changeDetection": "Change Detection",
       "clip": "Clip",
@@ -9250,6 +9432,112 @@
       "spatialStatistics": "Spatial Statistics",
       "terrain": "Terrain",
       "vectorToRaster": "Vector to Raster"
+    },
+    "ogcProcesses": {
+      "title": "OGC API - Processes",
+      "loadFailed": "The Processes dialog could not load. Check your connection and reload the app to try again.",
+      "reloadApp": "Reload app",
+      "description": "Run remote processes, monitor jobs, and import results.",
+      "serviceUrl": "Service URL",
+      "retrieve": "Retrieve processes",
+      "process": "Process",
+      "inputs": "Inputs",
+      "sendNotice": "Inputs and selected layer data are sent to the execution endpoint shown above. Execution inputs are limited to 1 MiB.",
+      "executionDestination": "Execution endpoint: {{url}}",
+      "syncNotice": "Synchronous execution stops waiting after 120 seconds. Closing this dialog or stopping does not cancel remote work. A retry starts a new execution. Use asynchronous execution when available for a recoverable job URL.",
+      "jsonMode": "Edit all inputs as JSON",
+      "inputsJson": "Inputs JSON",
+      "executionMode": "Execution mode",
+      "synchronous": "Synchronous",
+      "asynchronous": "Asynchronous",
+      "job": "Job",
+      "jobUrl": "Job status URL",
+      "jobNotice": "Closing this dialog or stopping monitoring does not dismiss the remote job. Use Dismiss job to stop or delete it.",
+      "progress": "Job progress",
+      "resume": "Resume monitoring",
+      "dismiss": "Dismiss job",
+      "results": "Results",
+      "outputBytes_one": "{{count}} byte",
+      "outputBytes_other": "{{count}} bytes",
+      "outputWarnings": {
+        "invalidReference": "The service completed this execution but returned an unusable output link. Download this entry as metadata; other outputs remain available.",
+        "invalidDocument": "The service completed this execution but returned an unreadable result document. Download the original response. Retrying the process starts a new execution."
+      },
+      "layerName": "OGC: {{id}}",
+      "download": "Download",
+      "addToMap": "Add to map",
+      "stopWaiting": "Stop waiting",
+      "run": "Run process",
+      "notSet": "Not set",
+      "true": "True",
+      "false": "False",
+      "layerInput": "Layer input for {{name}}",
+      "insertLayer": "Insert layer data",
+      "features": "GeoJSON features",
+      "geometries": "GeoJSON geometries",
+      "schema": "Input schema",
+      "resultFile": "Process result",
+      "phase": {
+        "idle": "Ready",
+        "discovering": "Retrieving processes…",
+        "describing": "Loading process description…",
+        "executing": "Submitting execution…",
+        "awaiting": "Waiting for the submission outcome…",
+        "monitoring": "Monitoring job…",
+        "dismissing": "Dismissing job…",
+        "output": "Loading result…"
+      },
+      "status": {
+        "accepted": "Accepted",
+        "running": "Running",
+        "successful": "Successful",
+        "failed": "Failed",
+        "dismissed": "Dismissed"
+      },
+      "errors": {
+        "invalidDocument": "The service returned an invalid OGC process document.",
+        "invalidUrl": "OGC process links must be HTTP(S) URLs without user information.",
+        "responseLimit": "Invalid OGC process response limit.",
+        "inputLimit": "OGC process inputs exceed 1 MiB.",
+        "inputOccurrences": "Input {{name}} accepts {{minimum}} to {{maximum}} occurrences; this selection has {{count}}.",
+        "inputDepth": "OGC process inputs exceed the {{depth}}-level JSON nesting limit.",
+        "inputUnicode": "OGC process inputs contain invalid Unicode characters.",
+        "invalidBase64": "The service returned an invalid base64-encoded output.",
+        "responseInterrupted": "The service response was interrupted before the download completed. Try downloading the result again.",
+        "inputObject": "Process inputs must be a JSON object.",
+        "inputsJsonSyntax": "Inputs must contain valid JSON.",
+        "inputRepresentation": "Keep JSON mode for reference or qualified inputs that the schema fields cannot represent.",
+        "executionUncertain": "The execution response was interrupted. The service may still be running or may have completed the work. Retrying submits a new execution. Check the service before retrying, or use asynchronous execution for a recoverable job URL when available. {{detail}}",
+        "requestBody": "Only an OGC process execution POST may have a request body.",
+        "requestTimeout": "The OGC process request timed out after 120 seconds.",
+        "redirectLimit": "The OGC process service returned too many redirects.",
+        "monitoringTimeout": "Monitoring paused after 30 minutes. Resume monitoring with the retained job URL.",
+        "submissionPending": "The previous submission is still awaiting its outcome. Wait for its job URL before starting another execution.",
+        "responseTooLarge": "OGC process response exceeds its download limit.",
+        "rasterUnreadable": "The process result is not a readable GeoTIFF.",
+        "rasterPrecision": "Raster conversion did not preserve numerical precision. Download the original result instead.",
+        "geodataOnly": "Only GeoJSON and GeoTIFF results can be added to the map.",
+        "invalidGeometry": "The process result contains invalid GeoJSON geometry or coordinates.",
+        "missingInput": "Missing process input: {{name}}",
+        "inputNumber": "Process input {{name}} must be a number.",
+        "inputInteger": "Process input {{name}} must be an integer.",
+        "inputBoolean": "Process input {{name}} must be a boolean.",
+        "inputJson": "Process input {{name}} must be valid JSON.",
+        "unknownInputs": "Keep JSON mode for inputs that are not in the advertised schema.",
+        "noIdentifier": "The process has no identifier.",
+        "catalogCycle": "The OGC process catalog contains a pagination cycle.",
+        "noService": "This service does not advertise OGC API Processes.",
+        "catalogLimit": "The OGC process catalog exceeds 5,000 processes.",
+        "noProcesses": "No OGC processes were found.",
+        "pageLimit": "The OGC process catalog exceeds 50 pages.",
+        "unknownJobStatus": "The service returned an unknown OGC job status.",
+        "noStatusUrl": "The service accepted the job but did not return a status URL. It may still be running. Check the service before starting another execution.",
+        "resultTooLarge": "OGC process result exceeds its download limit.",
+        "jobFailed": "The OGC process job did not complete successfully.",
+        "http": "OGC process HTTP {{status}}{{detail}}"
+      },
+      "completeResponse": "Complete JSON response",
+      "featureCollection": "GeoJSON FeatureCollection"
     }
   },
   "segmentation": {
@@ -11386,8 +11674,8 @@
   "notifications": {
     "nativeDocumentCopiesFailed": "Some imported files could not be restored. Open a new workspace or import the affected files again. Details are in Diagnostics.",
     "nativeDocumentCopiesInitFailed": "Could not restore access to imported files. Restart GeoLibre to retry. You can use a blank workspace meanwhile. Details are in Diagnostics.",
-    "liveMcpEnableRetry": "Live MCP access could not be enabled. Retrying automatically; processing remains available.",
-    "liveMcpDisableRetry": "Live MCP server access has not been revoked yet. This window is disconnected and GeoLibre is retrying; processing remains available.",
+    "liveMcpEnableRetry": "Live MCP access could not be enabled. Retrying automatically.",
+    "liveMcpDisableRetry": "Live MCP access has not been revoked yet. This window is disconnected and GeoLibre is retrying.",
     "regionLabel": "Notifications",
     "dismiss": "Dismiss notification",
     "reportIssue": "Report issue",
