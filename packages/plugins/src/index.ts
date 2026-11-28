@@ -317,11 +317,13 @@ export {
   setLocalRasterFileReader,
   setLocalRasterPicker,
   setNonTiledRasterHandler,
+  setOverviewlessRasterHandler,
   setRasterPixelInspect,
   setUnrestorableRasterHandler,
   type LocalRasterFileReader,
   type LocalRasterPicker,
   type NonTiledRasterRequest,
+  type OverviewlessRasterRequest,
   type PickedLocalRaster,
   type UnrestorableRasterHandler,
 } from "./plugins/maplibre-raster";
@@ -436,11 +438,8 @@ export {
   SUN_SPEED_MAX,
   SUN_SPEED_MIN,
   type SunSettings,
-  subsolarPoint,
   subscribeSunPanel,
   subscribeSunSettings,
-  sunEquatorialPosition,
-  sunPositionAt,
 } from "./plugins/maplibre-sun";
 export { DECK_VIZ_PLUGIN_ID, maplibreDeckGlVizPlugin } from "./plugins/maplibre-deckgl-viz";
 export { restoreDeckViz } from "./plugins/deckgl-viz/overlay";
